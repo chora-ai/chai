@@ -1,0 +1,18 @@
+[package]
+name = "cli"
+version = "0.0.0"
+edition = "2021"
+description = "Chai CLI — multi-agent management system"
+license = "LGPL-3.0"
+
+[[bin]]
+name = "chai"
+path = "src/main.rs"
+
+[dependencies]
+lib = { path = "../lib" }
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+log = "0.4"
+env_logger = "0.11"
+anyhow = "1"

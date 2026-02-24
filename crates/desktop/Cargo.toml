@@ -1,0 +1,31 @@
+[package]
+name = "desktop"
+version = "0.0.0"
+edition = "2021"
+description = "Chai Desktop — multi-agent management system"
+license = "LGPL-3.0"
+
+[[bin]]
+name = "chai-desktop"
+path = "src/main.rs"
+
+[dependencies]
+lib = { path = "../lib" }
+
+# Async runtime
+tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
+
+# WebSocket client for gateway status
+tokio-tungstenite = "0.21"
+futures-util = "0.3"
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+anyhow = "1"
+thiserror = "1"
+
+egui = "0.24"
+eframe = { version = "0.24", features = ["default"] }
