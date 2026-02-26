@@ -4,10 +4,10 @@
 use std::collections::HashMap;
 use std::process::Command;
 
-/// Allowlist: binary name -> set of allowed subcommands (e.g. "obsidian-cli" -> ["search", "create", ...]).
+/// Allowlist: binary name -> set of allowed subcommands (e.g. "obsidian" -> ["search", "create", ...]).
 #[derive(Debug, Clone, Default)]
 pub struct Allowlist {
-    /// Binary name (e.g. "obsidian-cli") -> allowed subcommands.
+    /// Binary name (e.g. "obsidian") -> allowed subcommands.
     bins: HashMap<String, Vec<String>>,
 }
 
@@ -18,7 +18,7 @@ impl Allowlist {
         }
     }
 
-    /// Allow a binary to run only the given subcommands (e.g. "obsidian-cli" and ["search", "create", "move", "delete"]).
+    /// Allow a binary to run only the given subcommands (e.g. "obsidian" and ["search", "create", "move", "delete"]).
     pub fn allow(&mut self, binary: impl Into<String>, subcommands: Vec<&'static str>) {
         self.bins.insert(
             binary.into(),
@@ -65,18 +65,24 @@ impl Allowlist {
     }
 }
 
-/// Build the default allowlist for obsidian-cli (when the binary is used for the Obsidian skill).
-pub fn obsidian_cli_allowlist() -> Allowlist {
+/// Build the allowlist for the official Obsidian CLI (early access; binary `obsidian`): search, search:context, create only.
+pub fn obsidian_allowlist() -> Allowlist {
+    let mut a = Allowlist::new();
+    a.allow("obsidian", vec!["search", "search:context", "create"]);
+    a
+}
+
+/// Build the allowlist for `notesmd-cli`: search, search-content, create, daily, print, print-default only.
+pub fn notesmd_cli_allowlist() -> Allowlist {
     let mut a = Allowlist::new();
     a.allow(
-        "obsidian-cli",
+        "notesmd-cli",
         vec![
             "search",
             "search-content",
             "create",
-            "move",
-            "delete",
-            "set-default",
+            "daily",
+            "print",
             "print-default",
         ],
     );

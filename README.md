@@ -1,12 +1,12 @@
 # chai
 
-An experimental project for creating, managing, and orchestrating autonomous agents.
+An experimental project for creating, managing, and orchestrating agents.
 
 ## Overview
 
-- **`crates/cli`** — A command-line interface for creating, managing, and orchestrating autonomous agents
-- **`crates/desktop`** — A graphical user interface for creating, managing, and orchestrating autonomous agents
-- **`crates/lib`** — A shared library providing core functionality for agent creation, management, and orchestration
+- **`crates/cli`** — A command-line interface for creating, managing, and orchestrating agents
+- **`crates/desktop`** — A graphical user interface for creating, managing, and orchestrating agents
+- **`crates/lib`** — A shared library for creating, managing, and orchestrating agents
 
 ## Commands
 
@@ -66,11 +66,12 @@ The command-line interface and desktop application use the same configuration.
 
 After installing, run **`chai init`** to create the configuration directory (`~/.chai/`).
 
-### Configuration file (`config.json`)
+### Configuration File (`config.json`)
 
-The main configuration is loaded from a JSON file. The default path for the configuration file is `~/.chai/config.json`. The default path can be overridden with `CHAI_CONFIG_PATH`. If the configuration file is missing, default values are used.
+The main configuration is loaded from a JSON file. The default path is `~/.chai/config.json`. The 
+default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration file is created at initialization.
 
-**Minimal** — empty object uses all defaults:
+**Minimal example** — empty object uses all defaults:
 
 ```json
 {}
@@ -97,27 +98,57 @@ The main configuration is loaded from a JSON file. The default path for the conf
     "workspace": null
   },
   "skills": {
-    "extraDirs": []
+    "extraDirs": [],
+    "disabled": []
   }
 }
 ```
 
 For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": "your-secret" }`.
 
-### Configuration directory (`~/.chai/`)
+### Configuration Directory (`~/.chai/`)
 
-Created by **`chai init`** (or on first use). It contains:
+The configuration directory contains the following:
 
-- **`config.json`** — Main configuration file (see above). Created with `{}` by init if missing.
-- **`workspace`** — Directory for workspace skills. If the configuration does not set `agents.workspace`, this directory is used. Add one subdirectory per skill, each containing a `SKILL.md` file. When a skill name appears in more than one place (bundled, managed, extra, or workspace), the workspace version is used.
-- **`skills`** — Default (bundled) skills, copied by `chai init` from the app. The gateway and desktop app load skills from here. If you never run init, this directory does not exist and only `skills.extraDirs` and the workspace directory are used.
+- **`config.json`** — Main configuration file (see above).
+- **`bundled`** — Bundled skills (use `workspace` for adding custom skills).
+- **`workspace`** — Directory for workspace skills. If the configuration does not set `agents.workspace`, this directory is used. Add a subdirectory for each skill containing a `SKILL.md` file. When a skill name appears in more than one place (bundled, workspace, or extra), the workspace version is used.
 
 ### Environment variables
 
 | Variable | Overrides | Description |
 |----------|-----------|-------------|
-| `CHAI_CONFIG_PATH` | Config file path | Full path to the config file. Default: `~/.chai/config.json`. |
+| `CHAI_CONFIG_PATH` | Config file path | Full path to the configuration file. The default path is `~/.chai/config.json`. |
 | `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret for WebSocket connect when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
 
-When both an environment variable and a configuration value are set, the environment variable overrides the configuration value.
+## Connections
+
+The gateway supports these connection types natively:
+
+- **WebSocket** — Clients connect to the gateway at `ws://<bind>:<port>/ws`, send `connect`, then can call `agent` (run the model) and `send` (deliver a message to a channel). Used by the desktop app and for scripting.
+- **Telegram** — The bot can run in **long-poll** mode (gateway pulls updates; good for local use) or **webhook** mode (Telegram POSTs updates to your URL; for a public gateway). Inbound messages trigger an agent turn and the reply is sent back to the chat. Configure `channels.telegram.botToken` (or `TELEGRAM_BOT_TOKEN`) and optionally `channels.telegram.webhookUrl` and `channels.telegram.webhookSecret`.
+
+## Skills
+
+Skills are markdown-based instructions (one per directory with a `SKILL.md` file) that are loaded into the agent’s context. Skills can be gated on binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH. To load only one of two skills when both binaries are installed (e.g. only notesmd-cli and not obsidian), set **`skills.disabled`** in config to an array of skill names to skip (e.g. `["obsidian"]`).
+
+**Natively supported skills (bundled):**
+
+- **obsidian** — Official Obsidian CLI (early access; binary `obsidian`). Search, search-content, create, move, delete in the default vault. Only loaded when `obsidian` is on PATH.
+- **notesmd-cli** — [yakitrak/notesmd-cli](https://github.com/yakitrak/notesmd-cli). Same operations; works without Obsidian running. Only loaded when `notesmd-cli` is on PATH.
+
+Skill format, frontmatter, and adding custom skills are described in [`crates/lib/config/bundled/README.md`](crates/lib/config/bundled/README.md).
+
+## Agent Context (AGENTS.md)
+
+In addition to skills, the gateway can load **agent-level context** from an `AGENTS.md` file in the workspace. This text is prepended to the skills context on every agent turn.
+
+- **Workspace directory:** By default `~/.chai/workspace/`, or `agents.workspace` in `config.json` if set.
+- **File:** Place an `AGENTS.md` at the root of that workspace. Keep it short and directive (e.g. when to chat normally vs when to call tools).
+
+Example `AGENTS.md` snippet:
+
+```markdown
+If someone says hello, say hello back. You are more than your skills. Use obsidian only when the user clearly asks to search, read, create, or work with notes or vaults.
+```

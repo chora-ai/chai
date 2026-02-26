@@ -23,6 +23,7 @@ This directory holds resources for agents (and humans) working on the codebase. 
 
 #### root
 
+- **[AGENT_CONTEXT.md](AGENT_CONTEXT.md)** — Working doc: exact context provided to the model each turn (system message, session messages, tools); turn vs session; what is sent every turn; efficiency notes.
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Record of the POC deliverable and how it differs from OpenClaw.
 
 ## For Agents

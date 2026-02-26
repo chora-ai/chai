@@ -5,6 +5,8 @@ use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
 use crate::config::{self, Config};
+use crate::agent_ctx;
+use crate::init;
 use crate::exec;
 use crate::skills::{load_skills, Skill};
 use crate::tools;
@@ -129,6 +131,8 @@ fn require_connect_token(config: &Config) -> Option<String> {
 #[derive(Clone)]
 pub struct GatewayState {
     pub config: Arc<Config>,
+    /// Optional agent-level context (e.g. AGENTS.md from workspace).
+    pub agent_ctx: Option<String>,
     /// When Some, WebSocket connect must provide params.auth.token matching this.
     pub required_token: Option<String>,
     /// Broadcasts events to connected clients (e.g. shutdown). Subscribers receive JSON event frames.
@@ -145,10 +149,34 @@ pub struct GatewayState {
     pub ollama_models: Arc<tokio::sync::RwLock<Vec<OllamaModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
-    /// When the Obsidian skill is loaded, tools and executor for obsidian-cli (allowlisted). None otherwise.
+    /// When any Obsidian-related skill is loaded, combined tools and a dispatcher executor (obsidian and/or notesmd-cli). None when neither skill is loaded.
     pub obsidian_executor: Option<Arc<dyn agent::ToolExecutor>>,
     /// Paired devices (deviceId → role, scopes, deviceToken); used for deviceToken auth and issuing new tokens.
     pub pairing_store: Arc<PairingStore>,
+}
+
+/// Dispatches tool calls to the obsidian and/or notesmd-cli executors by tool name prefix.
+struct ObsidianDispatcher {
+    obsidian: Option<Arc<tools::ObsidianToolExecutor>>,
+    notesmd_cli: Option<Arc<tools::NotesmdCliToolExecutor>>,
+}
+
+impl agent::ToolExecutor for ObsidianDispatcher {
+    fn execute(&self, name: &str, args: &serde_json::Value) -> Result<String, String> {
+        if name.starts_with("notesmd_cli_") {
+            return match &self.notesmd_cli {
+                Some(e) => e.execute(name, args),
+                None => Err("notesmd-cli skill not loaded".to_string()),
+            };
+        }
+        if name.starts_with("obsidian_") {
+            return match &self.obsidian {
+                Some(e) => e.execute(name, args),
+                None => Err("obsidian skill not loaded".to_string()),
+            };
+        }
+        Err(format!("unknown tool: {}", name))
+    }
 }
 
 impl GatewayState {
@@ -156,6 +184,39 @@ impl GatewayState {
     #[allow(dead_code)]
     pub async fn register_channel_task(&self, handle: JoinHandle<()>) {
         self.channel_tasks.write().await.push(handle);
+    }
+
+    /// Build the combined Obsidian tools list and executor reference from loaded skills.
+    /// When only one skill is loaded, only that skill's tools are included.
+    pub fn obsidian_tools_and_executor(
+        &self,
+    ) -> (Option<Vec<ToolDefinition>>, Option<&dyn agent::ToolExecutor>) {
+        let has_obsidian = self.skills.iter().any(|s| s.name == "obsidian");
+        let has_notesmd_cli = self.skills.iter().any(|s| s.name == "notesmd-cli");
+        let tools = if has_obsidian || has_notesmd_cli {
+            let mut v = Vec::new();
+            if has_obsidian {
+                v.extend(tools::obsidian_tool_definitions());
+            }
+            if has_notesmd_cli {
+                v.extend(tools::notesmd_cli_tool_definitions());
+            }
+            Some(v)
+        } else {
+            None
+        };
+        let exec = self.obsidian_executor.as_deref();
+        (tools, exec)
+    }
+}
+
+/// Strip YAML frontmatter (first `---` ... `---` block) from skill content so we don't duplicate it in the system message.
+fn strip_skill_frontmatter(content: &str) -> &str {
+    let rest = content.strip_prefix("---").map(|s| s.trim_start()).unwrap_or(content);
+    if let Some(i) = rest.find("\n---") {
+        rest.get(i + 4..).unwrap_or(rest).trim_start()
+    } else {
+        rest
     }
 }
 
@@ -173,8 +234,25 @@ fn build_skill_context(skills: &[Skill]) -> String {
             out.push_str(&s.description);
             out.push_str("\n\n");
         }
-        out.push_str(&s.content);
+        out.push_str(strip_skill_frontmatter(&s.content));
         out.push_str("\n\n");
+    }
+    out
+}
+
+/// Build full system context from agent-ctx (AGENTS.md) and skills.
+fn build_system_context(agent_ctx: Option<&str>, skills: &[Skill]) -> String {
+    let mut out = String::new();
+    if let Some(ctx) = agent_ctx {
+        let trimmed = ctx.trim();
+        if !trimmed.is_empty() {
+            out.push_str(trimmed);
+            out.push_str("\n\n");
+        }
+    }
+    let skills_ctx = build_skill_context(skills);
+    if !skills_ctx.trim().is_empty() {
+        out.push_str(&skills_ctx);
     }
     out
 }
@@ -189,8 +267,34 @@ fn channel_reply_text(result: &agent::AgentTurnResult) -> Option<String> {
     }
 }
 
+/// Message that starts a new session (clear history) when sent via Telegram or other channels. Case-insensitive.
+const NEW_SESSION_TRIGGER: &str = "/new";
+
 /// Process one inbound channel message: get or create session, bind, append user message, run agent, send reply.
+/// If the message is the new-session trigger (e.g. /new), rebind the conversation to a fresh session and confirm.
 async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
+    let trimmed = msg.text.trim();
+    if trimmed.eq_ignore_ascii_case(NEW_SESSION_TRIGGER) {
+        let old_id = state
+            .bindings
+            .get_session_id(&msg.channel_id, &msg.conversation_id)
+            .await;
+        let new_id = state.session_store.create().await;
+        state
+            .bindings
+            .bind(&msg.channel_id, &msg.conversation_id, &new_id)
+            .await;
+        if let Some(id) = old_id {
+            state.session_store.remove(&id).await;
+        }
+        if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
+            let _ = handle
+                .send_message(&msg.conversation_id, "session restarted. next message will start with a clean history.")
+                .await;
+        }
+        return;
+    }
+
     let session_id = state
         .bindings
         .get_session_id(&msg.channel_id, &msg.conversation_id)
@@ -221,12 +325,8 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         .default_model
         .as_deref()
         .unwrap_or("llama3.2:latest");
-    let system_context = build_skill_context(&state.skills);
-    let tools: Option<Vec<ToolDefinition>> = state
-        .obsidian_executor
-        .as_ref()
-        .map(|_| tools::obsidian_tool_definitions());
-    let tool_executor = state.obsidian_executor.as_ref().map(|e| e.as_ref());
+    let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
+    let (tools, tool_executor) = state.obsidian_tools_and_executor();
     let result = match agent::run_turn(
         &state.session_store,
         &session_id,
@@ -242,6 +342,10 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         Ok(r) => r,
         Err(e) => {
             log::warn!("inbound: agent turn failed: {}", e);
+            let fallback = format!("something went wrong: {}. check the gateway logs for details.", e);
+            if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
+                let _ = handle.send_message(&msg.conversation_id, &fallback).await;
+            }
             return;
         }
     };
@@ -258,7 +362,9 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
 /// When bind is not loopback, a gateway token must be configured or startup fails.
 /// Blocks until shutdown (e.g. Ctrl+C).
 /// `config_path` is the path to the config file (used to resolve the config directory for skills).
+/// Requires the configuration directory to be initialized (`chai init`) so bundled skills exist.
 pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
+    init::require_initialized(&config_path)?;
     let bind = config.gateway.bind.trim();
     if !config::is_loopback_bind(bind) {
         let token = config::resolve_gateway_token(&config);
@@ -282,9 +388,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
 
     let workspace_dir = config::resolve_workspace_dir(&config);
     let bundled_dir = config::bundled_skills_dir(&config_path);
-    let skills: Vec<Skill> = match load_skills(
+    let mut skills: Vec<Skill> = match load_skills(
         Some(bundled_dir.as_path()),
-        None,
         workspace_dir.as_deref(),
         &config.skills.extra_dirs,
     ) {
@@ -294,12 +399,29 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
             Vec::new()
         }
     };
+    skills.retain(|s| !config.skills.disabled.iter().any(|d| d == &s.name));
     log::info!("loaded {} skill(s) for agent context", skills.len());
+    let agent_ctx = agent_ctx::load_agent_ctx(workspace_dir.as_deref());
 
+    let has_obsidian = skills.iter().any(|s| s.name == "obsidian");
+    let has_notesmd_cli = skills.iter().any(|s| s.name == "notesmd-cli");
     let obsidian_executor: Option<Arc<dyn agent::ToolExecutor>> =
-        if skills.iter().any(|s| s.name == "obsidian") {
-            Some(Arc::new(tools::ObsidianToolExecutor {
-                allowlist: exec::obsidian_cli_allowlist(),
+        if has_obsidian || has_notesmd_cli {
+            Some(Arc::new(ObsidianDispatcher {
+                obsidian: if has_obsidian {
+                    Some(Arc::new(tools::ObsidianToolExecutor {
+                        allowlist: exec::obsidian_allowlist(),
+                    }))
+                } else {
+                    None
+                },
+                notesmd_cli: if has_notesmd_cli {
+                    Some(Arc::new(tools::NotesmdCliToolExecutor {
+                        allowlist: exec::notesmd_cli_allowlist(),
+                    }))
+                } else {
+                    None
+                },
             }))
         } else {
             None
@@ -307,6 +429,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
 
     let state = GatewayState {
         config: Arc::new(config.clone()),
+        agent_ctx,
         required_token,
         event_tx: event_tx.clone(),
         channel_tasks: channel_tasks.clone(),
@@ -377,6 +500,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
             None
         };
 
+    let channel_registry = state.channel_registry.clone();
     let app = Router::new()
         .route("/", get(health_http))
         .route("/ws", get(ws_handler))
@@ -392,6 +516,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(
             event_tx,
+            channel_registry,
             channel_tasks,
             telegram_webhook_for_shutdown,
         ))
@@ -402,9 +527,10 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
 }
 
 /// Future that completes when the process should shut down (SIGINT or SIGTERM).
-/// Broadcasts a shutdown event to WebSocket clients, removes Telegram webhook if used, then awaits in-process channel tasks.
+/// Broadcasts a shutdown event to WebSocket clients, stops channel connectors, removes Telegram webhook if used, then awaits in-process channel tasks.
 async fn shutdown_signal(
     event_tx: broadcast::Sender<String>,
+    channel_registry: Arc<ChannelRegistry>,
     channel_tasks: Arc<tokio::sync::RwLock<Vec<JoinHandle<()>>>>,
     telegram_webhook: Option<Arc<TelegramChannel>>,
 ) {
@@ -432,6 +558,12 @@ async fn shutdown_signal(
     log::info!("shutdown signal received, broadcasting shutdown and draining connections");
 
     let _ = event_tx.send(SHUTDOWN_EVENT_JSON.to_string());
+
+    for id in channel_registry.ids().await {
+        if let Some(handle) = channel_registry.get(&id).await {
+            handle.stop();
+        }
+    }
 
     if let Some(t) = telegram_webhook {
         if let Err(e) = t.delete_webhook().await {
@@ -726,12 +858,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     .default_model
                     .as_deref()
                     .unwrap_or("llama3.2:latest");
-                let system_context = build_skill_context(&state.skills);
-                let tools: Option<Vec<ToolDefinition>> = state
-                    .obsidian_executor
-                    .as_ref()
-                    .map(|_| tools::obsidian_tool_definitions());
-                let tool_executor = state.obsidian_executor.as_ref().map(|e| e.as_ref());
+                let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
+                let (tools, tool_executor) = state.obsidian_tools_and_executor();
                 match agent::run_turn(
                     &state.session_store,
                     &session_id,

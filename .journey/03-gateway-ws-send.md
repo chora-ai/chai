@@ -1,6 +1,6 @@
 # Journey: Gateway WebSocket — send (channel delivery)
 
-**Goal:** Call the `send` method to deliver a message to a channel. With the current setup no channel is registered at startup, so this journey verifies the API and error behavior.
+**Goal:** Call the WebSocket `send` method to deliver a message to a channel. This journey verifies the API and error behavior.
 
 ## Prerequisites
 
@@ -20,10 +20,10 @@
    - **Expect:** `"ok":false`, error message like `"channel not found"` (no channel is registered by default).
 
 3. **Success case (when a channel is registered)**
-   - When you have a channel connector that registers with the gateway (e.g. Telegram stub registered under `"telegram"`), the same request with a valid `channelId` should return `"ok":true` and payload `{"sent":true}`. The channel’s `send_message(conversationId, message)` is called.  
-   - For now, treat “channel not found” as the expected outcome of this journey.
+   - When a channel is registered (e.g. Telegram per [05-channel-telegram.md](05-channel-telegram.md)), the same request with that `channelId` returns `"ok":true` and payload `{"sent":true}`; the gateway calls the channel’s `send_message(conversationId, message)`.  
+   - For this journey, treat “channel not found” as the expected outcome if you have not set up a channel.
 
 ## Notes
 
-- Params: `channelId` (string), `conversationId` (string, e.g. Telegram chat_id), `message` (string).
-- The Telegram channel is currently a stub; even when registered, it does not call the real Telegram API.
+- This journey exercises the WebSocket `send` API. Params: `channelId` (string), `conversationId` (string, e.g. chat id), `message` (string).
+- For end-to-end Telegram (receive message, agent reply, deliver to chat), see [05-channel-telegram.md](05-channel-telegram.md).

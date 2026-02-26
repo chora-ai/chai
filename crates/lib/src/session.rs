@@ -108,6 +108,11 @@ impl SessionStore {
         self.inner.read().await.get(id).cloned()
     }
 
+    /// Remove a session by id. Returns the removed session if it existed.
+    pub async fn remove(&self, id: &str) -> Option<Session> {
+        self.inner.write().await.remove(id)
+    }
+
     /// Append a message to the session; returns error if session not found.
     pub async fn append_message(
         &self,

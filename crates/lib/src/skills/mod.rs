@@ -1,6 +1,6 @@
 //! Skills: load AgentSkills-compatible SKILL.md from directories.
 //!
-//! Precedence: workspace > managed > bundled. One bundled skill (Obsidian) is included as a working example.
+//! Precedence: workspace > bundled > extra. One bundled skill (Obsidian) is included as a working example.
 
 mod loader;
 

@@ -19,7 +19,6 @@ pub struct SkillEntry {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillSource {
     Bundled,
-    Managed,
     Workspace,
     Extra,
 }
@@ -55,9 +54,9 @@ struct Requires {
 
 /// Load all skills from the given directories (lower precedence first).
 /// Each dir should contain subdirs, each with a SKILL.md file.
+/// Precedence: extra < bundled < workspace (later overwrites earlier by name).
 pub fn load_skills(
     bundled_dir: Option<&Path>,
-    managed_dir: Option<&Path>,
     workspace_dir: Option<&Path>,
     extra_dirs: &[PathBuf],
 ) -> Result<Vec<SkillEntry>> {
@@ -70,11 +69,6 @@ pub fn load_skills(
     }
     if let Some(d) = bundled_dir {
         for e in load_skills_from_dir(d, SkillSource::Bundled)? {
-            merged.insert(e.name.clone(), e);
-        }
-    }
-    if let Some(d) = managed_dir {
-        for e in load_skills_from_dir(d, SkillSource::Managed)? {
             merged.insert(e.name.clone(), e);
         }
     }

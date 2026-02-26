@@ -10,9 +10,9 @@ This repository is the home of a multi-agent management system inspired by OpenC
 
 This repository is a monorepo but may become separate repositories if/when appropriate. A separation of concerns should be maintained within the architecture of this repository in preparation for the potential separation at a later point in time.
 
-- **`crates/cli`** - Command-line application for multi-agent management system
-- **`crates/desktop`** - Desktop application for multi-agent management system
-- **`crates/lib`** - A shared library used by both applications
+- **`crates/cli`** — A command-line interface for creating, managing, and orchestrating agents
+- **`crates/desktop`** — A graphical user interface for creating, managing, and orchestrating agents
+- **`crates/lib`** — A shared library for creating, managing, and orchestrating agents
 
 The above creates are a starting point and are not intended to be restrictive. If creating a new crate would improve separation of concerns without adding unnecessary complexity, recommendations would be welcome.
 

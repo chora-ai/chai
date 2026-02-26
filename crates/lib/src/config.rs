@@ -168,13 +168,16 @@ pub struct AgentsConfig {
     pub workspace: Option<PathBuf>,
 }
 
-/// Skills load config (dirs, gating).
+/// Skills load config (dirs, gating, disabled list).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsConfig {
     /// Extra skill directories (lowest precedence).
     #[serde(default)]
     pub extra_dirs: Vec<PathBuf>,
+    /// Skill names to skip even when loaded from a directory (e.g. when both obsidian and notesmd-cli are on PATH but you want only one).
+    #[serde(default)]
+    pub disabled: Vec<String>,
 }
 
 /// Resolve config path from env or default.
@@ -211,14 +214,14 @@ pub fn load_config(path: Option<PathBuf>) -> Result<(Config, PathBuf)> {
     Ok((config, path))
 }
 
-/// Path to the bundled skills directory: `skills` subdirectory of the config file's parent.
+/// Path to the bundled skills directory: `bundled` subdirectory of the config file's parent.
 /// After `chai init`, default skills live here.
 pub fn bundled_skills_dir(config_path: &Path) -> PathBuf {
     config_path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
-        .join("skills")
+        .join("bundled")
 }
 
 #[cfg(test)]
