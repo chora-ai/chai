@@ -94,7 +94,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
     }
   },
   "agents": {
-    "defaultModel": "ollama/llama3.2:latest",
+    "defaultModel": "llama3.2:latest",
     "workspace": null
   },
   "skills": {
@@ -103,6 +103,8 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   }
 }
 ```
+
+Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `smollm2:1.7b`); do not add extra segments like `:latest` unless that tag exists for the model.
 
 For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": "your-secret" }`.
 

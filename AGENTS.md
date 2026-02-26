@@ -51,4 +51,4 @@ The above crates are a starting point and are not intended to be restrictive. If
 ### `/.agents` (additional resources)
 
 - additional resources for any agent when working with code in this repository
-- see [`/.agents/README.md`](.agents/README.md) for more information about the directory and adding documents
+- see [`/.agents/README.md`](.agents/README.md) for more information about the directory and documents

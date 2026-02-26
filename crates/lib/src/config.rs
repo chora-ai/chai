@@ -162,7 +162,7 @@ pub struct TelegramChannelConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentsConfig {
-    /// Default model id, e.g. "ollama/llama3.2:latest".
+    /// Default Ollama model: use the exact name from `ollama list` (e.g. "llama3.2:latest", "smollm2:1.7b"). Do not add extra segments like ":latest" unless that tag exists for the model.
     pub default_model: Option<String>,
     /// Workspace root (default ~/.chai/workspace).
     pub workspace: Option<PathBuf>,

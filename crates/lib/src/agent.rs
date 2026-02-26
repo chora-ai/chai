@@ -62,7 +62,14 @@ pub async fn run_turn(
         }
     }
 
-    let model_name = model.trim_start_matches("ollama/");
+    let model_name = model.trim_start_matches("ollama/").trim();
+    let model_name = if model_name.is_empty() {
+        log::warn!("agent: configured model was empty after trim, using fallback");
+        "llama3.2:latest"
+    } else {
+        model_name
+    };
+    log::info!("agent: using model {}", model_name);
     let tools_ref = tools.as_ref();
     let mut loop_count = 0;
     let mut last_content;

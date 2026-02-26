@@ -38,7 +38,16 @@ use tokio::task::JoinHandle;
 
 const PROTOCOL_VERSION: u32 = 1;
 
-/// JSON event frame sent to WebSocket clients when the gateway is shutting down.
+const DEFAULT_MODEL_FALLBACK: &str = "llama3.2:latest";
+
+/// Resolve the model name for Ollama: use config if non-empty (trimmed), otherwise fallback. Ollama returns "model is required" when given an empty string.
+fn resolve_model(config_model: Option<&str>) -> String {
+    config_model
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| DEFAULT_MODEL_FALLBACK.to_string())
+}
+
 const SHUTDOWN_EVENT_JSON: &str = r#"{"type":"event","event":"shutdown","payload":{}}"#;
 
 /// Build connect.challenge event JSON (nonce + ts). Caller sends this as the first frame after WS open; nonce is stored for later device-signing verification.
@@ -319,19 +328,14 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         log::warn!("inbound: failed to append message");
         return;
     }
-    let model = state
-        .config
-        .agents
-        .default_model
-        .as_deref()
-        .unwrap_or("llama3.2:latest");
+    let model = resolve_model(state.config.agents.default_model.as_deref());
     let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
     let (tools, tool_executor) = state.obsidian_tools_and_executor();
     let result = match agent::run_turn(
         &state.session_store,
         &session_id,
         &state.ollama_client,
-        model,
+        &model,
         Some(&system_context),
         tools,
         tool_executor,
@@ -852,19 +856,14 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
                     continue;
                 }
-                let model = state
-                    .config
-                    .agents
-                    .default_model
-                    .as_deref()
-                    .unwrap_or("llama3.2:latest");
+                let model = resolve_model(state.config.agents.default_model.as_deref());
                 let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
                 let (tools, tool_executor) = state.obsidian_tools_and_executor();
                 match agent::run_turn(
                     &state.session_store,
                     &session_id,
                     &state.ollama_client,
-                    model,
+                    &model,
                     Some(&system_context),
                     tools,
                     tool_executor,
