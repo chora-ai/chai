@@ -12,7 +12,7 @@
 1. **Start the gateway**
    - From repo root: `cargo run -p cli -- gateway`
    - Or: `chai gateway`
-   - Optional: `RUST_LOG=info` for logs. Optional: `--port 18790` to override port (default 15151).
+   - Optional: `RUST_LOG=info` for logs. Optional: `--port 12345` to override port (default 15151).
 
 2. **HTTP health**
    - In another terminal: `curl http://127.0.0.1:15151/`

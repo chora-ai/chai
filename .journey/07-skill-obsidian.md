@@ -1,18 +1,18 @@
 # Journey: Skill Obsidian (official CLI)
 
-**Goal:** Confirm the **obsidian** skill is loaded (official Obsidian CLI, early access), the agent can call its tools (e.g. search, search:context, create, move, delete), and the reply reflects vault data or confirms an action.
+**Goal:** Confirm the **obsidian** skill is loaded (official Obsidian CLI, early access), the agent can call its tools (search, search-content, create), and the reply reflects vault data or confirms an action.
 
-This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [07-skill-notesmd-cli.md](07-skill-notesmd-cli.md).
+This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [06-skill-notesmd-cli.md](06-skill-notesmd-cli.md).
 
 ## Prerequisites
 
 - **`chai init`** has been run (so bundled skills exist).
 - **Official Obsidian CLI** — `obsidian` is on your PATH (early access; enable in Obsidian Settings → Command line interface). See [Obsidian CLI — early access](https://help.obsidian.md/cli). Check with `which obsidian`.
-- **Vault** is available to the CLI (see “Multiple vaults” below).
+- **Vault** is available to the CLI (see "Multiple vaults" below).
 - **Ollama** is running with a model that supports **tool/function calling** (e.g. `llama3.2:latest`).
 - **Gateway** will be started after the above so it sees `obsidian` and loads the obsidian skill.
 
-**Multiple vaults:** The skill does not pass a vault name or path to the CLI. The CLI uses whatever it considers the default or current vault. Configure the CLI’s default or targeting as needed; the chai tool layer does not support a per-request vault parameter.
+**Multiple vaults:** The skill does not pass a vault name or path to the CLI. The CLI uses whatever it considers the default or current vault. Configure the CLI's default or targeting as needed; the chai tool layer does not support a per-request vault parameter.
 
 ## Steps
 
@@ -41,7 +41,7 @@ This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [
 
 ## How to verify the obsidian skill was used
 
-- **Reply content:** The model’s reply should reflect vault data or confirm an action. If the model does not call tools, try "Use your Obsidian search tool to…".
+- **Reply content:** The model's reply should reflect vault data or confirm an action. If the model does not call tools, try "Use your Obsidian search tool to…".
 - **Logs:** With `RUST_LOG=debug`, tool failures appear as `agent: tool obsidian_search failed: ...` (or other `obsidian_*` tool names).
 
 ## Telegram message format for local models (e.g. Llama 3)
@@ -53,12 +53,10 @@ One clear intent per message; use wording that matches the tool. Examples:
 | **Search note names** | "Search my vault for notes with 'meeting' in the name." |
 | **Search inside content** | "Search inside the content of my notes for 'deadline'." |
 | **Create** | "Create a note in my vault at path Test/My note with content 'Hello world'." |
-| **Move** | "Move the note from Old path/Note to New path/Note." |
-| **Delete** | "Delete the note at path Folder/Note to remove." |
 
 If the model replies without using a tool, resend with "Use your Obsidian search tool to …". Use a model with tool/function calling (e.g. `llama3.2:latest`).
 
-## Context size (model processing “too much” information)
+## Context size (model processing "too much" information)
 
 Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
 
@@ -67,7 +65,7 @@ Every turn the model receives the full system context (skills), full conversatio
 ## If something fails
 
 - **"loaded 0 skill(s)"** — `obsidian` is not on PATH when the gateway starts, or the bundled skills directory is missing. Install and enable the official CLI, ensure it is on PATH, run `chai init` if needed, restart the gateway.
-- **Reply has no vault data / model doesn’t use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use your Obsidian search tool to find notes containing X and list them."
+- **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use your Obsidian search tool to find notes containing X and list them."
 - **"agent: tool obsidian_search failed: ..."** — The CLI failed (vault not targeted, binary not found, or permission). Check PATH and vault availability; see the log for the exact error.
 - **Create note fails** — The official CLI create command may require the Obsidian app. On headless servers, use search-only for verification if needed.
 
@@ -81,4 +79,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 4                 | Verify reply contains search results or action confirmation |
 | 5–6 (optional)    | Try search-content or create a test note |
 
-**See also:** [07-skill-notesmd-cli.md](07-skill-notesmd-cli.md) for the notesmd-cli skill ([yakitrak/notesmd-cli](https://github.com/yakitrak/notesmd-cli)).
+**See also:** [06-skill-notesmd-cli.md](06-skill-notesmd-cli.md) for the notesmd-cli skill ([yakitrak/notesmd-cli](https://github.com/yakitrak/notesmd-cli)).

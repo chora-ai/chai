@@ -124,31 +124,33 @@ The configuration directory contains the following:
 
 ## Connections
 
-The gateway supports these connection types natively:
+The gateway supports the following natively:
 
-- **WebSocket** — Clients connect to the gateway at `ws://<bind>:<port>/ws`, send `connect`, then can call `agent` (run the model) and `send` (deliver a message to a channel). Used by the desktop app and for scripting.
-- **Telegram** — The bot can run in **long-poll** mode (gateway pulls updates; good for local use) or **webhook** mode (Telegram POSTs updates to your URL; for a public gateway). Inbound messages trigger an agent turn and the reply is sent back to the chat. Configure `channels.telegram.botToken` (or `TELEGRAM_BOT_TOKEN`) and optionally `channels.telegram.webhookUrl` and `channels.telegram.webhookSecret`.
+**WebSocket**
+
+- Clients connect at `ws://<bind>:<port>/ws`, call `connect`, then `agent` (run model) and `send` (deliver message to a channel). Used by the desktop app and for scripting.
+
+**Channels**
+
+- **Telegram** — Can run in **long-poll** mode (gateway pulls updates; good for local use) or **webhook** mode (Telegram POSTs updates to your URL; good for public gateway). Inbound messages trigger an agent turn and the reply is sent back to the chat. To configure for **long-poll** mode, set `channels.telegram.botToken` (or `TELEGRAM_BOT_TOKEN`). To configure for **webhook** mode, set `channels.telegram.webhookUrl` (and optionally `channels.telegram.webhookSecret`).
 
 ## Skills
 
-Skills are markdown-based instructions (one per directory with a `SKILL.md` file) that are loaded into the agent’s context. Skills can be gated on binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH. To load only one of two skills when both binaries are installed (e.g. only notesmd-cli and not obsidian), set **`skills.disabled`** in config to an array of skill names to skip (e.g. `["obsidian"]`).
+Skills are markdown-based instructions (one per directory with a `SKILL.md` file) that are loaded into the agent’s context. Skills can be gated based on binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH. 
 
-**Natively supported skills (bundled):**
+To load only one of two skills when both binaries are installed (e.g. only notesmd-cli and not obsidian), set **`skills.disabled`** in config to an array of skill names to skip (e.g. `["obsidian"]`).
 
-- **obsidian** — Official Obsidian CLI (early access; binary `obsidian`). Search, search-content, create, move, delete in the default vault. Only loaded when `obsidian` is on PATH.
-- **notesmd-cli** — [yakitrak/notesmd-cli](https://github.com/yakitrak/notesmd-cli). Same operations; works without Obsidian running. Only loaded when `notesmd-cli` is on PATH.
+**Native skills (bundled)**
 
-Skill format, frontmatter, and adding custom skills are described in [`crates/lib/config/bundled/README.md`](crates/lib/config/bundled/README.md).
+- **notesmd-cli** — [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Search for file, search content, create note, daily note, read note, and update note in the default vault. Only loaded when `notesmd-cli` is on PATH.
+- **obsidian** — The official [Obsidian CLI](https://help.obsidian.md/cli) (early access; binary `obsidian`). Search for file, search content, and create note in the default vault. Only loaded when `obsidian` is on PATH.
 
-## Agent Context (AGENTS.md)
+**Custom skills (add your own)**
 
-In addition to skills, the gateway can load **agent-level context** from an `AGENTS.md` file in the workspace. This text is prepended to the skills context on every agent turn.
+Add custom skills to the workspace: create a subdirectory per skill with a `SKILL.md` file. Each `SKILL.md` must be written in Markdown and can optionally have YAML frontmatter between `---` delimiters. Use `name` and `description` in the frontmatter; use `metadata.requires.bins` with a list of binary names to load the skill only when those binaries are available. Workspace skills override bundled skills with the same name.
 
-- **Workspace directory:** By default `~/.chai/workspace/`, or `agents.workspace` in `config.json` if set.
-- **File:** Place an `AGENTS.md` at the root of that workspace. Keep it short and directive (e.g. when to chat normally vs when to call tools).
+## Workspace
 
-Example `AGENTS.md` snippet:
+The workspace directory holds user-provided content that the gateway loads into the agent. By default it is `~/.chai/workspace/`, or `agents.workspace` in `config.json` if set.
 
-```markdown
-If someone says hello, say hello back. You are more than your skills. Use obsidian only when the user clearly asks to search, read, create, or work with notes or vaults.
-```
+- **`AGENTS.md`** — This file is created when you run `chai init` for the first time and only recreated when you run `chai init` again and the directory is missing or the file is missing. You can edit the file to customize your agent. The gateway loads it as **agent-level context** and prepends it to the skills context on every turn. Keep it short and directive (e.g. when to chat normally vs when to call tools).

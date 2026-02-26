@@ -8,19 +8,19 @@ This repository is the home of a multi-agent management system inspired by OpenC
 
 ## Architecture Overview
 
-This repository is a monorepo but may become separate repositories if/when appropriate. A separation of concerns should be maintained within the architecture of this repository in preparation for the potential separation at a later point in time.
+This repository is a monorepo but may become separate repositories when appropriate. A separation of concerns should be maintained within the architecture of this repository in preparation for any potential separations at a later point in time.
 
 - **`crates/cli`** — A command-line interface for creating, managing, and orchestrating agents
 - **`crates/desktop`** — A graphical user interface for creating, managing, and orchestrating agents
 - **`crates/lib`** — A shared library for creating, managing, and orchestrating agents
 
-The above creates are a starting point and are not intended to be restrictive. If creating a new crate would improve separation of concerns without adding unnecessary complexity, recommendations would be welcome.
+The above crates are a starting point and are not intended to be restrictive. If creating a new crate would improve separation of concerns without adding unnecessary complexity, recommendations would be welcome.
 
 ## Architecture Guidelines
 
 ### Minimal Dependencies
 
-- Prefer a minimalist approach. Add dependencies only when clearly needed; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits (e.g. the lowercase log-message guideline below are about style only; it does not require a specific logging crate).
+- Prefer a minimalist approach. Add dependencies only when clearly needed; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits.
 
 ## Code Style Guidelines
 
@@ -48,7 +48,7 @@ The above creates are a starting point and are not intended to be restrictive. I
 
 - the primary resource for any agent when working with code in this repository
 
-### `/.agents` (additional documents)
+### `/.agents` (additional resources)
 
 - additional resources for any agent when working with code in this repository
 - see [`/.agents/README.md`](.agents/README.md) for more information about the directory and adding documents

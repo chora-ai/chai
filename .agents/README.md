@@ -1,34 +1,38 @@
-# Agent Resources
+# Additional Resources
 
-This directory holds resources for agents (and humans) working on the codebase. Use it to find context and to add new documents in the right place.
+This directory includes additional resources for agents (and humans) working on the codebase. Use it to find additional context and to add and update documents for future reference.
 
-## Layout
+## Directory Layout
 
-| Location | Purpose | When to Add |
-|----------|---------|-------------|
-| **`adr/`** | Architecture Decision Records: why we chose X, alternatives considered. | When recording a significant technical or product decision (e.g. language, framework, packaging, local model integration). |
-| **`reference/`** | Reference material: external systems, protocols, or design summaries for continuation work. | When adding a doc that summarizes another system or spec (e.g. OpenClaw, Ollama) so the project can extend or align without keeping the original source. |
-| **root** | Status and deliverable documents: what was built, what’s next, how we differ from others. | When adding project-level status or deliverable records (e.g. POC record). |
-
+| Location | Purpose |
+|----------|---------|
+| **`adr/`** | Architecture Decision Records: why we chose X, alternatives considered. |
+| **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
+| **`spec/`** | Internal specs and design summaries: how this project works (e.g. agent context, skill format and loader). |
+| **root** | Deliverables and working documents: what was built, how it was built, and what's next. |
 ## Current Documents
 
-#### `/adr`
+### `/adr`
 
-- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why Rust was chosen for CLI and desktop.
-- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why egui/eframe was selected for the desktop UI.
+- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why Rust was chosen for this project.
+- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why egui/eframe was chosen for the desktop UI.
 
-#### `/reference`
+### `/ref`
 
-- **[OPENCLAW_REFERENCE.md](reference/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design reference for continuation work (gateway, pairing, skills, exec, etc.).
+- **[OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design reference for alignment.
 
-#### root
+### `/spec`
 
-- **[AGENT_CONTEXT.md](AGENT_CONTEXT.md)** — Working doc: exact context provided to the model each turn (system message, session messages, tools); turn vs session; what is sent every turn; efficiency notes.
+- **[AGENT_CONTEXT.md](spec/AGENT_CONTEXT.md)** — How context is built and provided to the model each turn.
+- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — The format for skills, frontmatter, metadata, and loaders.
+
+### root
+
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Record of the POC deliverable and how it differs from OpenClaw.
 
-## For Agents
+## Adding Documents
 
-- **Decisions** (rationale, alternatives, “why we chose X”) → add under **`adr/`**. Use a clear filename (e.g. `PACKAGING.md`, `LOCAL_MODELS.md`). Keep content project-agnostic where possible; link to project-specific details only where relevant.
-- **Reference** (external system or protocol summary for future work) → add under **`reference/`**. Use a clear filename (e.g. `OLLAMA_REFERENCE.md`, `LM_STUDIO_REFERENCE.md`).
-- **Status / deliverable** (what was built, what’s next) → add at **root**.
-- **AGENTS.md** (repo root) lists these resources and links to them; update its table when you add or move documents.
+- **Decisions** (rationale, alternatives, “why we chose X”) → add under **`adr/`**. Use a clear filename (e.g. `PROGRAMMING_LANGUAGE.md`, `DESKTOP_FRAMEWORK.md`). Follow the general format and tone of other documents in the directory.
+- **Reference** (external system or spec summary for alignment) → add under **`ref/`**. Use a clear filename (e.g. `OLLAMA_REFERENCE.md`, `LM_STUDIO_REFERENCE.md`). Follow the general format and tone of other documents in the directory.
+- **Specifcation** (internal: how this project works—context shape, format, loader behavior) → add under **`spec/`**. Use a clear filename (e.g. `AGENT_CONTEXT.md`, `SKILL_FORMAT.md`). Follow the general format and tone of other documents in the directory.
+- **Deliverable / Working Document** (what was built, what’s next) → add at **root**. Use a clear filename (e.g. `POC_IMPLEMENTATION.md`, `MVP_IMPLEMENTATION.md`). Follow the general format and tone of other documents in the directory.

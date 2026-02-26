@@ -5,7 +5,7 @@ This document describes the **exact** context provided to the model when process
 ## Turn vs Session
 
 - **Session messages** — One conversation: a `session_id`, its message history (user/assistant/tool), and its binding to a channel+conversation (e.g. one Telegram chat). It lasts across many user messages. `/new` creates a new session and binds it so the next message has empty history.
-- **Turn** — One run of the agent for a single user message: load that session’s history, build the system + messages, call the model (and the tool loop if there are tool calls), then produce one assistant reply. One user message ⇒ one turn; a session has many turns over time.
+- **Turn** — One run of the agent for a single user message: load that session's history, build the system + messages, call the model (and the tool loop if there are tool calls), then produce one assistant reply. One user message ⇒ one turn; a session has many turns over time.
 
 ## When It Is Built
 
@@ -42,7 +42,7 @@ The system message is built by `build_system_context(agent_ctx, skills)` in `gat
 
 ### `strip_skill_frontmatter(content)`
 
-- Removes the first YAML frontmatter block from the skill’s raw `SKILL.md` content.
+- Removes the first YAML frontmatter block from the skill's raw `SKILL.md` content.
 - Logic: find the first `---`; then find `\n---`; the returned string is everything **after** that second `---` (and the newline), trimmed. So the body starts with the first line after the closing `---` (e.g. `# notesmd-cli` or `The following guidelines...`).
 - If there is no second `---`, the whole content is returned unchanged.
 
@@ -110,9 +110,9 @@ Create, read, update, and search notes when the user asks.
 
 **Why each is sent every turn**
 
-- **System message** — The API is stateless. Ollama doesn't remember the system prompt between requests, so we have to send it on every call. Omitting it on later turns would make the model “forget” the rules.
-- **Session messages** — The model needs conversation history to respond in context. We send the full history so it doesn’t lose earlier context. The only way to reduce tokens is to send less history (e.g. sliding window or summarization), which can degrade quality.
-- **Tools** — With Ollama’s chat API, tool definitions are part of the request. There's no “tools already sent” state; each `/api/chat` call is independent. So if we want the model to be able to call tools on that turn, we have to send the tool list every time.
+- **System message** — The API is stateless. Ollama doesn't remember the system prompt between requests, so we have to send it on every call. Omitting it on later turns would make the model "forget" the rules.
+- **Session messages** — The model needs conversation history to respond in context. We send the full history so it doesn't lose earlier context. The only way to reduce tokens is to send less history (e.g. sliding window or summarization), which can degrade quality.
+- **Tools** — With Ollama's chat API, tool definitions are part of the request. There's no "tools already sent" state; each `/api/chat` call is independent. So if we want the model to be able to call tools on that turn, we have to send the tool list every time.
 
 **What can be made more efficient**
 

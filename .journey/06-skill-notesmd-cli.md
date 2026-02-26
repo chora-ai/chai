@@ -2,13 +2,13 @@
 
 **Goal:** Confirm the **notesmd-cli** skill is loaded, the agent can call its tools (search, search-content, create, daily), and the reply reflects vault data or confirms an action.
 
-This journey is for the binary **`notesmd-cli`** only. For the official Obsidian CLI (early access, binary `obsidian`), see [06-skill-obsidian.md](06-skill-obsidian.md).
+This journey is for the binary **`notesmd-cli`** only. For the official Obsidian CLI (early access, binary `obsidian`), see [07-skill-obsidian.md](07-skill-obsidian.md).
 
 ## Prerequisites
 
 - **`chai init`** has been run (so bundled skills exist; if you updated from an older install, ensure the `notesmd-cli` skill directory is present under your bundled or workspace skills).
 - **notesmd-cli** — The `notesmd-cli` command is on your PATH (e.g. Homebrew: `brew install yakitrak/yakitrak/notesmd-cli`). Check with `which notesmd-cli`. Set a default vault if needed: `notesmd-cli set-default "{vault-name}"`.
-- **Vault** is available to the CLI (see “Multiple vaults” below).
+- **Vault** is available to the CLI (see "Multiple vaults" below).
 - **Ollama** is running with a model that supports **tool/function calling** (e.g. `llama3.2:latest`).
 - **Gateway** will be started after the above so it sees `notesmd-cli` and loads the notesmd-cli skill.
 
@@ -44,7 +44,7 @@ This journey is for the binary **`notesmd-cli`** only. For the official Obsidian
 
 ## How to verify the notesmd-cli skill was used
 
-- **Reply content:** The model’s reply should reflect vault data or confirm an action. If the model does not call tools, try "Use the notesmd_cli search tool to…".
+- **Reply content:** The model's reply should reflect vault data or confirm an action. If the model does not call tools, try "Use the notesmd_cli search tool to…".
 - **Logs:** With `RUST_LOG=debug`, tool failures appear as `agent: tool notesmd_cli_search failed: ...` (or other `notesmd_cli_*` tool names).
 
 ## Telegram message format for local models (e.g. Llama 3)
@@ -60,7 +60,7 @@ One clear intent per message; use wording that matches the tool. Examples:
 
 If the model replies without using a tool, resend with "Use the notesmd_cli search tool to …". Use a model with tool/function calling (e.g. `llama3.2:latest`).
 
-## Context size (model processing “too much” information)
+## Context size (model processing "too much" information)
 
 Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
 
@@ -69,7 +69,7 @@ Every turn the model receives the full system context (skills), full conversatio
 ## If something fails
 
 - **"loaded 0 skill(s)"** — `notesmd-cli` is not on PATH when the gateway starts, or the bundled skills directory is missing. Install `notesmd-cli`, ensure it is on PATH, run `chai init` if needed, restart the gateway.
-- **Reply has no vault data / model doesn’t use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_cli search tool to find notes containing X and list them."
+- **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_cli search tool to find notes containing X and list them."
 - **"agent: tool notesmd_cli_search failed: ..."** — The CLI failed (vault not set, binary not found, or permission). Run `notesmd-cli set-default` if you have multiple vaults; check PATH and vault availability; see the log for the exact error.
 - **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; if you use `skills.disabled`, ensure you disabled `obsidian` not `notesmd-cli`. (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."
 
@@ -83,4 +83,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 4                 | Verify reply contains search results or action confirmation |
 | 5–7 (optional)    | Try search-content, create a test note, or daily note |
 
-**See also:** [06-skill-obsidian.md](06-skill-obsidian.md) for the official obsidian skill (early access binary `obsidian`).
+**See also:** [07-skill-obsidian.md](07-skill-obsidian.md) for the official obsidian skill (early access binary `obsidian`).

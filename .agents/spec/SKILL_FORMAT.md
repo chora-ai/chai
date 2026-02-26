@@ -1,6 +1,6 @@
 # Skills
 
-Skills are markdown-based instructions (one per directory) that can be loaded and used by the agent. This directory holds the skill format and bundled skills for this project.
+Skills are markdown-based instructions (one per directory) that can be loaded and used by the agent. The format and bundled skills for this project are described below.
 
 ## Format
 
@@ -21,7 +21,7 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 
 - **`metadata.requires.bins`** — Optional list of binary names (e.g. `["obsidian"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
 
-**Disabling a skill when both binaries are on PATH:** If you have both `obsidian` and `notesmd-cli` installed but want to load only one, set **`skills.disabled`** in your config file to an array of skill names to skip (e.g. `["obsidian"]` to use only the notesmd-cli skill). See the main [README](../../../../README.md) Configuration section. **If you then see "loaded 0 skill(s)"**, the remaining skill (e.g. notesmd-cli) is gated on its binary being on **PATH when the gateway starts** — ensure that binary is on PATH in the environment where you run the gateway (e.g. run `which notesmd-cli` in the same terminal, or install the CLI so it is on the default PATH for your desktop/login).
+**Disabling a skill when both binaries are on PATH:** If you have both `obsidian` and `notesmd-cli` installed but want to load only one, set **`skills.disabled`** in your config file to an array of skill names to skip (e.g. `["obsidian"]` to use only the notesmd-cli skill). See the main [README](../../README.md) Configuration section. **If you then see "loaded 0 skill(s)"**, the remaining skill (e.g. notesmd-cli) is gated based on its binary being on **PATH when the gateway starts** — ensure that binary is on PATH in the environment where you run the gateway (e.g. run `which notesmd-cli` in the same terminal, or install the CLI so it is on the default PATH for your desktop/login).
 
 Example:
 

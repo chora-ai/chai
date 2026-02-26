@@ -6,7 +6,7 @@
 
 - Gateway running (see [01-gateway-cli-health-and-ws.md](01-gateway-cli-health-and-ws.md)).
 - **Ollama** running locally with at least one model (e.g. `ollama run llama3.2` or have `llama3.2:latest` pulled).
-- Default model: config `agents.default_model` (e.g. `llama3.2:latest`) or fallback `llama3.2:latest`.
+- Default model: config `agents.defaultModel` (e.g. `llama3.2:latest`) or fallback `llama3.2:latest`.
 
 ## Steps
 
@@ -32,5 +32,5 @@
 
 ## If Something Fails
 
-- **Error about session or model:** Ensure Ollama is running and the default model exists (`ollama list`). Check config `agents.default_model` or use a model you have (e.g. `llama3.2:latest`).
+- **Error about session or model:** Ensure Ollama is running and the default model exists (`ollama list`). Check config `agents.defaultModel` or use a model you have (e.g. `llama3.2:latest`).
 - **Connection refused:** Gateway not running or wrong port; confirm with `curl http://127.0.0.1:15151/`.
