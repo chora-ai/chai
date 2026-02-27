@@ -162,22 +162,42 @@ pub struct TelegramChannelConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentsConfig {
-    /// Default Ollama model: use the exact name from `ollama list` (e.g. "llama3.2:latest", "smollm2:1.7b"). Do not add extra segments like ":latest" unless that tag exists for the model.
+    /// Default Ollama model: use the exact name from `ollama list` (e.g. "llama3.2:latest", "qwen3:8b"). Do not add extra segments like ":latest" unless that tag exists for the model.
     pub default_model: Option<String>,
     /// Workspace root (default ~/.chai/workspace).
     pub workspace: Option<PathBuf>,
 }
 
-/// Skills load config (dirs, gating, disabled list).
+/// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillContextMode {
+    /// All loaded skills' full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models.
+    #[default]
+    Full,
+    /// System message contains only a compact list (name, description). The model uses the read_skill tool to load a skill's full SKILL.md when needed. Keeps prompt small and scales to many skills.
+    ReadOnDemand,
+}
+
+/// Skills load config (dirs, gating, disabled list, context mode).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsConfig {
+    /// Override the default skill root. If set, skills are loaded from this directory instead of the config directory's `skills` subdirectory. Relative paths are resolved against the config file's parent. Omit or leave empty to use the default (~/.chai/skills when config is ~/.chai/config.json).
+    #[serde(default)]
+    pub directory: Option<PathBuf>,
     /// Extra skill directories (lowest precedence).
     #[serde(default)]
     pub extra_dirs: Vec<PathBuf>,
-    /// Skill names to skip even when loaded from a directory (e.g. when both obsidian and notesmd-cli are on PATH but you want only one).
+    /// Skill names to skip even when loaded from a directory (e.g. when both notesmd-cli and obsidian are on PATH but you want only one).
     #[serde(default)]
     pub disabled: Vec<String>,
+    /// How skill docs are given to the model: "full" (default) or "readOnDemand". Full injects all SKILL.md into the system message; readOnDemand uses a compact list and a read_skill tool.
+    #[serde(default)]
+    pub context_mode: SkillContextMode,
+    /// When true, skills may reference scripts in their scripts/ directory (e.g. for resolveCommand). Scripts are run via sh; only files under the skill's scripts/ dir are executed. Default: false.
+    #[serde(default)]
+    pub allow_scripts: bool,
 }
 
 /// Resolve config path from env or default.
@@ -189,7 +209,7 @@ pub fn default_config_path() -> PathBuf {
     })
 }
 
-/// Resolve workspace directory for skills: config value or default ~/.chai/workspace.
+/// Resolve workspace directory for agent context (e.g. AGENTS.md).
 pub fn resolve_workspace_dir(config: &Config) -> Option<PathBuf> {
     config
         .agents
@@ -214,14 +234,31 @@ pub fn load_config(path: Option<PathBuf>) -> Result<(Config, PathBuf)> {
     Ok((config, path))
 }
 
-/// Path to the bundled skills directory: `bundled` subdirectory of the config file's parent.
-/// After `chai init`, default skills live here.
-pub fn bundled_skills_dir(config_path: &Path) -> PathBuf {
+/// Default skill root when no override is set: `skills` subdirectory of the config file's parent.
+pub fn skills_dir(config_path: &Path) -> PathBuf {
     config_path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
         .unwrap_or_else(|| Path::new("."))
-        .join("bundled")
+        .join("skills")
+}
+
+/// Resolve the primary skill root: uses `config.skills.directory` if set (relative paths resolved against the config file's parent), otherwise the default `skills` subdirectory.
+pub fn resolve_skills_dir(config: &Config, config_path: &Path) -> PathBuf {
+    let config_parent = config_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or_else(|| Path::new("."));
+    match &config.skills.directory {
+        Some(d) if !d.as_os_str().is_empty() => {
+            if d.is_absolute() {
+                d.clone()
+            } else {
+                config_parent.join(d)
+            }
+        }
+        _ => skills_dir(config_path),
+    }
 }
 
 #[cfg(test)]
@@ -233,5 +270,37 @@ mod tests {
         let g = GatewayConfig::default();
         assert_eq!(g.port, 15151);
         assert_eq!(g.bind, "127.0.0.1");
+    }
+
+    #[test]
+    fn resolve_skills_dir_default() {
+        let config = Config::default();
+        let path = Path::new("/home/user/.chai/config.json");
+        assert_eq!(
+            resolve_skills_dir(&config, path),
+            PathBuf::from("/home/user/.chai/skills")
+        );
+    }
+
+    #[test]
+    fn resolve_skills_dir_override_relative() {
+        let mut config = Config::default();
+        config.skills.directory = Some(PathBuf::from("custom/skills"));
+        let path = Path::new("/home/user/.chai/config.json");
+        assert_eq!(
+            resolve_skills_dir(&config, path),
+            PathBuf::from("/home/user/.chai/custom/skills")
+        );
+    }
+
+    #[test]
+    fn resolve_skills_dir_override_absolute() {
+        let mut config = Config::default();
+        config.skills.directory = Some(PathBuf::from("/repo/skills"));
+        let path = Path::new("/home/user/.chai/config.json");
+        assert_eq!(
+            resolve_skills_dir(&config, path),
+            PathBuf::from("/repo/skills")
+        );
     }
 }

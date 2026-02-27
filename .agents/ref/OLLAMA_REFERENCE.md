@@ -24,7 +24,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 - **`crates/lib/src/llm/ollama.rs`** — Single Ollama HTTP client.
 - **`OllamaClient::new(base_url: Option<String>)`** — Default base URL `http://127.0.0.1:11434`; no auth (local only).
-- **Config** — `agents.defaultModel` in config (e.g. `llama3.2:latest`, `smollm2:1.7b`). Model name must match `ollama list` exactly (no extra segments like `:latest` unless that tag exists). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
+- **Config** — `agents.defaultModel` in config (e.g. `llama3.2:latest`, `qwen3:8b`). Model name must match `ollama list` exactly (no extra segments like `:latest` unless that tag exists). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
 ### Endpoints Used
 
@@ -43,7 +43,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 - **Gateway server** — Holds `OllamaClient` and `ollama_models`; resolves model via `resolve_model(config.agents.default_model)`; calls `agent::run_turn(..., ollama_client, model, ...)` for inbound messages and WebSocket `agent` requests.
 - **Agent** — `run_turn()` builds messages, strips optional `ollama/` prefix from model name, then calls `ollama.chat()` or `ollama.chat_stream()` with the chosen model; handles tool_calls and re-calls up to a fixed max iterations.
-- **Tools** — Obsidian and notesmd-cli skills expose Ollama-format `ToolDefinition` (type, function with name, description, parameters) and tool results are sent back as assistant/tool messages.
+- **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd-cli, obsidian) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (and optional scripts when `skills.allowScripts`). Tool results are sent back as assistant/tool messages.
 
 ---
 
@@ -144,4 +144,4 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 | **Embed** | Not used | `/api/embed` | Separate embedding APIs |
 | **State** | Client sends full history + system each time | N/A (stateless) | Same (stateless) |
 
-This reference should be updated when we add new Ollama options, support another backend (e.g. LM Studio, Hugging Face), or change how we call the Ollama API.
+This reference should be updated when we add new Ollama options, support another backend (e.g. LM Studio), or change how we call the Ollama API.

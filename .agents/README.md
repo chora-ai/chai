@@ -26,12 +26,15 @@ This directory includes additional resources for agents (and humans) working on 
 
 - **[AGENT_CONTEXT.md](spec/AGENT_CONTEXT.md)** — How context is built and provided to the model each turn.
 - **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — The format for skills, frontmatter, metadata, and loaders.
+- **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — The tools.json schema for declarative skill tools.
 
 ### root
 
 - **[POC_DELIVERABLE.md](POC_DELIVERABLE.md)** — Record of what was completed, how it differs from OpenClaw, and next steps.
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Detailed implementation reference: general concepts and concrete details.
 - **[TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md)** — Working document for comparing the performance of local models.
+- **[TEST_SELF_HOSTED_MODELS.md](TEST_SELF_HOSTED_MODELS.md)** — Working document for comparing the performance of self-hosted models.
+- **[TEST_THIRD_PARTY_MODELS.md](TEST_THIRD_PARTY_MODELS.md)** — Working document for comparing the performance of third-party models.
 
 ## Adding Documents
 

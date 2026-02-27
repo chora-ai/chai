@@ -1,0 +1,105 @@
+{
+  "tools": [
+    {
+      "name": "notesmd_cli_search",
+      "description": "Search notes by name. Call only when the user asks to find or list notes. Required: query.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "Search query for note names" }
+        }
+      }
+    },
+    {
+      "name": "notesmd_cli_search_content",
+      "description": "Search note content. Call only when the user asks to search the contents of a note or find notes containing a term. Required: query.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "Search query for content inside notes" }
+        }
+      }
+    },
+    {
+      "name": "notesmd_cli_create",
+      "description": "Create a new note. Call only when the user asks to create, add, or write a note. Required: path and content.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": { "type": "string", "description": "Path for the new note or its name" },
+          "content": { "type": "string", "description": "Initial content for the new note" }
+        }
+      }
+    },
+    {
+      "name": "notesmd_cli_daily",
+      "description": "Create or open today's daily note in the vault. Call only when the user asks for their daily note or today's note.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "notesmd_cli_read_note",
+      "description": "Read a note by path (daily notes use date YYYY-MM-DD). Call only when following a protocol or when asked to read or share the contents of a note.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "description": "Note path or daily note date, e.g. 2026-02-25" }
+        }
+      }
+    },
+    {
+      "name": "notesmd_cli_update_daily",
+      "description": "Create or update a daily note. Call only when the user asks to create or update a daily note. Required: date and content. Optional: replace.",
+      "parameters": {
+        "type": "object",
+        "required": ["date", "content"],
+        "properties": {
+          "date": { "type": "string", "description": "Date for the daily note, e.g. 2026-02-25" },
+          "content": { "type": "string", "description": "The entire note returned from notesmd_cli_read_note with the changes applied. Never pass only the content that is being edited or updated." },
+          "replace": { "type": "boolean", "description": "Set to true when editing or updating a daily note: checking a box, adding a new task item, or changing any existing text. Do not use when appending information to an existing note." }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "notesmd-cli": ["search", "search-content", "create", "daily", "print", "print-default"]
+  },
+  "execution": [
+    { "tool": "notesmd_cli_search", "binary": "notesmd-cli", "subcommand": "search", "args": [{ "param": "query", "kind": "positional" }] },
+    { "tool": "notesmd_cli_search_content", "binary": "notesmd-cli", "subcommand": "search-content", "args": [{ "param": "query", "kind": "positional" }] },
+    {
+      "tool": "notesmd_cli_create",
+      "binary": "notesmd-cli",
+      "subcommand": "create",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+      ]
+    },
+    { "tool": "notesmd_cli_daily", "binary": "notesmd-cli", "subcommand": "daily", "args": [] },
+    {
+      "tool": "notesmd_cli_read_note",
+      "binary": "notesmd-cli",
+      "subcommand": "print",
+      "args": [
+        { "param": "path", "kind": "positional", "resolveCommand": { "script": "resolve-daily-path", "args": ["$param"] } }
+      ]
+    },
+    {
+      "tool": "notesmd_cli_update_daily",
+      "binary": "notesmd-cli",
+      "subcommand": "create",
+      "args": [
+        { "param": "date", "kind": "positional", "resolveCommand": { "script": "resolve-daily-path", "args": ["$param"] } },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true },
+        { "param": "replace", "kind": "flagifboolean", "flagIfTrue": "--overwrite", "flagIfFalse": "--append" }
+      ]
+    }
+  ]
+}

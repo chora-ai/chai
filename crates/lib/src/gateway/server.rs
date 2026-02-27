@@ -4,12 +4,11 @@ use crate::agent;
 use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
-use crate::config::{self, Config};
+use crate::config::{self, Config, SkillContextMode};
 use crate::agent_ctx;
 use crate::init;
-use crate::exec;
-use crate::skills::{load_skills, Skill};
-use crate::tools;
+use crate::skills::{load_skills, Skill, SkillEntry};
+use crate::tools::GenericToolExecutor;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
@@ -158,33 +157,39 @@ pub struct GatewayState {
     pub ollama_models: Arc<tokio::sync::RwLock<Vec<OllamaModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
-    /// When any Obsidian-related skill is loaded, combined tools and a dispatcher executor (obsidian and/or notesmd-cli). None when neither skill is loaded.
-    pub obsidian_executor: Option<Arc<dyn agent::ToolExecutor>>,
+    /// Combined tool definitions for the agent (from skills' tools.json only). None when no tools.
+    pub tools_list: Option<Vec<ToolDefinition>>,
+    /// Generic executor built from skills' tools.json. None when no tools.
+    pub tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
     /// Paired devices (deviceId → role, scopes, deviceToken); used for deviceToken auth and issuing new tokens.
     pub pairing_store: Arc<PairingStore>,
 }
 
-/// Dispatches tool calls to the obsidian and/or notesmd-cli executors by tool name prefix.
-struct ObsidianDispatcher {
-    obsidian: Option<Arc<tools::ObsidianToolExecutor>>,
-    notesmd_cli: Option<Arc<tools::NotesmdCliToolExecutor>>,
+/// Executor that handles read_skill (lookup by name, return SKILL.md content) and delegates all other tools to the generic executor. Used when context mode is ReadOnDemand.
+struct ReadOnDemandExecutor {
+    skills: Arc<Vec<Skill>>,
+    inner: GenericToolExecutor,
 }
 
-impl agent::ToolExecutor for ObsidianDispatcher {
+impl agent::ToolExecutor for ReadOnDemandExecutor {
     fn execute(&self, name: &str, args: &serde_json::Value) -> Result<String, String> {
-        if name.starts_with("notesmd_cli_") {
-            return match &self.notesmd_cli {
-                Some(e) => e.execute(name, args),
-                None => Err("notesmd-cli skill not loaded".to_string()),
-            };
+        if name == "read_skill" {
+            let obj = args
+                .as_object()
+                .ok_or_else(|| "arguments must be an object".to_string())?;
+            let skill_name = obj
+                .get("skill_name")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| "missing skill_name".to_string())?;
+            let skill = self
+                .skills
+                .iter()
+                .find(|s| s.name == skill_name)
+                .ok_or_else(|| format!("unknown skill: {}", skill_name))?;
+            Ok(strip_skill_frontmatter(&skill.content).to_string())
+        } else {
+            self.inner.execute(name, args)
         }
-        if name.starts_with("obsidian_") {
-            return match &self.obsidian {
-                Some(e) => e.execute(name, args),
-                None => Err("obsidian skill not loaded".to_string()),
-            };
-        }
-        Err(format!("unknown tool: {}", name))
     }
 }
 
@@ -195,27 +200,12 @@ impl GatewayState {
         self.channel_tasks.write().await.push(handle);
     }
 
-    /// Build the combined Obsidian tools list and executor reference from loaded skills.
-    /// When only one skill is loaded, only that skill's tools are included.
-    pub fn obsidian_tools_and_executor(
+    /// Combined tool list and executor (built at startup; includes read_skill when context mode is ReadOnDemand).
+    pub fn tools_and_executor(
         &self,
     ) -> (Option<Vec<ToolDefinition>>, Option<&dyn agent::ToolExecutor>) {
-        let has_obsidian = self.skills.iter().any(|s| s.name == "obsidian");
-        let has_notesmd_cli = self.skills.iter().any(|s| s.name == "notesmd-cli");
-        let tools = if has_obsidian || has_notesmd_cli {
-            let mut v = Vec::new();
-            if has_obsidian {
-                v.extend(tools::obsidian_tool_definitions());
-            }
-            if has_notesmd_cli {
-                v.extend(tools::notesmd_cli_tool_definitions());
-            }
-            Some(v)
-        } else {
-            None
-        };
-        let exec = self.obsidian_executor.as_deref();
-        (tools, exec)
+        let exec = self.tool_executor.as_deref();
+        (self.tools_list.clone(), exec)
     }
 }
 
@@ -229,8 +219,8 @@ fn strip_skill_frontmatter(content: &str) -> &str {
     }
 }
 
-/// Build system context string from loaded skills (injected into the agent as a system message).
-fn build_skill_context(skills: &[Skill]) -> String {
+/// Build system context string from loaded skills (full SKILL.md per skill). Used when context mode is Full.
+fn build_skill_context_full(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
@@ -249,8 +239,35 @@ fn build_skill_context(skills: &[Skill]) -> String {
     out
 }
 
-/// Build full system context from agent-ctx (AGENTS.md) and skills.
-fn build_system_context(agent_ctx: Option<&str>, skills: &[Skill]) -> String {
+/// Build compact skill list (name + description only). Used when context mode is ReadOnDemand; model uses read_skill to load full docs.
+fn build_skill_context_compact(skills: &[Skill]) -> String {
+    if skills.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "You have access to the following skills. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.\n\n",
+    );
+    out.push_str("## Available skills\n\n");
+    for s in skills {
+        out.push_str("- **");
+        out.push_str(&s.name);
+        out.push_str("**: ");
+        out.push_str(if s.description.is_empty() {
+            "(no description)"
+        } else {
+            s.description.trim()
+        });
+        out.push_str("\n");
+    }
+    out
+}
+
+/// Build full system context from agent-ctx (AGENTS.md) and skills. Uses context_mode to choose full vs compact skill context.
+fn build_system_context(
+    agent_ctx: Option<&str>,
+    skills: &[Skill],
+    context_mode: SkillContextMode,
+) -> String {
     let mut out = String::new();
     if let Some(ctx) = agent_ctx {
         let trimmed = ctx.trim();
@@ -259,11 +276,37 @@ fn build_system_context(agent_ctx: Option<&str>, skills: &[Skill]) -> String {
             out.push_str("\n\n");
         }
     }
-    let skills_ctx = build_skill_context(skills);
+    let skills_ctx = match context_mode {
+        SkillContextMode::Full => build_skill_context_full(skills),
+        SkillContextMode::ReadOnDemand => build_skill_context_compact(skills),
+    };
     if !skills_ctx.trim().is_empty() {
         out.push_str(&skills_ctx);
     }
     out
+}
+
+/// Tool definition for read_skill (used only when context mode is ReadOnDemand).
+fn read_skill_tool_definition() -> ToolDefinition {
+    ToolDefinition {
+        typ: "function".to_string(),
+        function: crate::llm::ToolFunctionDefinition {
+            name: "read_skill".to_string(),
+            description: Some(
+                "Load the full documentation (SKILL.md) for a skill. Call when the user's request clearly applies to that skill and you need the full instructions and tool usage details.".to_string(),
+            ),
+            parameters: serde_json::json!({
+                "type": "object",
+                "required": ["skill_name"],
+                "properties": {
+                    "skill_name": {
+                        "type": "string",
+                        "description": "Name of the skill (e.g. notesmd-cli). Use the exact name from the available skills list."
+                    }
+                }
+            }),
+        },
+    }
 }
 
 /// Reply text to send to the channel. Matches OpenClaw: send the model's content only; when empty (e.g. tool-calls-only or silent), no placeholder — caller may skip sending.
@@ -329,8 +372,12 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         return;
     }
     let model = resolve_model(state.config.agents.default_model.as_deref());
-    let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
-    let (tools, tool_executor) = state.obsidian_tools_and_executor();
+    let system_context = build_system_context(
+        state.agent_ctx.as_deref(),
+        &state.skills,
+        state.config.skills.context_mode,
+    );
+    let (tools, tool_executor) = state.tools_and_executor();
     let result = match agent::run_turn(
         &state.session_store,
         &session_id,
@@ -366,9 +413,9 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
 /// When bind is not loopback, a gateway token must be configured or startup fails.
 /// Blocks until shutdown (e.g. Ctrl+C).
 /// `config_path` is the path to the config file (used to resolve the config directory for skills).
-/// Requires the configuration directory to be initialized (`chai init`) so bundled skills exist.
+/// Requires the configuration directory to be initialized (`chai init`) so the skills directory exists.
 pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
-    init::require_initialized(&config_path)?;
+    init::require_initialized(&config_path, &config)?;
     let bind = config.gateway.bind.trim();
     if !config::is_loopback_bind(bind) {
         let token = config::resolve_gateway_token(&config);
@@ -391,45 +438,76 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
     let workspace_dir = config::resolve_workspace_dir(&config);
-    let bundled_dir = config::bundled_skills_dir(&config_path);
-    let mut skills: Vec<Skill> = match load_skills(
-        Some(bundled_dir.as_path()),
-        workspace_dir.as_deref(),
+    let skills_dir = config::resolve_skills_dir(&config, &config_path);
+    let mut skill_entries: Vec<SkillEntry> = match load_skills(
+        Some(skills_dir.as_path()),
         &config.skills.extra_dirs,
     ) {
-        Ok(entries) => entries.into_iter().map(Skill::from).collect(),
+        Ok(entries) => entries,
         Err(e) => {
             log::warn!("loading skills failed: {}", e);
             Vec::new()
         }
     };
-    skills.retain(|s| !config.skills.disabled.iter().any(|d| d == &s.name));
-    log::info!("loaded {} skill(s) for agent context", skills.len());
+    skill_entries.retain(|e| !config.skills.disabled.iter().any(|d| d == &e.name));
+    log::info!("loaded {} skill(s) for agent context", skill_entries.len());
+    if config.skills.context_mode == SkillContextMode::ReadOnDemand {
+        log::info!("skill context mode: readOnDemand (compact list + read_skill tool)");
+    }
+    let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
     let agent_ctx = agent_ctx::load_agent_ctx(workspace_dir.as_deref());
 
-    let has_obsidian = skills.iter().any(|s| s.name == "obsidian");
-    let has_notesmd_cli = skills.iter().any(|s| s.name == "notesmd-cli");
-    let obsidian_executor: Option<Arc<dyn agent::ToolExecutor>> =
-        if has_obsidian || has_notesmd_cli {
-            Some(Arc::new(ObsidianDispatcher {
-                obsidian: if has_obsidian {
-                    Some(Arc::new(tools::ObsidianToolExecutor {
-                        allowlist: exec::obsidian_allowlist(),
-                    }))
-                } else {
-                    None
-                },
-                notesmd_cli: if has_notesmd_cli {
-                    Some(Arc::new(tools::NotesmdCliToolExecutor {
-                        allowlist: exec::notesmd_cli_allowlist(),
-                    }))
-                } else {
-                    None
-                },
+    // Descriptor-based: skills with tools.json
+    let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
+        .iter()
+        .filter_map(|e| {
+            e.tool_descriptor
+                .as_ref()
+                .map(|d| (e.name.clone(), d.clone()))
+        })
+        .collect();
+    let skill_dirs: Vec<(String, std::path::PathBuf)> = skill_entries
+        .iter()
+        .filter_map(|e| {
+            e.tool_descriptor
+                .as_ref()
+                .map(|_| (e.name.clone(), e.path.clone()))
+        })
+        .collect();
+    let generic_executor = GenericToolExecutor::from_descriptors(
+        &descriptors,
+        &skill_dirs,
+        config.skills.allow_scripts,
+    );
+    let context_mode = config.skills.context_mode;
+
+    // Tool list: descriptor tools; when ReadOnDemand, prepend read_skill
+    let mut tools_list: Vec<ToolDefinition> = Vec::new();
+    if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
+        tools_list.push(read_skill_tool_definition());
+    }
+    for (_, desc) in &descriptors {
+        tools_list.extend(desc.to_tool_definitions());
+    }
+    let tools_list = if tools_list.is_empty() {
+        None
+    } else {
+        Some(tools_list)
+    };
+
+    // Executor: when ReadOnDemand and we have any tools, wrap generic in ReadOnDemandExecutor; otherwise generic only (or none)
+    let tool_executor: Option<Arc<dyn agent::ToolExecutor>> = if tools_list.is_some() {
+        if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
+            Some(Arc::new(ReadOnDemandExecutor {
+                skills: Arc::new(skills.clone()),
+                inner: generic_executor,
             }))
         } else {
-            None
-        };
+            Some(Arc::new(generic_executor))
+        }
+    } else {
+        None
+    };
 
     let state = GatewayState {
         config: Arc::new(config.clone()),
@@ -444,7 +522,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         ollama_client: OllamaClient::new(None),
         ollama_models: ollama_models.clone(),
         skills: Arc::new(skills),
-        obsidian_executor,
+        tools_list,
+        tool_executor,
         pairing_store,
     };
 
@@ -857,8 +936,12 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     continue;
                 }
                 let model = resolve_model(state.config.agents.default_model.as_deref());
-                let system_context = build_system_context(state.agent_ctx.as_deref(), &state.skills);
-                let (tools, tool_executor) = state.obsidian_tools_and_executor();
+                let system_context = build_system_context(
+                    state.agent_ctx.as_deref(),
+                    &state.skills,
+                    state.config.skills.context_mode,
+                );
+                let (tools, tool_executor) = state.tools_and_executor();
                 match agent::run_turn(
                     &state.session_store,
                     &session_id,

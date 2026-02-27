@@ -14,7 +14,7 @@ fn free_port() -> u16 {
 
 fn temp_config_dir() -> (PathBuf, PathBuf) {
     let dir = std::env::temp_dir().join(format!("chai-gateway-test-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(dir.join("bundled")).expect("create bundled dir");
+    std::fs::create_dir_all(dir.join("skills")).expect("create skills dir");
     std::fs::create_dir_all(dir.join("workspace")).expect("create workspace dir");
     let config_path = dir.join("config.json");
     std::fs::File::create(&config_path)

@@ -1,0 +1,54 @@
+{
+  "tools": [
+    {
+      "name": "obsidian_search",
+      "description": "Search note names in the default vault (obsidian search).",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "Search query for note names" }
+        }
+      }
+    },
+    {
+      "name": "obsidian_search_content",
+      "description": "Search inside note content in the default vault (obsidian search:context).",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "description": "Search query for content inside notes" }
+        }
+      }
+    },
+    {
+      "name": "obsidian_create",
+      "description": "Create a new note in the default vault (obsidian create).",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": { "type": "string", "description": "Path for the new note, e.g. Folder/New note" },
+          "content": { "type": "string", "description": "Optional initial content" }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "obsidian": ["search", "search:context", "create"]
+  },
+  "execution": [
+    { "tool": "obsidian_search", "binary": "obsidian", "subcommand": "search", "args": [{ "param": "query", "kind": "positional" }] },
+    { "tool": "obsidian_search_content", "binary": "obsidian", "subcommand": "search:context", "args": [{ "param": "query", "kind": "positional" }] },
+    {
+      "tool": "obsidian_create",
+      "binary": "obsidian",
+      "subcommand": "create",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content" }
+      ]
+    }
+  ]
+}

@@ -13,14 +13,14 @@ enum Commands {
     /// Show version
     Version,
 
-    /// Create the configuration directory and default files (config, workspace, default skills)
+    /// Create the configuration directory and default files (config, workspace, bundled skills). Skills need a tools.json in their directory to expose tools to the agent.
     Init {
         /// Config file path (default: CHAI_CONFIG_PATH or ~/.chai/config.json)
         #[arg(long, short, value_name = "PATH")]
         config: Option<std::path::PathBuf>,
     },
 
-    /// Run the gateway (HTTP + WebSocket control plane)
+    /// Run the gateway (HTTP + WebSocket control plane). Loads skills from the config skill root (or skills.directory); only skills with a tools.json have callable tools.
     Gateway {
         /// Config file path (default: CHAI_CONFIG_PATH or ~/.chai/config.json)
         #[arg(long, short, value_name = "PATH")]

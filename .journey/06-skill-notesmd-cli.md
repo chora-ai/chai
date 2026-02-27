@@ -6,7 +6,7 @@ This journey is for the binary **`notesmd-cli`** only. For the official Obsidian
 
 ## Prerequisites
 
-- **`chai init`** has been run (so bundled skills exist; if you updated from an older install, ensure the `notesmd-cli` skill directory is present under your bundled or workspace skills).
+- **`chai init`** has been run (so the skills directory exists; if you updated from an older install, ensure the `notesmd-cli` skill is present under `~/.chai/skills` or your configured extra dirs).
 - **notesmd-cli** — The `notesmd-cli` command is on your PATH (e.g. Homebrew: `brew install yakitrak/yakitrak/notesmd-cli`). Check with `which notesmd-cli`. Set a default vault if needed: `notesmd-cli set-default "{vault-name}"`.
 - **Vault** is available to the CLI (see "Multiple vaults" below).
 - **Ollama** is running with a model that supports **tool/function calling** (e.g. `llama3.2:latest`).
@@ -21,7 +21,7 @@ This journey is for the binary **`notesmd-cli`** only. For the official Obsidian
 
 2. **Start the gateway**
    - From repo root: `cargo run -p cli -- gateway` or `chai gateway`. Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, `notesmd-cli` is not on PATH when the gateway starts, or the bundled skills directory is missing (run `chai init`).
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, `notesmd-cli` is not on PATH when the gateway starts, or the skills directory is missing (run `chai init`).
 
 3. **Trigger the agent with an Obsidian-style request**
    - **Via WebSocket:** Connect and send `connect`, then an agent request (see [02-gateway-ws-agent.md](02-gateway-ws-agent.md)). Example: `{"type":"req","id":"2","method":"agent","params":{"message":"Search my vault for note names that contain 'meeting' and list them."}}`
@@ -60,6 +60,10 @@ One clear intent per message; use wording that matches the tool. Examples:
 
 If the model replies without using a tool, resend with "Use the notesmd_cli search tool to …". Use a model with tool/function calling (e.g. `llama3.2:latest`).
 
+## Daily note path resolution (optional)
+
+For **read_note** and **update_daily**, the model can pass a bare date (e.g. `2026-02-25`). The skill ships a script **`scripts/resolve-daily-path.sh`** that resolves it to the vault path using notesmd-cli and `.obsidian/daily-notes.json`. Enable it by setting **`skills.allowScripts`** to `true` in your config (`~/.chai/config.json`). No allowlist entry or extra binary is required. If allowScripts is false or the script fails, the value is used as-is (use a full path like `Daily/2026-02-25` if needed).
+
 ## Context size (model processing "too much" information)
 
 Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
@@ -68,7 +72,7 @@ Every turn the model receives the full system context (skills), full conversatio
 
 ## If something fails
 
-- **"loaded 0 skill(s)"** — `notesmd-cli` is not on PATH when the gateway starts, or the bundled skills directory is missing. Install `notesmd-cli`, ensure it is on PATH, run `chai init` if needed, restart the gateway.
+- **"loaded 0 skill(s)"** — `notesmd-cli` is not on PATH when the gateway starts, or the skills directory is missing. Install `notesmd-cli`, ensure it is on PATH, run `chai init` if needed, restart the gateway.
 - **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_cli search tool to find notes containing X and list them."
 - **"agent: tool notesmd_cli_search failed: ..."** — The CLI failed (vault not set, binary not found, or permission). Run `notesmd-cli set-default` if you have multiple vaults; check PATH and vault availability; see the log for the exact error.
 - **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; if you use `skills.disabled`, ensure you disabled `obsidian` not `notesmd-cli`. (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."

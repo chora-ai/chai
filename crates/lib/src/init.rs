@@ -1,6 +1,6 @@
 //! Initialize the configuration directory: create ~/.chai, default config, workspace, and bundled skills.
 //!
-//! Layout mirrors `crates/lib/config/`: `config/bundled/` → `~/.chai/bundled/`, `config/workspace/AGENTS.md` → `~/.chai/workspace/AGENTS.md`.
+//! Layout mirrors `crates/lib/config/`: `config/skills/` → `~/.chai/skills/`, `config/workspace/AGENTS.md` → `~/.chai/workspace/AGENTS.md`.
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir};
@@ -8,23 +8,23 @@ use std::path::{Path, PathBuf};
 
 use crate::config;
 
-static DEFAULT_BUNDLED: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/bundled");
+static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/skills");
 static DEFAULT_AGENT_CTX: &str = include_str!("../config/workspace/AGENTS.md");
 
-/// Ensure the configuration directory has been initialized (config file and bundled skills exist).
-/// Call before starting the gateway so bundled skills and layout are present.
-pub fn require_initialized(config_path: &Path) -> Result<()> {
+/// Ensure the configuration directory has been initialized (config file and skills directory exist).
+/// Uses the primary skill root from config (or default) and checks that it exists.
+pub fn require_initialized(config_path: &Path, config: &config::Config) -> Result<()> {
     if !config_path.exists() {
         anyhow::bail!(
             "configuration not initialized; run `chai init` first (config file not found: {})",
             config_path.display()
         );
     }
-    let bundled_dir = config::bundled_skills_dir(config_path);
-    if !bundled_dir.exists() {
+    let skills_dir = config::resolve_skills_dir(config, config_path);
+    if !skills_dir.exists() {
         anyhow::bail!(
-            "configuration not initialized; run `chai init` first (bundled skills directory not found: {})",
-            bundled_dir.display()
+            "configuration not initialized; run `chai init` first (skills directory not found: {})",
+            skills_dir.display()
         );
     }
     Ok(())
@@ -34,7 +34,7 @@ pub fn require_initialized(config_path: &Path) -> Result<()> {
 /// - Creates the config directory (parent of config file path).
 /// - Writes `config.json` with `{}` if missing.
 /// - Creates the `workspace` subdirectory and seeds `AGENTS.md` from the default template if missing.
-/// - Extracts default (bundled) skills from the template into `bundled` subdirectory if it does not exist.
+/// - Extracts bundled skills from the template into `skills` subdirectory if it does not exist.
 pub fn init_config_dir(config_path: &Path) -> Result<PathBuf> {
     let config_dir = config_path
         .parent()
@@ -64,20 +64,20 @@ pub fn init_config_dir(config_path: &Path) -> Result<PathBuf> {
         log::info!("wrote default AGENTS.md to {}", workspace_agents.display());
     }
 
-    let bundled_dir = config_dir.join("bundled");
-    if !bundled_dir.exists() {
-        std::fs::create_dir_all(&bundled_dir)
-            .with_context(|| format!("creating bundled skills directory {}", bundled_dir.display()))?;
-        if let Err(e) = DEFAULT_BUNDLED.extract(&bundled_dir) {
+    let skills_dir = config_dir.join("skills");
+    if !skills_dir.exists() {
+        std::fs::create_dir_all(&skills_dir)
+            .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
+        if let Err(e) = BUNDLED_SKILLS.extract(&skills_dir) {
             anyhow::bail!(
-                "extracting default skills to {}: {}",
-                bundled_dir.display(),
+                "extracting bundled skills to {}: {}",
+                skills_dir.display(),
                 e
             );
         }
-        log::info!("extracted default skills to {}", bundled_dir.display());
+        log::info!("extracted bundled skills to {}", skills_dir.display());
     } else {
-        log::debug!("bundled skills directory already exists at {}, skipping", bundled_dir.display());
+        log::debug!("skills directory already exists at {}, skipping", skills_dir.display());
     }
 
     Ok(config_dir.to_path_buf())

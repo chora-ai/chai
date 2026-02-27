@@ -1,24 +1,26 @@
-# Test - Local Models
+# Test - Self-Hosted Models
 
-This document describes a repeatable test procedure for comparing local LLM performance with the Chai agent. The same context and message sequence are used across models so results can be compared.
+This document describes a repeatable test procedure for comparing self-hosted LLM performance with the Chai agent. The same context and message sequence are used across models so results can be compared.
 
 **Scope**
 
-- **Current:** Models supported by **Ollama** only.
-- **Planned:** Add models supported by **LM Studio**.
+- **Current:** Models served by a self-hosted **Hugging Face** backend.
+- **Planned:** Add models served by **LocalAI** and **llama.cpp**.
 
 ---
 
-## Models Under Test (Ollama)
+## Models Under Test (Hugging Face)
+
+Update the models in this table to match the Hugging Face models you are currently running (e.g. via Text Generation Inference, Inference Endpoints, or another self-hosted deployment).
 
 | Model | Notes |
 |-------|--------|
-| `llama3:latest` | Default |
-| `deepseek-1:7b` | |
-| `qwen3:8b` | |
-| `gemma2:9b` | |
+| `meta-llama/Llama-3.1-8B-Instruct` | Default |
+| `mistralai/Mistral-7B-Instruct-v0.3` | |
+| `google/gemma-2-9b-it` | |
+| `Qwen/Qwen2.5-7B-Instruct` | |
 
-Each model is tested **in both skill context modes** (**full** and **readOnDemand**), **three runs per mode**, with the same message sequence. Same gateway config (skills, workspace) except `skills.contextMode`; restart the gateway when switching mode so the system prompt and tool list match.
+Each model is tested **in both skill context modes** (**full** and **readOnDemand**), **three runs per mode**, with the same message sequence. Use the same gateway config (skills, workspace) except for `skills.contextMode`; restart the gateway when switching mode so the system prompt and tool list match.
 
 ---
 
@@ -81,8 +83,8 @@ Nice job!
 
 ## Test Procedure
 
-1. Set gateway config **`agents.defaultModel`** to the model under test (exact name from `ollama list`).
-2. Set **`skills.contextMode`** to **`"full"`** or **`"readOnDemand"`** for the current test batch. Restart the gateway so the system prompt and tools (including optional `read_skill`) match the mode.
+1. Configure the gateway so that **`agents.defaultModel`** (or the provider-specific equivalent) points to the Hugging Face model under test (for example `meta-llama/Llama-3.1-8B-Instruct` or whatever identifier your deployment expects).
+2. Set **`skills.contextMode`** to **`"full"`** or **`"readOnDemand"`** for the current test batch. Restart the gateway so the system prompt and tools (including any optional `read_skill`) match the mode.
 3. Start a **new** session (e.g. `/new` in Telegram or a fresh conversation) so context is clean.
 4. Send the five messages in order, one at a time.
 5. For each message, record:
@@ -99,9 +101,9 @@ Nice job!
 
 Record outcomes per **context mode** and **model**. For each cell: **Run** (1–3), **Message** (1–5), tools used (in readOnDemand note if `read_skill` was used), reply summary, pass/fail.
 
-### Full mode (`skills.contextMode: "full"`)
+### Full Mode (`skills.contextMode: "full"`)
 
-#### Ollama — llama3:latest
+#### Hugging Face — meta-llama/Llama-3.1-8B-Instruct
 
 | Run | Message | Tools used? | Reply / Notes |
 |-----|---------|-------------|---------------|
@@ -115,21 +117,21 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 *(Duplicate for runs 2–3.)*
 
-#### Ollama — deepseek-1:7b
+#### Hugging Face — mistralai/Mistral-7B-Instruct-v0.3
 
 *(Same table structure.)*
 
-#### Ollama — qwen3:8b
+#### Hugging Face — google/gemma-2-9b-it
 
 *(Same table structure.)*
 
-#### Ollama — gemma2:9b
+#### Hugging Face — Qwen/Qwen2.5-7B-Instruct
 
 *(Same table structure.)*
 
-### Read-on-demand mode (`skills.contextMode: "readOnDemand"`)
+### Read-On-Demand Mode (`skills.contextMode: "readOnDemand"`)
 
-#### Ollama — llama3:latest
+#### Hugging Face — meta-llama/Llama-3.1-8B-Instruct
 
 | Run | Message | Tools used? (incl. read_skill?) | Reply / Notes |
 |-----|---------|----------------------------------|---------------|
@@ -139,20 +141,21 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 *(Same structure: three runs per model; note whether model called read_skill before skill tools.)*
 
-#### Ollama — deepseek-1:7b
+#### Hugging Face — mistralai/Mistral-7B-Instruct-v0.3
 
 *(Same table structure.)*
 
-#### Ollama — qwen3:8b
+#### Hugging Face — google/gemma-2-9b-it
 
 *(Same table structure.)*
 
-#### Ollama — gemma2:9b
+#### Hugging Face — Qwen/Qwen2.5-7B-Instruct
 
 *(Same table structure.)*
 
 ---
 
-## Future: LM Studio
+## Future: LocalAI And llama.cpp
 
-When LM Studio backend is supported, add corresponding model lists and result tables here, reusing the same message sequence and expectations above.
+When LocalAI and llama.cpp backends are supported, add corresponding model lists and result tables here, reusing the same message sequence and expectations above. Group results by backend (e.g. LocalAI vs. llama.cpp) and by model, and keep the same **full** vs **readOnDemand** structure so results can be compared consistently across all providers.
+

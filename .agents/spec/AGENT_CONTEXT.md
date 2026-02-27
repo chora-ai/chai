@@ -10,8 +10,8 @@ This document describes the **exact** context provided to the model when process
 ## When It Is Built
 
 - **Agent context (AGENTS.md) and skills** are loaded once when the gateway starts (`gateway/server.rs`: `run_gateway`). They are stored in `GatewayState` and not reloaded until the gateway restarts.
-- **System context string** is built on every turn: `build_system_context(state.agent_ctx.as_deref(), &state.skills)`.
-- **Tools** are the combined list from loaded skills (e.g. `notesmd_cli_tool_definitions()` when the notesmd-cli skill is loaded); same list every turn.
+- **System context string** is built on every turn: `build_system_context(agent_ctx, skills, context_mode)` (see Skill context mode below).
+- **Tools** are built at startup from skills that have a `tools.json` descriptor; when `skills.contextMode` is `readOnDemand`, a `read_skill` tool is prepended. Same list every turn.
 
 So for a **new session** (e.g. after `/new`), when the user sends their first message, the model receives:
 
@@ -21,24 +21,34 @@ So for a **new session** (e.g. after `/new`), when the user sends their first me
 
 ## 1. System Message Content
 
-The system message is built by `build_system_context(agent_ctx, skills)` in `gateway/server.rs`.
+The system message is built by `build_system_context(agent_ctx, skills, context_mode)` in `gateway/server.rs`. The **skill context** depends on **`skills.contextMode`** in config.
 
 ### Build Order
 
 1. **Agent context** — Raw contents of `AGENTS.md` from the workspace directory (e.g. `~/.chai/workspace/AGENTS.md`), trimmed. If the file is missing or empty, this part is omitted.
 2. **Newline** — `"\n\n"` (only if agent context was non-empty).
-3. **Skill context** — From `build_skill_context(skills)` (see below).
+3. **Skill context** — From the configured context mode (see below).
 
-### Skill Context (`build_skill_context`)
+### Skill Context Mode
+
+- **`full`** (default): Full SKILL.md for every loaded skill (intro line, then for each skill: `## name`, description, and body after frontmatter strip). Best for few skills and smaller local models.
+- **`readOnDemand`**: A compact list only: intro instructing the model to use the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies; then a bullet list of skill names and descriptions. The model must call `read_skill(skill_name)` to get full docs before using that skill’s tools. Keeps the system prompt small and scales to many skills.
+
+### Skill Context — Full Mode (`build_skill_context_full`)
 
 - If there are no skills, this is an empty string.
 - Otherwise:
   - A single intro line:  
     `"You have access to the following skills. Use them when relevant.\n\n"`
-  - For **each** loaded skill (order = merged order from `load_skills`: extra, then bundled, then workspace; later overwrites earlier by name):
+  - For **each** loaded skill (order = merged order from `load_skills`: config dir skills, then extra dirs; later overwrites earlier by name):
     - `"## "` + skill `name` (e.g. `notesmd-cli`) + `"\n"`
     - If the skill has a non-empty `description` (from SKILL.md frontmatter): that string + `"\n\n"`
     - **Skill body**: `strip_skill_frontmatter(skill.content)` + `"\n\n"`
+
+### Skill Context — Read-on-Demand Mode (`build_skill_context_compact`)
+
+- If there are no skills, this is an empty string.
+- Otherwise: an intro line instructing the model to use the `read_skill` tool when a skill clearly applies, then `## Available skills` and a bullet list of **name**: description for each loaded skill.
 
 ### `strip_skill_frontmatter(content)`
 
@@ -74,7 +84,7 @@ Create, read, update, and search notes when the user asks.
 
 ## 3. Tools (Ollama API)
 
-- **When** the notesmd-cli skill is loaded (and not disabled), `obsidian_tools_and_executor()` adds `tools::notesmd_cli_tool_definitions()` to the list. If the obsidian skill is also loaded, `tools::obsidian_tool_definitions()` is added as well.
+- **Source**: Tool list is built at gateway startup from skills that have a **`tools.json`** descriptor. Each descriptor’s `tools` array is converted to Ollama `ToolDefinition`s via `ToolDescriptor::to_tool_definitions()`. When **`skills.contextMode`** is **`readOnDemand`** and there are loaded skills, a **`read_skill(skill_name)`** tool definition is prepended so the model can load a skill’s full SKILL.md on demand.
 - **Shape** sent to Ollama (from `llm/ollama.rs`): each tool is a JSON object:
 
   ```json
@@ -82,29 +92,29 @@ Create, read, update, and search notes when the user asks.
     "type": "function",
     "function": {
       "name": "<tool_name>",
-      "description": "<optional string from ToolFunctionDefinition>",
+      "description": "<optional string>",
       "parameters": { <JSON schema object> }
     }
   }
   ```
 
-- The **names, descriptions, and parameters** for notesmd-cli come from `crates/lib/src/tools/notesmd_cli.rs` in `notesmd_cli_tool_definitions()`. So the exact tool list and wording are defined in code there (search, search_content, create, daily, read_note, update_daily). Descriptions are the `description: Some("...")` strings; parameters are the `parameters` json! object (e.g. `required`, `properties`).
+- **Execution**: A single **generic executor** builds argv from each tool’s execution spec in `tools.json` (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`exec::Allowlist::run()`). Param resolution (`resolveCommand`) may use a script from the skill’s `scripts/` dir when `skills.allowScripts` is true, or an allowlisted command. When context mode is readOnDemand, a **ReadOnDemandExecutor** wraps it: it handles `read_skill` in-process (returns that skill’s SKILL.md content) and delegates all other tool names to the generic executor. See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md).
 
 ## Summary
 
 | Source | Where defined | When loaded | What the model sees |
 |--------|----------------|------------|---------------------|
 | Agent context | `workspace_dir/AGENTS.md` | Gateway startup | Raw file content, then `\n\n`, then skill context. |
-| Skill content | `bundled/notesmd-cli/SKILL.md` (and others) | Gateway startup | After frontmatter strip: `## <name>\n` + description + body. |
-| System message | — | Every turn | `agent_ctx + "\n\n" + build_skill_context(skills)`. Inserted as first message. |
+| Skill content | `skills/<name>/SKILL.md` (from config dir, `skills.directory`, or `skills.extraDirs`) | Gateway startup | Full mode: `## <name>\n` + description + body (frontmatter stripped). ReadOnDemand: compact list only; full content via `read_skill` tool. |
+| System message | — | Every turn | `agent_ctx + "\n\n" + skill_context`, where skill_context depends on `skills.contextMode` (full vs compact). Inserted as first message. |
 | Session messages | Session store | Every turn | All messages for that session (e.g. one user message after `/new`). |
-| Tools | `tools/notesmd_cli.rs` (and obsidian) | Every turn | `Vec<ToolDefinition>` from code; sent in the Ollama chat request as `tools`. |
+| Tools | Skills’ `tools.json` (and built-in `read_skill` when contextMode is readOnDemand) | Startup (list fixed) | `Vec<ToolDefinition>` from descriptors + optional read_skill; sent in the Ollama chat request as `tools`. |
 
 ## What Is Sent Every Turn
 
 - **Session messages** — Loaded from the session store on every turn (`store.get(session_id)` in `run_turn`). The model always sees the current conversation history.
 - **System message** — The string is built every turn via `build_system_context(agent_ctx, skills)`. The inputs (`agent_ctx` and `skills`) are not re-read from disk; they were loaded at gateway startup and live in `GatewayState`. So the system text is recomputed each turn from in-memory data. Changes to `AGENTS.md` or `SKILL.md` on disk take effect only after a gateway restart.
-- **Tools** — The list is built every turn by `obsidian_tools_and_executor()` (same `Vec<ToolDefinition>` from `notesmd_cli_tool_definitions()` etc.). The definitions are fixed in compiled code; no disk read.
+- **Tools** — The list is built once at startup from loaded skills’ `tools.json` descriptors (and optional `read_skill` when context mode is readOnDemand). Same list every turn; no disk read per turn.
 
 ## What Might Be More Efficient
 
@@ -126,4 +136,4 @@ Create, read, update, and search notes when the user asks.
 - We can improve efficiency by: (1) caching the system string, and (2) optionally capping session length for long chats, with the understanding that (2) may reduce quality in those long sessions.
 - Implementation options: build the system string once at startup (or when config is reloaded) and reuse it each turn; and/or add an optional session-history cap (e.g. in `agent.rs` or the gateway).
 
-To see the **exact** system string your gateway sends, add a temporary log in `gateway/server.rs` where `build_system_context` is called (e.g. in `process_inbound_message`), and log `system_context` before `run_turn`. The tool list is fixed by `notesmd_cli_tool_definitions()` and any obsidian definitions in the repo.
+To see the **exact** system string your gateway sends, add a temporary log in `gateway/server.rs` where `build_system_context` is called (e.g. in `process_inbound_message`), and log `system_context` before `run_turn`. The tool list is fixed at startup from skills’ `tools.json` and (when readOnDemand) the built-in `read_skill` definition.

@@ -1,11 +1,14 @@
 //! Load skills from dirs: each skill is a directory with SKILL.md (YAML frontmatter + markdown).
 //! Skills with `metadata.requires.bins` are only loaded when all listed binaries are on PATH.
+//! When present, `tools.json` in the skill directory is parsed and attached as the tool descriptor.
 
 use anyhow::Result;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// A loaded skill (name, description, source, path).
+use super::descriptor::ToolDescriptor;
+
+/// A loaded skill (name, description, source, path, optional tool descriptor).
 #[derive(Debug, Clone)]
 pub struct SkillEntry {
     pub name: String,
@@ -14,12 +17,15 @@ pub struct SkillEntry {
     pub path: PathBuf,
     /// Raw SKILL.md content (for agent context).
     pub content: String,
+    /// When the skill dir contains tools.json, parsed descriptor (tools, allowlist, execution mapping).
+    pub tool_descriptor: Option<ToolDescriptor>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkillSource {
-    Bundled,
-    Workspace,
+    /// From the config directory's skills subdirectory (e.g. ~/.chai/skills).
+    Skills,
+    /// From config.skills.extraDirs.
     Extra,
 }
 
@@ -52,28 +58,19 @@ struct Requires {
     bins: Option<Vec<String>>,
 }
 
-/// Load all skills from the given directories (lower precedence first).
+/// Load all skills from the config directory's skills and any extra dirs from config.
 /// Each dir should contain subdirs, each with a SKILL.md file.
-/// Precedence: extra < bundled < workspace (later overwrites earlier by name).
-pub fn load_skills(
-    bundled_dir: Option<&Path>,
-    workspace_dir: Option<&Path>,
-    extra_dirs: &[PathBuf],
-) -> Result<Vec<SkillEntry>> {
+/// Precedence: config dir first, then extra (later overwrites earlier by name).
+pub fn load_skills(skills_dir: Option<&Path>, extra_dirs: &[PathBuf]) -> Result<Vec<SkillEntry>> {
     let mut merged: std::collections::HashMap<String, SkillEntry> = std::collections::HashMap::new();
 
+    if let Some(d) = skills_dir {
+        for e in load_skills_from_dir(d, SkillSource::Skills)? {
+            merged.insert(e.name.clone(), e);
+        }
+    }
     for dir in extra_dirs {
         for e in load_skills_from_dir(dir, SkillSource::Extra)? {
-            merged.insert(e.name.clone(), e);
-        }
-    }
-    if let Some(d) = bundled_dir {
-        for e in load_skills_from_dir(d, SkillSource::Bundled)? {
-            merged.insert(e.name.clone(), e);
-        }
-    }
-    if let Some(d) = workspace_dir {
-        for e in load_skills_from_dir(d, SkillSource::Workspace)? {
             merged.insert(e.name.clone(), e);
         }
     }
@@ -111,15 +108,34 @@ fn load_skills_from_dir(dir: &Path, source: SkillSource) -> Result<Vec<SkillEntr
                 continue;
             }
         }
+        let tool_descriptor = load_tool_descriptor(&path);
         out.push(SkillEntry {
             name,
             description,
             source,
             path: path.to_path_buf(),
             content,
+            tool_descriptor,
         });
     }
     Ok(out)
+}
+
+/// If the skill directory contains tools.json, parse and return it. Otherwise None.
+fn load_tool_descriptor(skill_dir: &Path) -> Option<ToolDescriptor> {
+    let path = skill_dir.join("tools.json");
+    let content = std::fs::read_to_string(&path).ok()?;
+    match serde_json::from_str::<ToolDescriptor>(&content) {
+        Ok(d) => Some(d),
+        Err(e) => {
+            log::warn!(
+                "failed to parse {}: {}",
+                path.display(),
+                e
+            );
+            None
+        }
+    }
 }
 
 /// Returns true if the given binary name is found on PATH (or has path separators and exists).
@@ -195,5 +211,45 @@ impl From<SkillEntry> for Skill {
             description: e.description,
             content: e.content,
         }
+    }
+}
+
+impl From<&SkillEntry> for Skill {
+    fn from(e: &SkillEntry) -> Self {
+        Skill {
+            name: e.name.clone(),
+            description: e.description.clone(),
+            content: e.content.clone(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn load_skills_parses_tools_json_when_present() {
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let skills_dir: PathBuf = [&manifest_dir, "config", "skills"].iter().collect();
+        if !skills_dir.join("notesmd-cli").join("SKILL.md").exists() {
+            return;
+        }
+        let skills = load_skills(Some(skills_dir.as_path()), &[]).unwrap();
+        let notesmd = skills.iter().find(|s| s.name == "notesmd-cli");
+        let Some(entry) = notesmd else {
+            return;
+        };
+        let Some(desc) = &entry.tool_descriptor else {
+            panic!("notesmd-cli skill dir has tools.json but tool_descriptor is None");
+        };
+        assert!(desc.tools.len() >= 1);
+        assert_eq!(desc.tools[0].name, "notesmd_cli_search");
+        assert!(desc.allowlist.contains_key("notesmd-cli"));
+        assert!(desc.execution.len() >= 1);
+        assert_eq!(desc.execution[0].tool, "notesmd_cli_search");
+        assert_eq!(desc.execution[0].binary, "notesmd-cli");
+        assert_eq!(desc.execution[0].subcommand, "search");
     }
 }

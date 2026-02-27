@@ -98,13 +98,16 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
     "workspace": null
   },
   "skills": {
+    "directory": null,
     "extraDirs": [],
-    "disabled": []
+    "disabled": [],
+    "contextMode": "full",
+    "allowScripts": false
   }
 }
 ```
 
-Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `smollm2:1.7b`); do not add extra segments like `:latest` unless that tag exists for the model.
+Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `qwen3:8b`); do not add extra segments like `:latest` unless that tag exists for the model.
 
 For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": "your-secret" }`.
 
@@ -113,8 +116,8 @@ For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": 
 The configuration directory contains the following:
 
 - **`config.json`** — Main configuration file (see above).
-- **`bundled`** — Bundled skills (use `workspace` for adding custom skills).
-- **`workspace`** — Directory for workspace skills. If the configuration does not set `agents.workspace`, this directory is used. Add a subdirectory for each skill containing a `SKILL.md` file. When a skill name appears in more than one place (bundled, workspace, or extra), the workspace version is used.
+- **`skills`** — Skills directory (or use **`skills.directory`** in config to point elsewhere). After `chai init`, bundled skills are extracted here. Each skill is a subdirectory with **`SKILL.md`**; optionally add **`tools.json`** to define callable tools. Skills without `tools.json` are still loaded for context but have no tools. Add more roots via **`skills.extraDirs`** (same name overwrites).
+- **`workspace`** — Directory for agent context (e.g. `AGENTS.md`). Not used for loading skills.
 
 ### Environment variables
 
@@ -138,21 +141,28 @@ The gateway supports the following natively:
 
 ## Skills
 
-Skills are markdown-based instructions (one per directory with a `SKILL.md` file) that are loaded into the agent’s context. Skills can be gated based on binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH. 
+Skills are markdown-based instructions (one per directory with a `SKILL.md` file) that are loaded into the agent’s context. A skill can optionally include a **`tools.json`** in the same directory to declare callable tools (name, parameters, and how they map to a CLI). **Only skills that have a `tools.json` expose tools to the agent;** skills without `tools.json` still provide their SKILL.md text as context but have no callable tools.
+
+**Skill context mode** (`skills.contextMode`): how skill documentation is given to the model.
+
+- **`full`** (default) — All loaded skills’ full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models (e.g. 7B–9B).
+- **`readOnDemand`** — The system message contains only a compact list (name, description). The model uses the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies. Keeps the prompt small and scales to many skills; requires the model to call the tool before using a skill.
+
+Skills can be gated by binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH.
 
 To load only one of two skills when both binaries are installed (e.g. only notesmd-cli and not obsidian), set **`skills.disabled`** in config to an array of skill names to skip (e.g. `["obsidian"]`).
 
-**Native skills (bundled)**
+**Bundled skills**
 
 - **notesmd-cli** — [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Search for file, search content, create note, daily note, read note, and update note in the default vault. Only loaded when `notesmd-cli` is on PATH.
 - **obsidian** — The official [Obsidian CLI](https://help.obsidian.md/cli) (early access; binary `obsidian`). Search for file, search content, and create note in the default vault. Only loaded when `obsidian` is on PATH.
 
-**Custom skills (add your own)**
+**Custom skills**
 
-Add custom skills to the workspace: create a subdirectory per skill with a `SKILL.md` file. Each `SKILL.md` must be written in Markdown and can optionally have YAML frontmatter between `---` delimiters. Use `name` and `description` in the frontmatter; use `metadata.requires.bins` with a list of binary names to load the skill only when those binaries are available. Workspace skills override bundled skills with the same name.
+Add skills to the config directory’s **`skills`** subdirectory (`~/.chai/skills`), or set **`skills.directory`** in config to another path (e.g. a repo’s `skills/` folder), or add paths in **`skills.extraDirs`**. One subdirectory per skill with a **`SKILL.md`** file; add **`tools.json`** in that directory to define the skill’s tools (without it, the skill has no callable tools). Use `name` and `description` in the frontmatter; use `metadata.requires.bins` so the skill loads only when those binaries are on PATH.
 
 ## Workspace
 
-The workspace directory holds user-provided content that the gateway loads into the agent. By default it is `~/.chai/workspace/`, or `agents.workspace` in `config.json` if set.
+The workspace directory includes **frontloaded context** for the agent (e.g. `AGENTS.md`). By default it is `~/.chai/workspace/`, or `agents.workspace` in `config.json` if set.
 
-- **`AGENTS.md`** — This file is created when you run `chai init` for the first time and only recreated when you run `chai init` again and the directory is missing or the file is missing. You can edit the file to customize your agent. The gateway loads it as **agent-level context** and prepends it to the skills context on every turn. Keep it short and directive (e.g. when to chat normally vs when to call tools).
+- **`AGENTS.md`** — Created when you run `chai init` (and only recreated if the file is missing). Edit it to customize your agent. The gateway loads it as **agent-level context** and prepends it to the skills context on every turn. Keep it short and directive (e.g. when to chat normally vs when to call tools).

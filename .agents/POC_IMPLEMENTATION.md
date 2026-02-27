@@ -23,10 +23,10 @@ Inbound messages from a channel (e.g. Telegram) are mapped to a session by chann
 
 ### Safe execution
 
-Tool execution for skills (e.g. Obsidian, notesmd-cli) is restricted to an allowlist of binaries and subcommands; there is no shell and no full sandboxing in this POC.
+Tool execution for skills is restricted to an allowlist of binaries and subcommands defined in each skill’s **`tools.json`**; there is no shell and no full sandboxing in this POC.
 
-- **Allowlist**: Tool execution (e.g. for the Obsidian and notesmd-cli skills) uses `lib/exec`: only an allowlisted binary and allowlisted subcommands can be run. There is no shell; arguments are passed explicitly. **Obsidian** (`obsidian`): search, search:context, create. **notesmd-cli** (`notesmd-cli`): search, search-content, create, daily, print, print-default.
-- **Rationale**: This limits the impact of malicious or buggy model output: the model can only invoke known commands. It does not provide full sandboxing (e.g. filesystem or network isolation) or an exec-approval flow; those are listed under [Next steps beyond the POC](POC_DELIVERABLE.md#next-steps-beyond-the-poc).
+- **Allowlist**: Each skill’s `tools.json` declares which (binary, subcommand) pairs it may run. The generic executor builds argv from the descriptor’s execution mapping and calls `lib/exec::Allowlist::run()`. There is no shell; arguments are passed explicitly. No skill-specific code lives in the lib—bundled skills (notesmd-cli, obsidian) ship with their own `tools.json` under `crates/lib/config/skills/`.
+- **Rationale**: This limits the impact of malicious or buggy model output: the model can only invoke commands declared in the skill descriptor. It does not provide full sandboxing (e.g. filesystem or network isolation) or an exec-approval flow; those are listed under [Next steps beyond the POC](POC_DELIVERABLE.md#next-steps-beyond-the-poc).
 
 ### Telegram channel (long-poll vs webhook)
 
@@ -61,24 +61,14 @@ Pairing is how the gateway trusts a **device** (laptop, phone, another machine) 
 
 ### Skills and the LLM
 
-Skills are loaded at startup and their full content is injected into the system message each turn. The following describes the loader and gating, how the agent uses them, and how this compares to OpenClaw and local models.
+Skills are loaded at gateway startup from the primary skill root (default `~/.chai/skills`, or **`skills.directory`** in config) and any **skills.extraDirs**. Each skill is a directory with **`SKILL.md`** (YAML frontmatter: name, description) and optionally **`tools.json`** (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` contribute callable tools; skills without it are still loaded for context.
 
-**How this POC uses skills**
+**Skill context mode** (`skills.contextMode` in config):
 
-- Skills are loaded at gateway startup from bundled, workspace, and config-specified dirs. Each skill is a `SKILL.md` with YAML frontmatter (name, description). Gating: if a skill declares `metadata.requires.bins`, the skill is loaded only when all listed binaries are on PATH.
-- For each agent turn, the gateway builds a **system message** that includes the **full content** (name, description, full SKILL.md text) of all loaded skills. The model sees the entire skill set in context and can use the described tools (e.g. obsidian_search, obsidian_create) when relevant.
-- The Obsidian and notesmd-cli skills are bundled; when loaded (gated by `obsidian` or `notesmd-cli` on PATH), the agent gets the corresponding Ollama tools (Obsidian: search, search-content, create; notesmd-cli: search, search-content, create, daily, read_note, update_daily). Tool calls are executed via an allowlisted executor (no shell); the agent loop can run up to 5 tool-iteration steps per turn.
+- **`full`** (default): The system message includes the **full content** (name, description, full SKILL.md body) of every loaded skill. The model sees the entire skill set and can use the tools (e.g. notesmd_cli_search, obsidian_create) when relevant. Best for few skills and smaller local models.
+- **`readOnDemand`**: The system message contains only a **compact list** (name + description per skill) and instructions to use the **`read_skill(skill_name)`** tool to load a skill’s full SKILL.md when it clearly applies. The gateway registers `read_skill` and a wrapper executor returns that skill’s content in-process. Keeps the prompt small and scales to many skills; aligns with OpenClaw’s pattern.
 
-**Contrast with OpenClaw**
-
-- In OpenClaw, the system prompt contains a **compact list** of skills (name, description, path). The model is instructed to use a **`read` tool** to load the skill’s SKILL.md **only when** that skill clearly applies. Full skill text is not injected up front. That keeps the base prompt smaller and scales to many skills.
-- This POC does **not** implement read-on-demand: it injects full skill content for a small set of skills. A future step could add the compact list + `read` pattern for better scaling and smaller context.
-
-**Local models (e.g. Llama 3)**
-
-- **Context**: Read-on-demand would help local models with limited context; currently, all loaded skill text is in every turn.
-- **Instruction following**: Having the model choose “when to read which skill” and then follow it varies by model size and tool-calling support.
-- **Tool use**: The Obsidian tool layer and allowlisted exec work with local models that support tool/function calling (e.g. Llama 3); behavior depends on model capability.
+**Tool execution**: Tool list and executor are built only from skills’ `tools.json` descriptors. A single **generic executor** builds argv from each tool’s execution spec (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`lib/exec`). When **`skills.allowScripts`** is true, tools can use `resolveCommand.script` to run scripts from the skill’s **`scripts/`** directory for param resolution (no allowlist entry). No hardcoded skill code in the lib. Bundled skills (notesmd-cli, obsidian) live under `crates/lib/config/skills/` with their own SKILL.md and tools.json. Gating: if a skill declares `metadata.requires.bins`, it is loaded only when all listed binaries are on PATH. The agent loop runs up to 5 tool-iteration steps per turn.
 
 ## Reference
 
@@ -101,6 +91,7 @@ The following subsections are a concrete reference for developers: CLI and deskt
 ### Config
 
 - **Structure**: `Config` (gateway, channels, agents, skills). Load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`.
+- **Skills**: `skills.directory` (optional override for primary skill root), `skills.extraDirs`, `skills.disabled`, **`skills.contextMode`** (`"full"` | `"readOnDemand"`; default `full`), **`skills.allowScripts`** (when true, skills may run scripts from their `scripts/` dir for param resolution; default false).
 - **Defaults**: Port 15151, bind 127.0.0.1.
 - **Auth**: Required when binding beyond loopback (startup fails otherwise).
 
@@ -143,12 +134,12 @@ The following subsections are a concrete reference for developers: CLI and deskt
 
 ### Skills (loader and bundled skills)
 
-- **Loader**: `load_skills(bundled_dir, workspace_dir, extra_dirs)`: all `*/SKILL.md`, YAML frontmatter (name, description), merge by name with precedence extra < bundled < workspace.
+- **Loader**: `load_skills(skills_dir, extra_dirs)`: discovers `*/SKILL.md` under the primary skill root and each extra dir; parses YAML frontmatter (name, description); if a skill dir contains `tools.json`, parses it and attaches `SkillEntry.tool_descriptor`. Merge by name: primary root first, then extra (extra overwrites by name).
+- **Skill root**: Primary root = config dir’s `skills` subdirectory, or **`skills.directory`** in config (relative to config file parent). **`skills.extraDirs`** add more roots. **`skills.disabled`** skips listed skill names.
 - **Gating**: `metadata.requires.bins` — skill is loaded only when all listed binaries are on PATH.
-- **Bundled dir**: Config directory `bundled` subdirectory (populated by `chai init`).
-- **Obsidian** (binary `obsidian`): Allowlist search, search:context, create; tool layer `obsidian_search`, `obsidian_search_content`, `obsidian_create`.
-- **notesmd-cli** (binary `notesmd-cli`): Allowlist search, search-content, create, daily, print, print-default; tool layer `notesmd_cli_search`, `notesmd_cli_search_content`, `notesmd_cli_create`, `notesmd_cli_daily`, `notesmd_cli_read_note`, `notesmd_cli_update_daily`.
-- **Safe exec** (`lib/exec`): Allowlisted binary and subcommands only (no shell). Session stores assistant and tool messages for history.
+- **Tools**: Tool list and executor come only from skills that have a `tools.json` descriptor. Generic executor builds argv from execution spec and runs via descriptor allowlist; when **`skills.allowScripts`** is true, param resolution can use scripts from a skill’s `scripts/` dir (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). When **`skills.contextMode`** is **`readOnDemand`**, gateway prepends a **`read_skill`** tool and a wrapper executor that returns a skill’s SKILL.md content.
+- **Bundled skills**: The skills that ship with the app (notesmd-cli, obsidian) live in `crates/lib/config/skills/` with SKILL.md and tools.json; `chai init` extracts them to the user’s skill root.
+- **Safe exec** (`lib/exec`): Allowlisted binary and subcommands only (no shell). Allowlist is defined per skill in `tools.json`. Session stores assistant and tool messages for history.
 
 ### Modularity
 
@@ -165,6 +156,6 @@ A concise record of what was implemented in the POC.
 - **Session and routing** — Added in-memory `SessionStore` and `SessionBindingStore`; single-turn agent flow; WS `send` and `agent` with optional channel delivery.
 - **LLM** — Added Ollama client (`list_models`, `chat`, `chat_stream`), tool-call parsing, model discovery at startup; agent loop with non-streaming chat and tool execution (up to 5 iterations).
 - **Channels** — Added Telegram channel (long-poll or webhook); `setWebhook`, `POST /telegram/webhook`, `deleteWebhook` on shutdown; inbound → session → agent → reply; `send_message` for agent replies.
-- **Skills** — Added loader (bundled, workspace, extra), gating by `metadata.requires.bins`; bundled skills `notesmd-cli` and `obsidian` with SKILL.md, safe exec, and tool layer.
+- **Skills** — Added loader (config dir skills + extraDirs), gating by `metadata.requires.bins`; bundled skills `notesmd-cli` and `obsidian` with SKILL.md and tools.json; generic executor from descriptors; optional read-on-demand (`skills.contextMode`: compact list + `read_skill` tool); optional scripts (`skills.allowScripts`, `scripts/` for param resolution).
 - **Pairing** — Added device signing, pairing store (`~/.chai/paired.json`), deviceToken in hello-ok; desktop device identity and `~/.chai/device_token` persistence; auto-approve when gateway token provided or auth none.
-- **Safe execution** — Added allowlisted binary and subcommand execution in `lib/exec` (no shell).
+- **Safe execution** — Allowlisted binary and subcommand execution in `lib/exec` (no shell); allowlist and execution mapping from each skill’s `tools.json`.

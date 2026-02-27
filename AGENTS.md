@@ -2,10 +2,6 @@
 
 This file provides guidance to agents when working with code in this repository.
 
-## Project Summary
-
-This repository is the home of a multi-agent management system inspired by OpenClaw (main website: https://openclaw.ai/, GitHub repository: https://github.com/openclaw/openclaw). The critical difference between this project and OpenClaw is that this project has a strong preference for local-first tooling and privacy-preserving technologies, including but not limited to support for local models via Ollama (https://docs.ollama.com/) or LM Studio (https://lmstudio.ai/docs/developer). This project also uses Rust as the programming language and supports a desktop application that can be installed on both Linux and Mac operating systems.
-
 ## Architecture Overview
 
 This repository is a monorepo but may become separate repositories when appropriate. A separation of concerns should be maintained within the architecture of this repository in preparation for any potential separations at a later point in time.

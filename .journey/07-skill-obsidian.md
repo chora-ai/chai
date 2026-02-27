@@ -6,7 +6,7 @@ This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [
 
 ## Prerequisites
 
-- **`chai init`** has been run (so bundled skills exist).
+- **`chai init`** has been run (so the skills directory exists).
 - **Official Obsidian CLI** — `obsidian` is on your PATH (early access; enable in Obsidian Settings → Command line interface). See [Obsidian CLI — early access](https://help.obsidian.md/cli). Check with `which obsidian`.
 - **Vault** is available to the CLI (see "Multiple vaults" below).
 - **Ollama** is running with a model that supports **tool/function calling** (e.g. `llama3.2:latest`).
@@ -21,7 +21,7 @@ This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [
 
 2. **Start the gateway**
    - From repo root: `cargo run -p cli -- gateway` or `chai gateway`. Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, `obsidian` is not on PATH when the gateway starts, or the bundled skills directory is missing (run `chai init`).
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, `obsidian` is not on PATH when the gateway starts, or the skills directory is missing (run `chai init`).
 
 3. **Trigger the agent with an Obsidian-style request**
    - **Via WebSocket:** Connect and send `connect`, then an agent request (see [02-gateway-ws-agent.md](02-gateway-ws-agent.md)). Example: `{"type":"req","id":"2","method":"agent","params":{"message":"Search my Obsidian vault for note names that contain 'meeting' and list them."}}`
@@ -64,7 +64,7 @@ Every turn the model receives the full system context (skills), full conversatio
 
 ## If something fails
 
-- **"loaded 0 skill(s)"** — `obsidian` is not on PATH when the gateway starts, or the bundled skills directory is missing. Install and enable the official CLI, ensure it is on PATH, run `chai init` if needed, restart the gateway.
+- **"loaded 0 skill(s)"** — `obsidian` is not on PATH when the gateway starts, or the skills directory is missing. Install and enable the official CLI, ensure it is on PATH, run `chai init` if needed, restart the gateway.
 - **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use your Obsidian search tool to find notes containing X and list them."
 - **"agent: tool obsidian_search failed: ..."** — The CLI failed (vault not targeted, binary not found, or permission). Check PATH and vault availability; see the log for the exact error.
 - **Create note fails** — The official CLI create command may require the Obsidian app. On headless servers, use search-only for verification if needed.
