@@ -118,13 +118,15 @@ pub struct SendParams {
     pub message: String,
 }
 
-/// Params for WS method "agent": run one turn (optional session, user message).
+/// Params for WS method "agent": run one turn (optional session, user message, optional model override).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub message: String,
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 impl WsResponse {

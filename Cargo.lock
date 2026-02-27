@@ -727,9 +727,13 @@ dependencies = [
  "anyhow",
  "clap",
  "env_logger",
+ "futures-util",
  "lib",
  "log",
+ "serde",
+ "serde_json",
  "tokio",
+ "tokio-tungstenite 0.21.0",
 ]
 
 [[package]]

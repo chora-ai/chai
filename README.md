@@ -88,7 +88,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   },
   "channels": {
     "telegram": {
-      "botToken": "YOUR_BOT_TOKEN",
+      "botToken": null,
       "webhookUrl": null,
       "webhookSecret": null
     }

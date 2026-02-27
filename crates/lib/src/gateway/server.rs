@@ -322,6 +322,31 @@ fn channel_reply_text(result: &agent::AgentTurnResult) -> Option<String> {
 /// Message that starts a new session (clear history) when sent via Telegram or other channels. Case-insensitive.
 const NEW_SESSION_TRIGGER: &str = "/new";
 
+/// Broadcast a session.message event over WebSocket to connected clients.
+fn broadcast_session_message(
+    state: &GatewayState,
+    session_id: &str,
+    role: &str,
+    content: &str,
+    channel_id: Option<&str>,
+    conversation_id: Option<&str>,
+) {
+    let event = json!({
+        "type": "event",
+        "event": "session.message",
+        "payload": {
+            "sessionId": session_id,
+            "role": role,
+            "content": content,
+            "channelId": channel_id,
+            "conversationId": conversation_id,
+        }
+    });
+    if let Ok(text) = serde_json::to_string(&event) {
+        let _ = state.event_tx.send(text);
+    }
+}
+
 /// Process one inbound channel message: get or create session, bind, append user message, run agent, send reply.
 /// If the message is the new-session trigger (e.g. /new), rebind the conversation to a fresh session and confirm.
 async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
@@ -371,6 +396,14 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         log::warn!("inbound: failed to append message");
         return;
     }
+    broadcast_session_message(
+        &state,
+        &session_id,
+        "user",
+        &msg.text,
+        Some(&msg.channel_id),
+        Some(&msg.conversation_id),
+    );
     let model = resolve_model(state.config.agents.default_model.as_deref());
     let system_context = build_system_context(
         state.agent_ctx.as_deref(),
@@ -401,6 +434,14 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         }
     };
     if let Some(reply) = channel_reply_text(&result) {
+        broadcast_session_message(
+            &state,
+            &session_id,
+            "assistant",
+            &reply,
+            Some(&msg.channel_id),
+            Some(&msg.conversation_id),
+        );
         if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
             if handle.send_message(&msg.conversation_id, &reply).await.is_err() {
                 log::warn!("inbound: send_message failed");
@@ -738,14 +779,17 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
             event = event_rx.recv() => {
                 match event {
                     Ok(text) => {
+                        let is_shutdown = text == SHUTDOWN_EVENT_JSON;
                         let _ = socket.send(Message::Text(text)).await;
+                        if is_shutdown {
+                            break;
+                        }
                     }
                     Err(broadcast::error::RecvError::Lagged(n)) => {
                         log::debug!("ws client lagged {} broadcast messages", n);
                     }
                     Err(broadcast::error::RecvError::Closed) => break,
                 }
-                break;
             }
             msg = socket.recv() => {
                 let Some(Ok(msg)) = msg else { break };
@@ -926,6 +970,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 } else {
                     state.session_store.create().await
                 };
+                let user_message = params.message.clone();
                 if let Err(e) = state
                     .session_store
                     .append_message(&session_id, "user", &params.message)
@@ -935,7 +980,20 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
                     continue;
                 }
-                let model = resolve_model(state.config.agents.default_model.as_deref());
+                broadcast_session_message(
+                    &state,
+                    &session_id,
+                    "user",
+                    &user_message,
+                    None,
+                    None,
+                );
+                let model = resolve_model(
+                    params
+                        .model
+                        .as_deref()
+                        .or(state.config.agents.default_model.as_deref()),
+                );
                 let system_context = build_system_context(
                     state.agent_ctx.as_deref(),
                     &state.skills,
@@ -955,6 +1013,19 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 .await
                 {
                     Ok(result) => {
+                        let binding = state.bindings.get_channel_binding(&session_id).await;
+                        let (channel_id, conv_id) = match binding {
+                            Some((cid, conv)) => (Some(cid), Some(conv)),
+                            None => (None, None),
+                        };
+                        broadcast_session_message(
+                            &state,
+                            &session_id,
+                            "assistant",
+                            &result.content,
+                            channel_id.as_deref(),
+                            conv_id.as_deref(),
+                        );
                         if let Some(reply) = channel_reply_text(&result) {
                             if let Some((channel_id, conv_id)) =
                                 state.bindings.get_channel_binding(&session_id).await
