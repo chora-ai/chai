@@ -56,7 +56,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
   - **`options`** — Runtime controls: `temperature`, `top_p`, `top_k`, `num_ctx`, `num_predict`, `seed`, `stop`, etc. Would allow per-request or per-model tuning (e.g. lower temperature for tool-heavy flows).
   - **`keep_alive`** — How long to keep the model in memory (e.g. `5m`, `0` to unload). We never send it; Ollama uses its default. Useful to reduce memory when switching models or to keep a model warm.
   - **`format`** — `"json"` or a JSON schema for structured output. Could be used for stricter tool/output shapes.
-  - **`think`** — For reasoning models: `true` or `"high"`/`"medium"`/`"low"` to get separate thinking output. Not used today.
+  - **`think`** — For reasoning models: `true` or `"high"`/`"medium"`/`"low"` to get separate thinking output. Not used in the current implementation.
   - **`logprobs` / `top_logprobs`** — Token-level log probabilities. Not used.
 
 ### Generate (`POST /api/generate`)

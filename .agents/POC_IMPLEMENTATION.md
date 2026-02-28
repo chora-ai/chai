@@ -1,78 +1,24 @@
 # Proof-of-Concept — Implementation
 
-This document is the **detailed implementation reference** for the POC: it explains the main concepts and gives concrete details (CLI, config, modules) for anyone working on or extending the codebase.
+This document is the **detailed technical reference** for the proof-of-concept implementation.
 
-## Concepts
+## Features Added
 
-The following subsections describe how the gateway handles authentication and shutdown, how messages are routed to sessions and back to channels, how tool execution is constrained, how the Telegram channel works, how device pairing works, and how skills are loaded and used by the LLM.
+The following is a concise record of features added in the proof-of-concept implementation (changelog).
 
-### Gateway auth and shutdown
+- **Gateway (CLI + lib)** — Added `chai gateway` with HTTP and WebSocket on one port; connect handshake with optional auth (token or device); `connect.challenge`, device signing, pairing store, deviceToken in hello-ok; graceful shutdown with broadcast and channel await; WS methods `health`, `status`, `send`, `agent`.
+- **Desktop** — Added Start/Stop gateway (spawns `chai gateway`); TCP probe for gateway detection; WebSocket `status` for live details; device identity for connect when fetching status.
+- **Config** — Added `Config` (gateway, channels, agents, skills); load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`; auth required when binding beyond loopback.
+- **Session and routing** — Added in-memory `SessionStore` and `SessionBindingStore`; single-turn agent flow; WS `send` and `agent` with optional channel delivery.
+- **LLM** — Added Ollama client (`list_models`, `chat`, `chat_stream`), tool-call parsing, model discovery at startup; agent loop with non-streaming chat and tool execution (up to 5 iterations).
+- **Channels** — Added Telegram channel (long-poll or webhook); `setWebhook`, `POST /telegram/webhook`, `deleteWebhook` on shutdown; inbound → session → agent → reply; `send_message` for agent replies.
+- **Skills** — Added loader (config dir skills + extraDirs), gating by `metadata.requires.bins`; bundled skills `notesmd-cli` and `obsidian` with SKILL.md and tools.json; generic executor from descriptors; optional read-on-demand (`skills.contextMode`: compact list + `read_skill` tool); optional scripts (`skills.allowScripts`, `scripts/` for param resolution).
+- **Pairing** — Added device signing, pairing store (`~/.chai/paired.json`), deviceToken in hello-ok; desktop device identity and `~/.chai/device_token` persistence; auto-approve when gateway token provided or auth none.
+- **Safe execution** — Allowlisted binary and subcommand execution in `lib/exec` (no shell); allowlist and execution mapping from each skill’s `tools.json`.
 
-When the gateway is bound beyond loopback, authentication is required; on loopback it can be disabled. Shutdown is graceful so that clients and in-process channel tasks can finish cleanly.
+## Implementation Details
 
-- **Auth**: When the gateway binds to a non-loopback address, startup requires auth to be configured (token or device); otherwise the process exits. This avoids exposing an unauthenticated server on the network. On loopback (e.g. 127.0.0.1), auth can be disabled (`gateway.auth.mode: none`). Connect accepts either the shared gateway token (`params.auth.token`) or a device token from the pairing store (`params.auth.deviceToken`).
-- **Shutdown**: On SIGINT or SIGTERM, the server broadcasts a `shutdown` event to all connected WebSocket clients so they can close cleanly, then awaits any registered in-process channel tasks (e.g. the Telegram long-poll loop), then stops accepting new connections and drains in-flight work. There is no timeout; the process exits when the broadcast and channel tasks are done.
-
-### Session and channel routing
-
-Inbound messages from a channel (e.g. Telegram) are mapped to a session by channel and conversation id; one agent turn is run and the reply is sent back via the same channel. The following bullets spell out the stores and the single-turn flow.
-
-- **Session store**: In-memory sessions keyed by session id; each session holds a message history (user, assistant, tool messages) used for the next agent turn.
-- **Binding store**: Maps (channel_id, conversation_id) to session_id. When an inbound message arrives (e.g. from Telegram), the gateway looks up or creates a session for that channel and conversation, appends the user message, runs one agent turn, then sends the reply back via the channel’s `send_message`. Outbound delivery (e.g. after an explicit `agent` request from a client) uses the same binding: if the session is bound to a channel and the reply has non-empty text, it is also delivered to that channel.
-- **Single-turn flow**: Each inbound message or `agent` request triggers one `run_turn` (load history, call Ollama, execute tool calls in a loop up to 5 times, append results). There is no streaming to the channel in this POC; the full reply is sent when the turn completes. Empty replies (e.g. tool-calls only with no text) are not sent to the channel.
-
-### Safe execution
-
-Tool execution for skills is restricted to an allowlist of binaries and subcommands defined in each skill’s **`tools.json`**; there is no shell and no full sandboxing in this POC.
-
-- **Allowlist**: Each skill’s `tools.json` declares which (binary, subcommand) pairs it may run. The generic executor builds argv from the descriptor’s execution mapping and calls `lib/exec::Allowlist::run()`. There is no shell; arguments are passed explicitly. No skill-specific code lives in the lib—bundled skills (notesmd-cli, obsidian) ship with their own `tools.json` under `crates/lib/config/skills/`.
-- **Rationale**: This limits the impact of malicious or buggy model output: the model can only invoke commands declared in the skill descriptor. It does not provide full sandboxing (e.g. filesystem or network isolation) or an exec-approval flow; those are listed under [Next steps beyond the POC](POC_DELIVERABLE.md#next-steps-beyond-the-poc).
-
-### Telegram channel (long-poll vs webhook)
-
-The Telegram channel can run in either long-poll mode (getUpdates in-process) or webhook mode (Telegram POSTs to the gateway). Both produce the same inbound flow; the choice depends on whether the gateway is reachable from the internet.
-
-- **When to use which**: If `channels.telegram.webhookUrl` is set in config, the gateway uses **webhook mode**: it calls the Telegram API `setWebhook(url, secret_token?)`, registers the channel, and does **not** start the getUpdates long-poll loop. Telegram then POSTs updates to that URL. If `webhookUrl` is not set, the gateway uses **long-poll mode**: it runs a getUpdates loop (30 s timeout) in-process and stops it on shutdown. Webhook is useful when the gateway is reachable from the internet (e.g. behind a reverse proxy); long-poll is simpler for local or development setups.
-- **Same inbound flow**: Both modes produce the same `InboundMessage` (channel_id, conversation_id, text) and feed the same processor: get-or-create session, bind, append user message, run one agent turn, send reply via the channel. The webhook endpoint is `POST /telegram/webhook`; an optional `webhookSecret` is checked via the `X-Telegram-Bot-Api-Secret-Token` header.
-- **Shutdown**: On shutdown, if webhook mode was used, the gateway calls `deleteWebhook` so the bot can use getUpdates again after restart (e.g. if you switch back to long-poll). When no Telegram token is configured, the channel is not started.
-
-### Pairing
-
-Pairing is how a new device gains the gateway’s trust (via device signing and an optional device token) so that the user does not have to type the gateway token on every device.
-
-**What pairing is**
-
-Pairing is how the gateway trusts a **device** (laptop, phone, another machine) the first time it connects, without the user typing a shared token on that device.
-
-- Every client can have a **device identity**: a keypair; `deviceId` is a fingerprint of the public key.
-- When a **new** device connects, the gateway can require **proof that the client holds the private key**: the gateway sends a **`connect.challenge`** event (nonce + ts); the client signs a canonical payload (deviceId, client id/mode, role, scopes, signedAt, token, nonce) and sends `connect` with `params.device`: `{ id, publicKey, signature, signedAt, nonce }`.
-- The gateway verifies the signature. If the device is not yet in the **pairing store**, the POC **auto-approves** when the client has already provided the gateway token (or auth is none): it issues a **device token**, stores it in `~/.chai/paired.json`, and returns it in `hello-ok.auth.deviceToken`. The client can persist that token and use `params.auth.deviceToken` on later connects so it does not need to sign again.
-
-**Implemented in this POC**
-
-- **Gateway**: On WebSocket open, send `connect.challenge` (nonce UUID v4, ts ms). Connect handler accepts optional `params.device` (verify nonce + Ed25519 signature) and optional `params.auth.deviceToken` (lookup in pairing store). Pairing store: add or look up by device id; issue and persist device token; return `auth: { deviceToken, role, scopes }` in hello-ok when applicable.
-- **Desktop**: When fetching gateway status, read first frame (challenge), then send connect. If `~/.chai/device_token` exists, send only `auth.deviceToken`. Otherwise load or create `~/.chai/device.json` (Ed25519 keypair), sign the same canonical payload, send `params.device` and optional `auth.token`; on hello-ok, persist `auth.deviceToken` to `~/.chai/device_token`.
-
-**Possible future work**
-
-- Pending pairing requests with operator approval (CLI/UI) instead of auto-approve.
-- Device token rotation/revocation.
-- CLI using device identity when connecting to a remote gateway.
-
-### Skills and the LLM
-
-Skills are loaded at gateway startup from the primary skill root (default `~/.chai/skills`, or **`skills.directory`** in config) and any **skills.extraDirs**. Each skill is a directory with **`SKILL.md`** (YAML frontmatter: name, description) and optionally **`tools.json`** (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` contribute callable tools; skills without it are still loaded for context.
-
-**Skill context mode** (`skills.contextMode` in config):
-
-- **`full`** (default): The system message includes the **full content** (name, description, full SKILL.md body) of every loaded skill. The model sees the entire skill set and can use the tools (e.g. notesmd_cli_search, obsidian_create) when relevant. Best for few skills and smaller local models.
-- **`readOnDemand`**: The system message contains only a **compact list** (name + description per skill) and instructions to use the **`read_skill(skill_name)`** tool to load a skill’s full SKILL.md when it clearly applies. The gateway registers `read_skill` and a wrapper executor returns that skill’s content in-process. Keeps the prompt small and scales to many skills; aligns with OpenClaw’s pattern.
-
-**Tool execution**: Tool list and executor are built only from skills’ `tools.json` descriptors. A single **generic executor** builds argv from each tool’s execution spec (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`lib/exec`). When **`skills.allowScripts`** is true, tools can use `resolveCommand.script` to run scripts from the skill’s **`scripts/`** directory for param resolution (no allowlist entry). No hardcoded skill code in the lib. Bundled skills (notesmd-cli, obsidian) live under `crates/lib/config/skills/` with their own SKILL.md and tools.json. Gating: if a skill declares `metadata.requires.bins`, it is loaded only when all listed binaries are on PATH. The agent loop runs up to 5 tool-iteration steps per turn.
-
-## Reference
-
-The following subsections are a concrete reference for developers: CLI and desktop behavior, config, gateway server, session/routing/agent, LLM, channels, skills, and how the crates fit together.
+The following subsections are a reference for developers: CLI and desktop behavior, config, gateway server, session/routing/agent, LLM, Ollama model discovery, channels, skills, modularity, and how the crates fit together.
 
 ### CLI
 
@@ -146,16 +92,134 @@ The following subsections are a concrete reference for developers: CLI and deskt
 - Desktop reuses lib: same config, gateway types, Ollama client, channel registry, skill loader, device identity.
 - CLI runs gateway in-process; desktop spawns CLI subprocess for Start gateway.
 
-## Changelog
 
-A concise record of what was implemented in the POC.
+## Key Concepts Explained
 
-- **Gateway (CLI + lib)** — Added `chai gateway` with HTTP and WebSocket on one port; connect handshake with optional auth (token or device); `connect.challenge`, device signing, pairing store, deviceToken in hello-ok; graceful shutdown with broadcast and channel await; WS methods `health`, `status`, `send`, `agent`.
-- **Desktop** — Added Start/Stop gateway (spawns `chai gateway`); TCP probe for gateway detection; WebSocket `status` for live details; device identity for connect when fetching status.
-- **Config** — Added `Config` (gateway, channels, agents, skills); load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`; auth required when binding beyond loopback.
-- **Session and routing** — Added in-memory `SessionStore` and `SessionBindingStore`; single-turn agent flow; WS `send` and `agent` with optional channel delivery.
-- **LLM** — Added Ollama client (`list_models`, `chat`, `chat_stream`), tool-call parsing, model discovery at startup; agent loop with non-streaming chat and tool execution (up to 5 iterations).
-- **Channels** — Added Telegram channel (long-poll or webhook); `setWebhook`, `POST /telegram/webhook`, `deleteWebhook` on shutdown; inbound → session → agent → reply; `send_message` for agent replies.
-- **Skills** — Added loader (config dir skills + extraDirs), gating by `metadata.requires.bins`; bundled skills `notesmd-cli` and `obsidian` with SKILL.md and tools.json; generic executor from descriptors; optional read-on-demand (`skills.contextMode`: compact list + `read_skill` tool); optional scripts (`skills.allowScripts`, `scripts/` for param resolution).
-- **Pairing** — Added device signing, pairing store (`~/.chai/paired.json`), deviceToken in hello-ok; desktop device identity and `~/.chai/device_token` persistence; auto-approve when gateway token provided or auth none.
-- **Safe execution** — Allowlisted binary and subcommand execution in `lib/exec` (no shell); allowlist and execution mapping from each skill’s `tools.json`.
+The following subsections describe how the gateway handles authentication and shutdown, how messages are routed to sessions and back to channels, how tool execution is constrained, how the Telegram channel works, how device pairing works, and how skills are loaded and used by the LLM.
+
+### Gateway auth and shutdown
+
+When the gateway is bound beyond loopback, authentication is required; on loopback it can be disabled. Shutdown is graceful so that clients and in-process channel tasks can finish cleanly.
+
+- **Auth**: When the gateway binds to a non-loopback address, startup requires auth to be configured (token or device); otherwise the process exits. This avoids exposing an unauthenticated server on the network. On loopback (e.g. 127.0.0.1), auth can be disabled (`gateway.auth.mode: none`). Connect accepts either the shared gateway token (`params.auth.token`) or a device token from the pairing store (`params.auth.deviceToken`).
+- **Shutdown**: On SIGINT or SIGTERM, the server broadcasts a `shutdown` event to all connected WebSocket clients so they can close cleanly, then awaits any registered in-process channel tasks (e.g. the Telegram long-poll loop), then stops accepting new connections and drains in-flight work. There is no timeout; the process exits when the broadcast and channel tasks are done.
+
+### Session and channel routing
+
+Inbound messages from a channel (e.g. Telegram) are mapped to a session by channel and conversation id; one agent turn is run and the reply is sent back via the same channel. The following bullets spell out the stores and the single-turn flow.
+
+- **Session store**: In-memory sessions keyed by session id; each session holds a message history (user, assistant, tool messages) used for the next agent turn.
+- **Binding store**: Maps (channel_id, conversation_id) to session_id. When an inbound message arrives (e.g. from Telegram), the gateway looks up or creates a session for that channel and conversation, appends the user message, runs one agent turn, then sends the reply back via the channel’s `send_message`. Outbound delivery (e.g. after an explicit `agent` request from a client) uses the same binding: if the session is bound to a channel and the reply has non-empty text, it is also delivered to that channel.
+- **Single-turn flow**: Each inbound message or `agent` request triggers one `run_turn` (load history, call Ollama, execute tool calls in a loop up to 5 times, append results). There is no streaming to the channel in this POC; the full reply is sent when the turn completes. Empty replies (e.g. tool-calls only with no text) are not sent to the channel.
+
+### Safe execution
+
+Tool execution for skills is restricted to an allowlist of binaries and subcommands defined in each skill’s **`tools.json`**; there is no shell and no full sandboxing in this POC.
+
+- **Allowlist**: Each skill’s `tools.json` declares which (binary, subcommand) pairs it may run. The generic executor builds argv from the descriptor’s execution mapping and calls `lib/exec::Allowlist::run()`. There is no shell; arguments are passed explicitly. No skill-specific code lives in the lib—bundled skills (notesmd-cli, obsidian) ship with their own `tools.json` under `crates/lib/config/skills/`.
+- **Rationale**: This limits the impact of malicious or buggy model output: the model can only invoke commands declared in the skill descriptor. It does not provide full sandboxing (e.g. filesystem or network isolation) or an exec-approval flow; those are listed under [What Comes Next](POC_DELIVERABLE.md#what-comes-next).
+
+### Telegram channel (long-poll vs webhook)
+
+The Telegram channel can run in either long-poll mode (getUpdates in-process) or webhook mode (Telegram POSTs to the gateway). Both produce the same inbound flow; the choice depends on whether the gateway is reachable from the internet.
+
+- **When to use which**: If `channels.telegram.webhookUrl` is set in config, the gateway uses **webhook mode**: it calls the Telegram API `setWebhook(url, secret_token?)`, registers the channel, and does **not** start the getUpdates long-poll loop. Telegram then POSTs updates to that URL. If `webhookUrl` is not set, the gateway uses **long-poll mode**: it runs a getUpdates loop (30 s timeout) in-process and stops it on shutdown. Webhook is useful when the gateway is reachable from the internet (e.g. behind a reverse proxy); long-poll is simpler for local or development setups.
+- **Same inbound flow**: Both modes produce the same `InboundMessage` (channel_id, conversation_id, text) and feed the same processor: get-or-create session, bind, append user message, run one agent turn, send reply via the channel. The webhook endpoint is `POST /telegram/webhook`; an optional `webhookSecret` is checked via the `X-Telegram-Bot-Api-Secret-Token` header.
+- **Shutdown**: On shutdown, if webhook mode was used, the gateway calls `deleteWebhook` so the bot can use getUpdates again after restart (e.g. if you switch back to long-poll). When no Telegram token is configured, the channel is not started.
+
+### Pairing
+
+Pairing is how a new device gains the gateway’s trust (via device signing and an optional device token) so that the user does not have to type the gateway token on every device.
+
+**What pairing is**
+
+Pairing is how the gateway trusts a **device** (laptop, phone, another machine) the first time it connects, without the user typing a shared token on that device.
+
+- Every client can have a **device identity**: a keypair; `deviceId` is a fingerprint of the public key.
+- When a **new** device connects, the gateway can require **proof that the client holds the private key**: the gateway sends a **`connect.challenge`** event (nonce + ts); the client signs a canonical payload (deviceId, client id/mode, role, scopes, signedAt, token, nonce) and sends `connect` with `params.device`: `{ id, publicKey, signature, signedAt, nonce }`.
+- The gateway verifies the signature. If the device is not yet in the **pairing store**, the POC **auto-approves** when the client has already provided the gateway token (or auth is none): it issues a **device token**, stores it in `~/.chai/paired.json`, and returns it in `hello-ok.auth.deviceToken`. The client can persist that token and use `params.auth.deviceToken` on later connects so it does not need to sign again.
+
+**Implemented in this POC**
+
+- **Gateway**: On WebSocket open, send `connect.challenge` (nonce UUID v4, ts ms). Connect handler accepts optional `params.device` (verify nonce + Ed25519 signature) and optional `params.auth.deviceToken` (lookup in pairing store). Pairing store: add or look up by device id; issue and persist device token; return `auth: { deviceToken, role, scopes }` in hello-ok when applicable.
+- **Desktop**: When fetching gateway status, read first frame (challenge), then send connect. If `~/.chai/device_token` exists, send only `auth.deviceToken`. Otherwise load or create `~/.chai/device.json` (Ed25519 keypair), sign the same canonical payload, send `params.device` and optional `auth.token`; on hello-ok, persist `auth.deviceToken` to `~/.chai/device_token`.
+
+**Possible future work**
+
+- Pending pairing requests with operator approval (CLI/UI) instead of auto-approve.
+- Device token rotation/revocation.
+- CLI using device identity when connecting to a remote gateway.
+
+### Skills and the LLM
+
+Skills are loaded at gateway startup from the primary skill root (default `~/.chai/skills`, or **`skills.directory`** in config) and any **skills.extraDirs**. Each skill is a directory with **`SKILL.md`** (YAML frontmatter: name, description) and optionally **`tools.json`** (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` contribute callable tools; skills without it are still loaded for context.
+
+**Skill context mode** (`skills.contextMode` in config):
+
+- **`full`** (default): The system message includes the **full content** (name, description, full SKILL.md body) of every loaded skill. The model sees the entire skill set and can use the tools (e.g. notesmd_cli_search, obsidian_create) when relevant. Best for few skills and smaller local models.
+- **`readOnDemand`**: The system message contains only a **compact list** (name + description per skill) and instructions to use the **`read_skill(skill_name)`** tool to load a skill’s full SKILL.md when it clearly applies. The gateway registers `read_skill` and a wrapper executor returns that skill’s content in-process. Keeps the prompt small and scales to many skills; aligns with OpenClaw’s pattern.
+
+**Tool execution**: Tool list and executor are built only from skills’ `tools.json` descriptors. A single **generic executor** builds argv from each tool’s execution spec (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`lib/exec`). When **`skills.allowScripts`** is true, tools can use `resolveCommand.script` to run scripts from the skill’s **`scripts/`** directory for param resolution (no allowlist entry). No hardcoded skill code in the lib. Bundled skills (notesmd-cli, obsidian) live under `crates/lib/config/skills/` with their own SKILL.md and tools.json. Gating: if a skill declares `metadata.requires.bins`, it is loaded only when all listed binaries are on PATH. The agent loop runs up to 5 tool-iteration steps per turn.
+
+
+## Differences from OpenClaw
+
+The following is based on the OpenClaw documentation and code. It summarizes how this POC implementation differs from OpenClaw, not a full feature comparison. For continuation work (e.g. adding pending pairing, read-on-demand skills, exec approvals), a more detailed reference extracted from OpenClaw is in [OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md).
+
+| Area | This POC (Chai) | OpenClaw (from docs) |
+|------|-------------------|------------------------|
+| **Language & stack** | Rust; single binary (CLI) + desktop (egui/eframe). | TypeScript/Node; CLI, gateway, web UI, macOS app; plugins/extensions. |
+| **Scope** | One channel (Telegram), two bundled skills (notesmd-cli, Obsidian), one LLM (Ollama). | Many channels (Telegram, Discord, Slack, Signal, etc.), many skills, multiple LLM providers; nodes (iOS/Android), plugins. |
+| **Gateway protocol** | Connect handshake with `connect.challenge`, optional `params.device`, optional `params.auth.deviceToken`; hello-ok with optional `auth.deviceToken`; methods `health`, `status`, `send`, `agent`. Protocol version 1. | Same connect.challenge/device/deviceToken idea; protocol version 3; roles (operator/node), scopes, caps/commands/permissions for nodes; presence (`system-presence`); idempotency keys; `device.token.rotate`/`device.token.revoke`; TLS and cert pinning. |
+| **Pairing** | Device signing + pairing store; **auto-approve** when client provides gateway token (or auth is none). No pending-request UI or CLI. Store: `~/.chai/paired.json`. | Device signing; **pending requests** with approval/reject (CLI: `nodes pending`, `nodes approve`/`reject`; events `node.pair.requested`/`node.pair.resolved`). Optional silent approval (e.g. SSH to gateway host). Pending requests expire (e.g. 5 min). Separate `node.pair.*` API for node pairing. |
+| **Skills in the agent** | **Full or compact**: `skills.contextMode` **`full`** (default; full SKILL.md per skill in system message) or **`readOnDemand`** (compact list + **`read_skill`** tool to load SKILL.md on demand). Tools from skills’ `tools.json`; optional scripts for param resolution when `skills.allowScripts`. | **Compact list** in system prompt (name, description, path); model is instructed to use a **`read` tool** to load SKILL.md **on demand** when a skill applies. Keeps base prompt smaller; scales to many skills. |
+| **Agent loop** | Single turn: load session, append user message, call Ollama (with skill context and tools), parse tool calls, execute via allowlist, optionally re-call model (max 5 tool iterations); return reply and optionally deliver to channel. | pi-agent-core; streaming lifecycle events; `agent` RPC returns `runId`; `agent.wait` for completion; hooks (e.g. `agent:bootstrap`); queue and concurrency control; workspace bootstrap (AGENTS.md, SOUL.md, etc.); sandboxing. |
+| **Channels** | Telegram only; long-poll or webhook. | Many channels; extensions for additional channels; channel-specific config (e.g. topics, allowlists). |
+| **Security / ops** | Gateway token or deviceToken; loopback vs non-loopback bind; no sandboxing, no exec-approval flow, no plugin isolation. | Tool policy, exec approvals, sandboxing, channel allowlists; control UI can disable device auth (break-glass); TLS pinning. |
+
+## LLM Services and API Alignment
+
+This section describes the current LLM integration and what would be required to support other services and models. For the full list of services, model families, and test procedures, see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md).
+
+### Current Implementation
+
+One LLM path only. The agent calls `OllamaClient` (in `crates/lib/src/llm/ollama.rs`), using **Ollama’s native API**: `GET /api/tags` for model discovery and `POST /api/chat` for chat with optional `tools` and `tool_calls`. Config uses `agents.default_model` as the Ollama model name (e.g. `llama3:latest`).
+
+### Models in Scope
+
+The current implementation supports any model available in Ollama (e.g. `llama3:latest`, `qwen3:8b`, `gemma2:9b`, `deepseek-1:7b`). Planned backends define their own model identifiers (Hugging Face model IDs, OpenAI model IDs, etc.). For a cross-reference of model families (Llama, Qwen, Gemma, DeepSeek, Mistral, GPT), see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#models-by-service).
+
+### API Shape by Service
+
+**Ollama (native) — implemented**
+
+- Messages: `role`, `content`, optional `tool_calls`; tool results use `role: "tool"` and **`tool_name`**. Streaming: NDJSON. No API key by default.
+
+**OpenAI — planned**
+
+- Chat Completions use a different shape (e.g. tool results keyed by **`tool_call_id`**). Streaming: SSE with different chunk structure. Requires API key and remote base URL.
+
+**Hugging Face (TGI, Inference Endpoints) — planned**
+
+- Text Generation Inference exposes an **OpenAI-compatible** Messages API (`/v1/chat/completions`), not the native Ollama API. One OpenAI-style client or adapter could cover both OpenAI and Hugging Face; auth and base URL handling would be required.
+
+**Claude (Anthropic), Gemini (Google) — planned**
+
+- Third-party cloud APIs with their own request/response and tool-calling shapes. Each would need a provider-specific client and an adapter from the gateway’s internal message/tool format.
+
+**Local (beyond Ollama)**
+
+- **LM Studio** — Planned. Integration depends on whether it exposes an Ollama-compatible or OpenAI-compatible API; documentation or a small probe would be needed to align.
+- **llama.cpp** — Planned (often used as a server). Same as above: if the server exposes Ollama’s `/api/chat` and `/api/tags`, the current code works; otherwise a new client path is needed.
+
+**Self-hosted**
+
+- **LocalAI** — Planned. Can expose either the native Ollama API or an OpenAI-compat endpoint. In **Ollama mode** the current code works without changes. In OpenAI-compat mode, same as Hugging Face/OpenAI.
+- **vLLM** — Planned. Typically exposes an OpenAI-compatible API; would use the same adapter path as OpenAI/Hugging Face.
+
+### Implementation Implications
+
+- **Ollama or Ollama-compatible** (e.g. LocalAI in Ollama mode, or any server exposing `/api/chat` and `/api/tags`): no gateway code changes.
+- **LM Studio, llama.cpp**: depend on the API they expose; if Ollama-native, reuse current client; otherwise treat like OpenAI-compat or add a dedicated path.
+- **OpenAI-style** (OpenAI, Hugging Face TGI/Inference Endpoints, vLLM, or LocalAI in OpenAI-compat mode): one shared client/adapter for chat + tools, with provider-specific config (base URL, API key). Message and tool formats must be translated to/from the gateway’s internal shape (e.g. `tool_name` ↔ `tool_call_id`).
+- **Claude, Gemini**: separate client and adapter per provider unless a common abstraction is introduced.

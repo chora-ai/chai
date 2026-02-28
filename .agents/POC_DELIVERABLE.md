@@ -1,6 +1,8 @@
 # Proof-of-Concept — Deliverable
 
-This document is a **record of what was completed** during the proof-of-concept implementation.
+This document is the **high-level summary** of the proof-of-concept implementation and next steps.
+
+## What Was Targeted
 
 The POC followed the short-term goals described in [VISION.md](../VISION.md):
 
@@ -10,36 +12,65 @@ The POC followed the short-term goals described in [VISION.md](../VISION.md):
 4. Support for at least one skill (managing an Obsidian vault)  
 5. A modular architecture that makes it easy to extend the above  
 
-## What was completed
+## What Was Completed
 
-- **Gateway (CLI + Desktop + lib)** — HTTP and WebSocket on one port; connect handshake with optional auth (token or device); `connect.challenge`, device signing, pairing store, and deviceToken in hello-ok; graceful shutdown with broadcast and channel await; WS methods: `health`, `status`, `send`, `agent`. See [Pairing](POC_IMPLEMENTATION.md#pairing) for device/pairing details.
-- **LLM** — Ollama client (list_models, chat, chat_stream), tool-call parsing, model discovery at startup; agent loop uses non-streaming chat with optional streaming and tool execution. See [Skills and the LLM](POC_IMPLEMENTATION.md#skills-and-the-llm) for how skills and context are used.
-- **Channels** — One channel: Telegram (long-polling or webhook). Config, registry, inbound → session → agent → reply; `send_message` for agent replies. Webhook: `setWebhook`, `POST /telegram/webhook`, `deleteWebhook` on shutdown.
-- **Skills** — Loader from config dir `skills` (~/.chai/skills) and config `skills.extraDirs`; gating by `metadata.requires.bins`; two bundled skills: `notesmd-cli` and `obsidian` (each with `SKILL.md` and `tools.json`; optional `scripts/` when `skills.allowScripts`). See [Skills and the LLM](POC_IMPLEMENTATION.md#skills-and-the-llm).
-- **Modularity** — lib modules: config, gateway, llm, channels, skills, exec, tools, device. CLI and desktop both use lib; desktop spawns `chai gateway` for Start gateway and uses device identity for connect when fetching status.
+### 1. Gateway (CLI and Desktop)
+
+The proof-of-concept implementation includes a working gateway you can run from either the CLI or the desktop app. It provides a single place for channels and clients to send messages, and it returns the agent’s reply back through the same channel. Pairing and authentication are included so the gateway can be used more safely beyond a single machine. See [Pairing](POC_IMPLEMENTATION.md#pairing).
+
+### 2. Local Models (Ollama)
+
+The proof-of-concept implementation supports running a local model via Ollama, including basic model discovery and the chat-style interaction needed for the agent loop. This is the privacy-preserving baseline for model usage in the POC. See [LLM (Ollama)](POC_IMPLEMENTATION.md#llm-ollama).
+
+### 3. Communication Channel (Telegram)
+
+The proof-of-concept implementation includes a Telegram channel so the agent can be used from a familiar chat interface. Messages flow from Telegram → gateway → agent → Telegram, with support for both webhook and long-poll setups depending on where the gateway is running.
+
+### 4. Skill Support (Obsidian Vault Management)
+
+The proof-of-concept implementation includes skills that let the agent take concrete actions, with an initial focus on managing an Obsidian vault (and related note workflows). Skills are loaded from a directory and can expose well-defined tools that the agent can call when needed. See [Skills and the LLM](POC_IMPLEMENTATION.md#skills-and-the-llm).
+
+### 5. Modular Architecture
+
+The proof-of-concept implementation is organized so the gateway, model integration, channels, skills, and safe execution can evolve independently. This is intended to make it straightforward to add more channels, more skills, and additional model/provider options as the project moves beyond the POC.
 
 For more details about the implementation, see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md).
 
-## Differences from OpenClaw
+## What Comes Next
 
-The following is based on the OpenClaw documentation and code. It summarizes how this POC implementation differs from OpenClaw, not a full feature comparison. For continuation work (e.g. adding pending pairing, read-on-demand skills, exec approvals), a more detailed reference extracted from OpenClaw is in [OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md).
+These are natural extensions once the proof-of-concept implementation is accepted; they are not part of the current deliverable. The POC intentionally starts with a small, privacy-friendly baseline (local models via Ollama, one channel, a couple of skills) and a modular architecture that can expand.
 
-| Area | This POC (Chai) | OpenClaw (from docs) |
-|------|-------------------|------------------------|
-| **Language & stack** | Rust; single binary (CLI) + desktop (egui/eframe). | TypeScript/Node; CLI, gateway, web UI, macOS app; plugins/extensions. |
-| **Scope** | One channel (Telegram), two bundled skills (notesmd-cli, Obsidian), one LLM (Ollama). | Many channels (Telegram, Discord, Slack, Signal, etc.), many skills, multiple LLM providers; nodes (iOS/Android), plugins. |
-| **Gateway protocol** | Connect handshake with `connect.challenge`, optional `params.device`, optional `params.auth.deviceToken`; hello-ok with optional `auth.deviceToken`; methods `health`, `status`, `send`, `agent`. Protocol version 1. | Same connect.challenge/device/deviceToken idea; protocol version 3; roles (operator/node), scopes, caps/commands/permissions for nodes; presence (`system-presence`); idempotency keys; `device.token.rotate`/`device.token.revoke`; TLS and cert pinning. |
-| **Pairing** | Device signing + pairing store; **auto-approve** when client provides gateway token (or auth is none). No pending-request UI or CLI. Store: `~/.chai/paired.json`. | Device signing; **pending requests** with approval/reject (CLI: `nodes pending`, `nodes approve`/`reject`; events `node.pair.requested`/`node.pair.resolved`). Optional silent approval (e.g. SSH to gateway host). Pending requests expire (e.g. 5 min). Separate `node.pair.*` API for node pairing. |
-| **Skills in the agent** | **Full or compact**: `skills.contextMode` **`full`** (default; full SKILL.md per skill in system message) or **`readOnDemand`** (compact list + **`read_skill`** tool to load SKILL.md on demand). Tools from skills’ `tools.json`; optional scripts for param resolution when `skills.allowScripts`. | **Compact list** in system prompt (name, description, path); model is instructed to use a **`read` tool** to load SKILL.md **on demand** when a skill applies. Keeps base prompt smaller; scales to many skills. |
-| **Agent loop** | Single turn: load session, append user message, call Ollama (with skill context and tools), parse tool calls, execute via allowlist, optionally re-call model (max 5 tool iterations); return reply and optionally deliver to channel. | pi-agent-core; streaming lifecycle events; `agent` RPC returns `runId`; `agent.wait` for completion; hooks (e.g. `agent:bootstrap`); queue and concurrency control; workspace bootstrap (AGENTS.md, SOUL.md, etc.); sandboxing. |
-| **Channels** | Telegram only; long-poll or webhook. | Many channels; extensions for additional channels; channel-specific config (e.g. topics, allowlists). |
-| **Security / ops** | Gateway token or deviceToken; loopback vs non-loopback bind; no sandboxing, no exec-approval flow, no plugin isolation. | Tool policy, exec approvals, sandboxing, channel allowlists; control UI can disable device auth (break-glass); TLS pinning. |
+For deeper technical detail about what exists and how it works, see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md). For planned model/provider directions (local, self-hosted, third-party), see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md).
 
-## Next steps beyond the POC
+### Improve Security and Trust
 
-These are natural extensions once the POC is accepted; they are not part of the current deliverable.
+- **Add approval-based pairing**: Instead of automatically trusting new devices, add a simple “approve / reject” flow in the CLI or desktop UI (inspired by the OpenClaw comparison in [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md#differences-from-openclaw)).
+- **Tighten remote operation**: Add stronger defaults for running the gateway outside your machine (e.g. easier secure setup, clearer operator controls, and a safer emergency access path).
 
-- **Gateway / pairing** — Pending pairing approval (operator UI or CLI) instead of auto-approve; device token rotation/revocation; optional TLS and cert pinning; protocol versioning and schema generation.
-- **Skills and agent** — Further skill scaling; workspace bootstrap files (e.g. AGENTS.md, identity); streaming agent replies and lifecycle events; exec-approval flow and sandboxing.
-- **Channels and clients** — Additional channels (e.g. Discord, Slack); CLI use of device identity when connecting to a remote gateway; richer desktop UI (sessions, logs, model selection).
-- **Platform** — Packaging and distribution (e.g. installers); optional plugins/extensions model; documentation and operator runbooks.
+### Improve Agent Experience and Visibility
+
+- **Make replies feel faster**: Stream responses in chat UIs where it makes sense, so users see progress instead of waiting for the full reply.
+- **Make runs easier to understand**: Show what the agent is doing (high-level steps, tool usage) in the desktop UI and logs without exposing sensitive content unnecessarily.
+
+### Expand Skills While Staying Safe
+
+- **Scale skill usage**: Support larger skill libraries with clear organization and a smooth “discover and load what you need” experience.
+- **Add a safer execution experience**: Add an explicit approval step and/or a restricted execution environment for high-impact actions, so the system stays privacy- and safety-preserving as capabilities grow.
+
+### Add More Model and Provider Options (Privacy-Preserving First)
+
+- **Local options**: Add additional local runtimes such as LM Studio (see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#services-at-a-glance)).
+- **Self-hosted options**: Support running models on your own servers (for privacy, cost control, and customization) using common stacks like Hugging Face TGI, vLLM, LocalAI, or llama.cpp.
+- **Third-party options**: Support hosted APIs such as OpenAI, Anthropic, and Google for cases where the workload is low-sensitivity or needs a specific capability.
+- **Hybrid routing**: Enable a “default to local/self-hosted” posture and allow third-party services only when appropriate (see the hybrid and privacy framing in [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#hybrid-approaches-are-common)).
+- **Multi-agent orchestration**: Over time, allow an orchestrator agent to delegate different subtasks to different models or agents based on what each is best at, while respecting privacy boundaries.
+
+### Expand Channels and Clients
+
+- **More channels**: Add additional communication channels (e.g. Discord, Slack) so the agent can live where teams already work.
+- **Better desktop experience**: Add richer UI features (sessions, logs, model selection) so operators can manage the system without digging into configuration files.
+
+### Make It Easier to Operate and Distribute
+
+- **Packaging and distribution**: Provide installers and a smooth setup experience.
+- **Documentation and runbooks**: Add operator-focused docs for setup, troubleshooting, upgrades, and secure configurations.

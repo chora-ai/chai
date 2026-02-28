@@ -110,30 +110,14 @@ Create, read, update, and search notes when the user asks.
 | Session messages | Session store | Every turn | All messages for that session (e.g. one user message after `/new`). |
 | Tools | Skills’ `tools.json` (and built-in `read_skill` when contextMode is readOnDemand) | Startup (list fixed) | `Vec<ToolDefinition>` from descriptors + optional read_skill; sent in the Ollama chat request as `tools`. |
 
-## What Is Sent Every Turn
+## Efficiency and Possible Improvements
 
-- **Session messages** — Loaded from the session store on every turn (`store.get(session_id)` in `run_turn`). The model always sees the current conversation history.
-- **System message** — The string is built every turn via `build_system_context(agent_ctx, skills)`. The inputs (`agent_ctx` and `skills`) are not re-read from disk; they were loaded at gateway startup and live in `GatewayState`. So the system text is recomputed each turn from in-memory data. Changes to `AGENTS.md` or `SKILL.md` on disk take effect only after a gateway restart.
-- **Tools** — The list is built once at startup from loaded skills’ `tools.json` descriptors (and optional `read_skill` when context mode is readOnDemand). Same list every turn; no disk read per turn.
+The chat API is stateless: each request is independent, so the gateway sends the system message, full session history, and tool list on every turn. That is required for correct behavior.
 
-## What Might Be More Efficient
+**Possible improvements**
 
-**Why each is sent every turn**
+- **System message** — Cache the built system string (e.g. in `GatewayState`) and reuse it each turn instead of calling `build_system_context` every time. Same bytes sent, less work per turn. Could build once at startup or when config is reloaded.
+- **Session history** — Optionally cap length (e.g. last N messages or N tokens) for very long chats to save tokens; this can weaken the model’s ability on long conversations, so it’s a tradeoff.
+- **Tools** — No way to avoid sending them each request with the current API; the payload is small.
 
-- **System message** — The API is stateless. Ollama doesn't remember the system prompt between requests, so we have to send it on every call. Omitting it on later turns would make the model "forget" the rules.
-- **Session messages** — The model needs conversation history to respond in context. We send the full history so it doesn't lose earlier context. The only way to reduce tokens is to send less history (e.g. sliding window or summarization), which can degrade quality.
-- **Tools** — With Ollama's chat API, tool definitions are part of the request. There's no "tools already sent" state; each `/api/chat` call is independent. So if we want the model to be able to call tools on that turn, we have to send the tool list every time.
-
-**What can be made more efficient**
-
-- **System** — We already trimmed AGENTS.md and the skill. We could cache the built system string (e.g. in `GatewayState`) and reuse it each turn instead of calling `build_system_context` every time. Same bytes sent, less work per turn.
-- **Session** — We could add an optional history limit (e.g. last N messages or last N tokens) for very long chats. That saves tokens and cost but can weaken the model's ability on long conversations. So it's a tradeoff, not a free win.
-- **Tools** — No way to avoid sending them each request with the current API; the payload is small (a few KB of JSON).
-
-**Summary**
-
-- System + session + tools are all "necessary" every turn in the sense that the API and behavior we want require them.
-- We can improve efficiency by: (1) caching the system string, and (2) optionally capping session length for long chats, with the understanding that (2) may reduce quality in those long sessions.
-- Implementation options: build the system string once at startup (or when config is reloaded) and reuse it each turn; and/or add an optional session-history cap (e.g. in `agent.rs` or the gateway).
-
-To see the **exact** system string your gateway sends, add a temporary log in `gateway/server.rs` where `build_system_context` is called (e.g. in `process_inbound_message`), and log `system_context` before `run_turn`. The tool list is fixed at startup from skills’ `tools.json` and (when readOnDemand) the built-in `read_skill` definition.
+**Debug tip:** To see the exact system string the gateway sends, add a temporary log in `gateway/server.rs` where `build_system_context` is called (e.g. in `process_inbound_message`), and log `system_context` before `run_turn`.
