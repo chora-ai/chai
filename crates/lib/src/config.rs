@@ -158,14 +158,85 @@ pub struct TelegramChannelConfig {
     pub webhook_secret: Option<String>,
 }
 
-/// Agent defaults (model, workspace).
+/// Agent defaults (backend, model, workspace, enabled backends for discovery).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentsConfig {
-    /// Default Ollama model: use the exact name from `ollama list` (e.g. "llama3.2:latest", "qwen3:8b"). Do not add extra segments like ":latest" unless that tag exists for the model.
+    /// Which LLM backend to use: "ollama" or "lmstudio". When absent, defaults to "ollama".
+    #[serde(default)]
+    pub default_backend: Option<String>,
+    /// Model id for the selected backend. Use the id format the backend expects (e.g. for Ollama "llama3.2:latest"; for LM Studio "openai/gpt-oss-20b", "ibm/granite-4-micro"). Not used for routing—backend is chosen by defaultBackend.
     pub default_model: Option<String>,
+    /// Backends to fetch models from at startup (e.g. `["ollama", "lmstudio"]`). Opt-in: when absent or empty, only the default backend (from defaultBackend) is discovered; when set, only listed backends are polled.
+    #[serde(default)]
+    pub enabled_backends: Option<Vec<String>>,
     /// Workspace root (default ~/.chai/workspace).
     pub workspace: Option<PathBuf>,
+    /// Optional per-backend settings (base URLs, LM Studio endpoint type).
+    #[serde(default)]
+    pub backends: Option<BackendsConfig>,
+}
+
+/// Per-backend configuration (base URL, endpoint type where applicable).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BackendsConfig {
+    #[serde(default)]
+    pub ollama: Option<OllamaBackendEntry>,
+    #[serde(default)]
+    pub lm_studio: Option<LmStudioBackendEntry>,
+}
+
+/// Ollama backend entry (e.g. base URL override).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OllamaBackendEntry {
+    pub base_url: Option<String>,
+}
+
+/// LM Studio backend entry: base URL and endpoint type (openai vs native).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LmStudioBackendEntry {
+    pub base_url: Option<String>,
+    /// "openai" (OpenAI-compatible API) or "native" (LM Studio native /api/v1/chat). Default "openai".
+    #[serde(default)]
+    pub endpoint_type: Option<LmStudioEndpointType>,
+}
+
+/// LM Studio endpoint type: OpenAI-compatible API or native API. LM Studio does not expose Ollama endpoints.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LmStudioEndpointType {
+    /// OpenAI-compatible /v1/models and /v1/chat/completions (supports tools).
+    #[default]
+    Openai,
+    /// LM Studio native /api/v1/models and /api/v1/chat (no custom tools in this implementation).
+    Native,
+}
+
+/// Resolve LM Studio base URL: agents.backends.lmStudio.baseUrl, else default.
+pub fn resolve_lm_studio_base_url(agents: &AgentsConfig) -> String {
+    agents
+        .backends
+        .as_ref()
+        .and_then(|b| b.lm_studio.as_ref())
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:1234/v1".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Resolve LM Studio endpoint type: agents.backends.lmStudio.endpointType, else openai.
+pub fn resolve_lm_studio_endpoint_type(agents: &AgentsConfig) -> LmStudioEndpointType {
+    agents
+        .backends
+        .as_ref()
+        .and_then(|b| b.lm_studio.as_ref())
+        .and_then(|e| e.endpoint_type)
+        .unwrap_or_default()
 }
 
 /// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
@@ -179,7 +250,7 @@ pub enum SkillContextMode {
     ReadOnDemand,
 }
 
-/// Skills load config (dirs, gating, disabled list, context mode).
+/// Skills load config (dirs, enabled list, context mode).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsConfig {
@@ -189,15 +260,71 @@ pub struct SkillsConfig {
     /// Extra skill directories (lowest precedence).
     #[serde(default)]
     pub extra_dirs: Vec<PathBuf>,
-    /// Skill names to skip even when loaded from a directory (e.g. when both notesmd-cli and obsidian are on PATH but you want only one).
+    /// Skill names to load. Only skills in this list are enabled; default is empty (no skills). Add names of skills you want (e.g. `["notesmd-cli-daily"]`).
     #[serde(default)]
-    pub disabled: Vec<String>,
+    pub enabled: Vec<String>,
     /// How skill docs are given to the model: "full" (default) or "readOnDemand". Full injects all SKILL.md into the system message; readOnDemand uses a compact list and a read_skill tool.
     #[serde(default)]
     pub context_mode: SkillContextMode,
     /// When true, skills may reference scripts in their scripts/ directory (e.g. for resolveCommand). Scripts are run via sh; only files under the skill's scripts/ dir are executed. Default: false.
     #[serde(default)]
     pub allow_scripts: bool,
+}
+
+/// Canonical backend name: only "ollama" and "lmstudio" are valid (trimmed, lowercased). Returns None for any other value (e.g. "lm_studio"). Used for config and gateway so only one accepted form per backend is allowed.
+pub fn canonical_backend(s: &str) -> Option<&'static str> {
+    match s.trim().to_lowercase().as_str() {
+        "ollama" => Some("ollama"),
+        "lmstudio" => Some("lmstudio"),
+        _ => None,
+    }
+}
+
+/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. Only "ollama" and "lmstudio" are valid (other forms like "lm_studio" are not accepted).
+pub fn backend_discovery_enabled(agents: &AgentsConfig, backend: &str) -> bool {
+    let backend_canonical = match canonical_backend(backend) {
+        Some(b) => b,
+        None => return false,
+    };
+    let use_default_only = match &agents.enabled_backends {
+        None => true,
+        Some(v) => v.is_empty(),
+    };
+    if use_default_only {
+        let default_canonical = agents
+            .default_backend
+            .as_deref()
+            .and_then(canonical_backend)
+            .unwrap_or("ollama");
+        return backend_canonical == default_canonical;
+    }
+    let list = agents.enabled_backends.as_ref().unwrap();
+    list.iter()
+        .filter_map(|b| canonical_backend(b))
+        .any(|b| b == backend_canonical)
+}
+
+/// Resolve effective default backend and model for display (e.g. in desktop when gateway status is not yet available).
+/// Returns (backend_name, model_id) where backend_name is "ollama" or "lmstudio". Only those two forms are accepted; invalid values fall back to "ollama".
+pub fn resolve_effective_backend_and_model(agents: &AgentsConfig) -> (String, String) {
+    let backend = agents
+        .default_backend
+        .as_deref()
+        .and_then(canonical_backend)
+        .unwrap_or("ollama");
+    let model = agents
+        .default_model
+        .as_deref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    let model = model.unwrap_or_else(|| {
+        if backend == "lmstudio" {
+            "gpt-oss-20b".to_string()
+        } else {
+            "llama3.2:latest".to_string()
+        }
+    });
+    (backend.to_string(), model)
 }
 
 /// Resolve config path from env or default.

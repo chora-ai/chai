@@ -94,20 +94,22 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
     }
   },
   "agents": {
+    "defaultBackend": null,
     "defaultModel": "llama3.2:latest",
+    "enabledBackends": null,
     "workspace": null
   },
   "skills": {
     "directory": null,
     "extraDirs": [],
-    "disabled": [],
+    "enabled": [],
     "contextMode": "full",
     "allowScripts": false
   }
 }
 ```
 
-Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `qwen3:8b`); do not add extra segments like `:latest` unless that tag exists for the model.
+Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `qwen3:8b`); do not add extra segments like `:latest` unless that tag exists for the model. Set **`agents.defaultBackend`** to `"ollama"` or `"lmstudio"` to choose which backend is used when no override is provided. Optional **`agents.enabledBackends`** is an array of backends to fetch models from at startup (e.g. `["ollama", "lmstudio"]`); when absent or empty, only the default backend is discovered.
 
 For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": "your-secret" }`.
 
@@ -148,14 +150,14 @@ Skills are markdown-based instructions (one per directory with a `SKILL.md` file
 - **`full`** (default) — All loaded skills’ full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models (e.g. 7B–9B).
 - **`readOnDemand`** — The system message contains only a compact list (name, description). The model uses the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies. Keeps the prompt small and scales to many skills; requires the model to call the tool before using a skill.
 
-Skills can be gated by binaries: if a skill lists `metadata.requires.bins`, it is only loaded when all those binaries are on the gateway’s PATH.
-
-To load only one of two skills when both binaries are installed (e.g. only notesmd-cli and not obsidian), set **`skills.disabled`** in config to an array of skill names to skip (e.g. `["obsidian"]`).
+Only skills listed in **`skills.enabled`** are loaded; the default is none. Add the skill names you want (e.g. `["notesmd-cli-daily"]` or `["notesmd-cli", "obsidian"]`). A skill is only loaded when enabled and its `metadata.requires.bins` are on the gateway's PATH.
 
 **Bundled skills**
 
-- **notesmd-cli** — [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Search for file, search content, create note, daily note, read note, and update note in the default vault. Only loaded when `notesmd-cli` is on PATH.
-- **obsidian** — The official [Obsidian CLI](https://help.obsidian.md/cli) (early access; binary `obsidian`). Search for file, search content, and create note in the default vault. Only loaded when `obsidian` is on PATH.
+- **notesmd-cli** — [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Search for file, search content, create note, daily note, read note, and update note in the default vault. Add `"notesmd-cli"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
+- **notesmd-cli-daily** — Minimal daily-note skill (create, read, update) via notesmd-cli. Add `"notesmd-cli-daily"` to `skills.enabled`.
+- **obsidian** — The official [Obsidian CLI](https://help.obsidian.md/cli) (early access; binary `obsidian`). Search for file, search content, and create note in the default vault. Add `"obsidian"` to `skills.enabled` and ensure `obsidian` is on PATH.
+- **obsidian-daily** — Minimal daily-note create skill via the Obsidian CLI. Add `"obsidian-daily"` to `skills.enabled`.
 
 **Custom skills**
 

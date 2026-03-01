@@ -1,0 +1,101 @@
+{
+  "tools": [
+    {
+      "name": "notesmd_cli_daily",
+      "description": "Open or create today's daily note. Call when the user asks for their daily note or today's note.",
+      "parameters": {
+        "type": "object",
+        "properties": {}
+      }
+    },
+    {
+      "name": "notesmd_cli_read_note",
+      "description": "Read a daily note and get its content. Use when the user asks to see, read, or hear their daily note or daily tasks. Pass the date as path (YYYY-MM-DD); use today's date if they said 'today' or didn't specify. After calling, include the full tool response in your reply so the user sees their note.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Daily note date (YYYY-MM-DD). Use today's date when the user says 'today' or 'my daily'."
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_cli_update_daily",
+      "description": "Create or update a daily note. Required: date and content. Use replace: true when editing existing content.",
+      "parameters": {
+        "type": "object",
+        "required": ["date", "content"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date for the daily note, e.g. 2026-02-25"
+          },
+          "content": {
+            "type": "string",
+            "description": "Full note content (from read_note with changes applied). Never pass only the changed part."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "True when editing (checking a box, changing text). False when appending."
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "notesmd-cli": ["daily", "print", "print-default", "create"]
+  },
+  "execution": [
+    {
+      "tool": "notesmd_cli_daily",
+      "binary": "notesmd-cli",
+      "subcommand": "daily",
+      "args": []
+    },
+    {
+      "tool": "notesmd_cli_read_note",
+      "binary": "notesmd-cli",
+      "subcommand": "print",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "notesmd_cli_update_daily",
+      "binary": "notesmd-cli",
+      "subcommand": "create",
+      "args": [
+        {
+          "param": "date",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        },
+        {
+          "param": "replace",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--overwrite",
+          "flagIfFalse": "--append"
+        }
+      ]
+    }
+  ]
+}

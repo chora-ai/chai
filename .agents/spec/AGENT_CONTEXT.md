@@ -31,7 +31,7 @@ The system message is built by `build_system_context(agent_ctx, skills, context_
 
 ### Skill Context Mode
 
-- **`full`** (default): Full SKILL.md for every loaded skill (intro line, then for each skill: `## name`, description, and body after frontmatter strip). Best for few skills and smaller local models.
+- **`full`** (default): Full SKILL.md for every loaded skill (intro line "You have access to the following skills:", then for each skill: bullet **name:**, description, and body after frontmatter strip). Best for few skills and smaller local models.
 - **`readOnDemand`**: A compact list only: intro instructing the model to use the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies; then a bullet list of skill names and descriptions. The model must call `read_skill(skill_name)` to get full docs before using that skill’s tools. Keeps the system prompt small and scales to many skills.
 
 ### Skill Context — Full Mode (`build_skill_context_full`)
@@ -39,16 +39,16 @@ The system message is built by `build_system_context(agent_ctx, skills, context_
 - If there are no skills, this is an empty string.
 - Otherwise:
   - A single intro line:  
-    `"You have access to the following skills. Use them when relevant.\n\n"`
+    `"You have access to the following skills:\n\n"`
   - For **each** loaded skill (order = merged order from `load_skills`: config dir skills, then extra dirs; later overwrites earlier by name):
-    - `"## "` + skill `name` (e.g. `notesmd-cli`) + `"\n"`
+    - A bullet line: `"- **"` + skill `name` (e.g. `notesmd-cli`) + `":** "`
     - If the skill has a non-empty `description` (from SKILL.md frontmatter): that string + `"\n\n"`
     - **Skill body**: `strip_skill_frontmatter(skill.content)` + `"\n\n"`
 
 ### Skill Context — Read-on-Demand Mode (`build_skill_context_compact`)
 
 - If there are no skills, this is an empty string.
-- Otherwise: an intro line instructing the model to use the `read_skill` tool when a skill clearly applies, then `## Available skills` and a bullet list of **name**: description for each loaded skill.
+- Otherwise: an intro line "You have access to the following skills. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.", then a bullet list of **name**: description for each loaded skill.
 
 ### `strip_skill_frontmatter(content)`
 
@@ -63,10 +63,9 @@ Assume workspace has `AGENTS.md` and one skill `notesmd-cli` with frontmatter an
 ```
 <AGENTS.md>
 
-You have access to the following skills. Use them when relevant.
+You have access to the following skills:
 
-## notesmd-cli
-Create, read, update, and search notes when the user asks.
+- **notesmd-cli:** Create, read, update, and search notes when the user asks.
 
 <SKILL.md for each skill - excluding YAML frontmatter>
 
@@ -105,7 +104,7 @@ Create, read, update, and search notes when the user asks.
 | Source | Where defined | When loaded | What the model sees |
 |--------|----------------|------------|---------------------|
 | Agent context | `workspace_dir/AGENTS.md` | Gateway startup | Raw file content, then `\n\n`, then skill context. |
-| Skill content | `skills/<name>/SKILL.md` (from config dir, `skills.directory`, or `skills.extraDirs`) | Gateway startup | Full mode: `## <name>\n` + description + body (frontmatter stripped). ReadOnDemand: compact list only; full content via `read_skill` tool. |
+| Skill content | `skills/<name>/SKILL.md` (from config dir, `skills.directory`, or `skills.extraDirs`) | Gateway startup | Full mode: intro "You have access to the following skills:", then per skill bullet **name:** + description + body (frontmatter stripped). ReadOnDemand: compact list only; full content via `read_skill` tool (returns that skill's body only, frontmatter stripped; no added headers). Desktop shows the same content the system receives. |
 | System message | — | Every turn | `agent_ctx + "\n\n" + skill_context`, where skill_context depends on `skills.contextMode` (full vs compact). Inserted as first message. |
 | Session messages | Session store | Every turn | All messages for that session (e.g. one user message after `/new`). |
 | Tools | Skills’ `tools.json` (and built-in `read_skill` when contextMode is readOnDemand) | Startup (list fixed) | `Vec<ToolDefinition>` from descriptors + optional read_skill; sent in the Ollama chat request as `tools`. |

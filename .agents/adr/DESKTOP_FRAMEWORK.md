@@ -1,8 +1,6 @@
 # UI Frameworks for Desktop Application
 
-This document explores UI framework choices for the Chai desktop application. The project uses **egui/eframe** for minimal dependencies and a pure-Rust workflow.
-
----
+This document explores UI framework choices for the desktop application. The project uses **egui/eframe** for minimal dependencies and a pure-Rust workflow.
 
 ## Desktop Framework Options
 
@@ -22,8 +20,6 @@ cargo install tauri-cli
 
 **Best for:** Teams that prefer web tech for UI and are okay with Node.js + WebView in the stack.
 
----
-
 ### 2. egui (via eframe) — **Selected for this project**
 
 - Pure Rust immediate-mode GUI
@@ -37,9 +33,7 @@ eframe = { version = "0.24", features = ["default"] }
 egui = "0.24"
 ```
 
-**Best for:** Minimal dependencies, single binary, Rust-only toolchain. **Chosen for Chai Desktop.**
-
----
+**Best for:** Minimal dependencies, single binary, Rust-only toolchain. **Chosen for the desktop.**
 
 ### 3. iced
 
@@ -53,8 +47,6 @@ iced = "0.10"
 ```
 
 **Best for:** More structured UI architecture and reactive patterns.
-
----
 
 ## Minimal dependencies comparison
 
@@ -70,11 +62,9 @@ iced = "0.10"
 - **Small dependency tree** — `eframe` + `egui` and their Rust deps (winit, glutin, etc.)
 - **Single binary** — no separate frontend build; system deps are normal OS windowing/OpenGL
 
----
-
 ## Recommendation Summary
 
-- **This project:** egui/eframe for Chai Desktop (minimal deps, pure Rust).
+- **This project:** egui/eframe for the desktop (minimal deps, pure Rust).
 - **Alternative:** Tauri + Vue.js/React if you prefer web-based UI.
 - **Alternative:** iced if you want a more Elm-like architecture while staying Rust-only.
 

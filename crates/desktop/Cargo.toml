@@ -2,7 +2,7 @@
 name = "desktop"
 version = "0.0.0"
 edition = "2021"
-description = "Chai Desktop — multi-agent management system"
+description = "Chai Desktop"
 license = "LGPL-3.0"
 
 [[bin]]
@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 lib = { path = "../lib" }
+log = "0.4"
 
 # Async runtime
 tokio = { version = "1", features = ["rt", "net", "time", "sync"] }

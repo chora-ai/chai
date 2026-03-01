@@ -1,6 +1,6 @@
 # Test - Local Models
 
-This document describes a repeatable test procedure for comparing local LLM performance with the Chai agent. The same context and message sequence are used across models so results can be compared.
+This document describes a repeatable test procedure for comparing local LLM performance with the agent. The same context and message sequence are used across models so results can be compared.
 
 **Scope**
 
