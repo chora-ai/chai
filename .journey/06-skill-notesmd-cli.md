@@ -75,7 +75,7 @@ Every turn the model receives the full system context (skills), full conversatio
 - **"loaded 0 skill(s)"** — `notesmd-cli` is not on PATH when the gateway starts, or the skills directory is missing. Install `notesmd-cli`, ensure it is on PATH, run `chai init` if needed, restart the gateway.
 - **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_cli search tool to find notes containing X and list them."
 - **"agent: tool notesmd_cli_search failed: ..."** — The CLI failed (vault not set, binary not found, or permission). Run `notesmd-cli set-default` if you have multiple vaults; check PATH and vault availability; see the log for the exact error.
-- **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; if you use `skills.disabled`, ensure you disabled `obsidian` not `notesmd-cli`. (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."
+- **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; ensure `notesmd-cli` is listed in `skills.enabled` (not only `obsidian`). (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."
 
 ## Summary
 

@@ -1,10 +1,7 @@
-//! Agent turn: load session history, call LLM (Ollama), append reply.
+//! Agent turn: load session history, call LLM (Ollama or LM Studio), append reply.
 //! Supports optional tools: when the model returns tool_calls, we execute them and re-call the model until done.
 
-use crate::llm::{
-    ChatMessage as OllamaChatMessage, OllamaClient, OllamaError, ToolCall,
-    ToolDefinition,
-};
+use crate::llm::{ChatMessage, LlmBackend, LlmError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
 
 const MAX_TOOL_LOOP: usize = 5;
@@ -21,26 +18,27 @@ pub trait ToolExecutor: Send + Sync {
     fn execute(&self, name: &str, args: &serde_json::Value) -> Result<String, String>;
 }
 
-/// Run one agent turn: load session messages, call Ollama chat (streaming when on_chunk is Some); if tools are provided and the model returns tool_calls, execute them and re-call until no more tool_calls or max iterations.
-pub async fn run_turn(
+/// Run one agent turn: load session messages, call the given LLM backend (streaming when on_chunk is Some); if tools are provided and the model returns tool_calls, execute them and re-call until no more tool_calls or max iterations.
+/// `model` is the backend-specific model name (no prefix; e.g. `llama3.2:latest` for Ollama, `gpt-oss-20b` for LM Studio).
+pub async fn run_turn<B: LlmBackend>(
     store: &SessionStore,
     session_id: &str,
-    ollama: &OllamaClient,
+    backend: &B,
     model: &str,
     system_context: Option<&str>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)>,
-) -> Result<AgentTurnResult, OllamaError> {
+) -> Result<AgentTurnResult, LlmError> {
     let session = store
         .get(session_id)
         .await
-        .ok_or_else(|| OllamaError::Api("session not found".to_string()))?;
+        .ok_or_else(|| LlmError::Session("session not found".to_string()))?;
 
-    let mut messages: Vec<OllamaChatMessage> = session
+    let mut messages: Vec<ChatMessage> = session
         .messages
         .iter()
-        .map(|m| OllamaChatMessage {
+        .map(|m| ChatMessage {
             role: m.role.clone(),
             content: m.content.clone(),
             tool_calls: m.tool_calls.clone(),
@@ -52,7 +50,7 @@ pub async fn run_turn(
         if !ctx.trim().is_empty() {
             messages.insert(
                 0,
-                OllamaChatMessage {
+                ChatMessage {
                     role: "system".to_string(),
                     content: ctx.to_string(),
                     tool_calls: None,
@@ -62,9 +60,9 @@ pub async fn run_turn(
         }
     }
 
-    let model_name = model.trim_start_matches("ollama/").trim();
+    let model_name = model.trim();
     let model_name = if model_name.is_empty() {
-        log::warn!("agent: configured model was empty after trim, using fallback");
+        log::warn!("agent: configured model was empty, using fallback");
         "llama3.2:latest"
     } else {
         model_name
@@ -80,18 +78,18 @@ pub async fn run_turn(
         let res = if use_stream {
             let cb = on_chunk.as_mut().unwrap();
             let mut delta_cb = |s: &str| cb(s);
-            ollama
+            backend
                 .chat_stream(model_name, messages.clone(), tools_ref.cloned(), &mut delta_cb)
                 .await?
         } else {
-            ollama
+            backend
                 .chat(model_name, messages.clone(), false, tools_ref.cloned())
                 .await?
         };
         last_content = res.content().to_string();
         last_tool_calls = res.tool_calls().to_vec();
 
-        let assistant_msg = OllamaChatMessage {
+        let assistant_msg = ChatMessage {
             role: "assistant".to_string(),
             content: last_content.clone(),
             tool_calls: if last_tool_calls.is_empty() {
@@ -111,7 +109,7 @@ pub async fn run_turn(
                 None,
             )
             .await
-            .map_err(|e| OllamaError::Api(e.to_string()))?;
+            .map_err(|e| LlmError::Session(e.to_string()))?;
 
         if last_tool_calls.is_empty() {
             break;
@@ -142,7 +140,7 @@ pub async fn run_turn(
                     format!("error: {}", e)
                 }
             };
-            messages.push(OllamaChatMessage {
+            messages.push(ChatMessage {
                 role: "tool".to_string(),
                 content: result.clone(),
                 tool_calls: None,
@@ -151,7 +149,7 @@ pub async fn run_turn(
             store
                 .append_message_full(session_id, "tool", &result, None, Some(name.to_string()))
                 .await
-                .map_err(|e| OllamaError::Api(e.to_string()))?;
+                .map_err(|e| LlmError::Session(e.to_string()))?;
         }
     }
 

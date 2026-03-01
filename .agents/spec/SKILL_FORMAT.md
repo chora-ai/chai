@@ -26,7 +26,7 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 
 - **`metadata.requires.bins`** — Optional list of binary names (e.g. `["obsidian"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
 
-**Disabling a skill when both binaries are on PATH:** If you have both notesmd-cli and obsidian installed but want to load only one, set **`skills.disabled`** in your config file to an array of skill names to skip (e.g. `["obsidian"]` to use only the notesmd-cli skill). See the main [README](../../README.md) Configuration section. **If you then see "loaded 0 skill(s)"**, the remaining skill (e.g. notesmd-cli) is gated based on its binary being on **PATH when the gateway starts** — ensure that binary is on PATH in the environment where you run the gateway (e.g. run `which notesmd-cli` in the same terminal, or install the CLI so it is on the default PATH for your desktop/login).
+**Enabling skills:** Only skills listed in **`skills.enabled`** in config are loaded; the default is none. Add the skill names you want (e.g. `["notesmd-cli-daily"]` or `["obsidian"]`). If you have both notesmd-cli and obsidian on PATH but want only one, list only that skill in **`skills.enabled`**. See the main [README](../../README.md) Configuration section. **If you see "loaded 0 skill(s)"**, add the skill name to **`skills.enabled`** and ensure its binary is on **PATH when the gateway starts** (e.g. run `which notesmd-cli` in the same terminal).
 
 Example:
 
@@ -46,7 +46,4 @@ metadata:
 
 ## Bundled Skills
 
-**Bundled skills** are the skills shipped with the application (in `crates/lib/config/skills/`); `chai init` extracts them to the user’s skill root. The **default skill root** is the directory from which skills are loaded when no override is set (e.g. `~/.chai/skills`); it can be overridden with `skills.directory`. Do not use “default skills” for the shipped set—use **bundled skills**.
-
-- **notesmd-cli** — Manage Obsidian vaults via [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (`notesmd-cli` binary). Works without Obsidian running. Only loaded when `notesmd-cli` is on `PATH`. Use this if you do not have access to the official early access CLI.
-- **obsidian** — Manage Obsidian vaults via the **official Obsidian CLI** (early access; binary `obsidian`). Only loaded when `obsidian` is on `PATH`. Not available to all users; see [Obsidian CLI — early access](https://help.obsidian.md/cli).
+**Bundled skills** are the skills shipped with the application (in `crates/lib/config/skills/`); `chai init` extracts them to the user’s skill root. The **default skill root** is the directory from which skills are loaded when no override is set (e.g. `~/.chai/skills`); it can be overridden with `skills.directory`.

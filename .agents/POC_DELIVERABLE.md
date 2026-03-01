@@ -63,7 +63,7 @@ For deeper technical detail about what exists and how it works, see [POC_IMPLEME
 - **Self-hosted options**: Support running models on your own servers (for privacy, cost control, and customization) using common stacks like Hugging Face TGI, vLLM, LocalAI, or llama.cpp.
 - **Third-party options**: Support hosted APIs such as OpenAI, Anthropic, and Google for cases where the workload is low-sensitivity or needs a specific capability.
 - **Hybrid routing**: Enable a “default to local/self-hosted” posture and allow third-party services only when appropriate (see the hybrid and privacy framing in [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#hybrid-approaches-are-common)).
-- **Multi-agent orchestration**: Over time, allow an orchestrator agent to delegate different subtasks to different models or agents based on what each is best at, while respecting privacy boundaries.
+- **Multi-agent orchestration**: Over time, allow an **orchestrator** model or agent to plan work and **delegate** subtasks to **worker** models or agents. Workers handle narrow, well-defined steps (e.g. a single tool call or classification); the orchestrator holds the conversation and chooses which model handles each step. That way smaller or faster models can be used as workers where appropriate, and sensitive work can be routed only to local or self-hosted models. See [Orchestrator vs Worker Models](POC_IMPLEMENTATION.md#orchestrator-vs-worker-models) in the implementation doc.
 
 ### Expand Channels and Clients
 

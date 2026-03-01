@@ -4,7 +4,9 @@ use crate::agent;
 use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
-use crate::config::{self, Config, SkillContextMode};
+use crate::config::{
+    self, resolve_lm_studio_base_url, resolve_lm_studio_endpoint_type, Config, SkillContextMode,
+};
 use crate::agent_ctx;
 use crate::init;
 use crate::skills::{load_skills, Skill, SkillEntry};
@@ -13,7 +15,7 @@ use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
 };
-use crate::llm::{OllamaClient, OllamaModel, ToolDefinition};
+use crate::llm::{LmStudioClient, LmStudioModel, OllamaClient, OllamaModel, ToolDefinition};
 use crate::routing::SessionBindingStore;
 use crate::session::SessionStore;
 use anyhow::{Context, Result};
@@ -38,13 +40,53 @@ use tokio::task::JoinHandle;
 const PROTOCOL_VERSION: u32 = 1;
 
 const DEFAULT_MODEL_FALLBACK: &str = "llama3.2:latest";
+const DEFAULT_MODEL_FALLBACK_LMSTUDIO: &str = "gpt-oss-20b";
 
-/// Resolve the model name for Ollama: use config if non-empty (trimmed), otherwise fallback. Ollama returns "model is required" when given an empty string.
-fn resolve_model(config_model: Option<&str>) -> String {
-    config_model
+/// Which LLM backend to use (from agents.defaultBackend).
+#[derive(Clone, Copy)]
+enum BackendChoice {
+    Ollama,
+    LmStudio,
+}
+
+fn backend_name(choice: BackendChoice) -> &'static str {
+    match choice {
+        BackendChoice::Ollama => "ollama",
+        BackendChoice::LmStudio => "lmstudio",
+    }
+}
+
+/// Resolve backend from config. Uses agents.defaultBackend ("ollama" | "lmstudio", case-insensitive). Defaults to Ollama when absent or invalid.
+fn resolve_backend(agents: &crate::config::AgentsConfig) -> BackendChoice {
+    let b = agents
+        .default_backend
+        .as_deref()
+        .unwrap_or("ollama")
+        .trim()
+        .to_lowercase();
+    if b == "lmstudio" || b == "lm_studio" {
+        BackendChoice::LmStudio
+    } else {
+        BackendChoice::Ollama
+    }
+}
+
+/// Resolve model id from config and optional request param. No prefix stripping—model id is passed as-is to the backend.
+/// When no model is set: Ollama uses DEFAULT_MODEL_FALLBACK; LM Studio uses DEFAULT_MODEL_FALLBACK_LMSTUDIO (set defaultModel if your server uses a different id).
+fn resolve_model(
+    config_model: Option<&str>,
+    param_model: Option<&str>,
+    backend: BackendChoice,
+) -> String {
+    let s = param_model
+        .or(config_model)
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| DEFAULT_MODEL_FALLBACK.to_string())
+        .filter(|s| !s.is_empty());
+    match (s, backend) {
+        (Some(name), _) => name,
+        (None, BackendChoice::Ollama) => DEFAULT_MODEL_FALLBACK.to_string(),
+        (None, BackendChoice::LmStudio) => DEFAULT_MODEL_FALLBACK_LMSTUDIO.to_string(),
+    }
 }
 
 const SHUTDOWN_EVENT_JSON: &str = r#"{"type":"event","event":"shutdown","payload":{}}"#;
@@ -155,6 +197,9 @@ pub struct GatewayState {
     pub ollama_client: OllamaClient,
     /// Ollama models discovered at startup (or soon after). Empty if Ollama unreachable.
     pub ollama_models: Arc<tokio::sync::RwLock<Vec<OllamaModel>>>,
+    pub lm_studio_client: LmStudioClient,
+    /// LM Studio models discovered at startup (or soon after). Empty if LM Studio unreachable.
+    pub lm_studio_models: Arc<tokio::sync::RwLock<Vec<LmStudioModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
     /// Combined tool definitions for the agent (from skills' tools.json only). None when no tools.
@@ -209,11 +254,17 @@ impl GatewayState {
     }
 }
 
-/// Strip YAML frontmatter (first `---` ... `---` block) from skill content so we don't duplicate it in the system message.
+/// Strip YAML frontmatter (`---` ... `---` blocks) from skill content so we don't duplicate it in the system message.
+/// Removes consecutive frontmatter blocks (e.g. duplicated `---` blocks at the start of a SKILL.md).
 fn strip_skill_frontmatter(content: &str) -> &str {
-    let rest = content.strip_prefix("---").map(|s| s.trim_start()).unwrap_or(content);
+    let rest = content.trim_start();
+    let rest = rest.strip_prefix("---").map(|s| s.trim_start()).unwrap_or(rest);
     if let Some(i) = rest.find("\n---") {
-        rest.get(i + 4..).unwrap_or(rest).trim_start()
+        let after = rest.get(i + 4..).unwrap_or(rest).trim_start();
+        if after.starts_with("---") {
+            return strip_skill_frontmatter(after);
+        }
+        after
     } else {
         rest
     }
@@ -224,11 +275,11 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
-    let mut out = String::from("You have access to the following skills. Use them when relevant.\n\n");
+    let mut out = String::from("You have access to the following tools:\n\n");
     for s in skills {
-        out.push_str("## ");
+        out.push_str("- **");
         out.push_str(&s.name);
-        out.push_str("\n");
+        out.push_str(":** ");
         if !s.description.is_empty() {
             out.push_str(&s.description);
             out.push_str("\n\n");
@@ -245,9 +296,9 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
         return String::new();
     }
     let mut out = String::from(
-        "You have access to the following skills. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.\n\n",
+        "You have access to the following tools. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.\n\n",
     );
-    out.push_str("## Available skills\n\n");
+    out.push_str("## Available tools\n\n");
     for s in skills {
         out.push_str("- **");
         out.push_str(&s.name);
@@ -263,12 +314,17 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
 }
 
 /// Build full system context from agent-ctx (AGENTS.md) and skills. Uses context_mode to choose full vs compact skill context.
+/// Prepends the current local date (YYYY-MM-DD) so the model knows "today" for skills like notesmd-cli-daily.
 fn build_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
 ) -> String {
     let mut out = String::new();
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    out.push_str("Today's date: ");
+    out.push_str(&today);
+    out.push_str("\n\n");
     if let Some(ctx) = agent_ctx {
         let trimmed = ctx.trim();
         if !trimmed.is_empty() {
@@ -404,25 +460,47 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         Some(&msg.channel_id),
         Some(&msg.conversation_id),
     );
-    let model = resolve_model(state.config.agents.default_model.as_deref());
+    let backend_choice = resolve_backend(&state.config.agents);
+    let model_name = resolve_model(
+        state.config.agents.default_model.as_deref(),
+        None,
+        backend_choice,
+    );
     let system_context = build_system_context(
         state.agent_ctx.as_deref(),
         &state.skills,
         state.config.skills.context_mode,
     );
     let (tools, tool_executor) = state.tools_and_executor();
-    let result = match agent::run_turn(
-        &state.session_store,
-        &session_id,
-        &state.ollama_client,
-        &model,
-        Some(&system_context),
-        tools,
-        tool_executor,
-        None,
-    )
-    .await
-    {
+    let result = match backend_choice {
+        BackendChoice::Ollama => {
+            agent::run_turn(
+                &state.session_store,
+                &session_id,
+                &state.ollama_client,
+                &model_name,
+                Some(&system_context),
+                tools,
+                tool_executor,
+                None,
+            )
+            .await
+        }
+        BackendChoice::LmStudio => {
+            agent::run_turn(
+                &state.session_store,
+                &session_id,
+                &state.lm_studio_client,
+                &model_name,
+                Some(&system_context),
+                tools,
+                tool_executor,
+                None,
+            )
+            .await
+        }
+    };
+    let result = match result {
         Ok(r) => r,
         Err(e) => {
             log::warn!("inbound: agent turn failed: {}", e);
@@ -476,6 +554,10 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let (event_tx, _) = broadcast::channel(64);
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let ollama_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let lm_studio_base_url = Some(resolve_lm_studio_base_url(&config.agents));
+    let lm_studio_endpoint_type = resolve_lm_studio_endpoint_type(&config.agents);
+    let lm_studio_client = LmStudioClient::new(lm_studio_base_url, lm_studio_endpoint_type);
+    let lm_studio_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
     let workspace_dir = config::resolve_workspace_dir(&config);
@@ -490,7 +572,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
             Vec::new()
         }
     };
-    skill_entries.retain(|e| !config.skills.disabled.iter().any(|d| d == &e.name));
+    skill_entries.retain(|e| config.skills.enabled.iter().any(|n| n == &e.name));
     log::info!("loaded {} skill(s) for agent context", skill_entries.len());
     if config.skills.context_mode == SkillContextMode::ReadOnDemand {
         log::info!("skill context mode: readOnDemand (compact list + read_skill tool)");
@@ -562,13 +644,15 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         bindings: Arc::new(SessionBindingStore::new()),
         ollama_client: OllamaClient::new(None),
         ollama_models: ollama_models.clone(),
+        lm_studio_client,
+        lm_studio_models: lm_studio_models.clone(),
         skills: Arc::new(skills),
         tools_list,
         tool_executor,
         pairing_store,
     };
 
-    {
+    if config::backend_discovery_enabled(&config.agents, "ollama") {
         let ollama = state.ollama_client.clone();
         let models = state.ollama_models.clone();
         tokio::spawn(async move {
@@ -582,6 +666,25 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
                 }
             }
         });
+    } else {
+        log::debug!("ollama model discovery skipped (not in enabledBackends)");
+    }
+    if config::backend_discovery_enabled(&config.agents, "lmstudio") {
+        let lm_studio = state.lm_studio_client.clone();
+        let models = state.lm_studio_models.clone();
+        tokio::spawn(async move {
+            match lm_studio.list_models().await {
+                Ok(list) => {
+                    *models.write().await = list;
+                    log::info!("lm studio model discovery completed");
+                }
+                Err(e) => {
+                    log::debug!("lm studio model discovery failed: {}", e);
+                }
+            }
+        });
+    } else {
+        log::debug!("lm studio model discovery skipped (not in enabledBackends)");
     }
 
     {
@@ -915,14 +1018,39 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 } else {
                     "none"
                 };
-                let models = state.ollama_models.read().await.clone();
+                let backend_choice = resolve_backend(&state.config.agents);
+                let default_model = resolve_model(
+                    state.config.agents.default_model.as_deref(),
+                    None,
+                    backend_choice,
+                );
+                let ollama_models = state.ollama_models.read().await.clone();
+                let lm_studio_models = state.lm_studio_models.read().await.clone();
+                let system_context = build_system_context(
+                    state.agent_ctx.as_deref(),
+                    &state.skills,
+                    state.config.skills.context_mode,
+                );
+                let skills_context = match state.config.skills.context_mode {
+                    SkillContextMode::Full => build_skill_context_full(&state.skills),
+                    SkillContextMode::ReadOnDemand => build_skill_context_compact(&state.skills),
+                };
+                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let payload = json!({
                     "runtime": "running",
                     "protocol": PROTOCOL_VERSION,
                     "port": state.config.gateway.port,
                     "bind": state.config.gateway.bind,
                     "auth": auth_mode,
-                    "ollamaModels": models,
+                    "defaultBackend": backend_name(backend_choice),
+                    "defaultModel": default_model,
+                    "ollamaModels": ollama_models,
+                    "lmStudioModels": lm_studio_models,
+                    "agentContext": state.agent_ctx,
+                    "systemContext": system_context,
+                    "date": today,
+                    "skillsContext": skills_context,
+                    "contextMode": state.config.skills.context_mode,
                 });
                 let res = WsResponse::ok(&req.id, payload);
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
@@ -988,11 +1116,25 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     None,
                 );
-                let model = resolve_model(
-                    params
-                        .model
-                        .as_deref()
-                        .or(state.config.agents.default_model.as_deref()),
+                // Use request backend override when valid ("ollama" | "lmstudio"), else config default.
+                let backend_choice = params
+                    .backend
+                    .as_deref()
+                    .map(|b| b.trim().to_lowercase())
+                    .and_then(|b| {
+                        if b == "ollama" {
+                            Some(BackendChoice::Ollama)
+                        } else if b == "lmstudio" || b == "lm_studio" {
+                            Some(BackendChoice::LmStudio)
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or_else(|| resolve_backend(&state.config.agents));
+                let model_name = resolve_model(
+                    state.config.agents.default_model.as_deref(),
+                    params.model.as_deref(),
+                    backend_choice,
                 );
                 let system_context = build_system_context(
                     state.agent_ctx.as_deref(),
@@ -1000,17 +1142,35 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     state.config.skills.context_mode,
                 );
                 let (tools, tool_executor) = state.tools_and_executor();
-                match agent::run_turn(
-                    &state.session_store,
-                    &session_id,
-                    &state.ollama_client,
-                    &model,
-                    Some(&system_context),
-                    tools,
-                    tool_executor,
-                    None,
-                )
-                .await
+                let run_result = match backend_choice {
+                    BackendChoice::Ollama => {
+                        agent::run_turn(
+                            &state.session_store,
+                            &session_id,
+                            &state.ollama_client,
+                            &model_name,
+                            Some(&system_context),
+                            tools,
+                            tool_executor,
+                            None,
+                        )
+                        .await
+                    }
+                    BackendChoice::LmStudio => {
+                        agent::run_turn(
+                            &state.session_store,
+                            &session_id,
+                            &state.lm_studio_client,
+                            &model_name,
+                            Some(&system_context),
+                            tools,
+                            tool_executor,
+                            None,
+                        )
+                        .await
+                    }
+                };
+                match run_result
                 {
                     Ok(result) => {
                         let binding = state.bindings.get_channel_binding(&session_id).await;

@@ -39,7 +39,7 @@ The system message is built by `build_system_context(agent_ctx, skills, context_
 - If there are no skills, this is an empty string.
 - Otherwise:
   - A single intro line:  
-    `"You have access to the following skills. Use them when relevant.\n\n"`
+    `"You have access to the following tools:\n\n"`
   - For **each** loaded skill (order = merged order from `load_skills`: config dir skills, then extra dirs; later overwrites earlier by name):
     - `"## "` + skill `name` (e.g. `notesmd-cli`) + `"\n"`
     - If the skill has a non-empty `description` (from SKILL.md frontmatter): that string + `"\n\n"`
@@ -63,7 +63,7 @@ Assume workspace has `AGENTS.md` and one skill `notesmd-cli` with frontmatter an
 ```
 <AGENTS.md>
 
-You have access to the following skills. Use them when relevant.
+You have access to the following tools:
 
 ## notesmd-cli
 Create, read, update, and search notes when the user asks.

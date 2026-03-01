@@ -83,7 +83,7 @@ impl OllamaClient {
         model: &str,
         messages: Vec<ChatMessage>,
         tools: Option<Vec<ToolDefinition>>,
-        mut on_chunk: impl FnMut(&str),
+        on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<ChatResponse, OllamaError> {
         let url = format!("{}/api/chat", self.base_url);
         let body = ChatRequest {

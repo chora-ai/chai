@@ -2,6 +2,22 @@
 
 This document provides an introduction and overview of the LLM services and models that can be used—both what the current implementation supports and what is planned for a full implementation.
 
+## Relationship to Other Documents
+
+This section describes how this document is related to other working documents.
+
+### API Alignment Epic
+
+This document is the **working list** of services, model families, and configuration: what is supported today (Ollama, LM Studio), what is planned (self-hosted, third-party), and how each fits the Ollama-native or OpenAI-compat API family. [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md) is the **proposal and tracking** epic for implementing additional backends: it defines the internal format, API families, and implementation notes (adapters, streaming, backend-specific features). Use this doc to see which services and models are in scope and how to configure them; use the epic to see what “done” means for each planned backend and how new backends plug into the gateway.
+
+### Model Testing Documents
+
+- [TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md) — Procedure and result tables for **Ollama** and **LM Studio** models. **Runnable with the current implementation** (both backends are implemented).
+- [TEST_SELF_HOSTED_MODELS.md](TEST_SELF_HOSTED_MODELS.md) — Procedure and result tables for **Hugging Face** (and later LocalAI, llama.cpp). Defines the test flow for when those backends are implemented; not runnable with the current implementation.
+- [TEST_THIRD_PARTY_MODELS.md](TEST_THIRD_PARTY_MODELS.md) — Procedure and result tables for **OpenAI** (and later Claude, Gemini). Defines the test flow for when those backends are implemented; not runnable with the current implementation.
+
+All three use the same message sequence and expectations so that behavior can be compared across services and models once multiple backends exist. This overview summarizes which services and models are in scope, what is actually implemented, and what API alignment would be required for each planned service.
+
 ## Categories of LLM Services
 
 Providers are grouped into three service categories (or approaches). The distinction matters for privacy, cost, and operations.
@@ -66,20 +82,48 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 | Category | Current implementation | Planned / future |
 |----------|-----------------|------------------|
-| **Local** (personal device) | **Ollama** (and any backend that exposes the **native Ollama API**: `/api/chat`, `/api/tags`) | LM Studio |
+| **Local** (personal device) | **Ollama** (native API) and **LM Studio** (OpenAI-compatible API at e.g. `http://localhost:1234/v1`) | — |
 | **Self-hosted** (on-prem / private cloud) | — | **Hugging Face** (TGI, Inference Endpoints), LocalAI, llama.cpp, vLLM |
 | **Third-party** (cloud / API) | — | **OpenAI**, Claude (Anthropic), Gemini (Google) |
 
-**Current implementation:** The gateway uses a single **Ollama client** (see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)). The gateway calls `OllamaClient::chat()` / `chat_stream()` and expects the native Ollama request/response shape (messages, `tool_calls`, `tool_name` for tool results).
+**Current implementation:** The gateway supports two local backends (see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)): **Ollama** (native API) and **LM Studio** (OpenAI-compatible API). Which backend is used is set by **`agents.defaultBackend`** (`"ollama"` or `"lmstudio"`; default `"ollama"`). The **`agents.default_model`** is the model id for that backend and is passed as-is (e.g. for Ollama `llama3.2:latest`; for LM Studio `openai/gpt-oss-20b` or `ibm/granite-4-micro`, matching LM Studio’s model identifiers). The gateway discovers models from both backends at startup and exposes them in WebSocket `status` as `ollamaModels` and `lmStudioModels`.
 
 **Ollama-compatible backends:** Whether Ollama (or an equivalent) runs on your **personal machine** (local) or on **your server** (self-hosted), if it exposes the native Ollama API, the current integration works without code changes. For example, LocalAI configured to expose Ollama-style `/api/chat` and `/api/tags` on your infra is self-hosted but uses the same client path as local Ollama.
+
+**OpenAI-compatible backends:** The same idea applies to any server that exposes the OpenAI-compatible API (`/v1/chat/completions`, `/v1/models`). Whether it runs **locally** (e.g. LM Studio), on **your server** (e.g. vLLM, LocalAI in OpenAI mode, Hugging Face TGI), or as a **third-party** service (OpenAI), one shared client or adapter can be used with provider-specific config (base URL, and API key where required). For example, vLLM or LocalAI in OpenAI-compat mode on your infra would use the same client path as local LM Studio, with a different base URL and optional API key.
+
+## API Comparison (Current Implementation)
+
+The following tables are the **canonical** comparison of what the gateway uses today vs what each API offers and how backends differ. For endpoint details, request/response shapes, and possible future work, see [OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md) and [LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md).
+
+**Ollama: current usage vs full API vs hosted**
+
+| Area | Current | Ollama full API | Hosted (OpenAI/Anthropic) |
+|------|---------|-----------------|---------------------------|
+| **Base** | `OllamaClient`, default local URL | Same | Remote URL + API key |
+| **Chat** | `/api/chat` with model, messages, stream, tools | + options, keep_alive, format, think, logprobs | Different URL/params, similar roles/messages/tools |
+| **Streaming** | Implemented but not used to channel; NDJSON | Same | SSE or similar, different format |
+| **Models** | `GET /api/tags` at startup; one default model from config | + pull, delete, copy, show | Model ID only, no local lifecycle |
+| **Generate** | Not used | `/api/generate` (prompt-only) | Often "completions" vs "chat" |
+| **Embed** | Not used | `/api/embed` | Separate embedding APIs |
+| **State** | Client sends full history + system each time | N/A (stateless) | Same (stateless) |
+
+**Ollama vs LM Studio: current usage**
+
+| Area | Ollama (current) | LM Studio OpenAI (current) | LM Studio native (current) |
+|------|------------------|---------------------------|----------------------------|
+| **Base** | `OllamaClient`, default local URL | `LmStudioClient(base_url)`, endpoint type openai | Same, endpoint type native |
+| **Chat** | `POST /api/chat`, messages + tools | `/v1/chat/completions`, messages + tools | `/api/v1/chat`, messages only (no tools) |
+| **Streaming** | NDJSON, not used to channel | SSE (OpenAI shape) | One-shot then callback |
+| **Models** | `GET /api/tags` at startup | `GET /v1/models` | `GET /api/v1/models` |
+| **Config** | `defaultBackend: "ollama"`, `default_model` | `defaultBackend: "lmstudio"`, `default_model`, `backends.lmStudio.baseUrl`, `endpointType: "openai"` | Same, `endpointType: "native"` |
 
 ## Services at a Glance
 
 | Service        | Type        | Hosting        | API / integration | Status    |
 |----------------|-------------|----------------|-------------------|-----------|
 | **Ollama**     | Local       | Your machine   | Native Ollama (`/api/chat`, `/api/tags`) | Supported |
-| **LM Studio**  | Local       | Your machine   | —                 | Planned   |
+| **LM Studio**  | Local       | Your machine   | OpenAI-compat (`/v1/chat/completions`, `/v1/models`); set `agents.defaultBackend` to `"lmstudio"` and `agents.default_model` to the model id (e.g. `openai/gpt-oss-20b`) | Supported |
 | **LocalAI**    | Self-hosted | Your infra     | Can expose Ollama or OpenAI-compat | Planned (Ollama mode = no code change) |
 | **llama.cpp**  | Self-hosted | Your infra     | —                 | Planned   |
 | **vLLM**       | Self-hosted | Your infra     | OpenAI-compat or custom | Planned   |
@@ -92,7 +136,7 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 ### Local — Ollama (supported)
 
-Models are identified by the name used in `ollama list` and configured via `agents.default_model`.
+Models are identified by the name used in `ollama list`. Set **`agents.defaultBackend`** to `"ollama"` and **`agents.default_model`** to the model name (e.g. `llama3.2:latest`).
 
 | Model            | Notes     |
 |------------------|-----------|
@@ -102,6 +146,17 @@ Models are identified by the name used in `ollama list` and configured via `agen
 | `gemma2:9b`      |           |
 
 *Any other model you run in Ollama (or an Ollama-compatible server) can be used the same way; the table above reflects the set used in TEST_LOCAL_MODELS.md.*
+
+### Local — LM Studio (supported)
+
+Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Set **`agents.defaultBackend`** to `"lmstudio"` and **`agents.defaultModel`** to the model id (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`). Optional **`agents.backends.lmStudio.baseUrl`** (default `http://127.0.0.1:1234/v1`) and **`agents.backends.lmStudio.endpointType`** (`"openai"` | `"native"`).
+
+| Model id (example) | Notes     |
+|--------------------|-----------|
+| `openai/gpt-oss-20b` | Use as `default_model` when `defaultBackend` is `"lmstudio"` |
+| `ibm/granite-4-micro` | Same |
+
+*Any model loaded in LM Studio can be used; the id is shown in the LM Studio UI or via the API (and may include a provider prefix like `openai/` or `ibm/`).*
 
 ### Self-hosted — Hugging Face (planned)
 
@@ -127,7 +182,7 @@ Not implemented yet. When supported, models would be identified by the OpenAI mo
 
 ## Model Families Across Services
 
-The same or similar model families appear in more than one service. Below is a quick cross-reference by family. **Only the Ollama column is supported in the current implementation;** the other columns are planned (test procedures exist in the TEST_* docs).
+The same or similar model families appear in more than one service. Below is a quick cross-reference by family. **The Ollama and LM Studio (local) columns are supported in the current implementation;** the other columns are planned (test procedures exist in the TEST_* docs).
 
 | Family    | Local — Ollama (supported) | Self-hosted — Hugging Face (planned) | Third-party — OpenAI (planned) |
 |-----------|----------------------------|--------------------------------------|---------------------------------|
@@ -139,11 +194,3 @@ The same or similar model families appear in more than one service. Below is a q
 | **GPT**   | —               | —                          | `gpt-5.2`, `gpt-5.1`, `gpt-5.1-mini`, `gpt-5-mini` |
 
 When new services or models are added, extend this table so that popular models and services remain comparable in one place.
-
-## How This Document Relates to the Test Docs
-
-- [TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md) — Procedure and result tables for **Ollama** models. **Runnable with the current implementation** (Ollama is implemented).
-- [TEST_SELF_HOSTED_MODELS.md](TEST_SELF_HOSTED_MODELS.md) — Procedure and result tables for **Hugging Face** (and later LocalAI, llama.cpp). Defines the test flow for when those backends are implemented; not runnable with the current implementation.
-- [TEST_THIRD_PARTY_MODELS.md](TEST_THIRD_PARTY_MODELS.md) — Procedure and result tables for **OpenAI** (and later Claude, Gemini). Defines the test flow for when those backends are implemented; not runnable with the current implementation.
-
-All three use the same message sequence and expectations so that behavior can be compared across services and models once multiple backends exist. This overview summarizes which services and models are in scope, what is actually implemented, and what API alignment would be required for each planned service.

@@ -2,18 +2,91 @@
 
 use eframe::egui;
 use futures_util::{SinkExt, StreamExt};
+use std::collections::VecDeque;
 use std::collections::{BTreeMap, HashMap};
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::process::Child;
+use std::io::BufRead;
+use std::process::{Child, Stdio};
 use std::sync::mpsc;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use tokio_tungstenite::tungstenite::Message;
 
-const CHAT_WINDOW_HEIGHT: f32 = 260.0;
 const CHAT_INPUT_HEIGHT: f32 = 130.0;
-// Must match DEFAULT_MODEL_FALLBACK in `crates/lib/src/gateway/server.rs`.
-const DEFAULT_MODEL_FALLBACK: &str = "llama3.2:latest";
+const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
+const LOG_BUFFER_MAX_LINES: usize = 2000;
+
+/// Ring buffer of log lines for the Logs screen. Written by DesktopLogger and gateway stderr reader.
+static LOG_LINES: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
+
+fn log_buffer() -> &'static Mutex<VecDeque<String>> {
+    LOG_LINES.get_or_init(|| Mutex::new(VecDeque::new()))
+}
+
+fn push_log_line(line: String) {
+    if let Ok(mut buf) = log_buffer().lock() {
+        buf.push_back(line);
+        while buf.len() > LOG_BUFFER_MAX_LINES {
+            buf.pop_front();
+        }
+    }
+}
+
+/// Logger that appends to LOG_LINES for display in the Logs screen.
+struct DesktopLogger;
+
+impl log::Log for DesktopLogger {
+    fn enabled(&self, _: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        let line = format!(
+            "{} [{}] {}",
+            chrono_lite(),
+            record.level(),
+            record.args()
+        );
+        push_log_line(line);
+    }
+
+    fn flush(&self) {}
+}
+
+/// Short label for a session in the sessions list (id with optional channel/conversation).
+fn session_label_display(
+    session_id: &str,
+    meta: Option<&(Option<String>, Option<String>)>,
+) -> String {
+    match meta {
+        Some((Some(cid), Some(conv))) => format!("{} ({}:{})", session_id, cid, conv),
+        Some((Some(cid), None)) => format!("{} ({})", session_id, cid),
+        _ => session_id.to_string(),
+    }
+}
+
+fn chrono_lite() -> String {
+    let t = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = t.as_secs();
+    let millis = t.subsec_millis();
+    let h = (secs / 3600) % 24;
+    let m = (secs / 60) % 60;
+    let s = secs % 60;
+    format!("{:02}:{:02}:{:02}.{:03}", h, m, s, millis)
+}
+
+static LOGGER: DesktopLogger = DesktopLogger;
+
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+enum Screen {
+    #[default]
+    Info,
+    Chat,
+    Logs,
+}
 
 #[derive(Clone)]
 struct ChatMessage {
@@ -205,6 +278,8 @@ fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("none")
                     .to_string();
+                details.default_backend = payload.get("defaultBackend").and_then(|v| v.as_str()).map(String::from);
+                details.default_model = payload.get("defaultModel").and_then(|v| v.as_str()).map(String::from);
                 details.ollama_models = payload
                     .get("ollamaModels")
                     .and_then(|v| v.as_array())
@@ -214,6 +289,20 @@ fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                             .collect()
                     })
                     .unwrap_or_default();
+                details.lm_studio_models = payload
+                    .get("lmStudioModels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.agent_context = payload.get("agentContext").and_then(|v| v.as_str()).map(String::from);
+                details.system_context = payload.get("systemContext").and_then(|v| v.as_str()).map(String::from);
+                details.date = payload.get("date").and_then(|v| v.as_str()).map(String::from);
+                details.skills_context = payload.get("skillsContext").and_then(|v| v.as_str()).map(String::from);
+                details.context_mode = payload.get("contextMode").and_then(|v| v.as_str()).map(String::from);
                 return Ok(details);
             }
         }
@@ -247,8 +336,24 @@ pub struct GatewayStatusDetails {
     pub port: u16,
     pub bind: String,
     pub auth: String,
+    /// Resolved default backend: "ollama" or "lmstudio".
+    pub default_backend: Option<String>,
+    /// Resolved default model id (from config or backend fallback).
+    pub default_model: Option<String>,
     /// Ollama model names from gateway discovery (empty if Ollama unreachable).
     pub ollama_models: Vec<String>,
+    /// LM Studio model names from gateway discovery (empty if LM Studio unreachable).
+    pub lm_studio_models: Vec<String>,
+    /// Agent context loaded at gateway startup (e.g. AGENTS.md). None if not loaded.
+    pub agent_context: Option<String>,
+    /// Full system context sent to the model (agent context + skills). Empty if none.
+    pub system_context: Option<String>,
+    /// Current date (YYYY-MM-DD) from the gateway, for display in Context.
+    pub date: Option<String>,
+    /// Skills portion of system context (full or compact per context mode).
+    pub skills_context: Option<String>,
+    /// Skill context mode: "full" or "readOnDemand".
+    pub context_mode: Option<String>,
 }
 
 pub struct ChaiApp {
@@ -258,6 +363,8 @@ pub struct ChaiApp {
     gateway_error: Option<String>,
     /// True if the configured gateway address:port accepted a TCP connection (we or someone else).
     gateway_responds: bool,
+    /// True once we have received at least one probe result (so we don't show "Gateway running" before probing).
+    gateway_probe_completed: bool,
     /// When Some, a probe is in flight; we read the result here.
     probe_receiver: Option<mpsc::Receiver<bool>>,
     /// Frames since we last started a probe.
@@ -278,16 +385,28 @@ pub struct ChaiApp {
     chat_error: Option<String>,
     /// When Some, a chat turn is in flight; we read the result here.
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
+    /// User message we sent for the in-flight turn (used when reply creates a new session).
+    pending_user_message: Option<String>,
     /// Live session messages from gateway events (keyed by session id).
     session_messages: BTreeMap<String, Vec<ChatMessage>>,
     /// Optional channel metadata for each session (channelId, conversationId).
     session_meta: HashMap<String, (Option<String>, Option<String>)>,
     /// When Some, a session events stream is in flight; we read gateway session.message events here.
     session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
+    /// Currently selected backend override (None = use gateway default).
+    current_backend: Option<String>,
     /// Currently selected model override (None = use gateway default).
     current_model: Option<String>,
     /// Default model from config (cached for display / fallback).
     default_model: Option<String>,
+    /// Current screen (Info, Chat, Logs).
+    current_screen: Screen,
+    /// Session whose messages are shown in the chat area (None = "New session" / desktop buffer).
+    selected_session_id: Option<String>,
+    /// Session IDs in most-recently-active order (latest first) for the sidebar list.
+    session_order: Vec<String>,
+    /// Whether the gateway was running last frame (used to detect stop and clear messages).
+    was_gateway_running: bool,
 }
 
 impl Default for ChaiApp {
@@ -296,6 +415,7 @@ impl Default for ChaiApp {
             gateway_process: None,
             gateway_error: None,
             gateway_responds: false,
+            gateway_probe_completed: false,
             probe_receiver: None,
             frames_since_probe: 0,
             status_receiver: None,
@@ -306,18 +426,30 @@ impl Default for ChaiApp {
             chat_input: String::new(),
             chat_error: None,
             chat_turn_receiver: None,
+            pending_user_message: None,
             session_messages: BTreeMap::new(),
             session_meta: HashMap::new(),
             session_events_receiver: None,
+            current_backend: None,
             current_model: None,
             default_model: None,
+            current_screen: Screen::default(),
+            selected_session_id: None,
+            session_order: Vec::new(),
+            was_gateway_running: false,
         }
     }
 }
 
 impl ChaiApp {
+    /// Space between the main screen title (Info, Chat, Logs) and the content below.
+    const SCREEN_TITLE_BOTTOM_SPACING: f32 = 18.0;
+    /// Space between the bottom of the content and the window edge on Info, Logs, Chat, and Sessions.
+    const SCREEN_FOOTER_SPACING: f32 = 48.0;
+
     fn start_new_session(&mut self) {
         self.chat_session_id = None;
+        self.selected_session_id = None;
         self.chat_messages.clear();
         self.chat_error = None;
         self.chat_messages.push(ChatMessage::assistant(
@@ -325,7 +457,25 @@ impl ChaiApp {
             None,
         ));
     }
+
+    /// Clear all session and message state when the gateway stops (it does not persist sessions).
+    fn clear_session_and_messages(&mut self) {
+        self.chat_session_id = None;
+        self.chat_messages.clear();
+        self.chat_error = None;
+        self.chat_turn_receiver = None;
+        self.pending_user_message = None;
+        self.session_messages.clear();
+        self.session_meta.clear();
+        self.session_order.clear();
+        self.selected_session_id = None;
+        self.session_events_receiver = None;
+    }
     pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let _ = LOG_LINES.get_or_init(|| Mutex::new(VecDeque::new()));
+        let _ = log::set_logger(&LOGGER);
+        log::set_max_level(log::LevelFilter::Debug);
+        log::info!("desktop started");
         Self::default()
     }
 
@@ -333,6 +483,7 @@ impl ChaiApp {
     fn poll_gateway_probe(&mut self) {
         if let Some(rx) = &self.probe_receiver {
             if let Ok(ok) = rx.try_recv() {
+                self.gateway_probe_completed = true;
                 self.gateway_responds = ok;
                 if !ok {
                     self.gateway_status = None;
@@ -368,11 +519,39 @@ impl ChaiApp {
         }
     }
 
+    /// When gateway status is received, ensure current model is in the available list for the backend; if not, switch to gateway default or first available.
+    fn reconcile_model_with_status(&mut self) {
+        let Some(ref details) = self.gateway_status else { return };
+        let backend = details.default_backend.as_deref().unwrap_or("ollama");
+        let models: &[String] = if backend == "lmstudio" {
+            &details.lm_studio_models
+        } else {
+            &details.ollama_models
+        };
+        if models.is_empty() {
+            return;
+        }
+        let effective = self
+            .current_model
+            .as_deref()
+            .or(details.default_model.as_deref())
+            .or(self.default_model.as_deref());
+        let in_list = effective.map(|m| models.iter().any(|x| x == m)).unwrap_or(false);
+        if !in_list {
+            self.current_model = details
+                .default_model
+                .clone()
+                .filter(|m| models.contains(m))
+                .or_else(|| models.first().cloned());
+        }
+    }
+
     /// Poll for status fetch result and optionally start a new fetch when gateway is running. Call each frame.
     fn poll_status_fetch(&mut self) {
         if let Some(rx) = &self.status_receiver {
             if let Ok(result) = rx.try_recv() {
                 self.gateway_status = result.ok();
+                self.reconcile_model_with_status();
                 self.status_receiver = None;
             }
         }
@@ -430,32 +609,56 @@ impl ChaiApp {
         }
     }
 
+    /// Move a session to the front of session_order (most recently active first).
+    fn move_session_to_front(&mut self, session_id: &str) {
+        self.session_order.retain(|id| id != session_id);
+        self.session_order.insert(0, session_id.to_string());
+    }
+
     /// Poll for session.message events from the gateway and update local session timelines.
+    /// Skip events for our desktop session (chat_session_id) so we don't duplicate messages
+    /// that we already add via start_chat_turn + poll_chat_turn.
     fn poll_session_events(&mut self) {
-        if let Some(rx) = &self.session_events_receiver {
-            loop {
-                match rx.try_recv() {
-                    Ok(ev) => {
-                        let entry = self
-                            .session_messages
-                            .entry(ev.session_id.clone())
-                            .or_insert_with(Vec::new);
-                        entry.push(ChatMessage {
-                            role: ev.role,
-                            content: ev.content,
-                            tool_calls: None,
-                        });
-                        self.session_meta
-                            .insert(ev.session_id, (ev.channel_id, ev.conversation_id));
-                    }
+        loop {
+            let ev = match &self.session_events_receiver {
+                Some(rx) => match rx.try_recv() {
+                    Ok(e) => Some(e),
                     Err(mpsc::TryRecvError::Empty) => break,
                     Err(mpsc::TryRecvError::Disconnected) => {
-                        // Listener thread exited or sender dropped, clear receiver so it can be restarted
                         self.session_events_receiver = None;
                         break;
                     }
-                }
+                },
+                None => break,
+            };
+            let ev = match ev {
+                Some(e) => e,
+                None => break,
+            };
+            if self.chat_session_id.as_deref() == Some(ev.session_id.as_str()) {
+                continue;
             }
+            // When we're waiting for a new-session reply, skip events for sessions we don't have yet
+            // so we don't duplicate the first user message (gateway echoes it before our reply arrives).
+            if self.chat_turn_receiver.is_some()
+                && self.chat_session_id.is_none()
+                && !self.session_messages.contains_key(&ev.session_id)
+            {
+                continue;
+            }
+            let session_id = ev.session_id.clone();
+            let entry = self
+                .session_messages
+                .entry(session_id.clone())
+                .or_insert_with(Vec::new);
+            entry.push(ChatMessage {
+                role: ev.role,
+                content: ev.content,
+                tool_calls: None,
+            });
+            self.session_meta
+                .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+            self.move_session_to_front(&session_id);
         }
     }
 
@@ -468,7 +671,17 @@ impl ChaiApp {
                     Ok(reply) => {
                         let was_new_session = self.chat_session_id.is_none();
                         self.chat_session_id = Some(reply.session_id.clone());
-                        self.chat_messages.push(ChatMessage::assistant(
+
+                        let entry = self
+                            .session_messages
+                            .entry(reply.session_id.clone())
+                            .or_insert_with(Vec::new);
+                        if was_new_session {
+                            if let Some(ref user_content) = self.pending_user_message {
+                                entry.push(ChatMessage::user(user_content.clone()));
+                            }
+                        }
+                        entry.push(ChatMessage::assistant(
                             reply.reply.clone(),
                             if reply.tool_calls.is_empty() {
                                 None
@@ -476,34 +689,23 @@ impl ChaiApp {
                                 Some(reply.tool_calls.clone())
                             },
                         ));
-                        
-                        // Add messages to session_messages for immediate UI update
-                        let entry = self
-                            .session_messages
-                            .entry(reply.session_id.clone())
-                            .or_insert_with(Vec::new);
-                        
-                        // If this was a new session, add the last user message (which triggered this turn)
-                        if was_new_session && !self.chat_messages.is_empty() {
-                            if let Some(last_user_msg) = self.chat_messages.iter().rev().find(|m| m.role == "user") {
-                                entry.push(last_user_msg.clone());
-                            }
-                        }
-                        
-                        // Add the assistant reply
-                        entry.push(ChatMessage::assistant(
-                            reply.reply,
-                            if reply.tool_calls.is_empty() {
-                                None
-                            } else {
-                                Some(reply.tool_calls)
-                            },
-                        ));
                         self.session_meta
-                            .entry(reply.session_id)
+                            .entry(reply.session_id.clone())
                             .or_insert((None, None));
+
+                        self.pending_user_message = None;
+                        self.chat_messages = self
+                            .session_messages
+                            .get(&reply.session_id)
+                            .cloned()
+                            .unwrap_or_default();
+                        self.move_session_to_front(&reply.session_id);
+                        if was_new_session {
+                            self.selected_session_id = Some(reply.session_id);
+                        }
                     }
                     Err(e) => {
+                        self.pending_user_message = None;
                         self.chat_error = Some(e);
                     }
                 }
@@ -542,12 +744,32 @@ impl ChaiApp {
         };
         let child = std::process::Command::new(&binary)
             .args(["gateway", "--port", &port.to_string()])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .spawn();
         match child {
-            Ok(c) => {
+            Ok(mut c) => {
+                if let Some(stderr) = c.stderr.take() {
+                    std::thread::spawn(move || {
+                        let reader = std::io::BufReader::new(stderr);
+                        for line in reader.lines() {
+                            if let Ok(l) = line {
+                                push_log_line(format!("[gateway] {}", l));
+                            }
+                        }
+                    });
+                }
+                if let Some(stdout) = c.stdout.take() {
+                    std::thread::spawn(move || {
+                        let reader = std::io::BufReader::new(stdout);
+                        for line in reader.lines() {
+                            if let Ok(l) = line {
+                                push_log_line(format!("[gateway] {}", l));
+                            }
+                        }
+                    });
+                }
                 self.gateway_process = Some(c);
             }
             Err(e) => {
@@ -574,14 +796,17 @@ impl ChaiApp {
         }
         self.chat_error = None;
         self.chat_input.clear();
-        
+        self.pending_user_message = Some(message.clone());
+
         // Handle special commands
         if message.eq_ignore_ascii_case("/new") {
+            self.pending_user_message = None;
             self.start_new_session();
             return;
         }
-        
+
         if message.eq_ignore_ascii_case("/help") {
+            self.pending_user_message = None;
             self.chat_messages.push(ChatMessage::assistant(
                 "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message".to_string(),
                 None,
@@ -589,128 +814,156 @@ impl ChaiApp {
             return;
         }
         
-        self.chat_messages.push(ChatMessage::user(message.clone()));
-        
-        // Also add to session_messages for immediate UI update
-        // If we have a session_id, use it; otherwise messages will be added when we get the response
-        if let Some(ref session_id) = self.chat_session_id {
+        let session_id = self.selected_session_id.clone();
+        let is_current_session = session_id == self.chat_session_id;
+        if is_current_session {
+            self.chat_messages.push(ChatMessage::user(message.clone()));
+        }
+        if let Some(ref sid) = session_id {
             let entry = self
                 .session_messages
-                .entry(session_id.clone())
+                .entry(sid.clone())
                 .or_insert_with(Vec::new);
             entry.push(ChatMessage::user(message.clone()));
             self.session_meta
-                .entry(session_id.clone())
+                .entry(sid.clone())
                 .or_insert((None, None));
+            self.move_session_to_front(sid);
         }
-        
-        let session_id = self.chat_session_id.clone();
+        // Send effective backend so the request matches the UI (default from status when not explicitly set).
+        let backend = self
+            .current_backend
+            .clone()
+            .or_else(|| self.gateway_status.as_ref().and_then(|s| s.default_backend.clone()))
+            .or_else(|| Some("ollama".to_string()));
         let model = self.current_model.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = run_agent_turn(session_id, message, model);
+            let result = run_agent_turn(session_id, message, backend, model);
             let _ = tx.send(result);
         });
         self.chat_turn_receiver = Some(rx);
     }
 
-    /// Render the chat UI (messages + input).
-    fn ui_chat(&mut self, ui: &mut egui::Ui, gateway_running: bool) {
-        // Chat window: fixed-height scroll area for messages
-        egui::ScrollArea::vertical()
-            .max_height(CHAT_WINDOW_HEIGHT)
-            .show(ui, |ui| {
-                ui.set_min_height(CHAT_WINDOW_HEIGHT);
-                for m in &self.chat_messages {
-                    let is_user = m.role == "user";
-                    let frame = egui::Frame::none()
-                        .fill(if is_user {
-                            ui.style().visuals.extreme_bg_color
-                        } else {
-                            ui.style().visuals.panel_fill
-                        })
-                        .stroke(egui::Stroke::new(
-                            1.0,
-                            ui.style()
-                                .visuals
-                                .widgets
-                                .noninteractive
-                                .bg_stroke
-                                .color,
-                        ))
-                        .rounding(egui::Rounding::same(8.0))
-                        .inner_margin(egui::Margin::same(8.0));
+    /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
+    fn render_chat_message(ui: &mut egui::Ui, m: &ChatMessage) {
+        let is_user = m.role == "user";
+        let frame = egui::Frame::none()
+            .fill(if is_user {
+                ui.style().visuals.extreme_bg_color
+            } else {
+                ui.style().visuals.panel_fill
+            })
+            .stroke(egui::Stroke::new(
+                1.0,
+                ui.style()
+                    .visuals
+                    .widgets
+                    .noninteractive
+                    .bg_stroke
+                    .color,
+            ))
+            .rounding(egui::Rounding::same(8.0))
+            .inner_margin(egui::Margin::same(8.0));
 
-                    frame.show(ui, |ui| {
-                        // Let the chat bubble use the full available width (same as the send container).
-                        if is_user {
-                            ui.label(egui::RichText::new(&m.content).strong());
-                        } else {
-                            ui.label(&m.content);
-                            if let Some(ref tool_calls) = m.tool_calls {
-                                if !tool_calls.is_empty() {
-                                    ui.add_space(8.0);
-                                    ui.separator();
+        frame.show(ui, |ui| {
+            if is_user {
+                ui.label(egui::RichText::new(&m.content).strong());
+            } else {
+                ui.label(&m.content);
+                if let Some(ref tool_calls) = m.tool_calls {
+                    if !tool_calls.is_empty() {
+                        ui.add_space(8.0);
+                        ui.separator();
+                        ui.add_space(4.0);
+                        egui::CollapsingHeader::new(format!(
+                            "🔧 {} tool call(s)",
+                            tool_calls.len()
+                        ))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            for (idx, tc) in tool_calls.iter().enumerate() {
+                                if idx > 0 {
                                     ui.add_space(4.0);
-                                    egui::CollapsingHeader::new(format!(
-                                        "🔧 {} tool call(s)",
-                                        tool_calls.len()
-                                    ))
-                                    .default_open(false)
-                                    .show(ui, |ui| {
-                                        for (idx, tc) in tool_calls.iter().enumerate() {
-                                            if idx > 0 {
-                                                ui.add_space(4.0);
-                                            }
-                                            // Handle both serialized ToolCall structs and raw JSON
-                                            let tool_name = tc
-                                                .get("function")
-                                                .and_then(|f| f.get("name"))
-                                                .and_then(|n| n.as_str())
-                                                .unwrap_or("unknown");
-                                            let tool_args = tc
-                                                .get("function")
-                                                .and_then(|f| f.get("arguments"))
-                                                .unwrap_or(&serde_json::Value::Null);
-                                            let tool_type = tc
-                                                .get("type")
-                                                .and_then(|t| t.as_str())
-                                                .unwrap_or("");
-                                            ui.label(
-                                                egui::RichText::new(format!(
-                                                    "Tool: {}",
-                                                    tool_name
-                                                ))
-                                                .strong(),
-                                            );
-                                            if !tool_type.is_empty() {
-                                                ui.label(format!("Type: {}", tool_type));
-                                            }
-                                            ui.label(format!(
-                                                "Arguments: {}",
-                                                serde_json::to_string_pretty(tool_args)
-                                                    .unwrap_or_else(|_| tool_args.to_string())
-                                            ));
-                                        }
-                                    });
                                 }
+                                let tool_name = tc
+                                    .get("function")
+                                    .and_then(|f| f.get("name"))
+                                    .and_then(|n| n.as_str())
+                                    .unwrap_or("unknown");
+                                let tool_args = tc
+                                    .get("function")
+                                    .and_then(|f| f.get("arguments"))
+                                    .unwrap_or(&serde_json::Value::Null);
+                                let tool_type = tc
+                                    .get("type")
+                                    .and_then(|t| t.as_str())
+                                    .unwrap_or("");
+                                ui.label(
+                                    egui::RichText::new(format!("Tool: {}", tool_name)).strong(),
+                                );
+                                if !tool_type.is_empty() {
+                                    ui.label(format!("Type: {}", tool_type));
+                                }
+                                ui.label(format!(
+                                    "Arguments: {}",
+                                    serde_json::to_string_pretty(tool_args)
+                                        .unwrap_or_else(|_| tool_args.to_string())
+                                ));
                             }
-                        }
-                    });
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    /// Render the chat UI (messages + input). Messages area is flexible (fills space) with stick-to-bottom; input and controls are fixed at bottom.
+    fn ui_chat(&mut self, ui: &mut egui::Ui, gateway_running: bool) {
+        let can_send = gateway_running
+            && (self.selected_session_id == self.chat_session_id
+                || (self.selected_session_id.is_none() && self.session_messages.is_empty()));
+
+        let row_height = ui.spacing().interact_size.y + 8.0;
+        let bottom_section_height = CHAT_INPUT_HEIGHT + 8.0 + row_height + Self::SCREEN_FOOTER_SPACING;
+        let available = ui.available_height();
+        let messages_height = (available - bottom_section_height).max(CHAT_MESSAGES_MIN_HEIGHT);
+
+        let messages_width = ui.available_width();
+        let messages_rect = ui.allocate_exact_size(
+            egui::vec2(messages_width, messages_height),
+            egui::Sense::hover(),
+        ).0;
+        let mut messages_ui = ui.child_ui(messages_rect, egui::Layout::top_down(egui::Align::Min));
+        // Always use session_messages for the selected session when present to avoid duplicates from chat_messages diverging.
+        let messages_to_show: Vec<ChatMessage> = if let Some(ref id) = self.selected_session_id {
+            self.session_messages.get(id).cloned().unwrap_or_default()
+        } else {
+            self.chat_messages.clone()
+        };
+        egui::ScrollArea::vertical()
+            .stick_to_bottom(true)
+            .show(&mut messages_ui, |ui| {
+                // Force scroll content to be at least viewport width so the scrollbar stays on the right
+                let content_width = ui.available_width();
+                ui.allocate_exact_size(egui::vec2(content_width, 0.0), egui::Sense::hover());
+                for m in &messages_to_show {
+                    Self::render_chat_message(ui, m);
                     ui.add_space(8.0);
                 }
             });
+
         ui.add_space(8.0);
 
-        // Text box for sending messages: fixed height (about two thirds of chat window)
-        let response = ui.add_sized(
-            [ui.available_width(), CHAT_INPUT_HEIGHT],
-            egui::TextEdit::multiline(&mut self.chat_input),
-        );
+        let text_response = ui.add_enabled_ui(can_send, |ui| {
+            ui.add_sized(
+                [ui.available_width(), CHAT_INPUT_HEIGHT],
+                egui::TextEdit::multiline(&mut self.chat_input),
+            )
+        });
+        let response = text_response.inner;
         ui.add_space(8.0);
 
-        // Fixed-height container row for the send button, right-aligned.
-        let row_height = ui.spacing().interact_size.y + 8.0; // 4px top + 4px bottom padding
         let row_width = ui.available_width();
         let (rect, _) = ui.allocate_exact_size(egui::vec2(row_width, row_height), egui::Sense::hover());
         let mut row_ui = ui.child_ui(rect, egui::Layout::right_to_left(egui::Align::Center));
@@ -722,62 +975,104 @@ impl ChaiApp {
                 bottom: 4.0,
             })
             .show(&mut row_ui, |ui| {
-                // Right-to-left layout:
-                // - Send button on the far right
-                // - Model dropdown to its left
-                // - /new button to the left of the model dropdown
+                // Right-to-left layout: first added = rightmost. We want left-to-right: Backend, Model, /new, Send.
                 let mut send_now = false;
 
-                let send_button = ui.add_enabled(gateway_running, egui::Button::new("Send"));
+                let send_button = ui.add_enabled(can_send, egui::Button::new("Send"));
 
-                // Model dropdown: show even when gateway is stopped, using default model from config.
-                let gateway_models: Vec<String> = self
-                    .gateway_status
-                    .as_ref()
-                    .map(|s| s.ollama_models.clone())
-                    .unwrap_or_default();
-                let mut model_options: Vec<String> = Vec::new();
-                if let Some(dm) = self.default_model.as_ref() {
-                    model_options.push(dm.clone());
-                }
-                for m in gateway_models {
-                    if !model_options.iter().any(|existing| existing == &m) {
-                        model_options.push(m);
+                let effective_backend = self
+                    .current_backend
+                    .as_deref()
+                    .or_else(|| self.gateway_status.as_ref().and_then(|s| s.default_backend.as_deref()))
+                    .unwrap_or("ollama")
+                    .to_string();
+                // Only models for the selected backend.
+                let gateway_models: Vec<String> = self.gateway_status.as_ref().map(|s| {
+                    if effective_backend == "lmstudio" {
+                        s.lm_studio_models.clone()
+                    } else {
+                        s.ollama_models.clone()
                     }
-                }
+                }).unwrap_or_default();
+                let effective_default_model = self.gateway_status.as_ref().and_then(|s| s.default_model.clone()).or_else(|| self.default_model.clone());
 
+                // Model dropdown: only models for the selected backend.
+                let model_options: Vec<String> = gateway_models;
                 if !model_options.is_empty() {
                     ui.add_space(8.0);
                     let current_label = self
                         .current_model
                         .as_deref()
-                        .or(self.default_model.as_deref())
-                        .unwrap_or(DEFAULT_MODEL_FALLBACK);
-                    egui::ComboBox::from_id_source("model_select")
-                        .selected_text(current_label)
-                        .show_ui(ui, |ui| {
-                            for m in &model_options {
-                                let selected = self
-                                    .current_model
-                                    .as_deref()
-                                    .map(|cm| cm == m.as_str())
-                                    .unwrap_or(false);
-                                if ui.selectable_label(selected, m).clicked() {
-                                    self.current_model = Some(m.clone());
+                        .or(effective_default_model.as_deref())
+                        .unwrap_or("—")
+                        .to_string();
+                    ui.add_enabled_ui(can_send, |ui| {
+                        egui::ComboBox::from_id_source("model_select")
+                            .selected_text(current_label.as_str())
+                            .show_ui(ui, |ui| {
+                                for m in &model_options {
+                                    let selected = self
+                                        .current_model
+                                        .as_deref()
+                                        .map(|cm| cm == m.as_str())
+                                        .unwrap_or(false);
+                                    if ui.selectable_label(selected, m).clicked() {
+                                        self.current_model = Some(m.clone());
+                                    }
                                 }
-                            }
-                        });
+                            });
+                    });
+                }
+
+                // Backend dropdown: only show enabled backends (from config).
+                ui.add_space(8.0);
+                let enabled_backends_list: Vec<String> = {
+                    let (config, _) = lib::config::load_config(None)
+                        .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+                    if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+                        let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
+                        vec![default]
+                    } else {
+                        let mut seen = std::collections::HashSet::new();
+                        config.agents.enabled_backends.as_ref().unwrap()
+                            .iter()
+                            .map(|s| s.trim().to_lowercase())
+                            .filter(|s| !s.is_empty())
+                            .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
+                            .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
+                            .filter(|s| seen.insert(s.clone()))
+                            .collect()
+                    }
+                };
+                if !enabled_backends_list.is_empty() {
+                    let selected = if enabled_backends_list.contains(&effective_backend) {
+                        effective_backend.clone()
+                    } else {
+                        enabled_backends_list.first().cloned().unwrap_or_else(|| "—".to_string())
+                    };
+                    ui.add_enabled_ui(can_send, |ui| {
+                        egui::ComboBox::from_id_source("backend_select")
+                            .selected_text(selected)
+                            .show_ui(ui, |ui| {
+                                for b in &enabled_backends_list {
+                                    if ui.selectable_label(effective_backend == b.as_str(), b).clicked() {
+                                        self.current_backend = Some(b.clone());
+                                        self.current_model = None;
+                                    }
+                                }
+                            });
+                    });
                 }
 
                 ui.add_space(8.0);
-                if ui.add_enabled(gateway_running, egui::Button::new("/new")).clicked() {
+                if ui.add_enabled(can_send, egui::Button::new("/new")).clicked() {
                     self.start_new_session();
                 }
 
                 if send_button.clicked() {
                     send_now = true;
                 }
-                if gateway_running && response.has_focus() {
+                if can_send && response.has_focus() {
                     let modifiers = ui.input(|i| i.modifiers);
                     if modifiers.command || modifiers.ctrl {
                         if ui.input(|i| i.key_pressed(egui::Key::Enter)) {
@@ -794,6 +1089,319 @@ impl ChaiApp {
             ui.add_space(8.0);
             ui.colored_label(egui::Color32::RED, err);
         }
+        ui.add_space(Self::SCREEN_FOOTER_SPACING);
+    }
+
+    fn ui_info_screen(&mut self, ui: &mut egui::Ui, running: bool) {
+        const INFO_LINE_SPACING: f32 = 6.0;
+        const INFO_SUBSECTION_SPACING: f32 = 18.0;
+        ui.add_space(24.0);
+        ui.heading("Info");
+        ui.add_space(Self::SCREEN_TITLE_BOTTOM_SPACING);
+        let (config, _) = lib::config::load_config(None)
+            .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+        if self.default_model.is_none() {
+            let (_, model) = lib::config::resolve_effective_backend_and_model(&config.agents);
+            self.default_model = Some(model);
+        }
+
+        let port = config.gateway.port;
+        let bind = config.gateway.bind.trim();
+        let auth_mode = match config.gateway.auth.mode {
+            lib::config::GatewayAuthMode::None => "none",
+            lib::config::GatewayAuthMode::Token => "token",
+        };
+        let (protocol, status_port, status_bind, status_auth) = if let Some(ref s) = self.gateway_status {
+            (s.protocol, s.port, s.bind.clone(), s.auth.clone())
+        } else {
+            (1, port, bind.to_string(), auth_mode.to_string())
+        };
+
+        let available = ui.available_height();
+        let content_height = (available - Self::SCREEN_FOOTER_SPACING).max(0.0);
+        ui.allocate_ui_with_layout(
+            egui::vec2(ui.available_width(), content_height),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+        ui.columns(2, |columns| {
+            // Left column: Gateway, Channels, Agents, Skills
+            {
+                let ui_left = &mut columns[0];
+                ui_left.label(egui::RichText::new("Gateway").strong());
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Status: {}", if running { "running" } else { "stopped" }));
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Bind: {}", status_bind));
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Port: {}", status_port));
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Protocol: {}", protocol));
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Auth: {}", status_auth));
+                ui_left.add_space(INFO_LINE_SPACING);
+                if let Some(ref err) = self.gateway_error {
+                    ui_left.colored_label(egui::Color32::RED, err);
+                    ui_left.add_space(INFO_LINE_SPACING);
+                }
+                ui_left.add_space(INFO_SUBSECTION_SPACING);
+
+                ui_left.label(egui::RichText::new("Channels").strong());
+                ui_left.add_space(INFO_LINE_SPACING);
+                let telegram_configured = config.channels.telegram.bot_token.is_some()
+                    || config.channels.telegram.webhook_url.is_some();
+                if telegram_configured {
+                    if let Some(ref t) = config.channels.telegram.bot_token {
+                        ui_left.label(format!("Telegram bot token: {}", if t.trim().is_empty() { "(empty)" } else { "set" }));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    if let Some(ref w) = config.channels.telegram.webhook_url {
+                        ui_left.label(format!("Telegram webhook: {}", w));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                } else {
+                    ui_left.label("Not configured.");
+                    ui_left.add_space(INFO_LINE_SPACING);
+                }
+                ui_left.add_space(INFO_SUBSECTION_SPACING);
+
+                ui_left.label(egui::RichText::new("Agents").strong());
+                ui_left.add_space(INFO_LINE_SPACING);
+                let (backend_label, current_model) = if let Some(ref s) = self.gateway_status {
+                    let backend = s.default_backend.as_deref().unwrap_or("ollama").to_string();
+                    let model = self
+                        .current_model
+                        .clone()
+                        .or_else(|| s.default_model.clone())
+                        .or_else(|| self.default_model.clone())
+                        .unwrap_or_else(|| "—".to_string());
+                    (backend, model)
+                } else {
+                    let (backend, model) = lib::config::resolve_effective_backend_and_model(&config.agents);
+                    let model = self
+                        .current_model
+                        .clone()
+                        .or(Some(model))
+                        .unwrap_or_else(|| "—".to_string());
+                    (backend, model)
+                };
+                ui_left.label(format!("Current backend: {}", backend_label));
+                ui_left.add_space(INFO_LINE_SPACING);
+                ui_left.label(format!("Current model: {}", current_model));
+                ui_left.add_space(INFO_LINE_SPACING);
+                let enabled_backends_display = if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+                    let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
+                    default
+                } else {
+                    let v = config.agents.enabled_backends.as_ref().unwrap();
+                    let s = v.iter().map(|s| s.as_str()).filter(|s| !s.trim().is_empty()).collect::<Vec<_>>().join(", ");
+                    if s.is_empty() {
+                        let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
+                        default
+                    } else {
+                        s
+                    }
+                };
+                ui_left.label(format!("Enabled backends: {}", enabled_backends_display));
+                ui_left.add_space(INFO_LINE_SPACING);
+                if let Some(ref w) = config.agents.workspace {
+                    ui_left.label(format!("Workspace: {}", w.display()));
+                    ui_left.add_space(INFO_LINE_SPACING);
+                }
+                if let Some(ref b) = config.agents.backends {
+                    if b.ollama.as_ref().and_then(|o| o.base_url.as_ref()).map(|u| !u.trim().is_empty()).unwrap_or(false) {
+                        ui_left.label(format!("Ollama base URL: {}", b.ollama.as_ref().unwrap().base_url.as_ref().unwrap()));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    if b.lm_studio.as_ref().and_then(|l| l.base_url.as_ref()).map(|u| !u.trim().is_empty()).unwrap_or(false) {
+                        ui_left.label(format!("LM Studio base URL: {}", b.lm_studio.as_ref().unwrap().base_url.as_ref().unwrap()));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                }
+                if let Some(ref s) = self.gateway_status {
+                    if !s.ollama_models.is_empty() {
+                        ui_left.label(format!("Ollama models: {}", s.ollama_models.join(", ")));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    if !s.lm_studio_models.is_empty() {
+                        ui_left.label(format!("LM Studio models: {}", s.lm_studio_models.join(", ")));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                } else if running {
+                    ui_left.label("(loading available models)");
+                    ui_left.add_space(INFO_LINE_SPACING);
+                } else {
+                    ui_left.label("(start gateway to see available models)");
+                    ui_left.add_space(INFO_LINE_SPACING);
+                }
+                ui_left.add_space(INFO_SUBSECTION_SPACING);
+
+                ui_left.label(egui::RichText::new("Skills").strong());
+                ui_left.add_space(INFO_LINE_SPACING);
+                let skills_configured = config.skills.directory.is_some()
+                    || !config.skills.extra_dirs.is_empty()
+                    || !config.skills.enabled.is_empty()
+                    || config.skills.context_mode != lib::config::SkillContextMode::Full
+                    || config.skills.allow_scripts;
+                if skills_configured {
+                    if let Some(ref d) = config.skills.directory {
+                        ui_left.label(format!("Directory: {}", d.display()));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    if !config.skills.extra_dirs.is_empty() {
+                        ui_left.label(format!("Extra dirs: {}", config.skills.extra_dirs.iter().map(|p| p.to_string_lossy().to_string()).collect::<Vec<_>>().join(", ")));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    if !config.skills.enabled.is_empty() {
+                        ui_left.label(format!("Enabled: {}", config.skills.enabled.join(", ")));
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                    let context_mode_str = match config.skills.context_mode {
+                        lib::config::SkillContextMode::Full => "full",
+                        lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
+                    };
+                    ui_left.label(format!("Context mode: {}", context_mode_str));
+                    ui_left.add_space(INFO_LINE_SPACING);
+                    if config.skills.allow_scripts {
+                        ui_left.label("Allow scripts: true");
+                        ui_left.add_space(INFO_LINE_SPACING);
+                    }
+                } else {
+                    ui_left.label("Not configured.");
+                    ui_left.add_space(INFO_LINE_SPACING);
+                }
+            }
+
+            // Right column: Context and Skills (aligned with Gateway in left column)
+            {
+                let ui_right = &mut columns[1];
+                let loading = !running || self.gateway_status.is_none() || self.status_receiver.is_some();
+
+                // Context: date + agent context
+                ui_right.label(egui::RichText::new("Context").strong());
+                ui_right.add_space(INFO_LINE_SPACING);
+                let context_text = self.gateway_status.as_ref().and_then(|s| {
+                    let mut out = String::new();
+                    if let Some(ref d) = s.date {
+                        out.push_str("Date: ");
+                        out.push_str(d);
+                        out.push_str("\n\n");
+                    }
+                    if let Some(ref a) = s.agent_context {
+                        if !a.trim().is_empty() {
+                            out.push_str(a);
+                        }
+                    }
+                    if out.trim().is_empty() {
+                        None
+                    } else {
+                        Some(out)
+                    }
+                }).or_else(|| self.gateway_status.as_ref().and_then(|s| s.system_context.clone()));
+                if let Some(text) = context_text {
+                    let available = ui_right.available_height();
+                    let context_height = (available * 0.4).max(40.0);
+                    egui::ScrollArea::vertical()
+                        .id_source("info_context_scroll")
+                        .max_height(context_height)
+                        .show(ui_right, |ui| {
+                            egui::Frame::none()
+                                .inner_margin(egui::Margin {
+                                    left: 0.0,
+                                    right: 16.0,
+                                    top: 0.0,
+                                    bottom: 0.0,
+                                })
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(text.as_str()).family(egui::FontFamily::Monospace),
+                                    );
+                                });
+                        });
+                } else if !running {
+                    ui_right.label("(start gateway to see context)");
+                } else if loading {
+                    ui_right.label("(loading context)");
+                } else {
+                    ui_right.label("No context loaded.");
+                }
+
+                ui_right.add_space(INFO_SUBSECTION_SPACING);
+                ui_right.label(egui::RichText::new("Skills").strong());
+                ui_right.add_space(INFO_LINE_SPACING);
+                let is_read_on_demand = self
+                    .gateway_status
+                    .as_ref()
+                    .and_then(|s| s.context_mode.as_deref())
+                    .map(|m| m == "readOnDemand")
+                    .unwrap_or(false);
+                if is_read_on_demand {
+                    ui_right.label("When read-on-demand is enabled, full skill docs are loaded on demand via the read_skill tool.");
+                    ui_right.add_space(INFO_LINE_SPACING);
+                }
+                let skills_text = self
+                    .gateway_status
+                    .as_ref()
+                    .and_then(|s| s.skills_context.as_deref())
+                    .filter(|s| !s.trim().is_empty());
+                if let Some(text) = skills_text {
+                    let height = ui_right.available_height();
+                    egui::ScrollArea::vertical()
+                        .id_source("info_skills_scroll")
+                        .max_height(height)
+                        .show(ui_right, |ui| {
+                            egui::Frame::none()
+                                .inner_margin(egui::Margin {
+                                    left: 0.0,
+                                    right: 16.0,
+                                    top: 0.0,
+                                    bottom: 0.0,
+                                })
+                                .show(ui, |ui| {
+                                    ui.label(
+                                        egui::RichText::new(text).family(egui::FontFamily::Monospace),
+                                    );
+                                });
+                        });
+                } else if !running {
+                    ui_right.label("(start gateway to see context)");
+                } else if loading {
+                    ui_right.label("(loading context)");
+                } else {
+                    ui_right.label("No skills loaded.");
+                }
+            }
+        });
+            },
+        );
+        ui.add_space(Self::SCREEN_FOOTER_SPACING);
+    }
+
+    fn ui_logs_screen(&self, ui: &mut egui::Ui) {
+        ui.add_space(24.0);
+        ui.heading("Logs");
+        ui.add_space(Self::SCREEN_TITLE_BOTTOM_SPACING);
+
+        let lines: Vec<String> = log_buffer()
+            .lock()
+            .map(|b| b.iter().cloned().collect())
+            .unwrap_or_default();
+
+        let available = ui.available_height();
+        let scroll_height = (available - Self::SCREEN_FOOTER_SPACING).max(0.0);
+        egui::ScrollArea::vertical()
+            .max_height(scroll_height)
+            .stick_to_bottom(true)
+            .show(ui, |ui| {
+                for line in &lines {
+                    ui.label(
+                        egui::RichText::new(line.as_str()).family(egui::FontFamily::Monospace),
+                    );
+                }
+                if lines.is_empty() {
+                    ui.label("No log output yet.");
+                }
+            });
+        ui.add_space(Self::SCREEN_FOOTER_SPACING);
     }
 }
 
@@ -804,6 +1412,10 @@ impl eframe::App for ChaiApp {
         self.poll_chat_turn();
         let owned = self.gateway_owned();
         let running = owned || self.gateway_responds;
+        if self.was_gateway_running && !running {
+            self.clear_session_and_messages();
+        }
+        self.was_gateway_running = running;
         self.ensure_session_events_listener(running);
         self.poll_session_events();
 
@@ -814,9 +1426,11 @@ impl eframe::App for ChaiApp {
                 .show(ui, |ui| {
                     ui.add_space(16.0);
                     ui.horizontal(|ui| {
-                        ui.heading("Chai — Multi-Agent Management System");
+                        ui.heading("Chai");
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if running {
+                            if !self.gateway_probe_completed {
+                                ui.add_enabled(false, egui::Button::new("Start gateway"));
+                            } else if running {
                                 if owned {
                                     if ui.button("Stop gateway").clicked() {
                                         self.stop_gateway();
@@ -835,134 +1449,114 @@ impl eframe::App for ChaiApp {
                 });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::ScrollArea::vertical().show(ui, |ui| {
+        let current_screen = &mut self.current_screen;
+        egui::SidePanel::left("sidebar")
+            .resizable(false)
+            .exact_width(140.0)
+            .show(ctx, |ui| {
                 egui::Frame::none()
                     .inner_margin(egui::Margin::symmetric(24.0, 0.0))
                     .show(ui, |ui| {
                         ui.add_space(24.0);
-                        // Info section - Gateway status and Ollama
-                        ui.heading("Info");
-                        ui.add_space(8.0);
-                        
-                        let (config, _) = lib::config::load_config(None)
-                            .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
-                        if self.default_model.is_none() {
-                            self.default_model = config
-                                .agents
-                                .default_model
-                                .clone()
-                                .or_else(|| Some(DEFAULT_MODEL_FALLBACK.to_string()));
+                        if ui.selectable_label(*current_screen == Screen::Info, "Info").clicked() {
+                            *current_screen = Screen::Info;
                         }
-                        let port = config.gateway.port;
-                        let bind = config.gateway.bind.trim();
-                        let auth_mode = match config.gateway.auth.mode {
-                            lib::config::GatewayAuthMode::None => "none",
-                            lib::config::GatewayAuthMode::Token => "token",
-                        };
-                        
-                        // Use live status if available, otherwise use config values
-                        let (protocol, status_port, status_bind, status_auth) = if let Some(ref s) = self.gateway_status {
-                            (s.protocol, s.port, s.bind.clone(), s.auth.clone())
-                        } else {
-                            (1, port, bind.to_string(), auth_mode.to_string())
-                        };
-                        
-                        ui.horizontal(|ui| {
-                            ui.label(format!("Gateway: {}", if running { "running" } else { "stopped" }));
-                            ui.separator();
-                            ui.label(format!("Bind: {}", status_bind));
-                            ui.separator();
-                            ui.label(format!("Port: {}", status_port));
-                            ui.separator();
-                            ui.label(format!("Protocol: {}", protocol));
-                            ui.separator();
-                            ui.label(format!("Auth: {}", status_auth));
-                        });
-                        // Context mode (full vs readOnDemand)
-                        let context_mode_str = match config.skills.context_mode {
-                            lib::config::SkillContextMode::Full => "full",
-                            lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
-                        };
-                        ui.add_space(4.0);
-                        ui.label(format!("Context mode: {}", context_mode_str));
-
-                        // Current model (effective model for next turn: override or default/fallback)
-                        let current_model = self
-                            .current_model
-                            .as_deref()
-                            .or(self.default_model.as_deref())
-                            .unwrap_or(DEFAULT_MODEL_FALLBACK);
-                        ui.add_space(4.0);
-                        ui.label(format!("Current model: {}", current_model));
-                        
-                        // Ollama models line
-                        if let Some(ref s) = self.gateway_status {
-                            if !s.ollama_models.is_empty() {
-                                ui.add_space(4.0);
-                                ui.label(format!("Ollama: {} model(s) — {}", s.ollama_models.len(), s.ollama_models.join(", ")));
-                            }
-                        } else if self.status_receiver.is_some() {
-                            ui.add_space(4.0);
-                            ui.label("Ollama: fetching…");
-                        } else {
-                            ui.add_space(4.0);
-                            ui.label("Ollama: (start gateway to see available models)");
+                        ui.add_space(12.0);
+                        if ui.selectable_label(*current_screen == Screen::Chat, "Chat").clicked() {
+                            *current_screen = Screen::Chat;
                         }
-
-                        if let Some(ref err) = self.gateway_error {
-                            ui.add_space(4.0);
-                            ui.colored_label(egui::Color32::RED, err);
+                        ui.add_space(12.0);
+                        if ui.selectable_label(*current_screen == Screen::Logs, "Logs").clicked() {
+                            *current_screen = Screen::Logs;
                         }
-
-                        ui.add_space(24.0);
-                        ui.separator();
-                        ui.add_space(24.0);
-                    ui.heading("Chat");
-                    ui.add_space(8.0);
-                    if !running {
-                        ui.label("Start the gateway to chat with the model.");
-                        ui.add_space(8.0);
-                    }
-                    self.ui_chat(ui, running);
-
-                        ui.add_space(24.0);
-                        ui.separator();
-                        ui.add_space(24.0);
-                        ui.heading("Sessions");
-                        ui.add_space(8.0);
-                        if !running {
-                            ui.label("No sessions available (gateway stopped).");
-                        } else if self.session_messages.is_empty() {
-                            ui.label("No sessions yet. Send a message to start one.");
-                        } else {
-                            for (session_id, messages) in &self.session_messages {
-                                let label = if let Some((channel_id, conversation_id)) =
-                                    self.session_meta.get(session_id)
-                                {
-                                    match (channel_id, conversation_id) {
-                                        (Some(cid), Some(conv)) => {
-                                            format!("{} ({}:{})", session_id, cid, conv)
-                                        }
-                                        (Some(cid), None) => {
-                                            format!("{} ({})", session_id, cid)
-                                        }
-                                        _ => session_id.clone(),
-                                    }
-                                } else {
-                                    session_id.clone()
-                                };
-                                ui.label(egui::RichText::new(label).strong());
-                                if let Some(last) = messages.last() {
-                                    ui.add_space(4.0);
-                                    ui.label(format!("  {}: {}", last.role, last.content));
-                                }
-                                ui.add_space(12.0);
-                            }
-                        }
-                        ui.add_space(48.0);
                     });
             });
+
+        // Right sidebar: sessions list when on Chat (select which session's messages to show)
+        if self.current_screen == Screen::Chat {
+            // Default selected session to current chat session when none selected
+            if self.selected_session_id.is_none() && self.chat_session_id.is_some() {
+                self.selected_session_id = self.chat_session_id.clone();
+            }
+            egui::SidePanel::right("sessions_panel")
+                .resizable(false)
+                .exact_width(220.0)
+                .show(ctx, |ui| {
+                    egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(24.0, 0.0))
+                        .show(ui, |ui| {
+                            ui.add_space(24.0);
+                            ui.heading("Sessions");
+                            ui.add_space(Self::SCREEN_TITLE_BOTTOM_SPACING);
+                            if !running {
+                                ui.label("Start the gateway to see sessions.");
+                            } else {
+                                if self.chat_session_id.is_none() {
+                                    if ui.button("New session").clicked() {
+                                        self.selected_session_id = None;
+                                    }
+                                    ui.add_space(8.0);
+                                }
+                                for session_id in self.session_order.iter().filter(|id| self.session_messages.contains_key(*id)).cloned().collect::<Vec<_>>() {
+                                    let is_selected = self.selected_session_id.as_deref() == Some(session_id.as_str());
+                                    let display = session_label_display(
+                                        &session_id,
+                                        self.session_meta.get(&session_id),
+                                    );
+                                    if ui.selectable_label(is_selected, display).clicked() {
+                                        self.selected_session_id = Some(session_id);
+                                    }
+                                }
+                                if self.session_messages.is_empty() {
+                                    ui.label("No sessions yet. Send a message to start one.");
+                                }
+                            }
+                            ui.add_space(Self::SCREEN_FOOTER_SPACING);
+                        });
+                });
+        }
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if self.current_screen == Screen::Chat {
+                egui::Frame::none()
+                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
+                    .show(ui, |ui| {
+                        ui.add_space(24.0);
+                        ui.heading("Chat");
+                        ui.add_space(Self::SCREEN_TITLE_BOTTOM_SPACING);
+                        if !running {
+                            ui.label("Start the gateway to chat with the model.");
+                            ui.add_space(8.0);
+                        }
+                        self.ui_chat(ui, running);
+                    });
+            } else if self.current_screen == Screen::Logs {
+                // Logs screen has its own scroll area for the log lines; avoid double scrollbars
+                egui::Frame::none()
+                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
+                    .show(ui, |ui| {
+                        self.ui_logs_screen(ui);
+                    });
+            } else if self.current_screen == Screen::Info {
+                // Info screen has its own scroll area in the System Context column; avoid outer scrollbar
+                egui::Frame::none()
+                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
+                    .show(ui, |ui| {
+                        self.ui_info_screen(ui, running);
+                    });
+            } else {
+                egui::ScrollArea::vertical().show(ui, |_ui| {
+                    egui::Frame::none()
+                        .inner_margin(egui::Margin::symmetric(24.0, 0.0))
+                        .show(_ui, |_| {
+                            match self.current_screen {
+                                Screen::Info => {}
+                                Screen::Logs => {}
+                                Screen::Chat => {}
+                            }
+                        });
+                });
+            }
         });
     }
 }
@@ -1157,6 +1751,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
 fn run_agent_turn(
     session_id: Option<String>,
     message: String,
+    backend: Option<String>,
     model: Option<String>,
 ) -> Result<AgentReply, String> {
     let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
@@ -1277,8 +1872,11 @@ fn run_agent_turn(
         if let Some(id) = session_id {
             agent_params["sessionId"] = serde_json::Value::String(id);
         }
-        if let Some(m) = model {
-            agent_params["model"] = serde_json::Value::String(m);
+        if let Some(b) = &backend {
+            agent_params["backend"] = serde_json::Value::String(b.clone());
+        }
+        if let Some(m) = &model {
+            agent_params["model"] = serde_json::Value::String(m.clone());
         }
 
         let agent_req = serde_json::json!({

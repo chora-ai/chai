@@ -4,7 +4,7 @@ use tokio_tungstenite::tungstenite::Message;
 
 #[derive(Parser)]
 #[command(name = "chai")]
-#[command(about = "Chai CLI — multi-agent management system", long_about = None)]
+#[command(about = "Chai CLI", long_about = None)]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,

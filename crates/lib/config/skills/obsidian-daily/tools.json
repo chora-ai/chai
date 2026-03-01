@@ -1,0 +1,36 @@
+{
+  "tools": [
+    {
+      "name": "obsidian_create",
+      "description": "Create a daily note in the default vault. Use path like Daily/YYYY-MM-DD and optional content.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Daily note path, e.g. Daily/2026-02-25"
+          },
+          "content": {
+            "type": "string",
+            "description": "Optional initial content"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "obsidian": ["create"]
+  },
+  "execution": [
+    {
+      "tool": "obsidian_create",
+      "binary": "obsidian",
+      "subcommand": "create",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content" }
+      ]
+    }
+  ]
+}
