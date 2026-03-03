@@ -6,7 +6,7 @@ use crate::session::SessionStore;
 
 const MAX_TOOL_LOOP: usize = 5;
 
-/// Result of one agent turn: text content and any parsed tool/function calls (from the final message).
+/// Result of one agent turn: final text content and any tool/function calls that were executed during the turn.
 #[derive(Debug, Clone)]
 pub struct AgentTurnResult {
     pub content: String,
@@ -72,6 +72,8 @@ pub async fn run_turn<B: LlmBackend>(
     let mut loop_count = 0;
     let mut last_content;
     let mut last_tool_calls;
+    // Tool calls that were actually executed during this turn (across all tool loops).
+    let mut executed_tool_calls: Vec<ToolCall> = Vec::new();
 
     loop {
         let use_stream = on_chunk.is_some() && loop_count == 0;
@@ -151,10 +153,14 @@ pub async fn run_turn<B: LlmBackend>(
                 .await
                 .map_err(|e| LlmError::Session(e.to_string()))?;
         }
+
+        // All tool calls in this loop iteration have been executed (or attempted),
+        // so include them in the executed list for the final result.
+        executed_tool_calls.extend(last_tool_calls.clone());
     }
 
     Ok(AgentTurnResult {
         content: last_content,
-        tool_calls: last_tool_calls,
+        tool_calls: executed_tool_calls,
     })
 }

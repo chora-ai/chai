@@ -309,7 +309,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
         return String::new();
     }
     let mut out = String::from(
-        "You have access to the following skills. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.\n\n",
+        "Use the read_skill tool to read a skill. Only read a skill when the skill is relevant to the user's request. You can read and use the following skills:\n\n",
     );
     for s in skills {
         out.push_str("- **");
@@ -334,7 +334,7 @@ fn build_system_context(
 ) -> String {
     let mut out = String::new();
     let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    out.push_str("Today's date: ");
+    out.push_str("TODAY'S DATE: ");
     out.push_str(&today);
     out.push_str("\n\n");
     if let Some(ctx) = agent_ctx {
@@ -361,7 +361,7 @@ fn read_skill_tool_definition() -> ToolDefinition {
         function: crate::llm::ToolFunctionDefinition {
             name: "read_skill".to_string(),
             description: Some(
-                "Load the full documentation (SKILL.md) for a skill. Call when the user's request clearly applies to that skill and you need the full instructions and tool usage details.".to_string(),
+                "Read a skill. Call when you need to use a skill and its tools.".to_string(),
             ),
             parameters: serde_json::json!({
                 "type": "object",
@@ -369,7 +369,7 @@ fn read_skill_tool_definition() -> ToolDefinition {
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "Name of the skill (e.g. notesmd-cli). Use the exact name from the available skills list."
+                        "description": "The name of the skill. Use the exact name from the available skills list."
                     }
                 }
             }),
@@ -396,19 +396,32 @@ fn broadcast_session_message(
     session_id: &str,
     role: &str,
     content: &str,
+    tool_calls: Option<&[crate::llm::ToolCall]>,
     channel_id: Option<&str>,
     conversation_id: Option<&str>,
 ) {
-    let event = json!({
-        "type": "event",
-        "event": "session.message",
-        "payload": {
+    let payload = if let Some(calls) = tool_calls {
+        json!({
             "sessionId": session_id,
             "role": role,
             "content": content,
             "channelId": channel_id,
             "conversationId": conversation_id,
-        }
+            "toolCalls": calls,
+        })
+    } else {
+        json!({
+            "sessionId": session_id,
+            "role": role,
+            "content": content,
+            "channelId": channel_id,
+            "conversationId": conversation_id,
+        })
+    };
+    let event = json!({
+        "type": "event",
+        "event": "session.message",
+        "payload": payload,
     });
     if let Ok(text) = serde_json::to_string(&event) {
         let _ = state.event_tx.send(text);
@@ -469,6 +482,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         &session_id,
         "user",
         &msg.text,
+        None,
         Some(&msg.channel_id),
         Some(&msg.conversation_id),
     );
@@ -529,6 +543,11 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             &session_id,
             "assistant",
             &reply,
+            if result.tool_calls.is_empty() {
+                None
+            } else {
+                Some(&result.tool_calls[..])
+            },
             Some(&msg.channel_id),
             Some(&msg.conversation_id),
         );
@@ -1053,6 +1072,16 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     SkillContextMode::ReadOnDemand => build_skill_bodies_only(&state.skills),
                     SkillContextMode::Full => String::new(),
                 };
+                let tools_string = state
+                    .tools_list
+                    .as_ref()
+                    .and_then(|tools| {
+                        if tools.is_empty() {
+                            None
+                        } else {
+                            serde_json::to_string_pretty(tools).ok()
+                        }
+                    });
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let payload = json!({
                     "runtime": "running",
@@ -1071,6 +1100,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "skillsContextFull": skills_context_full,
                     "skillsContextBodies": if skills_context_bodies.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(skills_context_bodies) },
                     "contextMode": state.config.skills.context_mode,
+                    "tools": tools_string,
                 });
                 let res = WsResponse::ok(&req.id, payload);
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
@@ -1133,6 +1163,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     &session_id,
                     "user",
                     &user_message,
+                    None,
                     None,
                     None,
                 );
@@ -1201,6 +1232,11 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             &session_id,
                             "assistant",
                             &result.content,
+                            if result.tool_calls.is_empty() {
+                                None
+                            } else {
+                                Some(&result.tool_calls[..])
+                            },
                             channel_id.as_deref(),
                             conv_id.as_deref(),
                         );

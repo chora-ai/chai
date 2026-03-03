@@ -1,0 +1,88 @@
+{
+
+  "allowlist": {
+    "notesmd-cli": ["print", "print-default", "create"]
+  },
+  "execution": [
+    {
+      "tool": "notesmd_daily_read",
+      "binary": "notesmd-cli",
+      "subcommand": "print",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "notesmd_daily_update",
+      "binary": "notesmd-cli",
+      "subcommand": "create",
+      "args": [
+        {
+          "param": "date",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        },
+        {
+          "param": "replace",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--overwrite",
+          "flagIfFalse": "--append"
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "notesmd_daily_read",
+      "description": "Read a daily note.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Daily note date in YYYY-MM-DD format."
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_daily_update",
+      "description": "Create or update a daily note.",
+      "parameters": {
+        "type": "object",
+        "required": ["date", "content"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Daily note date in YYYY-MM-DD format."
+          },
+          "content": {
+            "type": "string",
+            "description": "The content of the note (the entire content of the read note with changes applied)."
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "True when modifying existing content. False when appending to existing content."
+          }
+        }
+      }
+    }
+  ]
+}

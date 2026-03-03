@@ -1,6 +1,18 @@
 use eframe::egui;
 
-use super::super::{session_label_display, ChaiApp};
+use super::super::ChaiApp;
+
+/// Short label for a session in the sessions list (id with optional channel/conversation).
+fn session_label_display(
+    session_id: &str,
+    meta: Option<&(Option<String>, Option<String>)>,
+) -> String {
+    match meta {
+        Some((Some(cid), Some(conv))) => format!("{} ({}:{})", session_id, cid, conv),
+        Some((Some(cid), None)) => format!("{} ({})", session_id, cid),
+        _ => session_id.to_string(),
+    }
+}
 
 /// Render the right sessions panel when on the chat screen.
 pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {

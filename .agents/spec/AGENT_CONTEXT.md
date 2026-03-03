@@ -48,7 +48,7 @@ The system message is built by `build_system_context(agent_ctx, skills, context_
 ### Skill Context — Read-on-Demand Mode (`build_skill_context_compact`)
 
 - If there are no skills, this is an empty string.
-- Otherwise: an intro line "You have access to the following skills. Use the read_skill tool to load a skill's full documentation when it clearly applies to the user's request.", then a bullet list of **name**: description for each loaded skill.
+- Otherwise: an intro line "Use the read_skill tool to load a skill. Only load a skill when the skill is relevant to the user's request. You have access to the following skills:", then a bullet list of **name**: description for each loaded skill.
 
 ### `strip_skill_frontmatter(content)`
 

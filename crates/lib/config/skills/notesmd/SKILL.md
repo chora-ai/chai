@@ -1,7 +1,7 @@
 ---
-name: obsidian
+name: notesmd
 description: Create, read, search, update, and delete notes.
 metadata:
   requires:
-    bins: ["obsidian"]
+    bins: ["notesmd-cli"]
 ---

@@ -1,9 +1,12 @@
 use eframe::egui;
 
-use crate::app::{ChaiApp, ChatMessage, CHAT_INPUT_HEIGHT, CHAT_MESSAGES_MIN_HEIGHT};
+use crate::app::{ChaiApp, ChatMessage};
+
+const CHAT_INPUT_HEIGHT: f32 = 130.0;
+const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
 
 /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
-fn render_chat_message(ui: &mut egui::Ui, m: &ChatMessage) {
+fn render_chat_message(ui: &mut egui::Ui, index: usize, m: &ChatMessage) {
     let is_user = m.role == "user";
     let frame = egui::Frame::none()
         .fill(if is_user {
@@ -20,8 +23,8 @@ fn render_chat_message(ui: &mut egui::Ui, m: &ChatMessage) {
                 .bg_stroke
                 .color,
         ))
-        .rounding(egui::Rounding::same(8.0))
-        .inner_margin(egui::Margin::same(8.0));
+        .rounding(egui::Rounding::same(12.0))
+        .inner_margin(egui::Margin::same(12.0));
 
     frame.show(ui, |ui| {
         if is_user {
@@ -34,6 +37,7 @@ fn render_chat_message(ui: &mut egui::Ui, m: &ChatMessage) {
                     ui.separator();
                     ui.add_space(4.0);
                     egui::CollapsingHeader::new(format!("🔧 {} tool call(s)", tool_calls.len()))
+                        .id_source(format!("tool_calls_row_{}", index))
                         .default_open(false)
                         .show(ui, |ui| {
                             for (idx, tc) in tool_calls.iter().enumerate() {
@@ -54,7 +58,7 @@ fn render_chat_message(ui: &mut egui::Ui, m: &ChatMessage) {
                                     .and_then(|t| t.as_str())
                                     .unwrap_or("");
                                 ui.label(
-                                    egui::RichText::new(format!("Tool: {}", tool_name)).strong(),
+                                    egui::RichText::new(tool_name).strong(),
                                 );
                                 if !tool_type.is_empty() {
                                     ui.label(format!("Type: {}", tool_type));
@@ -79,8 +83,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             || (app.selected_session_id.is_none() && app.session_messages.is_empty()));
 
     let row_height = ui.spacing().interact_size.y + 8.0;
-    let bottom_section_height =
-        CHAT_INPUT_HEIGHT + 8.0 + row_height + ChaiApp::SCREEN_FOOTER_SPACING;
+    let bottom_section_height = CHAT_INPUT_HEIGHT + 8.0 + row_height;
     let available = ui.available_height();
     let messages_height = (available - bottom_section_height).max(CHAT_MESSAGES_MIN_HEIGHT);
 
@@ -103,8 +106,8 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             // Force scroll content to be at least viewport width so the scrollbar stays on the right
             let content_width = ui.available_width();
             ui.allocate_exact_size(egui::vec2(content_width, 0.0), egui::Sense::hover());
-            for m in &messages_to_show {
-                render_chat_message(ui, m);
+            for (idx, m) in messages_to_show.iter().enumerate() {
+                render_chat_message(ui, idx, m);
                 ui.add_space(8.0);
             }
         });
@@ -182,26 +185,9 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 });
             }
 
-            // Backend dropdown: only show enabled backends (from config).
+            // Backend dropdown: only show enabled backends (from config, cached).
             ui.add_space(8.0);
-            let enabled_backends_list: Vec<String> = {
-                let (config, _) = lib::config::load_config(None)
-                    .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
-                if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
-                    let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
-                    vec![default]
-                } else {
-                    let mut seen = std::collections::HashSet::new();
-                    config.agents.enabled_backends.as_ref().unwrap()
-                        .iter()
-                        .map(|s| s.trim().to_lowercase())
-                        .filter(|s| !s.is_empty())
-                        .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
-                        .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
-                        .filter(|s| seen.insert(s.clone()))
-                        .collect()
-                }
-            };
+            let enabled_backends_list = app.enabled_backends();
             if !enabled_backends_list.is_empty() {
                 let selected = if enabled_backends_list.contains(&effective_backend) {
                     effective_backend.clone()
@@ -247,6 +233,5 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
         ui.add_space(8.0);
         ui.colored_label(egui::Color32::RED, err);
     }
-    ui.add_space(ChaiApp::SCREEN_FOOTER_SPACING);
 }
 

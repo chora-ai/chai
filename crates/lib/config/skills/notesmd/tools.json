@@ -1,6 +1,6 @@
 {
   "allowlist": {
-    "obsidian": []
+    "notesmd-cli": []
   },
   "execution": [],
   "tools": []

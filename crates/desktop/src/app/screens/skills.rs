@@ -5,12 +5,6 @@ use crate::app::ChaiApp;
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     const LINE_SPACING: f32 = 6.0;
     const SECTION_SPACING: f32 = 18.0;
-    /// Spacing between skill items (about half of SECTION_SPACING).
-    const SKILL_ITEM_SPACING: f32 = 9.0;
-
-    ui.add_space(24.0);
-    ui.heading("Skills");
-    ui.add_space(ChaiApp::SCREEN_TITLE_BOTTOM_SPACING);
 
     let (config, config_path) = lib::config::load_config(None)
         .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
@@ -19,53 +13,40 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let extra_dirs = config.skills.extra_dirs.clone();
     let enabled = config.skills.enabled.clone();
 
-    ui.label(format!("Values below are loaded from: {}", skills_root.display()));
-    ui.add_space(LINE_SPACING);
-    if !extra_dirs.is_empty() {
-        ui.label("Extra dirs:");
-        ui.add_space(LINE_SPACING);
-        for d in &extra_dirs {
-            ui.label(format!("- {}", d.display()));
-        }
-        ui.add_space(LINE_SPACING);
-    }
-    ui.add_space(SECTION_SPACING);
-
     let skills_result = lib::skills::load_skills(Some(skills_root.as_path()), &extra_dirs);
     let mut skills = match skills_result {
         Ok(list) => list,
         Err(e) => {
-            ui.colored_label(
-                egui::Color32::RED,
-                format!("failed to load skills: {}", e),
-            );
-            ui.add_space(ChaiApp::SCREEN_FOOTER_SPACING);
+            let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+            crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
+                ui.colored_label(
+                    egui::Color32::RED,
+                    format!("failed to load skills: {}", e),
+                );
+            });
             return;
         }
     };
 
     if skills.is_empty() {
-        ui.label("No skills found in the configured directories.");
-        ui.add_space(ChaiApp::SCREEN_FOOTER_SPACING);
+        let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+        crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
+            ui.label("No skills found in the configured directories.");
+        });
         return;
     }
 
     skills.sort_by(|a, b| a.name.cmp(&b.name));
     let enabled_set: std::collections::HashSet<String> =
         enabled.into_iter().map(|s| s.trim().to_string()).collect();
-    let enabled_skills: Vec<_> = skills.iter().filter(|e| enabled_set.contains(e.name.as_str())).collect();
-    let disabled_skills: Vec<_> = skills.iter().filter(|e| !enabled_set.contains(e.name.as_str())).collect();
+    let enabled_skills: Vec<_> =
+        skills.iter().filter(|e| enabled_set.contains(e.name.as_str())).collect();
+    let disabled_skills: Vec<_> =
+        skills.iter().filter(|e| !enabled_set.contains(e.name.as_str())).collect();
 
-    // Two-column layout: left = skills list (Enabled / Disabled), right = tools.json for selected skill
-    let available = ui.available_height();
-    let content_height = (available - ChaiApp::SCREEN_FOOTER_SPACING).max(0.0);
-    ui.allocate_ui_with_layout(
-        egui::vec2(ui.available_width(), content_height),
-        egui::Layout::top_down(egui::Align::Min),
-        |ui| {
-            // Ensure the gutter between the two columns matches the horizontal padding
-            // used elsewhere in the app (24.0 on each side).
-            let old_spacing = ui.style().spacing.item_spacing.x;
+    let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+
+    crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
             ui.style_mut().spacing.item_spacing.x = 24.0;
 
             ui.columns(2, |columns| {
@@ -84,7 +65,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                                 for entry in enabled_skills.iter() {
                                     let title = entry.name.as_str();
                                     paint_one_skill(ui, app, entry, title, column_width_for_skills(ui));
-                                    ui.add_space(SKILL_ITEM_SPACING);
+                                    ui.add_space(SECTION_SPACING);
                                 }
                             }
                             ui.add_space(SECTION_SPACING);
@@ -98,24 +79,54 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                                 for entry in disabled_skills.iter() {
                                     let title = entry.name.as_str();
                                     paint_one_skill(ui, app, entry, title, column_width_for_skills(ui));
-                                    ui.add_space(SKILL_ITEM_SPACING);
+                                    ui.add_space(SECTION_SPACING);
                                 }
                             }
                         });
                 }
 
-                // Right column: tools.json for selected skill
+                // Right column: SKILL.md (top) + tools.json (bottom) for selected skill
                 {
                     let ui_right = &mut columns[1];
-                    ui_right.label(egui::RichText::new("Tools").strong());
-                    ui_right.add_space(LINE_SPACING);
-
                     let selected = app
                         .selected_skill_name
                         .as_ref()
                         .and_then(|name| skills.iter().find(|e| &e.name == name));
 
                     if let Some(entry) = selected {
+                        let total_height = ui_right.available_height();
+                        let half_height = total_height / 2.0;
+
+                        // Top half: SKILL.md body
+                        ui_right.allocate_ui_with_layout(
+                            egui::vec2(ui_right.available_width(), half_height),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.label(egui::RichText::new("Skill").strong());
+                                ui.add_space(LINE_SPACING);
+
+                                let body = strip_skill_frontmatter(&entry.content);
+                                if body.trim().is_empty() {
+                                    ui.label("No SKILL.md content.");
+                                } else {
+                                    let mut buf = body.to_string();
+                                    egui::ScrollArea::vertical()
+                                        .id_source("skills_skillmd_scroll")
+                                        .max_height(ui.available_height())
+                                        .show(ui, |ui| {
+                                            egui::TextEdit::multiline(&mut buf)
+                                                .code_editor()
+                                                .desired_width(ui.available_width())
+                                                .interactive(false)
+                                                .show(ui);
+                                        });
+                                }
+                            },
+                        );
+
+                        ui_right.add_space(SECTION_SPACING);
+
+                        // Bottom half: tools.json (use remaining height after SKILL.md + spacing)
                         let tools_path = entry.path.join("tools.json");
                         match std::fs::read_to_string(&tools_path) {
                             Ok(contents) => {
@@ -125,33 +136,65 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                                     .and_then(|value| serde_json::to_string_pretty(&value).ok())
                                     .unwrap_or(contents);
 
-                                egui::ScrollArea::vertical()
-                                    .id_source("skills_tools_scroll")
-                                    .max_height(ui_right.available_height())
-                                    .show(ui_right, |ui| {
-                                        let mut buf = pretty.clone();
-                                        egui::TextEdit::multiline(&mut buf)
-                                            .code_editor()
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .show(ui);
-                                    });
+                                ui_right.label(egui::RichText::new("Tools").strong());
+                                ui_right.add_space(LINE_SPACING);
+
+                                let remaining_height = ui_right.available_height();
+                                ui_right.allocate_ui_with_layout(
+                                    egui::vec2(ui_right.available_width(), remaining_height),
+                                    egui::Layout::top_down(egui::Align::Min),
+                                    |ui| {
+                                        egui::ScrollArea::vertical()
+                                            .id_source("skills_tools_scroll")
+                                            .max_height(ui.available_height())
+                                            .show(ui, |ui| {
+                                                let mut buf = pretty.clone();
+                                                egui::TextEdit::multiline(&mut buf)
+                                                    .code_editor()
+                                                    .desired_width(ui.available_width())
+                                                    .interactive(false)
+                                                    .show(ui);
+                                            });
+                                    },
+                                );
                             }
                             Err(_) => {
+                                ui_right.label(egui::RichText::new("Tools").strong());
+                                ui_right.add_space(LINE_SPACING);
                                 ui_right.label("No tools.json found for this skill.");
                             }
                         }
-                    } else {
-                        ui_right.label("Select a skill to view its tools.json.");
                     }
                 }
             });
+    });
+}
 
-            ui.style_mut().spacing.item_spacing.x = old_spacing;
-        },
-    );
-
-    ui.add_space(ChaiApp::SCREEN_FOOTER_SPACING);
+/// Strip YAML frontmatter (`---` ... `---`) from SKILL.md content so that only
+/// the visible body is shown.
+fn strip_skill_frontmatter(content: &str) -> &str {
+    let rest = content.trim_start();
+    let rest = rest
+        .strip_prefix("---")
+        .map(|s| s.trim_start())
+        .unwrap_or(rest);
+    if let Some(i) = rest.find("\n---") {
+        // Use empty slice when i+4 is out of bounds so we don't return the
+        // closing delimiter as body.
+        let after = rest
+            .get(i + 4..)
+            .unwrap_or_else(|| &rest[rest.len()..])
+            .trim_start();
+        if after.starts_with("---") {
+            return strip_skill_frontmatter(after);
+        }
+        after
+    } else if rest == "---" {
+        // Frontmatter was "---\n---" with no body; don't return the closing delimiter.
+        &rest[rest.len()..]
+    } else {
+        rest
+    }
 }
 
 /// Returns (column_width, content_width) for the current left column.

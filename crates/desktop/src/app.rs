@@ -1,32 +1,17 @@
 //! Chai Desktop — egui app state and UI.
 
 use eframe::egui;
-use futures_util::{SinkExt, StreamExt};
 use std::collections::{BTreeMap, HashMap};
 use std::io::BufRead;
-use std::path::PathBuf;
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
-use tokio_tungstenite::tungstenite::Message;
 
 mod screens;
 mod state;
 mod ui;
+mod types;
 
-const CHAT_INPUT_HEIGHT: f32 = 130.0;
-const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
-
-/// Short label for a session in the sessions list (id with optional channel/conversation).
-fn session_label_display(
-    session_id: &str,
-    meta: Option<&(Option<String>, Option<String>)>,
-) -> String {
-    match meta {
-        Some((Some(cid), Some(conv))) => format!("{} ({}:{})", session_id, cid, conv),
-        Some((Some(cid), None)) => format!("{} ({})", session_id, cid),
-        _ => session_id.to_string(),
-    }
-}
+pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, SessionEvent};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Screen {
@@ -39,279 +24,11 @@ enum Screen {
     Logs,
 }
 
-#[derive(Clone)]
-struct ChatMessage {
-    role: String,
-    content: String,
-    tool_calls: Option<Vec<serde_json::Value>>,
-}
-
-impl ChatMessage {
-    fn user(text: impl Into<String>) -> Self {
-        Self {
-            role: "user".to_string(),
-            content: text.into(),
-            tool_calls: None,
-        }
-    }
-
-    fn assistant(text: impl Into<String>, tool_calls: Option<Vec<serde_json::Value>>) -> Self {
-        Self {
-            role: "assistant".to_string(),
-            content: text.into(),
-            tool_calls,
-        }
-    }
-}
-
-struct AgentReply {
-    session_id: String,
-    reply: String,
-    tool_calls: Vec<serde_json::Value>,
-}
-
-#[derive(Clone)]
-struct SessionEvent {
-    session_id: String,
-    role: String,
-    content: String,
-    channel_id: Option<String>,
-    conversation_id: Option<String>,
-}
-
-/// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
-fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
-    let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
-
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async move {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let first = ws
-            .next()
-            .await
-            .ok_or("no first frame")?
-            .map_err(|e| e.to_string())?;
-        let Message::Text(challenge_text) = first else {
-            return Err("expected text challenge frame".to_string());
-        };
-        let challenge: serde_json::Value =
-            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
-        let nonce = challenge
-            .get("payload")
-            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
-            .ok_or("expected connect.challenge event with nonce")?
-            .to_string();
-
-        let connect_params = if let Some(device_token) = lib::device::load_device_token() {
-            serde_json::json!({ "auth": { "deviceToken": device_token } })
-        } else {
-            let identity = lib::device::DeviceIdentity::load(lib::device::default_device_path().as_path())
-                .or_else(|| {
-                    let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&lib::device::default_device_path());
-                    Some(id)
-                })
-                .ok_or("failed to load or create device identity")?;
-            let signed_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let token_str = token.as_deref().unwrap_or("");
-            let scopes: Vec<String> = vec!["operator.read".into(), "operator.write".into()];
-            let payload_str = lib::device::build_connect_payload(
-                &identity.device_id,
-                "chai-desktop",
-                "operator",
-                "operator",
-                &scopes,
-                signed_at,
-                token_str,
-                &nonce,
-            );
-            let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
-            let mut params = serde_json::json!({
-                "client": { "id": "chai-desktop", "mode": "operator" },
-                "role": "operator",
-                "scopes": scopes,
-                "device": {
-                    "id": identity.device_id,
-                    "publicKey": identity.public_key,
-                    "signature": signature,
-                    "signedAt": signed_at,
-                    "nonce": nonce
-                }
-            });
-            if let Some(ref t) = token {
-                params["auth"] = serde_json::json!({ "token": t });
-            } else {
-                params["auth"] = serde_json::json!({});
-            }
-            params
-        };
-
-        let connect_req = serde_json::json!({
-            "type": "req",
-            "id": "1",
-            "method": "connect",
-            "params": connect_params
-        });
-        ws.send(Message::Text(connect_req.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let mut details = GatewayStatusDetails::default();
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
-            let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
-                continue;
-            }
-            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("connect failed");
-                    return Err(err.to_string());
-                }
-                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
-                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                        let _ = lib::device::save_device_token(dt);
-                    }
-                }
-                break;
-            }
-        }
-
-        let status_req = serde_json::json!({
-            "type": "req",
-            "id": "2",
-            "method": "status",
-            "params": {}
-        });
-        ws.send(Message::Text(status_req.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
-            let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
-                continue;
-            }
-            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("status failed");
-                    return Err(err.to_string());
-                }
-                let payload = res.get("payload").ok_or("missing payload")?;
-                details.protocol = payload.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                details.port = payload.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                details.bind = payload
-                    .get("bind")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                details.auth = payload
-                    .get("auth")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("none")
-                    .to_string();
-                details.default_backend = payload.get("defaultBackend").and_then(|v| v.as_str()).map(String::from);
-                details.default_model = payload.get("defaultModel").and_then(|v| v.as_str()).map(String::from);
-                details.ollama_models = payload
-                    .get("ollamaModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.lm_studio_models = payload
-                    .get("lmStudioModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.agent_context = payload.get("agentContext").and_then(|v| v.as_str()).map(String::from);
-                details.system_context = payload.get("systemContext").and_then(|v| v.as_str()).map(String::from);
-                details.date = payload.get("date").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context = payload.get("skillsContext").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context_full = payload.get("skillsContextFull").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context_bodies = payload.get("skillsContextBodies").and_then(|v| v.as_str()).map(String::from);
-                details.context_mode = payload.get("contextMode").and_then(|v| v.as_str()).map(String::from);
-                return Ok(details);
-            }
-        }
-        Err("no status response".to_string())
-    })
-}
-
-/// Resolve the chai CLI binary: same directory as this executable, or "chai" from PATH.
-fn resolve_chai_binary() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    let name = if cfg!(windows) { "chai.exe" } else { "chai" };
-    let candidate = dir.join(name);
-    if candidate.exists() {
-        return Some(candidate);
-    }
-    // Fallback: assume "chai" is on PATH
-    Some(PathBuf::from("chai"))
-}
-
 /// Frames between gateway probes (probe at ~1 Hz if 60 fps).
 const PROBE_INTERVAL_FRAMES: u32 = 60;
 
 /// Frames between WebSocket status fetches when gateway is running (~0.5 Hz).
 const STATUS_INTERVAL_FRAMES: u32 = 120;
-
-/// Live gateway details from WebSocket `status` method.
-#[derive(Clone, Default)]
-pub struct GatewayStatusDetails {
-    pub protocol: u32,
-    pub port: u16,
-    pub bind: String,
-    pub auth: String,
-    /// Resolved default backend: "ollama" or "lmstudio".
-    pub default_backend: Option<String>,
-    /// Resolved default model id (from config or backend fallback).
-    pub default_model: Option<String>,
-    /// Ollama model names from gateway discovery (empty if Ollama unreachable).
-    pub ollama_models: Vec<String>,
-    /// LM Studio model names from gateway discovery (empty if LM Studio unreachable).
-    pub lm_studio_models: Vec<String>,
-    /// Agent context loaded at gateway startup (e.g. AGENTS.md). None if not loaded.
-    pub agent_context: Option<String>,
-    /// Full system context sent to the model (agent context + skills). Empty if none.
-    pub system_context: Option<String>,
-    /// Current date (YYYY-MM-DD) from the gateway, for display in Context.
-    pub date: Option<String>,
-    /// Skills portion of system context (full or compact per context mode).
-    pub skills_context: Option<String>,
-    /// Full skill content for display (always full; use for UI when present).
-    pub skills_context_full: Option<String>,
-    /// Skill bodies only (no overview). Set when context mode is readOnDemand; use for Skills section to avoid duplicating the overview.
-    pub skills_context_bodies: Option<String>,
-    /// Skill context mode: "full" or "readOnDemand".
-    pub context_mode: Option<String>,
-}
 
 pub struct ChaiApp {
     /// When Some, the gateway subprocess is running. Cleared when process exits or we stop it.
@@ -366,6 +83,40 @@ pub struct ChaiApp {
     was_gateway_running: bool,
     /// Currently selected skill on the Skills screen (by name).
     selected_skill_name: Option<String>,
+    /// Cached list of enabled backends for the chat backend dropdown (invalidated when Config screen is shown).
+    cached_enabled_backends: Option<Vec<String>>,
+}
+
+/// Standard screen layout: title, optional subtitle, then body with a footer
+/// gap at the bottom. Use for full-screen panels (Context, Skills, Info, Config).
+pub fn ui_screen(
+    ui: &mut egui::Ui,
+    title: &str,
+    subtitle: Option<&str>,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    // Top padding and title
+    ui.add_space(24.0);
+    ui.heading(title);
+    ui.add_space(ChaiApp::SCREEN_TITLE_BOTTOM_SPACING);
+    if let Some(text) = subtitle {
+        ui.label(text);
+        ui.add_space(6.0);
+    }
+    // Spacing before main body content
+    ui.add_space(18.0);
+
+    // Lay out a full-height body area with consistent footer spacing at the bottom.
+    // The `body` closure receives a UI that fills the remaining vertical space
+    // after reserving `SCREEN_FOOTER_SPACING` at the bottom.
+    let available = ui.available_height();
+    let content_height = (available - ChaiApp::SCREEN_FOOTER_SPACING).max(0.0);
+    ui.allocate_ui_with_layout(
+        egui::vec2(ui.available_width(), content_height),
+        egui::Layout::top_down(egui::Align::Min),
+        body,
+    );
+    ui.add_space(ChaiApp::SCREEN_FOOTER_SPACING);
 }
 
 impl Default for ChaiApp {
@@ -397,15 +148,51 @@ impl Default for ChaiApp {
             session_order: Vec::new(),
             was_gateway_running: false,
             selected_skill_name: None,
+            cached_enabled_backends: None,
         }
     }
 }
 
 impl ChaiApp {
-    /// Space between the main screen title (Info, Chat, Logs) and the content below.
-    const SCREEN_TITLE_BOTTOM_SPACING: f32 = 18.0;
-    /// Space between the bottom of the content and the window edge on Info, Logs, Chat, and Sessions.
+    /// Space between the main screen title and the content below on full‑screen panels.
+    const SCREEN_TITLE_BOTTOM_SPACING: f32 = 9.0;
+    /// Space between the bottom of the content and the window edge on full‑screen panels.
     const SCREEN_FOOTER_SPACING: f32 = 48.0;
+
+    /// Returns the list of enabled backends for the chat dropdown. Cached until the Config screen is shown.
+    pub fn enabled_backends(&mut self) -> Vec<String> {
+        if let Some(ref list) = self.cached_enabled_backends {
+            return list.clone();
+        }
+        let (config, _) = lib::config::load_config(None)
+            .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+        let list = if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true)
+        {
+            let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
+            vec![default]
+        } else {
+            let mut seen = std::collections::HashSet::new();
+            config
+                .agents
+                .enabled_backends
+                .as_ref()
+                .unwrap()
+                .iter()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
+                .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
+                .filter(|s| seen.insert(s.clone()))
+                .collect()
+        };
+        self.cached_enabled_backends = Some(list.clone());
+        list
+    }
+
+    /// Invalidates the enabled-backends cache (call when showing Config so next Chat use reloads).
+    pub fn invalidate_enabled_backends_cache(&mut self) {
+        self.cached_enabled_backends = None;
+    }
 
     fn start_new_session(&mut self) {
         self.chat_session_id = None;
@@ -527,7 +314,7 @@ impl ChaiApp {
             }
         };
         let port = config.gateway.port;
-        let binary = match resolve_chai_binary() {
+        let binary = match state::gateway::resolve_chai_binary() {
             Some(p) => p,
             None => {
                 self.gateway_error = Some("could not find chai binary".to_string());
@@ -635,7 +422,7 @@ impl ChaiApp {
         let model = self.current_model.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = run_agent_turn(session_id, message, backend, model);
+            let result = state::gateway::run_agent_turn(session_id, message, backend, model);
             let _ = tx.send(result);
         });
         self.chat_turn_receiver = Some(rx);
@@ -687,14 +474,14 @@ impl eframe::App for ChaiApp {
                 egui::Frame::none()
                     .inner_margin(egui::Margin::symmetric(24.0, 0.0))
                     .show(ui, |ui| {
-                        ui.add_space(24.0);
-                        ui.heading("Chat");
-                        ui.add_space(Self::SCREEN_TITLE_BOTTOM_SPACING);
-                        if !running {
-                            ui.label("Start the gateway to chat with the model.");
-                            ui.add_space(8.0);
-                        }
-                        screens::chat::ui_chat(self, ui, running);
+                        let subtitle = if !running {
+                            Some("Start the gateway to chat with the model.")
+                        } else {
+                            None
+                        };
+                        ui_screen(ui, "Chat", subtitle, |ui| {
+                            screens::chat::ui_chat(self, ui, running);
+                        });
                     });
             } else if self.current_screen == Screen::Info {
                 egui::Frame::none()
@@ -730,189 +517,4 @@ impl eframe::App for ChaiApp {
             }
         });
     }
-}
-
-/// Run one agent turn against the gateway: connect, send message, return reply and session id.
-fn run_agent_turn(
-    session_id: Option<String>,
-    message: String,
-    backend: Option<String>,
-    model: Option<String>,
-) -> Result<AgentReply, String> {
-    let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
-
-    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-    rt.block_on(async move {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
-            .await
-            .map_err(|e| e.to_string())?;
-
-        let first = ws
-            .next()
-            .await
-            .ok_or("no first frame")?
-            .map_err(|e| e.to_string())?;
-        let Message::Text(challenge_text) = first else {
-            return Err("expected text challenge frame".to_string());
-        };
-        let challenge: serde_json::Value =
-            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
-        let nonce = challenge
-            .get("payload")
-            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
-            .ok_or("expected connect.challenge event with nonce")?
-            .to_string();
-
-        let connect_params = if let Some(device_token) = lib::device::load_device_token() {
-            serde_json::json!({ "auth": { "deviceToken": device_token } })
-        } else {
-            let identity = lib::device::DeviceIdentity::load(
-                lib::device::default_device_path().as_path(),
-            )
-            .or_else(|| {
-                let id = lib::device::DeviceIdentity::generate().ok()?;
-                let _ = id.save(&lib::device::default_device_path());
-                Some(id)
-            })
-            .ok_or("failed to load or create device identity")?;
-            let signed_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let token_str = token.as_deref().unwrap_or("");
-            let scopes: Vec<String> = vec!["operator.read".into(), "operator.write".into()];
-            let payload_str = lib::device::build_connect_payload(
-                &identity.device_id,
-                "chai-desktop",
-                "operator",
-                "operator",
-                &scopes,
-                signed_at,
-                token_str,
-                &nonce,
-            );
-            let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
-            let mut params = serde_json::json!({
-                "client": { "id": "chai-desktop", "mode": "operator" },
-                "role": "operator",
-                "scopes": scopes,
-                "device": {
-                    "id": identity.device_id,
-                    "publicKey": identity.public_key,
-                    "signature": signature,
-                    "signedAt": signed_at,
-                    "nonce": nonce
-                }
-            });
-            if let Some(ref t) = token {
-                params["auth"] = serde_json::json!({ "token": t });
-            } else {
-                params["auth"] = serde_json::json!({});
-            }
-            params
-        };
-
-        let connect_req = serde_json::json!({
-            "type": "req",
-            "id": "1",
-            "method": "connect",
-            "params": connect_params
-        });
-        ws.send(Message::Text(connect_req.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
-            let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
-                continue;
-            }
-            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("connect failed");
-                    return Err(err.to_string());
-                }
-                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
-                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                        let _ = lib::device::save_device_token(dt);
-                    }
-                }
-                break;
-            }
-        }
-
-        let mut agent_params = serde_json::json!({
-            "message": message,
-        });
-        if let Some(id) = session_id {
-            agent_params["sessionId"] = serde_json::Value::String(id);
-        }
-        if let Some(b) = &backend {
-            agent_params["backend"] = serde_json::Value::String(b.clone());
-        }
-        if let Some(m) = &model {
-            agent_params["model"] = serde_json::Value::String(m.clone());
-        }
-
-        let agent_req = serde_json::json!({
-            "type": "req",
-            "id": "2",
-            "method": "agent",
-            "params": agent_params
-        });
-        ws.send(Message::Text(agent_req.to_string()))
-            .await
-            .map_err(|e| e.to_string())?;
-
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
-            let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
-                continue;
-            }
-            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("agent failed");
-                    return Err(err.to_string());
-                }
-                let payload = res.get("payload").ok_or("missing payload")?;
-                let session_id = payload
-                    .get("sessionId")
-                    .and_then(|v| v.as_str())
-                    .ok_or("missing sessionId in agent response")?
-                    .to_string();
-                let reply = payload
-                    .get("reply")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string();
-                let tool_calls = payload
-                    .get("toolCalls")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
-                    .unwrap_or_default();
-                return Ok(AgentReply {
-                    session_id,
-                    reply,
-                    tool_calls,
-                });
-            }
-        }
-        Err("no agent response".to_string())
-    })
 }

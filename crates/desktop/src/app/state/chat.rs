@@ -52,8 +52,12 @@ impl ChaiApp {
                 .entry(session_id.clone())
                 .or_insert_with(Vec::new);
             // Skip if this is a duplicate of the last message (e.g. gateway echo of our own turn).
+            // Compare role, content, and tool_calls to avoid dropping distinct tool-call traces.
             if let Some(last) = entry.last() {
-                if last.role == ev.role && last.content == ev.content {
+                if last.role == ev.role
+                    && last.content == ev.content
+                    && last.tool_calls == ev.tool_calls
+                {
                     self.session_meta
                         .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
                     self.move_session_to_front(&session_id);
@@ -63,7 +67,7 @@ impl ChaiApp {
             entry.push(crate::app::ChatMessage {
                 role: ev.role.clone(),
                 content: ev.content.clone(),
-                tool_calls: None,
+                tool_calls: ev.tool_calls.clone(),
             });
             self.session_meta
                 .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
@@ -285,12 +289,17 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
                                     .get("conversationId")
                                     .and_then(|v| v.as_str())
                                     .map(|s| s.to_string());
+                                let tool_calls = data
+                                    .get("toolCalls")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| arr.clone());
                                 let ev = SessionEvent {
                                     session_id,
                                     role,
                                     content,
                                     channel_id,
                                     conversation_id,
+                                    tool_calls,
                                 };
                                 let _ = tx.send(ev);
                             }
