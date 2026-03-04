@@ -52,12 +52,8 @@ impl ChaiApp {
                 .entry(session_id.clone())
                 .or_insert_with(Vec::new);
             // Skip if this is a duplicate of the last message (e.g. gateway echo of our own turn).
-            // Compare role, content, and tool_calls to avoid dropping distinct tool-call traces.
             if let Some(last) = entry.last() {
-                if last.role == ev.role
-                    && last.content == ev.content
-                    && last.tool_calls == ev.tool_calls
-                {
+                if last.role == ev.role && last.content == ev.content {
                     self.session_meta
                         .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
                     self.move_session_to_front(&session_id);

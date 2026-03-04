@@ -124,8 +124,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
             let skills_configured = config.skills.directory.is_some()
                 || !config.skills.extra_dirs.is_empty()
                 || !config.skills.enabled.is_empty()
-                || config.skills.context_mode != lib::config::SkillContextMode::Full
-                || config.skills.allow_scripts;
+                || config.skills.context_mode != lib::config::SkillContextMode::Full;
             if skills_configured {
                 if let Some(ref d) = config.skills.directory {
                     ui.label(format!("Directory: {}", d.display()));
@@ -154,10 +153,6 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                 };
                 ui.label(format!("Context mode: {}", context_mode_str));
                 ui.add_space(INFO_LINE_SPACING);
-                if config.skills.allow_scripts {
-                    ui.label("Allow scripts: true");
-                    ui.add_space(INFO_LINE_SPACING);
-                }
             } else {
                 ui.label("Not configured.");
                 ui.add_space(INFO_LINE_SPACING);

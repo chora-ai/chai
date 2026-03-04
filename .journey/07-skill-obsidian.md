@@ -2,7 +2,7 @@
 
 **Goal:** Confirm the **obsidian** skill is loaded (official Obsidian CLI, early access), the agent can call its tools (search, search-content, create), and the reply reflects vault data or confirms an action.
 
-This journey is for the binary **`obsidian`** only. For **`notesmd-cli`**, see [06-skill-notesmd-cli.md](06-skill-notesmd-cli.md).
+This journey is for the skill **`obsidian`** (early access; binary `obsidian`) only. For the skill **`notesmd`** (binary `notesmd-cli`), see [06-skill-notesmd.md](06-skill-notesmd.md).
 
 ## Prerequisites
 
@@ -79,4 +79,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 4                 | Verify reply contains search results or action confirmation |
 | 5–6 (optional)    | Try search-content or create a test note |
 
-**See also:** [06-skill-notesmd-cli.md](06-skill-notesmd-cli.md) for the notesmd-cli skill ([yakitrak/notesmd-cli](https://github.com/yakitrak/notesmd-cli)).
+**See also:** [06-skill-notesmd.md](06-skill-notesmd.md) for the **`notesmd`** skill (binary `notemd-cli`).

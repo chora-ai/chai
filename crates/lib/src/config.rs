@@ -175,6 +175,11 @@ pub struct AgentsConfig {
     /// Optional per-backend settings (base URLs, LM Studio endpoint type).
     #[serde(default)]
     pub backends: Option<BackendsConfig>,
+    /// Optional cap on the number of recent session messages sent to the model on each turn.
+    /// When set, only the last N messages are included in the LLM request; the full session
+    /// history is still stored in memory. Default: unset (no cap).
+    #[serde(default)]
+    pub max_session_messages: Option<usize>,
 }
 
 /// Per-backend configuration (base URL, endpoint type where applicable).
@@ -260,15 +265,12 @@ pub struct SkillsConfig {
     /// Extra skill directories (lowest precedence).
     #[serde(default)]
     pub extra_dirs: Vec<PathBuf>,
-    /// Skill names to load. Only skills in this list are enabled; default is empty (no skills). Add names of skills you want (e.g. `["notesmd-cli-daily"]`).
+    /// Skill names to load. Only skills in this list are enabled; default is empty (no skills). Add names of skills you want (e.g. `["notesmd-daily"]` or `["notesmd", "obsidian"]`).
     #[serde(default)]
     pub enabled: Vec<String>,
     /// How skill docs are given to the model: "full" (default) or "readOnDemand". Full injects all SKILL.md into the system message; readOnDemand uses a compact list and a read_skill tool.
     #[serde(default)]
     pub context_mode: SkillContextMode,
-    /// When true, skills may reference scripts in their scripts/ directory (e.g. for resolveCommand). Scripts are run via sh; only files under the skill's scripts/ dir are executed. Default: false.
-    #[serde(default)]
-    pub allow_scripts: bool,
 }
 
 /// Canonical backend name: only "ollama" and "lmstudio" are valid (trimmed, lowercased). Returns None for any other value (e.g. "lm_studio"). Used for config and gateway so only one accepted form per backend is allowed.

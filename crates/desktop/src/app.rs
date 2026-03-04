@@ -257,15 +257,14 @@ impl ChaiApp {
                                 Some(reply.tool_calls.clone())
                             },
                         );
-                        let already = entry
-                            .last()
-                            .map(|m| {
-                                m.role == assistant_msg.role
-                                    && m.content == assistant_msg.content
-                                    && m.tool_calls == assistant_msg.tool_calls
-                            })
-                            .unwrap_or(false);
-                        if !already {
+                        let last_is_same = entry.last().map(|m| {
+                            m.role == assistant_msg.role && m.content == assistant_msg.content
+                        }).unwrap_or(false);
+                        if last_is_same {
+                            // Prefer the agent response's tool_calls (source of truth for this turn).
+                            let last = entry.last_mut().unwrap();
+                            last.tool_calls = assistant_msg.tool_calls;
+                        } else {
                             entry.push(assistant_msg);
                         }
                         self.session_meta

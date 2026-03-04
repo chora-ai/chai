@@ -233,22 +233,22 @@ mod tests {
     fn load_skills_parses_tools_json_when_present() {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
         let skills_dir: PathBuf = [&manifest_dir, "config", "skills"].iter().collect();
-        if !skills_dir.join("notesmd-cli").join("SKILL.md").exists() {
+        if !skills_dir.join("notesmd").join("SKILL.md").exists() {
             return;
         }
         let skills = load_skills(Some(skills_dir.as_path()), &[]).unwrap();
-        let notesmd = skills.iter().find(|s| s.name == "notesmd-cli");
+        let notesmd = skills.iter().find(|s| s.name == "notesmd");
         let Some(entry) = notesmd else {
             return;
         };
         let Some(desc) = &entry.tool_descriptor else {
-            panic!("notesmd-cli skill dir has tools.json but tool_descriptor is None");
+            panic!("notesmd skill dir has tools.json but tool_descriptor is None");
         };
         assert!(desc.tools.len() >= 1);
-        assert_eq!(desc.tools[0].name, "notesmd_cli_search");
-        assert!(desc.allowlist.contains_key("notesmd-cli"));
+        assert_eq!(desc.tools[0].name, "notesmd_search");
+        assert!(desc.allowlist.contains_key("notesmd"));
         assert!(desc.execution.len() >= 1);
-        assert_eq!(desc.execution[0].tool, "notesmd_cli_search");
+        assert_eq!(desc.execution[0].tool, "notesmd_search");
         assert_eq!(desc.execution[0].binary, "notesmd-cli");
         assert_eq!(desc.execution[0].subcommand, "search");
     }

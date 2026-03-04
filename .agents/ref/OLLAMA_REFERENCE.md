@@ -41,7 +41,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 - **Gateway server** — Holds `OllamaClient` and `ollama_models`; resolves model via `resolve_model(config.agents.default_model)`; calls `agent::run_turn(..., ollama_client, model, ...)` for inbound messages and WebSocket `agent` requests.
 - **Agent** — `run_turn()` builds messages and calls `ollama.chat()` or `ollama.chat_stream()` with the model name from config (backend is chosen via `agents.defaultBackend`; model id from `agents.default_model` is passed as-is). Handles tool_calls and re-calls up to a fixed max iterations.
-- **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd-cli, obsidian) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (and optional scripts when `skills.allowScripts`). Tool results are sent back as assistant/tool messages.
+- **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd, notesmd-daily, obsidian, obsidian-daily) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
 
 ## Ollama API Overview
 

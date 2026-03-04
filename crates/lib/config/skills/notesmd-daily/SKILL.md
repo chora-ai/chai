@@ -17,5 +17,5 @@ Use `- [x] ` and `- [ ] ` for tasks, agendas, and checklists (lowercase x, no wh
 
 1. Call `notesmd_daily_read` with `path` set to the date.
 2. Modify the full content returned from the tool call with the changes requested by the user.
-2. Call `notesmd_cli_update_daily` with `date` set to the date, `replace` set to `true`, and `content` set the the modified content from step 2.
+2. Call `notesmd_update_daily` with `date` set to the date, `replace` set to `true`, and `content` set the the modified content from step 2.
 3. Call `notesmd_daily_read` again and include the **full content** from the tool repsonse in your reply.

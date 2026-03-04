@@ -1,7 +1,7 @@
 //! Generic tool executor driven by a skill's tools.json descriptor.
 //! Builds argv from the execution spec's arg mapping and runs via the allowlist.
 //! Supports optional content normalization (literal \n/\t -> newline/tab) and
-//! resolve-by-command or resolve-by-script (when skills.allowScripts is true).
+//! resolve-by-command or resolve-by-script for param resolution.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -11,21 +11,19 @@ use crate::exec::Allowlist;
 use crate::skills::{ArgKind, ExecutionSpec, ToolDescriptor};
 
 /// Executes tools using a descriptor's allowlist and execution mapping.
-/// Holds per-tool (allowlist, spec, skill_dir) and whether scripts are allowed.
+/// Holds per-tool (allowlist, spec, skill_dir) for param resolution and argv building.
 #[derive(Debug, Clone)]
 pub struct GenericToolExecutor {
     /// tool_name -> (allowlist, execution spec, skill dir for script resolution)
     map: HashMap<String, (Allowlist, ExecutionSpec, Option<std::path::PathBuf>)>,
-    allow_scripts: bool,
 }
 
 impl GenericToolExecutor {
-    /// Build an executor from skill descriptors and optional skill dirs. When skills.allowScripts is true,
-    /// resolveCommand.script in tools.json runs the named script from the skill's scripts/ directory.
+    /// Build an executor from skill descriptors and optional skill dirs.
+    /// `resolveCommand.script` in tools.json runs the named script from the skill's `scripts/` directory.
     pub fn from_descriptors(
         descriptors: &[(String, ToolDescriptor)],
         skill_dirs: &[(String, std::path::PathBuf)],
-        allow_scripts: bool,
     ) -> Self {
         let dir_map: HashMap<&String, &std::path::PathBuf> =
             skill_dirs.iter().map(|(n, p)| (n, p)).collect();
@@ -40,10 +38,7 @@ impl GenericToolExecutor {
                 );
             }
         }
-        Self {
-            map,
-            allow_scripts,
-        }
+        Self { map }
     }
 
     /// Return true if this executor handles the given tool name.
@@ -63,13 +58,7 @@ impl ToolExecutor for GenericToolExecutor {
             .map
             .get(name)
             .ok_or_else(|| format!("unknown tool: {}", name))?;
-        let argv = build_argv(
-            spec,
-            args,
-            allowlist,
-            skill_dir.as_deref(),
-            self.allow_scripts,
-        )?;
+        let argv = build_argv(spec, args, allowlist, skill_dir.as_deref())?;
         allowlist.run(&spec.binary, &spec.subcommand, &argv)
     }
 }
@@ -79,13 +68,12 @@ fn normalize_content(s: &str) -> String {
     s.replace("\\n", "\n").replace("\\t", "\t")
 }
 
-/// If the arg has resolve_command with script set and allow_scripts and skill_dir, run the script; else if binary/subcommand set, run via allowlist. Use trimmed stdout or keep original on failure.
+/// If the arg has resolve_command with script set and skill_dir, run the script; else if binary/subcommand set, run via allowlist. Use trimmed stdout or keep original on failure.
 fn resolve_value(
     value: &str,
     arg: &crate::skills::ArgMapping,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
-    allow_scripts: bool,
 ) -> String {
     let Some(ref cmd) = arg.resolve_command else {
         return value.to_string();
@@ -96,18 +84,16 @@ fn resolve_value(
         .map(|a| a.replace("$param", value))
         .collect();
 
-    if allow_scripts {
-        if let (Some(dir), Some(ref script_name)) = (skill_dir, &cmd.script) {
-            if let Ok(out) = run_script(dir, script_name, &argv) {
-                let s = out.trim();
-                return if s.is_empty() {
-                    value.to_string()
-                } else {
-                    s.to_string()
-                };
-            }
-            return value.to_string();
+    if let (Some(dir), Some(ref script_name)) = (skill_dir, &cmd.script) {
+        if let Ok(out) = run_script(dir, script_name, &argv) {
+            let s = out.trim();
+            return if s.is_empty() {
+                value.to_string()
+            } else {
+                s.to_string()
+            };
         }
+        return value.to_string();
     }
 
     if let (Some(ref binary), Some(ref subcommand)) = (&cmd.binary, &cmd.subcommand) {
@@ -166,14 +152,13 @@ fn transform_param_value(
     arg: &crate::skills::ArgMapping,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
-    allow_scripts: bool,
 ) -> String {
     let s = if arg.normalize_newlines == Some(true) {
         normalize_content(&s)
     } else {
         s
     };
-    resolve_value(&s, arg, allowlist, skill_dir, allow_scripts)
+    resolve_value(&s, arg, allowlist, skill_dir)
 }
 
 /// Build argv from the execution spec's arg mapping and the JSON args object.
@@ -182,7 +167,6 @@ fn build_argv(
     args: &serde_json::Value,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
-    allow_scripts: bool,
 ) -> Result<Vec<String>, String> {
     let obj = args
         .as_object()
@@ -200,9 +184,7 @@ fn build_argv(
                         arg.param
                     )
                 })?;
-                argv.push(transform_param_value(
-                    s, arg, allowlist, skill_dir, allow_scripts,
-                ));
+                argv.push(transform_param_value(s, arg, allowlist, skill_dir));
             }
             ArgKind::Flag => {
                 let value = match obj.get(&arg.param) {
@@ -217,9 +199,7 @@ fn build_argv(
                 })?;
                 let flag = arg.flag.as_deref().unwrap_or(&arg.param);
                 argv.push(format!("--{}", flag));
-                argv.push(transform_param_value(
-                    s, arg, allowlist, skill_dir, allow_scripts,
-                ));
+                argv.push(transform_param_value(s, arg, allowlist, skill_dir));
             }
             ArgKind::FlagIfBoolean => {
                 let value = obj.get(&arg.param);

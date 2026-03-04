@@ -23,7 +23,7 @@ The following subsections are a reference for developers: CLI and desktop behavi
 ### Config
 
 - **Structure**: `Config` (gateway, channels, agents, skills). Load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`.
-- **Skills**: `skills.directory` (optional override for primary skill root), `skills.extraDirs`, **`skills.enabled`** (list of skill names to load; default empty), **`skills.contextMode`** (`"full"` | `"readOnDemand"`; default `full`), **`skills.allowScripts`** (when true, skills may run scripts from their `scripts/` dir for param resolution; default false).
+- **Skills**: `skills.directory` (optional override for primary skill root), `skills.extraDirs`, **`skills.enabled`** (list of skill names to load; default empty), **`skills.contextMode`** (`"full"` | `"readOnDemand"`; default `full`).
 - **Defaults**: Port 15151, bind 127.0.0.1.
 - **Auth**: Required when binding beyond loopback (startup fails otherwise).
 
@@ -69,8 +69,8 @@ The following subsections are a reference for developers: CLI and desktop behavi
 - **Loader**: `load_skills(skills_dir, extra_dirs)`: discovers `*/SKILL.md` under the primary skill root and each extra dir; parses YAML frontmatter (name, description); if a skill dir contains `tools.json`, parses it and attaches `SkillEntry.tool_descriptor`. Merge by name: primary root first, then extra (extra overwrites by name).
 - **Skill root**: Primary root = config dir’s `skills` subdirectory, or **`skills.directory`** in config (relative to config file parent). **`skills.extraDirs`** add more roots. Only skills listed in **`skills.enabled`** are loaded (default: none).
 - **Gating**: `metadata.requires.bins` — skill is loaded only when all listed binaries are on PATH.
-- **Tools**: Tool list and executor come only from skills that have a `tools.json` descriptor. Generic executor builds argv from execution spec and runs via descriptor allowlist; when **`skills.allowScripts`** is true, param resolution can use scripts from a skill’s `scripts/` dir (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). When **`skills.contextMode`** is **`readOnDemand`**, gateway prepends a **`read_skill`** tool and a wrapper executor that returns a skill’s SKILL.md content.
-- **Bundled skills**: The skills that ship with the app (notesmd-cli, obsidian) live in `crates/lib/config/skills/` with SKILL.md and tools.json; `chai init` extracts them to the user’s skill root.
+- **Tools**: Tool list and executor come only from skills that have a `tools.json` descriptor. Generic executor builds argv from execution spec and runs via descriptor allowlist; param resolution can use scripts from a skill’s `scripts/` dir via `resolveCommand.script` (see [TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)). When **`skills.contextMode`** is **`readOnDemand`**, gateway prepends a **`read_skill`** tool and a wrapper executor that returns a skill’s SKILL.md content.
+- **Bundled skills**: The skills that ship with the app (notesmd, notesmd-daily, obsidian, obsidian-daily) live in `crates/lib/config/skills/` with SKILL.md and tools.json; `chai init` extracts them to the user’s skill root.
 - **Safe exec** (`lib/exec`): Allowlisted binary and subcommands only (no shell). Allowlist is defined per skill in `tools.json`. Session stores assistant and tool messages for history.
 
 ### Modularity
@@ -102,7 +102,7 @@ Inbound messages from a channel (e.g. Telegram) are mapped to a session by chann
 
 Tool execution for skills is restricted to an allowlist of binaries and subcommands defined in each skill’s **`tools.json`**; there is no shell and no full sandboxing in the current implementation.
 
-- **Allowlist**: Each skill’s `tools.json` declares which (binary, subcommand) pairs it may run. The generic executor builds argv from the descriptor’s execution mapping and calls `lib/exec::Allowlist::run()`. There is no shell; arguments are passed explicitly. No skill-specific code lives in the lib—bundled skills (notesmd-cli, obsidian) ship with their own `tools.json` under `crates/lib/config/skills/`.
+- **Allowlist**: Each skill’s `tools.json` declares which (binary, subcommand) pairs it may run. The generic executor builds argv from the descriptor’s execution mapping and calls `lib/exec::Allowlist::run()`. There is no shell; arguments are passed explicitly. No skill-specific code lives in the lib—bundled skills (notesmd, notesmd-daily, obsidian, obsidian-daily) ship with their own `tools.json` under `crates/lib/config/skills/`.
 - **Rationale**: This limits the impact of malicious or buggy model output: the model can only invoke commands declared in the skill descriptor. It does not provide full sandboxing (e.g. filesystem or network isolation) or an exec-approval flow; those are listed under [What Comes Next](POC_DELIVERABLE.md#what-comes-next).
 
 ### Telegram channel (long-poll vs webhook)
@@ -142,7 +142,7 @@ Skills are loaded at gateway startup from the primary skill root (default `~/.ch
 
 **Skill context mode** (`skills.contextMode` in config):
 
-- **`full`** (default): The system message includes the **full content** (name, description, full SKILL.md body) of every loaded skill. The model sees the entire skill set and can use the tools (e.g. notesmd_cli_search, obsidian_create) when relevant. Best for few skills and smaller local models.
+- **`full`** (default): The system message includes the **full content** (name, description, full SKILL.md body) of every loaded skill. The model sees the entire skill set and can use the tools (e.g. notesmd_search, obsidian_create) when relevant. Best for few skills and smaller local models.
 - **`readOnDemand`**: The system message contains only a **compact list** (name + description per skill) and instructions to use the **`read_skill(skill_name)`** tool to load a skill’s full SKILL.md when it clearly applies. The gateway registers `read_skill` and a wrapper executor returns that skill’s content in-process. Keeps the prompt small and scales to many skills; aligns with OpenClaw’s pattern.
 
-**Tool execution**: Tool list and executor are built only from skills’ `tools.json` descriptors. A single **generic executor** builds argv from each tool’s execution spec (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`lib/exec`). When **`skills.allowScripts`** is true, tools can use `resolveCommand.script` to run scripts from the skill’s **`scripts/`** directory for param resolution (no allowlist entry). No hardcoded skill code in the lib. Bundled skills (notesmd-cli, obsidian) live under `crates/lib/config/skills/` with their own SKILL.md and tools.json. Gating: if a skill declares `metadata.requires.bins`, it is loaded only when all listed binaries are on PATH. The agent loop runs up to 5 tool-iteration steps per turn.
+**Tool execution**: Tool list and executor are built only from skills’ `tools.json` descriptors. A single **generic executor** builds argv from each tool’s execution spec (positional, flag, flagifboolean) and runs via the descriptor’s allowlist (`lib/exec`). Tools can use `resolveCommand.script` to run scripts from the skill’s **`scripts/`** directory for param resolution (no allowlist entry). No hardcoded skill code in the lib. Bundled skills (notesmd, notesmd-daily, obsidian, obsidian-daily) live under `crates/lib/config/skills/` with their own SKILL.md and tools.json. Gating: if a skill declares `metadata.requires.bins`, it is loaded only when all listed binaries are on PATH. The agent loop runs up to 5 tool-iteration steps per turn.

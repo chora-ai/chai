@@ -1,16 +1,16 @@
 # Journey: Skill NotesMD CLI
 
-**Goal:** Confirm the **notesmd-cli** skill is loaded, the agent can call its tools (search, search-content, create, daily), and the reply reflects vault data or confirms an action.
+**Goal:** Confirm the **notesmd** skill is loaded, the agent can call its tools (search, search-content, create, daily), and the reply reflects vault data or confirms an action.
 
-This journey is for the binary **`notesmd-cli`** only. For the official Obsidian CLI (early access, binary `obsidian`), see [07-skill-obsidian.md](07-skill-obsidian.md).
+This journey is for the skill **`notesmd`** (binary `notesmd-cli`) only. For the skill using the official Obsidian CLI **`obsidian`** (early access, binary `obsidian`), see [07-skill-obsidian.md](07-skill-obsidian.md).
 
 ## Prerequisites
 
-- **`chai init`** has been run (so the skills directory exists; if you updated from an older install, ensure the `notesmd-cli` skill is present under `~/.chai/skills` or your configured extra dirs).
+- **`chai init`** has been run (so the skills directory exists; if you updated from an older install, ensure the `notesmd` skill is present under `~/.chai/skills` or your configured extra dirs).
 - **notesmd-cli** — The `notesmd-cli` command is on your PATH (e.g. Homebrew: `brew install yakitrak/yakitrak/notesmd-cli`). Check with `which notesmd-cli`. Set a default vault if needed: `notesmd-cli set-default "{vault-name}"`.
 - **Vault** is available to the CLI (see "Multiple vaults" below).
 - **Ollama** is running with a model that supports **tool/function calling** (e.g. `llama3.2:latest`).
-- **Gateway** will be started after the above so it sees `notesmd-cli` and loads the notesmd-cli skill.
+- **Gateway** will be started after the above so it sees `notesmd` and loads the notesmd skill.
 
 **Multiple vaults:** The skill does not pass a vault name or path to the CLI. The CLI uses whatever it considers the default or current vault. Set a default with `notesmd-cli set-default` or configure the CLI as needed; the chai tool layer does not support a per-request vault parameter.
 
@@ -21,31 +21,31 @@ This journey is for the binary **`notesmd-cli`** only. For the official Obsidian
 
 2. **Start the gateway**
    - From repo root: `cargo run -p cli -- gateway` or `chai gateway`. Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, `notesmd-cli` is not on PATH when the gateway starts, or the skills directory is missing (run `chai init`).
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, the required binary (`notesmd-cli`) is not on PATH when the gateway starts, or the skills directory is missing (run `chai init`).
 
 3. **Trigger the agent with an Obsidian-style request**
    - **Via WebSocket:** Connect and send `connect`, then an agent request (see [02-gateway-ws-agent.md](02-gateway-ws-agent.md)). Example: `{"type":"req","id":"2","method":"agent","params":{"message":"Search my vault for note names that contain 'meeting' and list them."}}`
    - **Via Telegram:** Send the same message to your bot (journey 05). Example: "Search my vault for notes about meetings."
 
 4. **Verify the reply**
-   - The model should describe search results (note names or snippets) or say it found nothing. The model uses tools `notesmd_cli_search`, `notesmd_cli_search_content`, `notesmd_cli_create`, `notesmd_cli_daily`.
-   - With `RUST_LOG=debug`, tool failures appear as `agent: tool notesmd_cli_search failed: ...`.
+   - The model should describe search results (note names or snippets) or say it found nothing. The model uses tools `notesmd_search`, `notesmd_search_content`, `notesmd_create`, `notesmd_daily`.
+   - With `RUST_LOG=debug`, tool failures appear as `agent: tool notesmd_search failed: ...`.
 
 5. **Optional: search inside note content**
-   - Send: "Search inside the content of my notes for the word 'project' and show me a few lines." Expect `notesmd_cli_search_content` results.
+   - Send: "Search inside the content of my notes for the word 'project' and show me a few lines." Expect `notesmd_search_content` results.
 
 6. **Optional: create a note (use a test path)**
    - Send: "Create a note in my vault at path Test/Chai test note with content 'Created by the chai agent.'" Check your vault for the new note.
 
 7. **Optional: daily note**
-   - Send: "Open my daily note for today" or "Create today's daily note." Expect `notesmd_cli_daily` to run.
+   - Send: "Open my daily note for today" or "Create today's daily note." Expect `notesmd_daily` to run.
 
 8. **Stop the gateway** with Ctrl+C when done.
 
-## How to verify the notesmd-cli skill was used
+## How to verify the notesmd skill was used
 
-- **Reply content:** The model's reply should reflect vault data or confirm an action. If the model does not call tools, try "Use the notesmd_cli search tool to…".
-- **Logs:** With `RUST_LOG=debug`, tool failures appear as `agent: tool notesmd_cli_search failed: ...` (or other `notesmd_cli_*` tool names).
+- **Reply content:** The model's reply should reflect vault data or confirm an action. If the model does not call tools, try "Use the notesmd_search tool to…".
+- **Logs:** With `RUST_LOG=debug`, tool failures appear as `agent: tool notesmd_search failed: ...` (or other `notesmd_*` tool names).
 
 ## Telegram message format for local models (e.g. Llama 3)
 
@@ -58,11 +58,11 @@ One clear intent per message; use wording that matches the tool. Examples:
 | **Create** | "Create a note in my vault at path Test/My note with content 'Hello world'." |
 | **Daily note** | "Open my daily note for today" or "Create today's daily note." |
 
-If the model replies without using a tool, resend with "Use the notesmd_cli search tool to …". Use a model with tool/function calling (e.g. `llama3.2:latest`).
+If the model replies without using a tool, resend with "Use the notesmd_search tool to …". Use a model with tool/function calling (e.g. `llama3.2:latest`).
 
 ## Daily note path resolution (optional)
 
-For **read_note** and **update_daily**, the model can pass a bare date (e.g. `2026-02-25`). The skill ships a script **`scripts/resolve-daily-path.sh`** that resolves it to the vault path using notesmd-cli and `.obsidian/daily-notes.json`. Enable it by setting **`skills.allowScripts`** to `true` in your config (`~/.chai/config.json`). No allowlist entry or extra binary is required. If allowScripts is false or the script fails, the value is used as-is (use a full path like `Daily/2026-02-25` if needed).
+For **read_note** and **update_daily**, the model can pass a bare date (e.g. `2026-02-25`). The skill ships a script **`scripts/resolve-daily-path.sh`** that resolves it to the vault path using `notesmd-cli` and `.obsidian/daily-notes.json`. No allowlist entry or extra binary is required for this script; if the script fails, the value is used as-is (use a full path like `Daily/2026-02-25` if needed).
 
 ## Context size (model processing "too much" information)
 
@@ -73,9 +73,9 @@ Every turn the model receives the full system context (skills), full conversatio
 ## If something fails
 
 - **"loaded 0 skill(s)"** — `notesmd-cli` is not on PATH when the gateway starts, or the skills directory is missing. Install `notesmd-cli`, ensure it is on PATH, run `chai init` if needed, restart the gateway.
-- **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_cli search tool to find notes containing X and list them."
-- **"agent: tool notesmd_cli_search failed: ..."** — The CLI failed (vault not set, binary not found, or permission). Run `notesmd-cli set-default` if you have multiple vaults; check PATH and vault availability; see the log for the exact error.
-- **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; ensure `notesmd-cli` is listed in `skills.enabled` (not only `obsidian`). (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."
+- **Reply has no vault data / model doesn't use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notesmd_search tool to find notes containing X and list them."
+- **"agent: tool notesmd_search failed: ..."** — The CLI failed (vault not set, binary not found, or permission). Run `notesmd-cli set-default` if you have multiple vaults; check PATH and vault availability; see the log for the exact error.
+- **Model says "I don't have direct access to your notes" or similar** — The model may not be calling the tools. (1) Confirm the skill is loaded: gateway log should show `loaded 1 skill(s)` (or more) and `notesmd-cli` must be on PATH when the gateway starts; ensure `notesmd` is listed in `skills.enabled`. (2) Use an explicit message with a path and content, e.g. "Create a note in my vault at path Test/Hello with content 'hello'."
 
 ## Summary
 
@@ -87,4 +87,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 4                 | Verify reply contains search results or action confirmation |
 | 5–7 (optional)    | Try search-content, create a test note, or daily note |
 
-**See also:** [07-skill-obsidian.md](07-skill-obsidian.md) for the official obsidian skill (early access binary `obsidian`).
+**See also:** [07-skill-obsidian.md](07-skill-obsidian.md) for the **`obsidian`** skill (early access binary `obsidian`).

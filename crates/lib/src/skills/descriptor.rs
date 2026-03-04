@@ -51,11 +51,11 @@ pub struct ExecutionSpec {
     pub args: Vec<ArgMapping>,
 }
 
-/// Spec for resolving a string param: either a script in the skill's scripts/ dir (when allowScripts is true) or an allowlisted command; stdout (trimmed) becomes the value.
+/// Spec for resolving a string param: either a script in the skill's scripts/ dir or an allowlisted command; stdout (trimmed) becomes the value.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResolveCommandSpec {
-    /// Name of script under the skill's scripts/ directory (e.g. "resolve-daily-path"). Used when skills.allowScripts is true; no allowlist entry needed.
+    /// Name of script under the skill's scripts/ directory (e.g. "resolve-daily-path"). No allowlist entry needed.
     #[serde(default)]
     pub script: Option<String>,
     /// Binary name for allowlisted command resolution. Required when script is not set.

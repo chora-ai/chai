@@ -182,6 +182,10 @@ pub struct GatewayState {
     pub config: Arc<Config>,
     /// Optional agent-level context (e.g. AGENTS.md from workspace).
     pub agent_ctx: Option<String>,
+    /// Static portion of the system context built from agent_ctx and skills (no date prefix).
+    /// The current date is prepended on each turn so the model sees "today" without
+    /// rebuilding the rest of the context.
+    pub system_context_static: String,
     /// When Some, WebSocket connect must provide params.auth.token matching this.
     pub required_token: Option<String>,
     /// Broadcasts events to connected clients (e.g. shutdown). Subscribers receive JSON event frames.
@@ -325,18 +329,15 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     out
 }
 
-/// Build full system context from agent-ctx (AGENTS.md) and skills. Uses context_mode to choose full vs compact skill context.
-/// Prepends the current local date (YYYY-MM-DD) so the model knows "today" for skills like notesmd-cli-daily.
-fn build_system_context(
+/// Build static system context from agent-ctx (AGENTS.md) and skills, without a date prefix.
+/// Uses context_mode to choose full vs compact skill context. The caller is responsible for
+/// prepending the current date when building the final system message for a turn.
+fn build_system_context_static(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
 ) -> String {
     let mut out = String::new();
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    out.push_str("TODAY'S DATE: ");
-    out.push_str(&today);
-    out.push_str("\n\n");
     if let Some(ctx) = agent_ctx {
         let trimmed = ctx.trim();
         if !trimmed.is_empty() {
@@ -352,6 +353,16 @@ fn build_system_context(
         out.push_str(&skills_ctx);
     }
     out
+}
+
+/// Build full system context for a turn by prepending today's date to the cached static context.
+fn build_system_context_for_today(static_ctx: &str) -> String {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    if static_ctx.trim().is_empty() {
+        format!("TODAY'S DATE: {}", today)
+    } else {
+        format!("TODAY'S DATE: {}\n\n{}", today, static_ctx)
+    }
 }
 
 /// Tool definition for read_skill (used only when context mode is ReadOnDemand).
@@ -401,13 +412,14 @@ fn broadcast_session_message(
     conversation_id: Option<&str>,
 ) {
     let payload = if let Some(calls) = tool_calls {
+        let tool_calls_value = serde_json::to_value(calls).unwrap_or_else(|_| json!([]));
         json!({
             "sessionId": session_id,
             "role": role,
             "content": content,
             "channelId": channel_id,
             "conversationId": conversation_id,
-            "toolCalls": calls,
+            "toolCalls": tool_calls_value,
         })
     } else {
         json!({
@@ -492,11 +504,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         None,
         backend_choice,
     );
-    let system_context = build_system_context(
-        state.agent_ctx.as_deref(),
-        &state.skills,
-        state.config.skills.context_mode,
-    );
+    let system_context = build_system_context_for_today(&state.system_context_static);
     let (tools, tool_executor) = state.tools_and_executor();
     let result = match backend_choice {
         BackendChoice::Ollama => {
@@ -506,6 +514,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
                 &state.ollama_client,
                 &model_name,
                 Some(&system_context),
+                state.config.agents.max_session_messages,
                 tools,
                 tool_executor,
                 None,
@@ -519,6 +528,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
                 &state.lm_studio_client,
                 &model_name,
                 Some(&system_context),
+                state.config.agents.max_session_messages,
                 tools,
                 tool_executor,
                 None,
@@ -611,6 +621,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     }
     let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
     let agent_ctx = agent_ctx::load_agent_ctx(workspace_dir.as_deref());
+    let system_context_static =
+        build_system_context_static(agent_ctx.as_deref(), &skills, config.skills.context_mode);
 
     // Descriptor-based: skills with tools.json
     let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
@@ -629,11 +641,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
                 .map(|_| (e.name.clone(), e.path.clone()))
         })
         .collect();
-    let generic_executor = GenericToolExecutor::from_descriptors(
-        &descriptors,
-        &skill_dirs,
-        config.skills.allow_scripts,
-    );
+    let generic_executor = GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs);
     let context_mode = config.skills.context_mode;
 
     // Tool list: descriptor tools; when ReadOnDemand, prepend read_skill
@@ -667,6 +675,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let state = GatewayState {
         config: Arc::new(config.clone()),
         agent_ctx,
+        system_context_static,
         required_token,
         event_tx: event_tx.clone(),
         channel_tasks: channel_tasks.clone(),
@@ -1058,11 +1067,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 );
                 let ollama_models = state.ollama_models.read().await.clone();
                 let lm_studio_models = state.lm_studio_models.read().await.clone();
-                let system_context = build_system_context(
-                    state.agent_ctx.as_deref(),
-                    &state.skills,
-                    state.config.skills.context_mode,
-                );
+                let system_context = build_system_context_for_today(&state.system_context_static);
                 let skills_context = match state.config.skills.context_mode {
                     SkillContextMode::Full => build_skill_context_full(&state.skills),
                     SkillContextMode::ReadOnDemand => build_skill_context_compact(&state.skills),
@@ -1185,11 +1190,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     params.model.as_deref(),
                     backend_choice,
                 );
-                let system_context = build_system_context(
-                    state.agent_ctx.as_deref(),
-                    &state.skills,
-                    state.config.skills.context_mode,
-                );
+                let system_context = build_system_context_for_today(&state.system_context_static);
                 let (tools, tool_executor) = state.tools_and_executor();
                 let run_result = match backend_choice {
                     BackendChoice::Ollama => {
@@ -1199,6 +1200,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             &state.ollama_client,
                             &model_name,
                             Some(&system_context),
+                            state.config.agents.max_session_messages,
                             tools,
                             tool_executor,
                             None,
@@ -1212,6 +1214,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             &state.lm_studio_client,
                             &model_name,
                             Some(&system_context),
+                            state.config.agents.max_session_messages,
                             tools,
                             tool_executor,
                             None,
@@ -1249,10 +1252,17 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 }
                             }
                         }
+                        let tool_calls_payload = serde_json::to_value(&result.tool_calls)
+                            .unwrap_or_else(|_| json!([]));
+                        log::debug!(
+                            "agent turn: {} tool call(s), session_id: {}",
+                            result.tool_calls.len(),
+                            session_id
+                        );
                         let payload = json!({
                             "reply": result.content,
                             "sessionId": session_id,
-                            "toolCalls": result.tool_calls
+                            "toolCalls": tool_calls_payload
                         });
                         let res = WsResponse::ok(&req.id, payload);
                         let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;

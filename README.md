@@ -97,14 +97,14 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
     "defaultBackend": null,
     "defaultModel": "llama3.2:latest",
     "enabledBackends": null,
-    "workspace": null
+    "workspace": null,
+    "maxSessionMessages": null
   },
   "skills": {
     "directory": null,
     "extraDirs": [],
     "enabled": [],
-    "contextMode": "full",
-    "allowScripts": false
+    "contextMode": "full"
   }
 }
 ```
@@ -150,14 +150,14 @@ Skills are markdown-based instructions (one per directory with a `SKILL.md` file
 - **`full`** (default) — All loaded skills’ full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models (e.g. 7B–9B).
 - **`readOnDemand`** — The system message contains only a compact list (name, description). The model uses the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies. Keeps the prompt small and scales to many skills; requires the model to call the tool before using a skill.
 
-Only skills listed in **`skills.enabled`** are loaded; the default is none. Add the skill names you want (e.g. `["notesmd-cli-daily"]` or `["notesmd-cli", "obsidian"]`). A skill is only loaded when enabled and its `metadata.requires.bins` are on the gateway's PATH.
+Only skills listed in **`skills.enabled`** are loaded; the default is none. Add the skill names you want (e.g. `["notesmd-daily"]` or `["notesmd", "obsidian"]`). A skill is only loaded when enabled and its `metadata.requires.bins` are on the gateway's PATH.
 
 **Bundled skills**
 
-- **notesmd-cli** — [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Search for file, search content, create note, daily note, read note, and update note in the default vault. Add `"notesmd-cli"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
-- **notesmd-cli-daily** — Minimal daily-note skill (create, read, update) via notesmd-cli. Add `"notesmd-cli-daily"` to `skills.enabled`.
-- **obsidian** — The official [Obsidian CLI](https://help.obsidian.md/cli) (early access; binary `obsidian`). Search for file, search content, and create note in the default vault. Add `"obsidian"` to `skills.enabled` and ensure `obsidian` is on PATH.
-- **obsidian-daily** — Minimal daily-note create skill via the Obsidian CLI. Add `"obsidian-daily"` to `skills.enabled`.
+- **notesmd** — Create, read, search, update, and delete notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
+- **notesmd-daily** — Create, read, and update daily notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd-daily"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
+- **obsidian** — Create, read, search, update, and delete notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian"` to `skills.enabled` and ensure `obsidian` is on PATH.
+- **obsidian-daily** — Create, read, and update daily notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian-daily"` to `skills.enabled` and ensure `obsidian` is on PATH.
 
 **Custom skills**
 

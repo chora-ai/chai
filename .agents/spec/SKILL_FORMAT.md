@@ -10,7 +10,7 @@ Skills are markdown-based instructions (one per directory) that can be loaded an
   - In each such directory, the loader looks for subdirectories containing **`SKILL.md`**. Precedence: primary root first, then extra dirs; later entries overwrite earlier by skill name.
 - **Content**: `SKILL.md` is Markdown with optional YAML frontmatter between `---` delimiters.
 - **Optional tools**: A skill directory may also contain **`tools.json`** (see [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` expose callable tools to the agent; skills without it are still loaded for context (their SKILL.md appears in the system message when context mode is `full`, or in the compact list when `readOnDemand`).
-- **Optional scripts**: A skill directory may contain a **`scripts/`** subdirectory. When **`skills.allowScripts`** is true in config, tools can reference these scripts in `resolveCommand.script` (e.g. for param resolution); the executor runs them via `sh` with no allowlist entry. See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md).
+- **Optional scripts**: A skill directory may contain a **`scripts/`** subdirectory. Tools can reference these scripts in `resolveCommand.script` (e.g. for param resolution); the executor runs them via `sh` with no allowlist entry (only files under the skill’s `scripts/` dir are executed). See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md).
 
 ### Frontmatter
 
@@ -26,7 +26,7 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 
 - **`metadata.requires.bins`** — Optional list of binary names (e.g. `["obsidian"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
 
-**Enabling skills:** Only skills listed in **`skills.enabled`** in config are loaded. **When `skills.enabled` is empty (the default), no skills are loaded**—this is intentional (opt-in). Add the skill names you want (e.g. `["notesmd-cli-daily"]` or `["obsidian"]`). If you have both notesmd-cli and obsidian on PATH but want only one, list only that skill in **`skills.enabled`**. See the main [README](../../README.md) Configuration section. **If you see "loaded 0 skill(s)"**, add the skill name to **`skills.enabled`** and ensure its binary is on **PATH when the gateway starts** (e.g. run `which notesmd-cli` in the same terminal).
+**Enabling skills:** Only skills listed in **`skills.enabled`** in config are loaded. **When `skills.enabled` is empty (the default), no skills are loaded**—this is intentional (opt-in). Add the skill names you want (e.g. `["notesmd"]` or `["obsidian"]`). If you have both `notesmd-cli` and `obsidian` on PATH but you only want to use one of the skills, list only that skill in **`skills.enabled`** (e.g. `["notesmd"]`). See the main [README](../../README.md) Configuration section. **If you see "loaded 0 skill(s)"**, add the skill name to **`skills.enabled`** and ensure its binary is on **PATH when the gateway starts** (e.g. run `which notesmd-cli` in the same terminal).
 
 Example:
 

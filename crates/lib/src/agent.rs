@@ -26,6 +26,7 @@ pub async fn run_turn<B: LlmBackend>(
     backend: &B,
     model: &str,
     system_context: Option<&str>,
+    max_session_messages: Option<usize>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)>,
@@ -45,6 +46,13 @@ pub async fn run_turn<B: LlmBackend>(
             tool_name: m.tool_name.clone(),
         })
         .collect();
+
+    if let Some(limit) = max_session_messages {
+        if limit > 0 && messages.len() > limit {
+            let start = messages.len() - limit;
+            messages = messages[start..].to_vec();
+        }
+    }
 
     if let Some(ctx) = system_context {
         if !ctx.trim().is_empty() {

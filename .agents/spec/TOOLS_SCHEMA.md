@@ -25,7 +25,7 @@ Each element:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Tool name (e.g. `notesmd_cli_search`). Must match an execution spec. |
+| `name` | string | Tool name (e.g. `notesmd_search`). Must match an execution spec. |
 | `description` | string (optional) | Short description for the model. |
 | `parameters` | object | JSON schema for parameters (same shape Ollama expects: `type`, `properties`, `required`, etc.). |
 
@@ -59,7 +59,7 @@ Each element:
 | `flagIfTrue` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is true (e.g. `"--overwrite"`). |
 | `flagIfFalse` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is false (e.g. `"--append"`). |
 | `normalizeNewlines` | boolean (optional) | When `true`, string values have literal `\n` and `\t` converted to real newlines and tabs before being passed to the CLI. Default: not set. |
-| `resolveCommand` | object (optional) | Resolve the param value by running a **script** (when `skills.allowScripts` is true) or an **allowlisted command**; trimmed stdout becomes the new value. On failure or empty stdout, the original value is kept. See below. Default: not set. |
+| `resolveCommand` | object (optional) | Resolve the param value by running a **script** or an **allowlisted command**; trimmed stdout becomes the new value. On failure or empty stdout, the original value is kept. See below. Default: not set. |
 
 #### `resolveCommand` (object)
 
@@ -67,12 +67,12 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `script` | string (optional) | Name of a file in the skill’s **`scripts/`** directory (e.g. `"resolve-daily-path"` → `scripts/resolve-daily-path.sh`). Used only when **`skills.allowScripts`** is true in config; the executor runs it via `sh` with no allowlist entry. Script name must not contain `..`, `/`, or `\`. |
+| `script` | string (optional) | Name of a file in the skill’s **`scripts/`** directory (e.g. `"resolve-daily-path"` → `scripts/resolve-daily-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill’s `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
 | `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill’s allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
 | `args` | array of strings | Arguments; `"$param"` is replaced by the current param value. |
 
-When `script` is set and `skills.allowScripts` is true, the executor runs `sh <skill_dir>/scripts/<script> <args...>`. When `binary` and `subcommand` are set, the executor runs them via the allowlist. No extra setup (allowlist entry or separate binary) is required for scripts when allowScripts is enabled.
+When `script` is set, the executor runs `sh <skill_dir>/scripts/<script> <args...>`. When `binary` and `subcommand` are set, the executor runs them via the allowlist. No extra setup (allowlist entry or separate binary) is required for scripts.
 
 ## Example (minimal)
 
@@ -82,7 +82,7 @@ One tool, one positional argument:
 {
   "tools": [
     {
-      "name": "notesmd_cli_search",
+      "name": "notesmd_search",
       "description": "Search notes by name.",
       "parameters": {
         "type": "object",
@@ -98,7 +98,7 @@ One tool, one positional argument:
   },
   "execution": [
     {
-      "tool": "notesmd_cli_search",
+      "tool": "notesmd_search",
       "binary": "notesmd-cli",
       "subcommand": "search",
       "args": [{ "param": "query", "kind": "positional" }]
@@ -112,5 +112,5 @@ One tool, one positional argument:
 - **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`.
 - **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill’s SKILL.md content in-process; see [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
 - **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` for the Ollama API. `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `normalizeNewlines` and `resolveCommand` when set) and runs via the allowlist.
-- **Scripts**: When **`skills.allowScripts`** is true in config, a skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed. Default is false (scripts are not run).
-- **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill’s `scripts/` dir (when allowScripts is true) or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
+- **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
+- **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill’s `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
