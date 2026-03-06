@@ -45,28 +45,47 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 // Models
                 ui.label(egui::RichText::new("Models").strong());
                 ui.add_space(INFO_LINE_SPACING);
+                let available_backends = {
+                    let list = app.enabled_backends();
+                    if list.is_empty() {
+                        "—".to_string()
+                    } else {
+                        list.join(", ")
+                    }
+                };
                 if let Some(ref s) = app.gateway_status {
-                    let backend = s.default_backend.as_deref().unwrap_or("ollama");
+                    let backend = app
+                        .current_backend
+                        .as_deref()
+                        .or(s.default_backend.as_deref())
+                        .map(|b| if b == "lm_studio" { "lmstudio" } else { b })
+                        .unwrap_or("ollama");
                     let model = app
                         .current_model
                         .clone()
                         .or_else(|| s.default_model.clone())
                         .unwrap_or_else(|| "—".to_string());
-                    ui.label(format!("Backend: {}", backend));
+                    ui.label(format!("Current backend: {}", backend));
                     ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("Model: {}", model));
+                    ui.label(format!("Current model: {}", model));
                     ui.add_space(INFO_LINE_SPACING);
-                    if !s.ollama_models.is_empty() {
-                        ui.label(format!("Ollama models: {}", s.ollama_models.join(", ")));
-                        ui.add_space(INFO_LINE_SPACING);
-                    }
-                    if !s.lm_studio_models.is_empty() {
-                        ui.label(format!(
-                            "LM Studio models: {}",
-                            s.lm_studio_models.join(", ")
-                        ));
-                        ui.add_space(INFO_LINE_SPACING);
-                    }
+                    ui.label(format!("Available backends: {}", available_backends));
+                    ui.add_space(INFO_LINE_SPACING);
+
+                    let ollama_models = if s.ollama_models.is_empty() {
+                        "(no models discovered)".to_string()
+                    } else {
+                        s.ollama_models.join(", ")
+                    };
+                    let lm_studio_models = if s.lm_studio_models.is_empty() {
+                        "(no models discovered)".to_string()
+                    } else {
+                        s.lm_studio_models.join(", ")
+                    };
+                    ui.label(format!("Ollama models: {}", ollama_models));
+                    ui.add_space(INFO_LINE_SPACING);
+                    ui.label(format!("LM Studio models: {}", lm_studio_models));
+                    ui.add_space(INFO_LINE_SPACING);
                 } else if running {
                     ui.label("(waiting for status from gateway)");
                     ui.add_space(INFO_LINE_SPACING);

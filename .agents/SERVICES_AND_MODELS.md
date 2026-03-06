@@ -112,11 +112,11 @@ The following tables are the **canonical** comparison of what the gateway uses t
 
 | Area | Ollama (current) | LM Studio OpenAI (current) | LM Studio native (current) |
 |------|------------------|---------------------------|----------------------------|
-| **Base** | `OllamaClient`, default local URL | `LmStudioClient(base_url)`, endpoint type openai | Same, endpoint type native |
-| **Chat** | `POST /api/chat`, messages + tools | `/v1/chat/completions`, messages + tools | `/api/v1/chat`, messages only (no tools) |
-| **Streaming** | NDJSON, not used to channel | SSE (OpenAI shape) | One-shot then callback |
-| **Models** | `GET /api/tags` at startup | `GET /v1/models` | `GET /api/v1/models` |
-| **Config** | `defaultBackend: "ollama"`, `default_model` | `defaultBackend: "lmstudio"`, `default_model`, `backends.lmStudio.baseUrl`, `endpointType: "openai"` | Same, `endpointType: "native"` |
+| **Base** | `OllamaClient`, default local URL | `LmStudioClient(base_url)` (OpenAI-compat only) | — |
+| **Chat** | `POST /api/chat`, messages + tools | `POST /v1/chat/completions`, messages + tools; errors returned (load+retry only on 500 "unloaded") | — |
+| **Streaming** | NDJSON, not used to channel | SSE (OpenAI shape) | — |
+| **Models** | `GET /api/tags` at startup | `GET /api/v1/models` | — |
+| **Config** | `defaultBackend: "ollama"`, `default_model` | `defaultBackend: "lmstudio"`, `default_model`, `backends.lmStudio.baseUrl` | — |
 
 ## Services at a Glance
 
@@ -149,7 +149,7 @@ Models are identified by the name used in `ollama list`. Set **`agents.defaultBa
 
 ### Local — LM Studio (supported)
 
-Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Set **`agents.defaultBackend`** to `"lmstudio"` and **`agents.defaultModel`** to the model id (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`). Optional **`agents.backends.lmStudio.baseUrl`** (default `http://127.0.0.1:1234/v1`) and **`agents.backends.lmStudio.endpointType`** (`"openai"` | `"native"`).
+Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Set **`agents.defaultBackend`** to `"lmstudio"` and **`agents.defaultModel`** to the model id (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`). Optional **`agents.backends.lmStudio.baseUrl`** (default `http://127.0.0.1:1234/v1`).
 
 | Model id (example) | Notes     |
 |--------------------|-----------|

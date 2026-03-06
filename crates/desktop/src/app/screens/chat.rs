@@ -8,6 +8,7 @@ const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
 /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
 fn render_chat_message(ui: &mut egui::Ui, index: usize, m: &ChatMessage) {
     let is_user = m.role == "user";
+    let is_error = m.role == "error";
     let frame = egui::Frame::none()
         .fill(if is_user {
             ui.style().visuals.extreme_bg_color
@@ -16,12 +17,16 @@ fn render_chat_message(ui: &mut egui::Ui, index: usize, m: &ChatMessage) {
         })
         .stroke(egui::Stroke::new(
             1.0,
-            ui.style()
-                .visuals
-                .widgets
-                .noninteractive
-                .bg_stroke
-                .color,
+            if is_error {
+                egui::Color32::RED
+            } else {
+                ui.style()
+                    .visuals
+                    .widgets
+                    .noninteractive
+                    .bg_stroke
+                    .color
+            },
         ))
         .rounding(egui::Rounding::same(12.0))
         .inner_margin(egui::Margin::same(12.0));
@@ -29,6 +34,12 @@ fn render_chat_message(ui: &mut egui::Ui, index: usize, m: &ChatMessage) {
     frame.show(ui, |ui| {
         if is_user {
             ui.label(egui::RichText::new(&m.content).strong());
+        } else if is_error {
+            ui.label(
+                egui::RichText::new(&m.content)
+                    .strong()
+                    .color(egui::Color32::RED),
+            );
         } else {
             ui.label(&m.content);
             if let Some(ref tool_calls) = m.tool_calls {
@@ -78,9 +89,10 @@ fn render_chat_message(ui: &mut egui::Ui, index: usize, m: &ChatMessage) {
 
 /// Render the chat UI (messages + input). Messages area is flexible (fills space) with stick-to-bottom; input and controls are fixed at bottom.
 pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
-    let can_send = gateway_running
+    let can_send_base = gateway_running
         && (app.selected_session_id == app.chat_session_id
             || (app.selected_session_id.is_none() && app.session_messages.is_empty()));
+    let mut can_send = can_send_base;
 
     let row_height = ui.spacing().interact_size.y + 8.0;
     let bottom_section_height = CHAT_INPUT_HEIGHT + 8.0 + row_height;
@@ -114,7 +126,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
 
     ui.add_space(8.0);
 
-    let text_response = ui.add_enabled_ui(can_send, |ui| {
+    let text_response = ui.add_enabled_ui(can_send_base, |ui| {
         ui.add_sized(
             [ui.available_width(), CHAT_INPUT_HEIGHT],
             egui::TextEdit::multiline(&mut app.chat_input),
@@ -137,14 +149,11 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
         })
         .show(&mut row_ui, |ui| {
             // Right-to-left layout: first added = rightmost. We want left-to-right: Backend, Model, /new, Send.
-            let mut send_now = false;
-
-            let send_button = ui.add_enabled(can_send, egui::Button::new("Send"));
-
             let effective_backend = app
                 .current_backend
                 .as_deref()
                 .or_else(|| app.gateway_status.as_ref().and_then(|s| s.default_backend.as_deref()))
+                .map(|b| if b == "lm_studio" { "lmstudio" } else { b })
                 .unwrap_or("ollama")
                 .to_string();
             // Only models for the selected backend.
@@ -159,6 +168,14 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
 
             // Model dropdown: only models for the selected backend.
             let model_options: Vec<String> = gateway_models;
+            // Disable send when there is no available model for the selected backend.
+            let model_available = !model_options.is_empty();
+            can_send = can_send && model_available;
+
+            let mut send_now = false;
+
+            let send_button = ui.add_enabled(can_send, egui::Button::new("Send"));
+
             if !model_options.is_empty() {
                 ui.add_space(8.0);
                 let current_label = app
@@ -194,7 +211,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 } else {
                     enabled_backends_list.first().cloned().unwrap_or_else(|| "—".to_string())
                 };
-                ui.add_enabled_ui(can_send, |ui| {
+                ui.add_enabled_ui(can_send_base, |ui| {
                     egui::ComboBox::from_id_source("backend_select")
                         .selected_text(selected)
                         .show_ui(ui, |ui| {
@@ -202,6 +219,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                                 if ui.selectable_label(effective_backend == b.as_str(), b).clicked() {
                                     app.current_backend = Some(b.clone());
                                     app.current_model = None;
+                                    app.request_status_refetch();
                                 }
                             }
                         });
@@ -209,7 +227,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             }
 
             ui.add_space(8.0);
-            if ui.add_enabled(can_send, egui::Button::new("/new")).clicked() {
+            if ui.add_enabled(can_send_base, egui::Button::new("/new")).clicked() {
                 app.start_new_session();
             }
 
@@ -229,9 +247,6 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             }
         });
 
-    if let Some(ref err) = app.chat_error {
-        ui.add_space(8.0);
-        ui.colored_label(egui::Color32::RED, err);
-    }
+    // chat_error is surfaced as an in-stream message; footer remains empty.
 }
 

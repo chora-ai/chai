@@ -19,28 +19,20 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 
 ### Client and Configuration
 
-- **LM Studio client** — Supports two endpoint types. **OpenAI** (`endpointType: "openai"`, default): talks to `/v1/chat/completions` and `/v1/models` with full tool/function calling and message-based chat. **Native** (`endpointType: "native"`): talks to `/api/v1/chat` and `/api/v1/models`; message content only (no custom tools in this implementation).
-- **Config** — Backend is set by **`agents.defaultBackend`** (`"ollama"` or `"lmstudio"`; default `"ollama"`). When `defaultBackend` is `"lmstudio"`, **`agents.defaultModel`** is the model id passed as-is (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`). Base URL and endpoint type: **`agents.backends.lmStudio.baseUrl`** and optional **`agents.backends.lmStudio.endpointType`** (`"openai"` | `"native"`; default `"openai"`).
+- **LM Studio client** — Uses only the OpenAI-compatible API: **`GET /api/v1/models`** for model list and **`POST /v1/chat/completions`** for chat (with tools). All API errors (400, 500, etc.) are returned to the caller; the only automatic retry is when chat returns 500 "Model is unloaded" — we call POST `/api/v1/models/load` then retry chat once (aligns with Ollama).
+- **Config** — Backend is set by **`agents.defaultBackend`** (`"ollama"` or `"lmstudio"`; default `"ollama"`). When `defaultBackend` is `"lmstudio"`, **`agents.defaultModel`** is the model id passed as-is (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`). Under **`agents.backends`** use **`lmStudio`** or **`lmstudio`** (both accepted). Only **`baseUrl`** is supported (default `http://127.0.0.1:1234/v1`).
 
-### Base URL and Endpoint Type
+### Base URL
 
-**Base URL** — **`agents.backends.lmStudio.baseUrl`** (default `http://127.0.0.1:1234/v1` when absent).
-
-**Endpoint type** — LM Studio exposes two API shapes; the gateway supports both via **`agents.backends.lmStudio.endpointType`**:
-
-- **`openai`** (default) — Use OpenAI-compatible `/v1/models` and `/v1/chat/completions`. Full tool calling and multi-turn message history. Base URL should point at the `/v1` path (e.g. `http://127.0.0.1:1234/v1`).
-- **`native`** — Use LM Studio native `/api/v1/models` and `/api/v1/chat`. The server root is derived from the configured base URL (if it ends with `/v1`, that suffix is stripped). **Tool calling is not supported in native mode** in this implementation: the agent sends only message content and receives only message content; skill tools are not sent to the model. Suitable for simple chat when you prefer the native API or use native-only features (e.g. MCP) outside the gateway.
-
-LM Studio does **not** expose Ollama-compatible endpoints; only `openai` and `native` are available for LM Studio.
+**Base URL** — **`agents.backends.lmStudio.baseUrl`** (default `http://127.0.0.1:1234/v1` when absent). Points at the `/v1` path for chat; `/api/v1` is used only for model list and load.
 
 ### Endpoints Used
 
-| Endpoint type | Endpoint | Method | Use |
-|---------------|----------|--------|-----|
-| **OpenAI** | `/v1/models` | GET | `list_models()` — Discover models at startup; gateway exposes result in WebSocket status as `lmStudioModels`. |
-| **OpenAI** | `/v1/chat/completions` | POST | `chat()` and `chat_stream()` — Agent turn with messages and optional tools; map to/from internal `ChatMessage` / `ChatResponse`. |
-| **Native** | `/api/v1/models` | GET | `list_models()` — Same discovery; response shape uses `models[].key`. |
-| **Native** | `/api/v1/chat` | POST | `chat()` — Message content only (system_prompt + input array); tools not sent; response `output[]` parsed for type `"message"` content. `chat_stream()` in native mode performs one non-streaming call and passes full content to the callback. |
+| Endpoint | Method | Use |
+|----------|--------|-----|
+| **`/api/v1/models`** | GET | `list_models()` — model list; returned `key` is the model id for chat. |
+| **`/api/v1/models/load`** | POST | Called when chat returns 500 "Model is unloaded"; we load then retry chat once. Request body **`{ "model": "<id>" }`** only. If load fails (e.g. VRAM), use `lms load <model> --gpu 0.5` then chat. |
+| **`/v1/chat/completions`** | POST | Agent turn with messages and optional tools. All errors (400, 500, etc.) are returned; we only retry after load on "unloaded". |
 
 ### Request/Response Shapes (What We Send)
 
@@ -50,39 +42,26 @@ LM Studio does **not** expose Ollama-compatible endpoints; only `openai` and `na
 
 ### Where LM Studio Is Referenced
 
-- **Gateway server** — Builds the LM Studio client with **`resolve_lm_studio_base_url`** and **`resolve_lm_studio_endpoint_type`** from config, so either OpenAI-compat or native endpoint is used. Resolves backend from **`agents.defaultBackend`** (`"lmstudio"` → LM Studio) and calls agent `run_turn` with that client and **`agents.default_model`** (passed as-is).
+- **Gateway server** — Builds the LM Studio client with **`resolve_lm_studio_base_url`** from config. Resolves backend from **`agents.defaultBackend`** (`"lmstudio"` → LM Studio) and calls agent `run_turn` with that client and **`agents.default_model`** (passed as-is).
 - **Agent** — `run_turn` uses a common trait so it can call either Ollama or LM Studio; the gateway passes the right client and the model id.
 - **Tools** — The same skill `tools.json` and `ToolDefinition` list are converted to OpenAI tool format when calling LM Studio.
 
 ## LM Studio API Overview
 
-### Native v1 API (`/api/v1/*`)
+### Chat and Model List
 
-Used when **`agents.backends.lmStudio.endpointType`** is `"native"`. The native API does not accept our skill tools as function definitions; LM Studio’s native “tools” are MCP integrations, which this codebase does **not** support. We send only message content and receive only message content.
-
-- **`POST /api/v1/chat`** — We call this when endpoint type is native for the agent turn. Request: `model`, `system_prompt`, `input` (array of message-like items), `stream: false`. We do not send skill tools or the `integrations` (MCP) parameter. Response: we parse `output[]` for items of type `"message"` and take the content as the reply. `chat_stream()` in native mode performs one non-streaming call and passes the full content to the callback. This endpoint also supports stateful chats (e.g. `previous_response_id`); we do not use that.
-- **`GET /api/v1/models`** — We call this when endpoint type is native for model discovery at startup; response shape uses `models[].key`. We store the result and expose it in the gateway’s WebSocket **status** response to clients under **`lmStudioModels`** (same key as when endpoint type is openai).
-- **Streaming** — The native API supports SSE (e.g. `chat.start`, `message.delta`, `chat.end`). We do not parse it: native SSE uses a different event format than OpenAI’s `data:` JSON chunks, so it would require a separate parser. We use a single non-streaming call for native and pass the full reply to the callback for the agent loop.
-
-### OpenAI-Compatible Endpoints (`/v1/*`)
-
-Used when **`agents.backends.lmStudio.endpointType`** is `"openai"` (default).
-
-- **`POST /v1/chat/completions`** — We call this when endpoint type is openai for the agent turn. Request: `model`, `messages` (array of `{ role, content }` or tool messages with `tool_call_id`), `stream: true` or `false`, optional `tools` (function definitions in OpenAI shape). We map our internal messages (with `tool_name` for tool results) to OpenAI format and back. Response: SSE when streaming; we parse `data:` lines and accumulate content and `tool_calls` into a single `ChatResponse`. Tools / function calling: payload matches OpenAI (assistant `tool_calls` with `id`, `function.name`, `function.arguments`; tool role messages with `tool_call_id`).
-- **`GET /v1/models`** — We call this when endpoint type is openai for model discovery at startup; response includes model `id` and optionally other fields. We store the result and expose it in the gateway’s WebSocket **status** response to clients under the key **`lmStudioModels`** (to distinguish from `ollamaModels` and other backends).
-- **Streaming** — We use `stream: true` for chat when endpoint type is openai; the response is SSE and we accumulate chunks into one `ChatResponse` for the agent loop.
+- **`POST /v1/chat/completions`** — Agent turn with `model`, `messages` (including tool messages), `stream: true` or `false`, optional `tools`. We map our internal messages to OpenAI format and back. Response: SSE when streaming; we parse `data:` lines and accumulate content and `tool_calls` into a single `ChatResponse`. All errors are returned; we only retry once after load when the server returns "Model is unloaded".
+- **`GET /api/v1/models`** — Model discovery; response shape uses `models[].key`. We expose the result in the gateway WebSocket **status** as **`lmStudioModels`**.
 
 ### Model Lifecycle
 
-- **`GET /v1/models`** (openai) / **`GET /api/v1/models`** (native) — **Used.** List models at startup; gateway exposes result in WebSocket status as `lmStudioModels`.
-- **`POST /api/v1/models/load`** — **Not used.** Load a model (e.g. `model`, optional `context_length`, `flash_attention`). Could add “load model” from desktop or CLI for operators who manage models.
-- **`POST /api/v1/models/unload`** — **Not used.** Unload a model by `instance_id`. Could add “unload model” from desktop or CLI to free memory or switch models.
+- **`GET /api/v1/models`** — **Used.** List models at startup; gateway exposes result in WebSocket status as `lmStudioModels`.
+- **`POST /api/v1/models/load`** — Called when chat returns "Model is unloaded"; we load then retry once. Not used proactively.
+- **`POST /api/v1/models/unload`** — Not used. Could add "unload model" from desktop or CLI to free memory.
 
 ### Possible Future Use
 
-- **Streaming to the channel** — Use `chat_stream()` and send deltas to Telegram (or other channels) as they arrive instead of waiting for the full reply. For native endpoint, would require implementing a parser for native SSE events (`chat.start`, `message.delta`, `chat.end`).
-- **Native streaming** — Parse the native API’s SSE events for streaming when endpoint type is native; would need a dedicated parser (different format from OpenAI’s `data:` JSON chunks).
-- **Native stateful chats and MCP** — When `endpointType: "native"`, we do not send `previous_response_id` (stateful continuation) or `integrations` (MCP). MCP is not supported in this codebase; stateful continuation could be added if needed.
-- **Anthropic-compatible `/v1/messages`** — Not used; we use chat completions only. Could add if we need compatibility with Anthropic-style clients.
-- **Per-request or per-model options** — Pass `temperature`, `max_tokens`, etc., from config or from the client when supported by the endpoint to better control tool use and length.
-- **Model management** — Optional use of load/unload API (e.g. “load model” from desktop, or unload to free memory) for operators who manage models via the desktop or CLI.
+- **Streaming to the channel** — Send chat deltas to Telegram (or other channels) as they arrive instead of waiting for the full reply.
+- **Anthropic-compatible `/v1/messages`** — Not used; we use chat completions only.
+- **Per-request or per-model options** — Pass `temperature`, `max_tokens`, etc., from config when supported.
+- **Model management** — Optional load/unload from desktop or CLI for operators.

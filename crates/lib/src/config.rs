@@ -188,7 +188,7 @@ pub struct AgentsConfig {
 pub struct BackendsConfig {
     #[serde(default)]
     pub ollama: Option<OllamaBackendEntry>,
-    #[serde(default)]
+    #[serde(default, alias = "lmstudio")]
     pub lm_studio: Option<LmStudioBackendEntry>,
 }
 
@@ -199,25 +199,11 @@ pub struct OllamaBackendEntry {
     pub base_url: Option<String>,
 }
 
-/// LM Studio backend entry: base URL and endpoint type (openai vs native).
+/// LM Studio backend entry: base URL only. We always use the OpenAI-compatible API (with native chat fallback when the server rejects the model param) so tools are supported.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LmStudioBackendEntry {
     pub base_url: Option<String>,
-    /// "openai" (OpenAI-compatible API) or "native" (LM Studio native /api/v1/chat). Default "openai".
-    #[serde(default)]
-    pub endpoint_type: Option<LmStudioEndpointType>,
-}
-
-/// LM Studio endpoint type: OpenAI-compatible API or native API. LM Studio does not expose Ollama endpoints.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum LmStudioEndpointType {
-    /// OpenAI-compatible /v1/models and /v1/chat/completions (supports tools).
-    #[default]
-    Openai,
-    /// LM Studio native /api/v1/models and /api/v1/chat (no custom tools in this implementation).
-    Native,
 }
 
 /// Resolve LM Studio base URL: agents.backends.lmStudio.baseUrl, else default.
@@ -232,16 +218,6 @@ pub fn resolve_lm_studio_base_url(agents: &AgentsConfig) -> String {
         .unwrap_or_else(|| "http://127.0.0.1:1234/v1".to_string())
         .trim_end_matches('/')
         .to_string()
-}
-
-/// Resolve LM Studio endpoint type: agents.backends.lmStudio.endpointType, else openai.
-pub fn resolve_lm_studio_endpoint_type(agents: &AgentsConfig) -> LmStudioEndpointType {
-    agents
-        .backends
-        .as_ref()
-        .and_then(|b| b.lm_studio.as_ref())
-        .and_then(|e| e.endpoint_type)
-        .unwrap_or_default()
 }
 
 /// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
@@ -273,16 +249,16 @@ pub struct SkillsConfig {
     pub context_mode: SkillContextMode,
 }
 
-/// Canonical backend name: only "ollama" and "lmstudio" are valid (trimmed, lowercased). Returns None for any other value (e.g. "lm_studio"). Used for config and gateway so only one accepted form per backend is allowed.
+/// Canonical backend name: "ollama" and "lmstudio" (or "lm_studio", normalized) are valid (trimmed, lowercased). Returns None for any other value. Used for config and gateway so only one accepted form per backend is allowed.
 pub fn canonical_backend(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().as_str() {
         "ollama" => Some("ollama"),
-        "lmstudio" => Some("lmstudio"),
+        "lmstudio" | "lm_studio" => Some("lmstudio"),
         _ => None,
     }
 }
 
-/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. Only "ollama" and "lmstudio" are valid (other forms like "lm_studio" are not accepted).
+/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. "ollama" and "lmstudio" (or "lm_studio", normalized) are valid.
 pub fn backend_discovery_enabled(agents: &AgentsConfig, backend: &str) -> bool {
     let backend_canonical = match canonical_backend(backend) {
         Some(b) => b,

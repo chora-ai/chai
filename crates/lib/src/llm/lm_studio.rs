@@ -1,9 +1,8 @@
-//! LM Studio client: OpenAI-compatible API or native API.
+//! LM Studio client: OpenAI-compatible API only.
 //!
-//! Endpoint type is set at construction. **OpenAI** uses /v1/models and /v1/chat/completions
-//! (supports tools). **Native** uses /api/v1/models and /api/v1/chat (no custom tools in this implementation).
+//! We use /v1/chat/completions (and /v1/models for listing when needed). On 500 "Model is unloaded"
+//! we call POST /api/v1/models/load and retry once (aligns with Ollama). All other errors are returned.
 
-use crate::config::LmStudioEndpointType;
 use crate::llm::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
 use anyhow::Result;
 use futures_util::StreamExt;
@@ -11,11 +10,10 @@ use serde::{Deserialize, Serialize};
 
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:1234/v1";
 
-/// Client for LM Studio: OpenAI-compat or native API depending on endpoint type.
+/// Client for LM Studio: OpenAI-compat chat only; errors are returned to the caller.
 #[derive(Clone)]
 pub struct LmStudioClient {
     base_url: String,
-    endpoint_type: LmStudioEndpointType,
     client: reqwest::Client,
 }
 
@@ -28,55 +26,49 @@ pub enum LmStudioError {
 }
 
 impl LmStudioClient {
-    pub fn new(base_url: Option<String>, endpoint_type: LmStudioEndpointType) -> Self {
+    pub fn new(base_url: Option<String>) -> Self {
         let base_url = base_url
             .map(|u| u.trim_end_matches('/').to_string())
             .unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         Self {
             base_url,
-            endpoint_type,
             client: reqwest::Client::new(),
         }
     }
 
-    /// Base URL as configured (OpenAI-compat base for openai, or server root for native).
-    fn server_root(&self) -> String {
-        if self.endpoint_type == LmStudioEndpointType::Native && self.base_url.ends_with("/v1") {
+    /// Root URL for the LM Studio server (no /v1 suffix). Used for /api/v1/models and /api/v1/models/load.
+    fn api_server_root(&self) -> String {
+        if self.base_url.ends_with("/v1") {
             self.base_url.trim_end_matches("/v1").to_string()
         } else {
             self.base_url.clone()
         }
     }
 
-    /// List available models (OpenAI /v1/models or native /api/v1/models).
-    pub async fn list_models(&self) -> Result<Vec<LmStudioModel>, LmStudioError> {
-        match self.endpoint_type {
-            LmStudioEndpointType::Openai => self.list_models_openai().await,
-            LmStudioEndpointType::Native => self.list_models_native().await,
-        }
-    }
-
-    /// GET /v1/models — list available models (OpenAI-compat).
-    async fn list_models_openai(&self) -> Result<Vec<LmStudioModel>, LmStudioError> {
-        let url = format!("{}/models", self.base_url);
-        let res = self.client.get(&url).send().await?;
+    /// Ensure the model is loaded in LM Studio before chat. Calls POST /api/v1/models/load with
+    /// only the model id for compatibility (many LM Studio versions do not accept gpu/offload_kv_cache_to_gpu).
+    /// For VRAM-friendly load use `lms load <model> --gpu 0.5` before starting the app.
+    async fn ensure_model_loaded(&self, model: &str) -> Result<(), LmStudioError> {
+        let root = self.api_server_root();
+        let url = format!("{}/api/v1/models/load", root);
+        let body = serde_json::json!({ "model": model });
+        let res = self.client.post(&url).json(&body).send().await?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
             return Err(LmStudioError::Api(format!("{} {}", status, body)));
         }
-        let data: OpenAiModelsResponse = res.json().await?;
-        Ok(data
-            .data
-            .unwrap_or_default()
-            .into_iter()
-            .map(|m| LmStudioModel { name: m.id })
-            .collect())
+        Ok(())
     }
 
-    /// GET /api/v1/models — list available models (native).
+    /// List available models via GET /api/v1/models; returned ids are the model `key` (e.g. publisher/model-name) for use with /v1/chat/completions.
+    pub async fn list_models(&self) -> Result<Vec<LmStudioModel>, LmStudioError> {
+        self.list_models_native().await
+    }
+
+    /// GET /api/v1/models — list models; returned key is the model id for chat.
     async fn list_models_native(&self) -> Result<Vec<LmStudioModel>, LmStudioError> {
-        let root = self.server_root();
+        let root = self.api_server_root();
         let url = format!("{}/api/v1/models", root);
         let res = self.client.get(&url).send().await?;
         if !res.status().is_success() {
@@ -90,13 +82,17 @@ impl LmStudioClient {
             .unwrap_or_default()
             .into_iter()
             .filter(|m| m.typ.as_deref() == Some("llm"))
+            .filter(|m| {
+                let k = m.key.as_deref().unwrap_or("").trim();
+                !k.is_empty() && !k.starts_with("text-embedding-")
+            })
             .map(|m| LmStudioModel {
-                name: m.key.clone().unwrap_or_default(),
+                name: m.key.clone().unwrap_or_default().trim().to_string(),
             })
             .collect())
     }
 
-    /// Non-streaming chat. OpenAI: tools supported. Native: no custom tools, message content only.
+    /// Non-streaming chat via /v1/chat/completions. On 500 "Model is unloaded" we load and retry once (aligns with Ollama); all other errors are returned.
     pub async fn chat(
         &self,
         model: &str,
@@ -104,9 +100,13 @@ impl LmStudioClient {
         _stream: bool,
         tools: Option<Vec<ToolDefinition>>,
     ) -> Result<ChatResponse, LmStudioError> {
-        match self.endpoint_type {
-            LmStudioEndpointType::Openai => self.chat_openai(model, &messages, tools).await,
-            LmStudioEndpointType::Native => self.chat_native(model, &messages).await,
+        match self.chat_openai(model, &messages, tools.clone()).await {
+            Ok(r) => Ok(r),
+            Err(LmStudioError::Api(ref msg)) if msg.to_lowercase().contains("unloaded") => {
+                self.ensure_model_loaded(model).await?;
+                self.chat_openai(model, &messages, tools).await
+            }
+            e => e,
         }
     }
 
@@ -135,28 +135,7 @@ impl LmStudioClient {
         openai_response_to_chat_response(data)
     }
 
-    /// POST /api/v1/chat — non-streaming chat (native). Tools are ignored; only message content is returned.
-    async fn chat_native(&self, model: &str, messages: &[ChatMessage]) -> Result<ChatResponse, LmStudioError> {
-        let root = self.server_root();
-        let url = format!("{}/api/v1/chat", root);
-        let (system_prompt, input) = messages_to_native_input(messages);
-        let body = NativeChatRequest {
-            model: model.to_string(),
-            input,
-            system_prompt: system_prompt.or_else(|| Some(String::new())),
-            stream: false,
-        };
-        let res = self.client.post(&url).json(&body).send().await?;
-        if !res.status().is_success() {
-            let status = res.status();
-            let body = res.text().await.unwrap_or_default();
-            return Err(LmStudioError::Api(format!("{} {}", status, body)));
-        }
-        let data: NativeChatResponse = res.json().await?;
-        native_response_to_chat_response(data)
-    }
-
-    /// Streaming chat. OpenAI: SSE. Native: single call then one on_chunk with full content.
+    /// Streaming chat via /v1/chat/completions. On 500 "Model is unloaded" we load and retry once with a single non-streaming call so we don't invoke on_chunk twice (avoid duplicate or interleaved output if the first attempt had already streamed partial data).
     pub async fn chat_stream(
         &self,
         model: &str,
@@ -164,20 +143,19 @@ impl LmStudioClient {
         tools: Option<Vec<ToolDefinition>>,
         on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<ChatResponse, LmStudioError> {
-        match self.endpoint_type {
-            LmStudioEndpointType::Openai => {
-                self.chat_stream_openai(model, messages, tools, on_chunk)
-                    .await
-            }
-            LmStudioEndpointType::Native => {
-                let out = self.chat_native(model, &messages).await?;
-                if let Some(ref msg) = out.message {
-                    if !msg.content.is_empty() {
-                        on_chunk(&msg.content);
+        match self.chat_stream_openai(model, &messages, tools.clone(), on_chunk).await {
+            Ok(r) => Ok(r),
+            Err(LmStudioError::Api(ref msg)) if msg.to_lowercase().contains("unloaded") => {
+                self.ensure_model_loaded(model).await?;
+                let out = self.chat_openai(model, &messages, tools).await?;
+                if let Some(ref m) = out.message {
+                    if !m.content.is_empty() {
+                        on_chunk(&m.content);
                     }
                 }
                 Ok(out)
             }
+            e => e,
         }
     }
 
@@ -185,12 +163,12 @@ impl LmStudioClient {
     async fn chat_stream_openai(
         &self,
         model: &str,
-        messages: Vec<ChatMessage>,
+        messages: &[ChatMessage],
         tools: Option<Vec<ToolDefinition>>,
         on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<ChatResponse, LmStudioError> {
         let url = format!("{}/chat/completions", self.base_url);
-        let (openai_messages, _) = messages_to_openai(&messages);
+        let (openai_messages, _) = messages_to_openai(messages);
         let body = OpenAiChatRequest {
             model: model.to_string(),
             messages: openai_messages,
@@ -297,7 +275,7 @@ pub struct LmStudioModel {
     pub name: String,
 }
 
-// --- Native API wire types ---
+// --- Native API wire types (list models only) ---
 
 #[derive(Debug, Deserialize)]
 struct NativeModelsResponse {
@@ -311,98 +289,7 @@ struct NativeModelObject {
     typ: Option<String>,
 }
 
-#[derive(Debug, Serialize)]
-struct NativeChatRequest {
-    model: String,
-    input: Vec<NativeInputItem>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    system_prompt: Option<String>,
-    stream: bool,
-}
-
-#[derive(Debug, Serialize)]
-struct NativeInputItem {
-    #[serde(rename = "type")]
-    typ: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct NativeChatResponse {
-    output: Option<Vec<NativeOutputItem>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct NativeOutputItem {
-    #[serde(rename = "type")]
-    typ: Option<String>,
-    content: Option<String>,
-}
-
-fn messages_to_native_input(messages: &[ChatMessage]) -> (Option<String>, Vec<NativeInputItem>) {
-    let mut system_prompt: Option<String> = None;
-    let mut input = Vec::new();
-    for m in messages {
-        match m.role.as_str() {
-            "system" => {
-                if system_prompt.is_none() {
-                    system_prompt = Some(m.content.clone());
-                }
-            }
-            _ => {
-                let content = if m.role == "tool" {
-                    format!("[Tool result] {}", m.content)
-                } else {
-                    m.content.clone()
-                };
-                if !content.is_empty() || input.is_empty() {
-                    input.push(NativeInputItem {
-                        typ: "message".to_string(),
-                        content,
-                    });
-                }
-            }
-        }
-    }
-    (system_prompt, input)
-}
-
-fn native_response_to_chat_response(data: NativeChatResponse) -> Result<ChatResponse, LmStudioError> {
-    let content: String = data
-        .output
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|o| {
-            if o.typ.as_deref() == Some("message") {
-                o.content
-            } else {
-                None
-            }
-        })
-        .collect::<Vec<_>>()
-        .join("");
-    Ok(ChatResponse {
-        message: Some(ChatMessage {
-            role: "assistant".to_string(),
-            content,
-            tool_calls: None,
-            tool_name: None,
-        }),
-        done: true,
-    })
-}
-
-// --- OpenAI wire types (for LM Studio OpenAI-compat endpoint) ---
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelsResponse {
-    data: Option<Vec<OpenAiModelObject>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct OpenAiModelObject {
-    id: String,
-}
+// --- OpenAI wire types (for /v1/chat/completions) ---
 
 #[derive(Debug, Serialize)]
 struct OpenAiChatRequest {

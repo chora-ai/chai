@@ -27,6 +27,14 @@ impl ChatMessage {
             tool_calls,
         }
     }
+
+    pub(crate) fn error(text: impl Into<String>) -> Self {
+        Self {
+            role: "error".to_string(),
+            content: text.into(),
+            tool_calls: None,
+        }
+    }
 }
 
 /// Reply from a single agent turn, as seen by the app.

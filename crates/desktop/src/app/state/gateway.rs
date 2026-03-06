@@ -88,6 +88,11 @@ impl ChaiApp {
         }
     }
 
+    /// Request that the next status poll performs an immediate fetch (e.g. after switching backend so the model list is up to date).
+    pub(crate) fn request_status_refetch(&mut self) {
+        self.frames_since_status = STATUS_INTERVAL_FRAMES;
+    }
+
     /// Poll for status fetch result and optionally start a new fetch when gateway is running. Call each frame.
     /// When the gateway has just come back up (responding but no status yet), fetch immediately so the context layout updates without delay.
     pub(crate) fn poll_status_fetch(&mut self) {

@@ -166,25 +166,40 @@ impl ChaiApp {
         }
         let (config, _) = lib::config::load_config(None)
             .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
-        let list = if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true)
-        {
-            let (default, _) = lib::config::resolve_effective_backend_and_model(&config.agents);
-            vec![default]
-        } else {
-            let mut seen = std::collections::HashSet::new();
-            config
+        // Start from enabledBackends when set; otherwise fall back to the effective default backend.
+        let mut list: Vec<String> =
+            if config
                 .agents
                 .enabled_backends
                 .as_ref()
-                .unwrap()
-                .iter()
-                .map(|s| s.trim().to_lowercase())
-                .filter(|s| !s.is_empty())
-                .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
-                .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
-                .filter(|s| seen.insert(s.clone()))
-                .collect()
-        };
+                .map(|v| v.is_empty())
+                .unwrap_or(true)
+            {
+                let (default, _) =
+                    lib::config::resolve_effective_backend_and_model(&config.agents);
+                vec![default]
+            } else {
+                let mut seen = std::collections::HashSet::new();
+                config
+                    .agents
+                    .enabled_backends
+                    .as_ref()
+                    .unwrap()
+                    .iter()
+                    .map(|s| s.trim().to_lowercase())
+                    .filter(|s| !s.is_empty())
+                    .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
+                    .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
+                    .filter(|s| seen.insert(s.clone()))
+                    .collect()
+            };
+        // Always include the effective default backend in the dropdown so the UI reflects
+        // which backend the gateway will actually use when no override is provided.
+        let (default_backend, _) =
+            lib::config::resolve_effective_backend_and_model(&config.agents);
+        if !list.contains(&default_backend) {
+            list.push(default_backend);
+        }
         self.cached_enabled_backends = Some(list.clone());
         list
     }
@@ -272,6 +287,22 @@ impl ChaiApp {
                             .or_insert((None, None));
 
                         self.pending_user_message = None;
+                        if was_new_session {
+                            // Retain only the most recent pre-session error so it doesn't disappear when we switch to the new session, without piling every past failure onto the new session.
+                            let last_pre_error = self
+                                .chat_messages
+                                .iter()
+                                .rev()
+                                .find(|m| m.role == "error")
+                                .cloned();
+                            if let Some(err_msg) = last_pre_error {
+                                let entry = self
+                                    .session_messages
+                                    .get_mut(&reply.session_id)
+                                    .expect("entry exists");
+                                entry.insert(0, err_msg);
+                            }
+                        }
                         self.chat_messages = self
                             .session_messages
                             .get(&reply.session_id)
@@ -284,7 +315,19 @@ impl ChaiApp {
                     }
                     Err(e) => {
                         self.pending_user_message = None;
-                        self.chat_error = Some(e);
+                        let err_text = e.clone();
+                        // Show the full error as an in-stream chat message.
+                        self.chat_messages
+                            .push(ChatMessage::error(err_text.clone()));
+                        // Also attach to the current session's messages when we know the id.
+                        if let Some(ref sid) = self.chat_session_id {
+                            let entry = self
+                                .session_messages
+                                .entry(sid.clone())
+                                .or_insert_with(Vec::new);
+                            entry.push(ChatMessage::error(err_text));
+                        }
+                        self.chat_error = None;
                     }
                 }
             }

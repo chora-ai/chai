@@ -5,7 +5,7 @@ use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
 use crate::config::{
-    self, resolve_lm_studio_base_url, resolve_lm_studio_endpoint_type, Config, SkillContextMode,
+    self, resolve_lm_studio_base_url, Config, SkillContextMode,
 };
 use crate::agent_ctx;
 use crate::init;
@@ -596,8 +596,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let ollama_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let lm_studio_base_url = Some(resolve_lm_studio_base_url(&config.agents));
-    let lm_studio_endpoint_type = resolve_lm_studio_endpoint_type(&config.agents);
-    let lm_studio_client = LmStudioClient::new(lm_studio_base_url, lm_studio_endpoint_type);
+    let lm_studio_client = LmStudioClient::new(lm_studio_base_url);
     let lm_studio_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
