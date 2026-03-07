@@ -36,6 +36,7 @@ This directory includes additional resources for agents (and humans) working on 
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Detailed technical reference for the proof-of-concept implementation.
 - **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Epic: LLM services and API alignment (proposal and tracking for multiple backends).
 - **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Epic: Orchestrators and workers (proposal and tracking for multi-model flows).
+- **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Epic: RAG with vector database (proposal and tracking for semantic search).
 - **[SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md)** — Working document for comparing LLM services and models.
 - **[TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md)** — Working document for testing the performance of local models.
 - **[TEST_SELF_HOSTED_MODELS.md](TEST_SELF_HOSTED_MODELS.md)** — Working document for testing the performance of self-hosted models.
