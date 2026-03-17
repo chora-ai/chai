@@ -109,7 +109,13 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
 }
 ```
 
-Use the exact model name from `ollama list` for `defaultModel` (e.g. `llama3.2:latest`, `qwen3:8b`); do not add extra segments like `:latest` unless that tag exists for the model. Set **`agents.defaultBackend`** to `"ollama"` or `"lmstudio"` to choose which backend is used when no override is provided. Optional **`agents.enabledBackends`** is an array of backends to fetch models from at startup (e.g. `["ollama", "lmstudio"]`); when absent or empty, only the default backend is discovered.
+Use the exact model id expected by the selected backend for `defaultModel`:
+
+- For **Ollama** (`agents.defaultBackend: "ollama"`), use the name from `ollama list` (e.g. `llama3.2:latest`, `qwen3:8b`); do not add extra segments like `:latest` unless that tag exists for the model.
+- For **LM Studio** (`"lmstudio"`), use the LM Studio model id (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`).
+- For **NVIDIA NIM** (`"nim"` or `"nvidia_nim"`), use a NIM catalog id (e.g. `qwen/qwen3-5-122b-a10b`); see the [LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis).
+
+Set **`agents.defaultBackend`** to `"ollama"`, `"lmstudio"`, or `"nim"` to choose which backend is used when no override is provided. Optional **`agents.enabledBackends`** is an array of backends to fetch models from at startup (e.g. `["ollama", "lmstudio", "nim"]`); when absent or empty, only the default backend is discovered.
 
 For auth when binding beyond loopback, set `"auth": { "mode": "token", "token": "your-secret" }`.
 
@@ -128,6 +134,7 @@ The configuration directory contains the following:
 | `CHAI_CONFIG_PATH` | Config file path | Full path to the configuration file. The default path is `~/.chai/config.json`. |
 | `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret for WebSocket connect when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
+| `NVIDIA_API_KEY` | `agents.backends.nim.apiKey` | API key for NVIDIA NIM hosted API at `https://integrate.api.nvidia.com`. When set, this is used for the NIM backend. Requests and data are sent to NVIDIA servers; this is not a privacy-preserving option. |
 
 ## Connections
 

@@ -22,6 +22,7 @@ This directory includes additional resources for agents (and humans) working on 
 - **[OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design reference for alignment.
 - **[OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md)** — Ollama API references, how it is used, and additional API capabilities.
 - **[LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md)** — LM Studio API reference, how it is used, and additional API capabilities
+- **[NVIDIA_NIM_REFERENCE.md](ref/NVIDIA_NIM_REFERENCE.md)** — NVIDIA NIM hosted API (free tier) reference; not a privacy option; rate limits and integration notes
 
 ### `/spec`
 

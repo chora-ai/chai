@@ -188,8 +188,22 @@ impl ChaiApp {
                     .iter()
                     .map(|s| s.trim().to_lowercase())
                     .filter(|s| !s.is_empty())
-                    .filter(|s| *s == "ollama" || *s == "lmstudio" || *s == "lm_studio")
-                    .map(|s| if s == "lm_studio" { "lmstudio".to_string() } else { s })
+                    .filter(|s| {
+                        *s == "ollama"
+                            || *s == "lmstudio"
+                            || *s == "lm_studio"
+                            || *s == "nim"
+                            || *s == "nvidia_nim"
+                    })
+                    .map(|s| {
+                        if s == "lm_studio" {
+                            "lmstudio".to_string()
+                        } else if s == "nvidia_nim" {
+                            "nim".to_string()
+                        } else {
+                            s
+                        }
+                    })
                     .filter(|s| seen.insert(s.clone()))
                     .collect()
             };

@@ -5,7 +5,7 @@ use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
 use crate::config::{
-    self, resolve_lm_studio_base_url, Config, SkillContextMode,
+    self, resolve_lm_studio_base_url, resolve_nim_api_key, Config, SkillContextMode,
 };
 use crate::agent_ctx;
 use crate::init;
@@ -15,7 +15,9 @@ use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
 };
-use crate::llm::{LmStudioClient, LmStudioModel, OllamaClient, OllamaModel, ToolDefinition};
+use crate::llm::{
+    LmStudioClient, LmStudioModel, NimClient, NimModel, OllamaClient, OllamaModel, ToolDefinition,
+};
 use crate::routing::SessionBindingStore;
 use crate::session::SessionStore;
 use anyhow::{Context, Result};
@@ -41,32 +43,35 @@ const PROTOCOL_VERSION: u32 = 1;
 
 const DEFAULT_MODEL_FALLBACK: &str = "llama3.2:latest";
 const DEFAULT_MODEL_FALLBACK_LMSTUDIO: &str = "gpt-oss-20b";
+const DEFAULT_MODEL_FALLBACK_NIM: &str = "qwen/qwen3-5-122b-a10b";
 
 /// Which LLM backend to use (from agents.defaultBackend).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 enum BackendChoice {
     Ollama,
     LmStudio,
+    Nim,
 }
 
 fn backend_name(choice: BackendChoice) -> &'static str {
     match choice {
         BackendChoice::Ollama => "ollama",
         BackendChoice::LmStudio => "lmstudio",
+        BackendChoice::Nim => "nim",
     }
 }
 
-/// Resolve backend from config. Only "ollama" and "lmstudio" are accepted; invalid or other forms default to Ollama.
+/// Resolve backend from config. Invalid or unknown forms default to Ollama.
 fn resolve_backend(agents: &crate::config::AgentsConfig) -> BackendChoice {
     let canonical = agents
         .default_backend
         .as_deref()
         .and_then(config::canonical_backend)
         .unwrap_or("ollama");
-    if canonical == "lmstudio" {
-        BackendChoice::LmStudio
-    } else {
-        BackendChoice::Ollama
+    match canonical {
+        "lmstudio" => BackendChoice::LmStudio,
+        "nim" => BackendChoice::Nim,
+        _ => BackendChoice::Ollama,
     }
 }
 
@@ -85,6 +90,7 @@ fn resolve_model(
         (Some(name), _) => name,
         (None, BackendChoice::Ollama) => DEFAULT_MODEL_FALLBACK.to_string(),
         (None, BackendChoice::LmStudio) => DEFAULT_MODEL_FALLBACK_LMSTUDIO.to_string(),
+        (None, BackendChoice::Nim) => DEFAULT_MODEL_FALLBACK_NIM.to_string(),
     }
 }
 
@@ -203,6 +209,9 @@ pub struct GatewayState {
     pub lm_studio_client: LmStudioClient,
     /// LM Studio models discovered at startup (or soon after). Empty if LM Studio unreachable.
     pub lm_studio_models: Arc<tokio::sync::RwLock<Vec<LmStudioModel>>>,
+    pub nim_client: NimClient,
+    /// NIM models: static list (NVIDIA does not expose a list endpoint). Used for status/UI.
+    pub nim_models: Arc<tokio::sync::RwLock<Vec<NimModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
     /// Combined tool definitions for the agent (from skills' tools.json only). None when no tools.
@@ -535,6 +544,20 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             )
             .await
         }
+        BackendChoice::Nim => {
+            agent::run_turn(
+                &state.session_store,
+                &session_id,
+                &state.nim_client,
+                &model_name,
+                Some(&system_context),
+                state.config.agents.max_session_messages,
+                tools,
+                tool_executor,
+                None,
+            )
+            .await
+        }
     };
     let result = match result {
         Ok(r) => r,
@@ -598,6 +621,9 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let lm_studio_base_url = Some(resolve_lm_studio_base_url(&config.agents));
     let lm_studio_client = LmStudioClient::new(lm_studio_base_url);
     let lm_studio_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let nim_api_key = resolve_nim_api_key(&config.agents);
+    let nim_client = NimClient::new(nim_api_key.clone());
+    let nim_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
     let workspace_dir = config::resolve_workspace_dir(&config);
@@ -686,6 +712,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         ollama_models: ollama_models.clone(),
         lm_studio_client,
         lm_studio_models: lm_studio_models.clone(),
+        nim_client,
+        nim_models: nim_models.clone(),
         skills: Arc::new(skills),
         tools_list,
         tool_executor,
@@ -725,6 +753,21 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         });
     } else {
         log::debug!("lm studio model discovery skipped (not in enabledBackends)");
+    }
+    if config::backend_discovery_enabled(&config.agents, "nim") {
+        let models = nim_models.clone();
+        tokio::spawn(async move {
+            *models.write().await = NimClient::static_model_list();
+            log::info!("nim model list loaded (static catalog)");
+        });
+    }
+    if resolve_backend(&config.agents) == BackendChoice::Nim {
+        log::warn!(
+            "NVIDIA NIM hosted API is enabled; this is not a privacy-preserving option. Requests and data are sent to NVIDIA servers. Free tier is rate-limited (~40 requests/min)."
+        );
+        if nim_api_key.is_none() || nim_api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
+            log::warn!("NIM backend selected but no API key set (agents.backends.nim.apiKey or NVIDIA_API_KEY). Requests will fail until a key is configured.");
+        }
     }
 
     {
@@ -1066,6 +1109,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 );
                 let ollama_models = state.ollama_models.read().await.clone();
                 let lm_studio_models = state.lm_studio_models.read().await.clone();
+                let nim_models = state.nim_models.read().await.clone();
                 let system_context = build_system_context_for_today(&state.system_context_static);
                 let skills_context = match state.config.skills.context_mode {
                     SkillContextMode::Full => build_skill_context_full(&state.skills),
@@ -1097,6 +1141,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "defaultModel": default_model,
                     "ollamaModels": ollama_models,
                     "lmStudioModels": lm_studio_models,
+                    "nimModels": nim_models,
                     "agentContext": state.agent_ctx,
                     "systemContext": system_context,
                     "date": today,
@@ -1171,17 +1216,15 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     None,
                 );
-                // Use request backend override when valid ("ollama" | "lmstudio"), else config default.
+                // Use request backend override when valid ("ollama" | "lmstudio" | "nim"), else config default.
                 let backend_choice = params
                     .backend
                     .as_deref()
                     .and_then(config::canonical_backend)
-                    .map(|b| {
-                        if b == "lmstudio" {
-                            BackendChoice::LmStudio
-                        } else {
-                            BackendChoice::Ollama
-                        }
+                    .map(|b| match b {
+                        "lmstudio" => BackendChoice::LmStudio,
+                        "nim" => BackendChoice::Nim,
+                        _ => BackendChoice::Ollama,
                     })
                     .unwrap_or_else(|| resolve_backend(&state.config.agents));
                 let model_name = resolve_model(
@@ -1211,6 +1254,20 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             &state.session_store,
                             &session_id,
                             &state.lm_studio_client,
+                            &model_name,
+                            Some(&system_context),
+                            state.config.agents.max_session_messages,
+                            tools,
+                            tool_executor,
+                            None,
+                        )
+                        .await
+                    }
+                    BackendChoice::Nim => {
+                        agent::run_turn(
+                            &state.session_store,
+                            &session_id,
+                            &state.nim_client,
                             &model_name,
                             Some(&system_context),
                             state.config.agents.max_session_messages,

@@ -162,7 +162,7 @@ pub struct TelegramChannelConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentsConfig {
-    /// Which LLM backend to use: "ollama" or "lmstudio". When absent, defaults to "ollama".
+    /// Which LLM backend to use: "ollama", "lmstudio", or "nim". When absent, defaults to "ollama".
     #[serde(default)]
     pub default_backend: Option<String>,
     /// Model id for the selected backend. Use the id format the backend expects (e.g. for Ollama "llama3.2:latest"; for LM Studio "openai/gpt-oss-20b", "ibm/granite-4-micro"). Not used for routing—backend is chosen by defaultBackend.
@@ -182,7 +182,7 @@ pub struct AgentsConfig {
     pub max_session_messages: Option<usize>,
 }
 
-/// Per-backend configuration (base URL, endpoint type where applicable).
+/// Per-backend configuration (base URL, API key where applicable).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BackendsConfig {
@@ -190,6 +190,8 @@ pub struct BackendsConfig {
     pub ollama: Option<OllamaBackendEntry>,
     #[serde(default, alias = "lmstudio")]
     pub lm_studio: Option<LmStudioBackendEntry>,
+    #[serde(default)]
+    pub nim: Option<NimBackendEntry>,
 }
 
 /// Ollama backend entry (e.g. base URL override).
@@ -204,6 +206,39 @@ pub struct OllamaBackendEntry {
 #[serde(rename_all = "camelCase")]
 pub struct LmStudioBackendEntry {
     pub base_url: Option<String>,
+}
+
+/// NVIDIA NIM hosted API backend entry. API key from config or NVIDIA_API_KEY env. Not a privacy option; data is sent to NVIDIA.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NimBackendEntry {
+    pub api_key: Option<String>,
+}
+
+/// Resolve NVIDIA NIM API key: NVIDIA_API_KEY env, else agents.backends.nim.apiKey.
+pub fn resolve_nim_api_key(agents: &AgentsConfig) -> Option<String> {
+    // Follow the same pattern as resolve_telegram_token / resolve_gateway_token:
+    // environment variable takes precedence (easy to override at runtime),
+    // then fall back to config when env is unset or empty.
+    std::env::var("NVIDIA_API_KEY")
+        .ok()
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .or_else(|| {
+            agents
+                .backends
+                .as_ref()
+                .and_then(|b| b.nim.as_ref())
+                .and_then(|e| e.api_key.as_ref())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// Resolve LM Studio base URL: agents.backends.lmStudio.baseUrl, else default.
@@ -249,16 +284,17 @@ pub struct SkillsConfig {
     pub context_mode: SkillContextMode,
 }
 
-/// Canonical backend name: "ollama" and "lmstudio" (or "lm_studio", normalized) are valid (trimmed, lowercased). Returns None for any other value. Used for config and gateway so only one accepted form per backend is allowed.
+/// Canonical backend name: "ollama", "lmstudio" (or "lm_studio"), and "nim" (or "nvidia_nim") are valid (trimmed, lowercased). Returns None for any other value.
 pub fn canonical_backend(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().as_str() {
         "ollama" => Some("ollama"),
         "lmstudio" | "lm_studio" => Some("lmstudio"),
+        "nim" | "nvidia_nim" => Some("nim"),
         _ => None,
     }
 }
 
-/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. "ollama" and "lmstudio" (or "lm_studio", normalized) are valid.
+/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. "ollama", "lmstudio", and "nim" are valid.
 pub fn backend_discovery_enabled(agents: &AgentsConfig, backend: &str) -> bool {
     let backend_canonical = match canonical_backend(backend) {
         Some(b) => b,
@@ -283,7 +319,7 @@ pub fn backend_discovery_enabled(agents: &AgentsConfig, backend: &str) -> bool {
 }
 
 /// Resolve effective default backend and model for display (e.g. in desktop when gateway status is not yet available).
-/// Returns (backend_name, model_id) where backend_name is "ollama" or "lmstudio". Only those two forms are accepted; invalid values fall back to "ollama".
+/// Returns (backend_name, model_id). Invalid backend values fall back to "ollama".
 pub fn resolve_effective_backend_and_model(agents: &AgentsConfig) -> (String, String) {
     let backend = agents
         .default_backend
@@ -295,12 +331,10 @@ pub fn resolve_effective_backend_and_model(agents: &AgentsConfig) -> (String, St
         .as_deref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let model = model.unwrap_or_else(|| {
-        if backend == "lmstudio" {
-            "gpt-oss-20b".to_string()
-        } else {
-            "llama3.2:latest".to_string()
-        }
+    let model = model.unwrap_or_else(|| match backend {
+        "lmstudio" => "gpt-oss-20b".to_string(),
+        "nim" => "qwen/qwen3-5-122b-a10b".to_string(),
+        _ => "llama3.2:latest".to_string(),
     });
     (backend.to_string(), model)
 }

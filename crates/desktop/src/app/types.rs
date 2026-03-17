@@ -63,7 +63,7 @@ pub struct GatewayStatusDetails {
     pub(crate) port: u16,
     pub(crate) bind: String,
     pub(crate) auth: String,
-    /// Resolved default backend: "ollama" or "lmstudio".
+    /// Resolved default backend: "ollama", "lmstudio", or "nim".
     pub(crate) default_backend: Option<String>,
     /// Resolved default model id (from config or backend fallback).
     pub(crate) default_model: Option<String>,
@@ -71,6 +71,8 @@ pub struct GatewayStatusDetails {
     pub(crate) ollama_models: Vec<String>,
     /// LM Studio model names from gateway discovery (empty if LM Studio unreachable).
     pub(crate) lm_studio_models: Vec<String>,
+    /// NIM model ids (static catalog; API backend).
+    pub(crate) nim_models: Vec<String>,
     /// Agent context loaded at gateway startup (e.g. AGENTS.md). None if not loaded.
     pub(crate) agent_context: Option<String>,
     /// Full system context sent to the model (agent context + skills). Empty if none.

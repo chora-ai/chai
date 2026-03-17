@@ -125,7 +125,7 @@ pub struct AgentParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub message: String,
-    /// Override backend for this turn: "ollama" or "lmstudio". When set, the model is resolved within this backend.
+    /// Override backend for this turn: "ollama", "lmstudio", or "nim". When set, the model is resolved within this backend.
     #[serde(default)]
     pub backend: Option<String>,
     /// Override model for this turn. When backend is also set, must be a model id for that backend.

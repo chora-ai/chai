@@ -160,16 +160,26 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             let gateway_models: Vec<String> = app.gateway_status.as_ref().map(|s| {
                 if effective_backend == "lmstudio" {
                     s.lm_studio_models.clone()
+                } else if effective_backend == "nim" {
+                    s.nim_models.clone()
                 } else {
                     s.ollama_models.clone()
                 }
             }).unwrap_or_default();
             let effective_default_model = app.gateway_status.as_ref().and_then(|s| s.default_model.clone()).or_else(|| app.default_model.clone());
 
-            // Model dropdown: only models for the selected backend.
-            let model_options: Vec<String> = gateway_models;
-            // Disable send when there is no available model for the selected backend.
-            let model_available = !model_options.is_empty();
+            // Model dropdown: only models for the selected backend. For API backends, use default when list empty.
+            let is_api_backend = effective_backend == "nim";
+            let model_options: Vec<String> = if gateway_models.is_empty() && is_api_backend {
+                effective_default_model
+                    .clone()
+                    .map(|m| vec![m])
+                    .unwrap_or_else(|| vec!["default".to_string()])
+            } else {
+                gateway_models
+            };
+            // For API backends, allow send even when the gateway has not yet returned a model list.
+            let model_available = !model_options.is_empty() || is_api_backend;
             can_send = can_send && model_available;
 
             let mut send_now = false;

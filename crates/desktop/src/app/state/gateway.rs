@@ -65,6 +65,8 @@ impl ChaiApp {
             .unwrap_or("ollama");
         let models: &[String] = if backend == "lmstudio" {
             &details.lm_studio_models
+        } else if backend == "nim" {
+            &details.nim_models
         } else {
             &details.ollama_models
         };
@@ -283,6 +285,15 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                     .unwrap_or_default();
                 details.lm_studio_models = payload
                     .get("lmStudioModels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.nim_models = payload
+                    .get("nimModels")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
