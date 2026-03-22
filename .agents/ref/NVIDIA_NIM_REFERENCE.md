@@ -1,17 +1,17 @@
 # NVIDIA NIM (Hosted API) Reference
 
-Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): what the API offers, how it would be used in this codebase, and important limitations. Use this when adding NIM as a supported LLM backend or when aligning with NVIDIA’s hosted NIM capabilities.
+Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): what the API offers, how the gateway uses it, and important limitations. Use this when configuring **`nim`** or when aligning with NVIDIA’s hosted NIM capabilities.
 
 **Scope:** This document covers **only the free hosted API** at `integrate.api.nvidia.com`. It does **not** cover NIM containers or self-hosted NIM (NVIDIA AI Enterprise), which are proprietary and expensive at scale.
 
 ## Privacy and Data Handling
 
-**NVIDIA NIM hosted API is not a privacy-preserving option.** All requests and conversation data are sent to NVIDIA’s servers. This service should be used only as a **free scratchpad to try open-source models** before investing in local or self-hosted hardware. When implementing NIM support, the reference documentation should state this clearly, and it is recommended to log a warning when this service is enabled (e.g. at gateway startup or when the NIM backend is selected).
+**NVIDIA NIM hosted API is not a privacy-preserving option.** All requests and conversation data are sent to NVIDIA’s servers. This service should be used only as a **free scratchpad to try open-source models** before investing in local or self-hosted hardware. User-facing docs and the gateway log a **warning at startup** when **`nim`** is the default provider (and when the API key is missing).
 
 ## Purpose and How to Use
 
 - **Purpose:** Document the NIM hosted API for integration, list its capabilities and limits, and clarify that it is a non-privacy, rate-limited free tier.
-- **How to use:** When adding NIM as a backend (client, config, agent wiring), consult this doc. When documenting or configuring the gateway, ensure privacy and rate-limit caveats are visible to users.
+- **How to use:** When configuring **`agents.defaultProvider`**: **`"nim"`** or reviewing NIM behavior, consult this doc. Ensure privacy and rate-limit caveats stay visible to users.
 
 ## Official NVIDIA NIM API
 
@@ -30,7 +30,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ### Chat (`POST /v1/chat/completions`)
 
 - **OpenAI-compatible:** Same path and request/response shape as OpenAI chat completions (`model`, `messages`, `stream`, `temperature`, `top_p`, `max_tokens`, `stop`, etc.). Tool/function calling follows the OpenAI format (e.g. `tool_call_id` for tool results).
-- **Model ID:** Must be one of the NIM catalog model identifiers (e.g. `mistralai/mixtral-8x7b-instruct`, `google/gemma-2-9b-it`, `qwen/qwen3-5-122b-a10b`). Use the exact id from the API docs. Full list: https://docs.api.nvidia.com/nim/reference/llm-apis  
+- **Model ID:** Must be one of the NIM catalog model identifiers (e.g. `qwen/qwen3-5-122b-a10b`). Use the exact id from the API docs. Full list: https://docs.api.nvidia.com/nim/reference/llm-apis  
 - **Streaming:** Supported via `stream: true`; response is SSE (Server-Sent Events), same as OpenAI.  
 - **Errors:** 402 Payment Required when credits/limits are exceeded; 422 for validation errors.
 
@@ -43,8 +43,8 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 
 ### Client and Configuration
 
-- **`crates/lib/src/llm/nim.rs`** — `NimClient` calls `https://integrate.api.nvidia.com/v1/chat/completions` with `Authorization: Bearer <api_key>`. Same OpenAI-compat request/response as LM Studio (internal `tool_name` ↔ `tool_call_id` mapping).
-- **Config:** **`agents.defaultBackend`** = `"nim"` (or `"nvidia_nim"`); **`agents.default_model`** set to a NIM model id (e.g. `qwen/qwen3-5-122b-a10b`). API key from **`agents.backends.nim.apiKey`** or **`NVIDIA_API_KEY`** env. No base URL override (fixed hosted API).
+- **`crates/lib/src/providers/nim.rs`** — `NimClient` calls `https://integrate.api.nvidia.com/v1/chat/completions` with `Authorization: Bearer <api_key>`. Same OpenAI-compat request/response as LM Studio (internal `tool_name` ↔ `tool_call_id` mapping).
+- **Config:** **`agents.defaultProvider`**: **`"nim"`**; **`agents.defaultModel`**: a NIM model id (e.g. `qwen/qwen3-5-122b-a10b`). API key from **`providers.nim.apiKey`** or **`NVIDIA_API_KEY`** env. No base URL override (fixed hosted API).
 
 ### Endpoints Used
 
@@ -59,8 +59,8 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 
 ### Where NIM Is Referenced
 
-- **Gateway server** — Resolves backend from `agents.defaultBackend` (`"nim"`); builds `NimClient` with API key from config/env; calls `agent::run_turn` with that client and `agents.default_model`. Logs a **warning at startup** when NIM is the default backend (privacy and rate-limit notice) and when the API key is missing.
-- **Agent** — Same `run_turn` trait as Ollama/LM Studio; gateway passes the NIM client and model id.
+- **Gateway server** — Resolves backend from **`agents.defaultProvider`** (**`"nim"`**); builds **`NimClient`** with API key from config/env; runs the agent turn via **`run_turn_dyn`** with that **`Provider`** and model id from **`agents.defaultModel`**. Logs a **warning at startup** when NIM is the default backend (privacy and rate-limit notice) and when the API key is missing.
+- **Agent** — Same **`Provider`** path as other backends; gateway passes the NIM client and model id.
 - **Tools** — Same skill `tools.json` and tool definitions, converted to OpenAI tool format for NIM (as with LM Studio).
 - **Status** — WebSocket `status` includes **`nimModels`** (static list of known NIM model ids for UI).
 

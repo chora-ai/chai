@@ -18,7 +18,7 @@ pub struct SessionMessage {
     pub content: String,
     /// When role is "assistant", optional tool calls from the model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool_calls: Option<Vec<crate::llm::ToolCall>>,
+    pub tool_calls: Option<Vec<crate::providers::ToolCall>>,
     /// When role is "tool", the name of the tool this result is for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_name: Option<String>,
@@ -58,6 +58,10 @@ impl SessionMessage {
 pub struct Session {
     pub id: SessionId,
     pub messages: Vec<SessionMessage>,
+    /// Successful **`delegate_task`** completions this session (for policy caps).
+    pub delegation_count: usize,
+    /// Successful delegations per canonical provider id (`ollama`, `lms`, …).
+    pub delegation_by_provider: HashMap<String, usize>,
 }
 
 /// In-memory store for sessions (create, get, append).
@@ -84,6 +88,8 @@ impl SessionStore {
         let session = Session {
             id: id.clone(),
             messages: Vec::new(),
+            delegation_count: 0,
+            delegation_by_provider: HashMap::new(),
         };
         self.inner.write().await.insert(id.clone(), session);
         id
@@ -98,6 +104,8 @@ impl SessionStore {
         let session = Session {
             id: id.clone(),
             messages: Vec::new(),
+            delegation_count: 0,
+            delegation_by_provider: HashMap::new(),
         };
         self.inner.write().await.insert(id.clone(), session);
         id
@@ -129,7 +137,7 @@ impl SessionStore {
         id: &str,
         role: impl Into<String>,
         content: impl Into<String>,
-        tool_calls: Option<Vec<crate::llm::ToolCall>>,
+        tool_calls: Option<Vec<crate::providers::ToolCall>>,
         tool_name: Option<String>,
     ) -> Result<(), String> {
         let mut g = self.inner.write().await;
@@ -140,6 +148,18 @@ impl SessionStore {
             tool_calls,
             tool_name,
         });
+        Ok(())
+    }
+
+    /// Increment successful delegation counters for policy (`maxDelegationsPerSession`, per-provider caps).
+    pub async fn record_delegation(&self, id: &str, provider_canonical: &str) -> Result<(), String> {
+        let mut g = self.inner.write().await;
+        let session = g.get_mut(id).ok_or_else(|| "session not found".to_string())?;
+        session.delegation_count += 1;
+        *session
+            .delegation_by_provider
+            .entry(provider_canonical.to_string())
+            .or_insert(0) += 1;
         Ok(())
     }
 }

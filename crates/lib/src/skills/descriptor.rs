@@ -109,12 +109,12 @@ pub enum ArgKind {
 
 impl ToolDescriptor {
     /// Convert descriptor tools to Ollama tool definitions for the chat API.
-    pub fn to_tool_definitions(&self) -> Vec<crate::llm::ToolDefinition> {
+    pub fn to_tool_definitions(&self) -> Vec<crate::providers::ToolDefinition> {
         self.tools
             .iter()
-            .map(|t| crate::llm::ToolDefinition {
+            .map(|t| crate::providers::ToolDefinition {
                 typ: "function".to_string(),
-                function: crate::llm::ToolFunctionDefinition {
+                function: crate::providers::ToolFunctionDefinition {
                     name: t.name.clone(),
                     description: t.description.clone(),
                     parameters: t.parameters.clone(),

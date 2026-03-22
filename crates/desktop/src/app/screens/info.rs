@@ -45,8 +45,8 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 // Models
                 ui.label(egui::RichText::new("Models").strong());
                 ui.add_space(INFO_LINE_SPACING);
-                let available_backends = {
-                    let list = app.enabled_backends();
+                let available_providers = {
+                    let list = app.enabled_providers();
                     if list.is_empty() {
                         "—".to_string()
                     } else {
@@ -54,22 +54,21 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     }
                 };
                 if let Some(ref s) = app.gateway_status {
-                    let backend = app
-                        .current_backend
+                    let provider = app
+                        .current_provider
                         .as_deref()
-                        .or(s.default_backend.as_deref())
-                        .map(|b| if b == "lm_studio" { "lmstudio" } else { b })
+                        .or(s.default_provider.as_deref())
                         .unwrap_or("ollama");
                     let model = app
                         .current_model
                         .clone()
                         .or_else(|| s.default_model.clone())
                         .unwrap_or_else(|| "—".to_string());
-                    ui.label(format!("Current backend: {}", backend));
+                    ui.label(format!("Current provider: {}", provider));
                     ui.add_space(INFO_LINE_SPACING);
                     ui.label(format!("Current model: {}", model));
                     ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("Available backends: {}", available_backends));
+                    ui.label(format!("Available providers: {}", available_providers));
                     ui.add_space(INFO_LINE_SPACING);
 
                     let ollama_models = if s.ollama_models.is_empty() {
@@ -77,22 +76,76 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     } else {
                         s.ollama_models.join(", ")
                     };
-                    let lm_studio_models = if s.lm_studio_models.is_empty() {
+                    let lms_models = if s.lms_models.is_empty() {
                         "(no models discovered)".to_string()
                     } else {
-                        s.lm_studio_models.join(", ")
+                        s.lms_models.join(", ")
+                    };
+                    let vllm_models = if s.vllm_models.is_empty() {
+                        "(no models discovered)".to_string()
+                    } else {
+                        s.vllm_models.join(", ")
                     };
                     let nim_models = if s.nim_models.is_empty() {
                         "(static catalog not loaded)".to_string()
                     } else {
                         s.nim_models.join(", ")
                     };
+                    let openai_models = if s.openai_models.is_empty() {
+                        "(no models discovered)".to_string()
+                    } else {
+                        s.openai_models.join(", ")
+                    };
+                    let hf_models = if s.hf_models.is_empty() {
+                        "(no models discovered)".to_string()
+                    } else {
+                        s.hf_models.join(", ")
+                    };
                     ui.label(format!("Ollama models: {}", ollama_models));
                     ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("LM Studio models: {}", lm_studio_models));
+                    ui.label(format!("LM Studio models: {}", lms_models));
+                    ui.add_space(INFO_LINE_SPACING);
+                    ui.label(format!("vLLM models: {}", vllm_models));
                     ui.add_space(INFO_LINE_SPACING);
                     ui.label(format!("NIM models: {}", nim_models));
                     ui.add_space(INFO_LINE_SPACING);
+                    ui.label(format!("OpenAI models: {}", openai_models));
+                    ui.add_space(INFO_LINE_SPACING);
+                    ui.label(format!("Hugging Face models: {}", hf_models));
+                    ui.add_space(INFO_LINE_SPACING);
+
+                    let n_cat = s.orchestration_catalog.len();
+                    if n_cat > 0 {
+                        ui.add_space(INFO_SUBSECTION_SPACING);
+                        ui.label(egui::RichText::new("Orchestration catalog").strong());
+                        ui.add_space(INFO_LINE_SPACING);
+                        egui::CollapsingHeader::new(format!(
+                            "{} entries (merged discovery + allowlist)",
+                            n_cat
+                        ))
+                        .default_open(false)
+                        .show(ui, |ui| {
+                            for row in &s.orchestration_catalog {
+                                let mut bits: Vec<String> = Vec::new();
+                                bits.push(format!("{} / {}", row.provider, row.model));
+                                if !row.discovered {
+                                    bits.push("not in discovery".to_string());
+                                }
+                                if let Some(l) = row.local {
+                                    bits.push(format!("local={}", l));
+                                }
+                                if let Some(t) = row.tool_capable {
+                                    bits.push(format!("toolCapable={}", t));
+                                }
+                                ui.label(
+                                    egui::RichText::new(bits.join(" · "))
+                                        .small()
+                                        .weak(),
+                                );
+                            }
+                        });
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
                 } else if running {
                     ui.label("(waiting for status from gateway)");
                     ui.add_space(INFO_LINE_SPACING);

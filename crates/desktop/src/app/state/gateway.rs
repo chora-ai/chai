@@ -52,21 +52,26 @@ impl ChaiApp {
         }
     }
 
-    /// When gateway status is received, ensure current model is in the available list for the effective backend; if not, switch to gateway default or first available.
+    /// When gateway status is received, ensure current model is in the available list for the effective provider; if not, switch to gateway default or first available.
     pub(crate) fn reconcile_model_with_status(&mut self) {
         let Some(ref details) = self.gateway_status else {
             return;
         };
-        let backend = self
-            .current_backend
+        let provider = self
+            .current_provider
             .as_deref()
-            .or(details.default_backend.as_deref())
-            .map(|b| if b == "lm_studio" { "lmstudio" } else { b })
+            .or(details.default_provider.as_deref())
             .unwrap_or("ollama");
-        let models: &[String] = if backend == "lmstudio" {
-            &details.lm_studio_models
-        } else if backend == "nim" {
+        let models: &[String] = if provider == "lms" {
+            &details.lms_models
+        } else if provider == "vllm" {
+            &details.vllm_models
+        } else if provider == "nim" {
             &details.nim_models
+        } else if provider == "openai" {
+            &details.openai_models
+        } else if provider == "hf" {
+            &details.hf_models
         } else {
             &details.ollama_models
         };
@@ -90,7 +95,7 @@ impl ChaiApp {
         }
     }
 
-    /// Request that the next status poll performs an immediate fetch (e.g. after switching backend so the model list is up to date).
+    /// Request that the next status poll performs an immediate fetch (e.g. after switching provider so the model list is up to date).
     pub(crate) fn request_status_refetch(&mut self) {
         self.frames_since_status = STATUS_INTERVAL_FRAMES;
     }
@@ -272,7 +277,8 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("none")
                     .to_string();
-                details.default_backend = payload.get("defaultBackend").and_then(|v| v.as_str()).map(String::from);
+                details.orchestrator_id = payload.get("orchestratorId").and_then(|v| v.as_str()).map(String::from);
+                details.default_provider = payload.get("defaultProvider").and_then(|v| v.as_str()).map(String::from);
                 details.default_model = payload.get("defaultModel").and_then(|v| v.as_str()).map(String::from);
                 details.ollama_models = payload
                     .get("ollamaModels")
@@ -283,8 +289,17 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                             .collect()
                     })
                     .unwrap_or_default();
-                details.lm_studio_models = payload
-                    .get("lmStudioModels")
+                details.lms_models = payload
+                    .get("lmsModels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.vllm_models = payload
+                    .get("vllmModels")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -301,6 +316,24 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                             .collect()
                     })
                     .unwrap_or_default();
+                details.openai_models = payload
+                    .get("openaiModels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.hf_models = payload
+                    .get("hfModels")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 details.agent_context = payload.get("agentContext").and_then(|v| v.as_str()).map(String::from);
                 details.system_context = payload.get("systemContext").and_then(|v| v.as_str()).map(String::from);
                 details.date = payload.get("date").and_then(|v| v.as_str()).map(String::from);
@@ -309,6 +342,41 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 details.skills_context_bodies = payload.get("skillsContextBodies").and_then(|v| v.as_str()).map(String::from);
                 details.context_mode = payload.get("contextMode").and_then(|v| v.as_str()).map(String::from);
                 details.tools = payload.get("tools").and_then(|v| v.as_str()).map(String::from);
+                details.orchestration_catalog = payload
+                    .get("orchestrationCatalog")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| {
+                                let provider = o
+                                    .get("provider")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string();
+                                let model = o
+                                    .get("model")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("")
+                                    .trim()
+                                    .to_string();
+                                if provider.is_empty() || model.is_empty() {
+                                    return None;
+                                }
+                                Some(crate::app::types::OrchestrationCatalogRow {
+                                    provider,
+                                    model,
+                                    discovered: o
+                                        .get("discovered")
+                                        .and_then(|v| v.as_bool())
+                                        .unwrap_or(false),
+                                    local: o.get("local").and_then(|v| v.as_bool()),
+                                    tool_capable: o.get("toolCapable").and_then(|v| v.as_bool()),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
                 return Ok(details);
             }
         }
@@ -333,7 +401,7 @@ pub(crate) fn resolve_chai_binary() -> Option<PathBuf> {
 pub(crate) fn run_agent_turn(
     session_id: Option<String>,
     message: String,
-    backend: Option<String>,
+    provider: Option<String>,
     model: Option<String>,
 ) -> Result<AgentReply, String> {
     let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
@@ -454,8 +522,8 @@ pub(crate) fn run_agent_turn(
         if let Some(id) = session_id {
             agent_params["sessionId"] = serde_json::Value::String(id);
         }
-        if let Some(b) = &backend {
-            agent_params["backend"] = serde_json::Value::String(b.clone());
+        if let Some(b) = &provider {
+            agent_params["provider"] = serde_json::Value::String(b.clone());
         }
         if let Some(m) = &model {
             agent_params["model"] = serde_json::Value::String(m.clone());
@@ -503,10 +571,20 @@ pub(crate) fn run_agent_turn(
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.clone())
                     .unwrap_or_default();
+                let tool_results = payload
+                    .get("toolResults")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
                 return Ok(AgentReply {
                     session_id,
                     reply,
                     tool_calls,
+                    tool_results,
                 });
             }
         }

@@ -1,0 +1,30 @@
+{
+  "tools": [
+    {
+      "name": "notesmd_search",
+      "description": "Search notes",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "query": { "type": "string" }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "notesmd": ["search"]
+  },
+  "execution": [
+    {
+      "tool": "notesmd_search",
+      "binary": "notesmd-cli",
+      "subcommand": "search",
+      "args": [
+        {
+          "param": "query",
+          "kind": "positional"
+        }
+      ]
+    }
+  ]
+}

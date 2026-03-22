@@ -5,18 +5,26 @@ use crate::channels::{
     ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
 };
 use crate::config::{
-    self, resolve_lm_studio_base_url, resolve_nim_api_key, Config, SkillContextMode,
+    self, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url, resolve_nim_api_key,
+    resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url, resolve_vllm_api_key,
+    resolve_vllm_base_url, Config, SkillContextMode,
 };
 use crate::agent_ctx;
 use crate::init;
+use crate::orchestration::{
+    build_orchestration_catalog, build_workers_context, merge_delegate_task,
+    provider_choice_from_canonical, provider_id, resolve_model, resolve_provider_choice,
+    worker_tool_list, DelegateContext, DelegateObservability, ProviderChoice, ProviderClients,
+};
 use crate::skills::{load_skills, Skill, SkillEntry};
 use crate::tools::GenericToolExecutor;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
 };
-use crate::llm::{
-    LmStudioClient, LmStudioModel, NimClient, NimModel, OllamaClient, OllamaModel, ToolDefinition,
+use crate::providers::{
+    HfClient, HfModel, LmsClient, LmsModel, NimClient, NimModel, OllamaClient, OllamaModel,
+    OpenAiClient, OpenAiModel, ToolDefinition, VllmClient, VllmModel,
 };
 use crate::routing::SessionBindingStore;
 use crate::session::SessionStore;
@@ -40,59 +48,6 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 const PROTOCOL_VERSION: u32 = 1;
-
-const DEFAULT_MODEL_FALLBACK: &str = "llama3.2:latest";
-const DEFAULT_MODEL_FALLBACK_LMSTUDIO: &str = "gpt-oss-20b";
-const DEFAULT_MODEL_FALLBACK_NIM: &str = "qwen/qwen3-5-122b-a10b";
-
-/// Which LLM backend to use (from agents.defaultBackend).
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum BackendChoice {
-    Ollama,
-    LmStudio,
-    Nim,
-}
-
-fn backend_name(choice: BackendChoice) -> &'static str {
-    match choice {
-        BackendChoice::Ollama => "ollama",
-        BackendChoice::LmStudio => "lmstudio",
-        BackendChoice::Nim => "nim",
-    }
-}
-
-/// Resolve backend from config. Invalid or unknown forms default to Ollama.
-fn resolve_backend(agents: &crate::config::AgentsConfig) -> BackendChoice {
-    let canonical = agents
-        .default_backend
-        .as_deref()
-        .and_then(config::canonical_backend)
-        .unwrap_or("ollama");
-    match canonical {
-        "lmstudio" => BackendChoice::LmStudio,
-        "nim" => BackendChoice::Nim,
-        _ => BackendChoice::Ollama,
-    }
-}
-
-/// Resolve model id from config and optional request param. No prefix stripping—model id is passed as-is to the backend.
-/// When no model is set: Ollama uses DEFAULT_MODEL_FALLBACK; LM Studio uses DEFAULT_MODEL_FALLBACK_LMSTUDIO (set defaultModel if your server uses a different id).
-fn resolve_model(
-    config_model: Option<&str>,
-    param_model: Option<&str>,
-    backend: BackendChoice,
-) -> String {
-    let s = param_model
-        .or(config_model)
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    match (s, backend) {
-        (Some(name), _) => name,
-        (None, BackendChoice::Ollama) => DEFAULT_MODEL_FALLBACK.to_string(),
-        (None, BackendChoice::LmStudio) => DEFAULT_MODEL_FALLBACK_LMSTUDIO.to_string(),
-        (None, BackendChoice::Nim) => DEFAULT_MODEL_FALLBACK_NIM.to_string(),
-    }
-}
 
 const SHUTDOWN_EVENT_JSON: &str = r#"{"type":"event","event":"shutdown","payload":{}}"#;
 
@@ -206,15 +161,22 @@ pub struct GatewayState {
     pub ollama_client: OllamaClient,
     /// Ollama models discovered at startup (or soon after). Empty if Ollama unreachable.
     pub ollama_models: Arc<tokio::sync::RwLock<Vec<OllamaModel>>>,
-    pub lm_studio_client: LmStudioClient,
+    pub lms_client: LmsClient,
     /// LM Studio models discovered at startup (or soon after). Empty if LM Studio unreachable.
-    pub lm_studio_models: Arc<tokio::sync::RwLock<Vec<LmStudioModel>>>,
+    pub lms_models: Arc<tokio::sync::RwLock<Vec<LmsModel>>>,
     pub nim_client: NimClient,
     /// NIM models: static list (NVIDIA does not expose a list endpoint). Used for status/UI.
     pub nim_models: Arc<tokio::sync::RwLock<Vec<NimModel>>>,
+    pub vllm_client: VllmClient,
+    /// vLLM models from GET /v1/models at startup (empty if unreachable).
+    pub vllm_models: Arc<tokio::sync::RwLock<Vec<VllmModel>>>,
+    pub openai_client: OpenAiClient,
+    pub openai_models: Arc<tokio::sync::RwLock<Vec<OpenAiModel>>>,
+    pub hf_client: HfClient,
+    pub hf_models: Arc<tokio::sync::RwLock<Vec<HfModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
-    /// Combined tool definitions for the agent (from skills' tools.json only). None when no tools.
+    /// Combined tool definitions for the orchestrator: skill tools from tools.json, plus read_skill when context mode is ReadOnDemand, plus delegate_task (same list sent to the model).
     pub tools_list: Option<Vec<ToolDefinition>>,
     /// Generic executor built from skills' tools.json. None when no tools.
     pub tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
@@ -251,13 +213,25 @@ impl agent::ToolExecutor for ReadOnDemandExecutor {
 }
 
 impl GatewayState {
+    /// References to configured provider clients for [`ProviderClients::as_dyn`] dispatch.
+    fn provider_clients(&self) -> ProviderClients<'_> {
+        ProviderClients {
+            ollama: &self.ollama_client,
+            lms: &self.lms_client,
+            vllm: &self.vllm_client,
+            nim: &self.nim_client,
+            openai: &self.openai_client,
+            hf: &self.hf_client,
+        }
+    }
+
     /// Register an in-process channel task to be awaited during graceful shutdown.
     #[allow(dead_code)]
     pub async fn register_channel_task(&self, handle: JoinHandle<()>) {
         self.channel_tasks.write().await.push(handle);
     }
 
-    /// Combined tool list and executor (built at startup; includes read_skill when context mode is ReadOnDemand).
+    /// Combined tool list and executor (built at startup; list matches status/tools panel, including delegate_task).
     pub fn tools_and_executor(
         &self,
     ) -> (Option<Vec<ToolDefinition>>, Option<&dyn agent::ToolExecutor>) {
@@ -288,11 +262,15 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
-    let mut out = String::from("You have access to the following skills:\n\n");
+    let mut out = String::new();
+    out.push_str("## Skills\n\n");
+    out.push_str("You have skills. Skills have tools. You can:\n\n");
+    out.push_str("- call `read_skill` when you need to use a skill\n");
+    out.push_str("- share available skills and ask the user to choose\n");
     for s in skills {
-        out.push_str("- **");
+        out.push_str("### ");
         out.push_str(&s.name);
-        out.push_str(":** ");
+        out.push_str("\n\n");
         if !s.description.is_empty() {
             out.push_str(&s.description);
             out.push_str("\n\n");
@@ -321,30 +299,34 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     if skills.is_empty() {
         return String::new();
     }
-    let mut out = String::from(
-        "Use the read_skill tool to read a skill. Only read a skill when the skill is relevant to the user's request. You can read and use the following skills:\n\n",
-    );
+    let mut out = String::new();
+    out.push_str("## Skills\n\n");
+    out.push_str("You have skills. Skills have tools. You can:\n\n");
+    out.push_str("- call `read_skill` when you need to use a skill\n");
+    out.push_str("- share available skills and ask the user to choose\n");
+    out.push_str("Available skills (name — description):\n\n");
     for s in skills {
-        out.push_str("- **");
+        out.push_str("- `");
         out.push_str(&s.name);
-        out.push_str("**: ");
+        out.push_str("` — ");
         out.push_str(if s.description.is_empty() {
             "(no description)"
         } else {
-            s.description.trim()
+            &s.description
         });
-        out.push_str("\n");
+        out.push_str("\n\n");
     }
     out
 }
 
-/// Build static system context from agent-ctx (AGENTS.md) and skills, without a date prefix.
+/// Build static system context from agent-ctx (AGENTS.md), worker roster, and skills, without a date prefix.
 /// Uses context_mode to choose full vs compact skill context. The caller is responsible for
 /// prepending the current date when building the final system message for a turn.
 fn build_system_context_static(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
+    agents: &config::AgentsConfig,
 ) -> String {
     let mut out = String::new();
     if let Some(ctx) = agent_ctx {
@@ -353,6 +335,11 @@ fn build_system_context_static(
             out.push_str(trimmed);
             out.push_str("\n\n");
         }
+    }
+    let workers_ctx = build_workers_context(agents);
+    if !workers_ctx.trim().is_empty() {
+        out.push_str(&workers_ctx);
+        out.push_str("\n\n");
     }
     let skills_ctx = match context_mode {
         SkillContextMode::Full => build_skill_context_full(skills),
@@ -378,10 +365,10 @@ fn build_system_context_for_today(static_ctx: &str) -> String {
 fn read_skill_tool_definition() -> ToolDefinition {
     ToolDefinition {
         typ: "function".to_string(),
-        function: crate::llm::ToolFunctionDefinition {
+        function: crate::providers::ToolFunctionDefinition {
             name: "read_skill".to_string(),
             description: Some(
-                "Read a skill. Call when you need to use a skill and its tools.".to_string(),
+                "read a skill by name".to_string(),
             ),
             parameters: serde_json::json!({
                 "type": "object",
@@ -389,7 +376,7 @@ fn read_skill_tool_definition() -> ToolDefinition {
                 "properties": {
                     "skill_name": {
                         "type": "string",
-                        "description": "The name of the skill. Use the exact name from the available skills list."
+                        "description": "the name of the skill"
                     }
                 }
             }),
@@ -416,12 +403,16 @@ fn broadcast_session_message(
     session_id: &str,
     role: &str,
     content: &str,
-    tool_calls: Option<&[crate::llm::ToolCall]>,
+    tool_calls: Option<&[crate::providers::ToolCall]>,
+    tool_results: Option<&[String]>,
     channel_id: Option<&str>,
     conversation_id: Option<&str>,
 ) {
     let payload = if let Some(calls) = tool_calls {
         let tool_calls_value = serde_json::to_value(calls).unwrap_or_else(|_| json!([]));
+        let tool_results_value = tool_results
+            .map(|rs| serde_json::to_value(rs).unwrap_or_else(|_| json!([])))
+            .unwrap_or_else(|| json!([]));
         json!({
             "sessionId": session_id,
             "role": role,
@@ -429,6 +420,7 @@ fn broadcast_session_message(
             "channelId": channel_id,
             "conversationId": conversation_id,
             "toolCalls": tool_calls_value,
+            "toolResults": tool_results_value,
         })
     } else {
         json!({
@@ -504,61 +496,50 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         "user",
         &msg.text,
         None,
+        None,
         Some(&msg.channel_id),
         Some(&msg.conversation_id),
     );
-    let backend_choice = resolve_backend(&state.config.agents);
+    let provider_choice = resolve_provider_choice(&state.config.agents);
     let model_name = resolve_model(
         state.config.agents.default_model.as_deref(),
         None,
-        backend_choice,
+        provider_choice,
     );
     let system_context = build_system_context_for_today(&state.system_context_static);
     let (tools, tool_executor) = state.tools_and_executor();
-    let result = match backend_choice {
-        BackendChoice::Ollama => {
-            agent::run_turn(
-                &state.session_store,
-                &session_id,
-                &state.ollama_client,
-                &model_name,
-                Some(&system_context),
-                state.config.agents.max_session_messages,
-                tools,
-                tool_executor,
-                None,
-            )
-            .await
-        }
-        BackendChoice::LmStudio => {
-            agent::run_turn(
-                &state.session_store,
-                &session_id,
-                &state.lm_studio_client,
-                &model_name,
-                Some(&system_context),
-                state.config.agents.max_session_messages,
-                tools,
-                tool_executor,
-                None,
-            )
-            .await
-        }
-        BackendChoice::Nim => {
-            agent::run_turn(
-                &state.session_store,
-                &session_id,
-                &state.nim_client,
-                &model_name,
-                Some(&system_context),
-                state.config.agents.max_session_messages,
-                tools,
-                tool_executor,
-                None,
-            )
-            .await
-        }
-    };
+    let tools = merge_delegate_task(tools);
+    let worker_tools = worker_tool_list(tools.as_ref());
+    let delegate = Some(DelegateContext {
+        clients: state.provider_clients(),
+        agents: &state.config.agents,
+        system_context: if system_context.trim().is_empty() {
+            None
+        } else {
+            Some(system_context.as_str())
+        },
+        worker_tools,
+        tool_executor,
+        observability: Some(DelegateObservability {
+            event_tx: state.event_tx.clone(),
+            session_id: Some(session_id.clone()),
+        }),
+        session_store: Some(&state.session_store),
+        session_id: Some(session_id.as_str()),
+    });
+    let result = agent::run_turn_dyn(
+        &state.session_store,
+        &session_id,
+        state.provider_clients().as_dyn(provider_choice),
+        &model_name,
+        Some(&system_context),
+        state.config.agents.max_session_messages,
+        tools,
+        tool_executor,
+        delegate,
+        None,
+    )
+    .await;
     let result = match result {
         Ok(r) => r,
         Err(e) => {
@@ -580,6 +561,11 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
                 None
             } else {
                 Some(&result.tool_calls[..])
+            },
+            if result.tool_calls.is_empty() {
+                None
+            } else {
+                Some(&result.tool_results[..])
             },
             Some(&msg.channel_id),
             Some(&msg.conversation_id),
@@ -618,12 +604,24 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let (event_tx, _) = broadcast::channel(64);
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let ollama_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let lm_studio_base_url = Some(resolve_lm_studio_base_url(&config.agents));
-    let lm_studio_client = LmStudioClient::new(lm_studio_base_url);
-    let lm_studio_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let nim_api_key = resolve_nim_api_key(&config.agents);
+    let lms_base_url = Some(resolve_lms_base_url(&config));
+    let lms_client = LmsClient::new(lms_base_url);
+    let lms_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let nim_api_key = resolve_nim_api_key(&config);
     let nim_client = NimClient::new(nim_api_key.clone());
     let nim_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let vllm_base = Some(resolve_vllm_base_url(&config));
+    let vllm_api_key = resolve_vllm_api_key(&config);
+    let vllm_client = VllmClient::new(vllm_base, vllm_api_key.clone());
+    let vllm_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let openai_base = Some(resolve_openai_base_url(&config));
+    let openai_api_key = resolve_openai_api_key(&config);
+    let openai_client = OpenAiClient::new(openai_base, openai_api_key.clone());
+    let openai_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+    let hf_base = Some(resolve_hf_base_url(&config));
+    let hf_api_key = resolve_hf_api_key(&config);
+    let hf_client = HfClient::new(hf_base, hf_api_key.clone());
+    let hf_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
     let workspace_dir = config::resolve_workspace_dir(&config);
@@ -646,8 +644,12 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     }
     let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
     let agent_ctx = agent_ctx::load_agent_ctx(workspace_dir.as_deref());
-    let system_context_static =
-        build_system_context_static(agent_ctx.as_deref(), &skills, config.skills.context_mode);
+    let system_context_static = build_system_context_static(
+        agent_ctx.as_deref(),
+        &skills,
+        config.skills.context_mode,
+        &config.agents,
+    );
 
     // Descriptor-based: skills with tools.json
     let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
@@ -669,22 +671,24 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let generic_executor = GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs);
     let context_mode = config.skills.context_mode;
 
-    // Tool list: descriptor tools; when ReadOnDemand, prepend read_skill
-    let mut tools_list: Vec<ToolDefinition> = Vec::new();
+    // Skill-layer tool list: descriptor tools; when ReadOnDemand, prepend read_skill
+    let mut skill_layer_tools: Vec<ToolDefinition> = Vec::new();
     if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
-        tools_list.push(read_skill_tool_definition());
+        skill_layer_tools.push(read_skill_tool_definition());
     }
     for (_, desc) in &descriptors {
-        tools_list.extend(desc.to_tool_definitions());
+        skill_layer_tools.extend(desc.to_tool_definitions());
     }
-    let tools_list = if tools_list.is_empty() {
+    let has_skill_tools = !skill_layer_tools.is_empty();
+    // Orchestrator always gets delegate_task prepended (merge_delegate_task); include it in state so status/UI match the model.
+    let tools_list = merge_delegate_task(if skill_layer_tools.is_empty() {
         None
     } else {
-        Some(tools_list)
-    };
+        Some(skill_layer_tools)
+    });
 
-    // Executor: when ReadOnDemand and we have any tools, wrap generic in ReadOnDemandExecutor; otherwise generic only (or none)
-    let tool_executor: Option<Arc<dyn agent::ToolExecutor>> = if tools_list.is_some() {
+    // Executor: when ReadOnDemand and we have any skill tools, wrap generic in ReadOnDemandExecutor; otherwise generic only (or none)
+    let tool_executor: Option<Arc<dyn agent::ToolExecutor>> = if has_skill_tools {
         if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
             Some(Arc::new(ReadOnDemandExecutor {
                 skills: Arc::new(skills.clone()),
@@ -708,19 +712,25 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         session_store: Arc::new(SessionStore::new()),
         channel_registry: Arc::new(ChannelRegistry::new()),
         bindings: Arc::new(SessionBindingStore::new()),
-        ollama_client: OllamaClient::new(None),
+        ollama_client: OllamaClient::new(resolve_ollama_base_url(&config)),
         ollama_models: ollama_models.clone(),
-        lm_studio_client,
-        lm_studio_models: lm_studio_models.clone(),
+        lms_client,
+        lms_models: lms_models.clone(),
         nim_client,
         nim_models: nim_models.clone(),
+        vllm_client,
+        vllm_models: vllm_models.clone(),
+        openai_client,
+        openai_models: openai_models.clone(),
+        hf_client,
+        hf_models: hf_models.clone(),
         skills: Arc::new(skills),
         tools_list,
         tool_executor,
         pairing_store,
     };
 
-    if config::backend_discovery_enabled(&config.agents, "ollama") {
+    if config::provider_discovery_enabled(&config.agents, "ollama") {
         let ollama = state.ollama_client.clone();
         let models = state.ollama_models.clone();
         tokio::spawn(async move {
@@ -735,38 +745,106 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
             }
         });
     } else {
-        log::debug!("ollama model discovery skipped (not in enabledBackends)");
+        log::debug!("ollama model discovery skipped (not in enabledProviders)");
     }
-    if config::backend_discovery_enabled(&config.agents, "lmstudio") {
-        let lm_studio = state.lm_studio_client.clone();
-        let models = state.lm_studio_models.clone();
+    if config::provider_discovery_enabled(&config.agents, "lms") {
+        let lms = state.lms_client.clone();
+        let models = state.lms_models.clone();
         tokio::spawn(async move {
-            match lm_studio.list_models().await {
+            match lms.list_models().await {
                 Ok(list) => {
                     *models.write().await = list;
-                    log::info!("lm studio model discovery completed");
+                    log::info!("lms model discovery completed");
                 }
                 Err(e) => {
-                    log::debug!("lm studio model discovery failed: {}", e);
+                    log::debug!("lms model discovery failed: {}", e);
                 }
             }
         });
     } else {
-        log::debug!("lm studio model discovery skipped (not in enabledBackends)");
+        log::debug!("lms model discovery skipped (not in enabledProviders)");
     }
-    if config::backend_discovery_enabled(&config.agents, "nim") {
+    if config::provider_discovery_enabled(&config.agents, "vllm") {
+        let vllm = state.vllm_client.clone();
+        let models = state.vllm_models.clone();
+        tokio::spawn(async move {
+            match vllm.list_models().await {
+                Ok(list) => {
+                    *models.write().await = list;
+                    log::info!("vllm model discovery completed");
+                }
+                Err(e) => {
+                    log::debug!("vllm model discovery failed: {}", e);
+                }
+            }
+        });
+    } else {
+        log::debug!("vllm model discovery skipped (not in enabledProviders)");
+    }
+    if config::provider_discovery_enabled(&config.agents, "nim") {
         let models = nim_models.clone();
         tokio::spawn(async move {
             *models.write().await = NimClient::static_model_list();
             log::info!("nim model list loaded (static catalog)");
         });
     }
-    if resolve_backend(&config.agents) == BackendChoice::Nim {
+    if config::provider_discovery_enabled(&config.agents, "openai") {
+        let openai = state.openai_client.clone();
+        let models = state.openai_models.clone();
+        tokio::spawn(async move {
+            match openai.list_models().await {
+                Ok(list) => {
+                    *models.write().await = list;
+                    log::info!("openai model discovery completed");
+                }
+                Err(e) => {
+                    log::debug!("openai model discovery failed: {}", e);
+                }
+            }
+        });
+    } else {
+        log::debug!("openai model discovery skipped (not in enabledProviders)");
+    }
+    if config::provider_discovery_enabled(&config.agents, "hf") {
+        let hf = state.hf_client.clone();
+        let models = state.hf_models.clone();
+        tokio::spawn(async move {
+            match hf.list_models().await {
+                Ok(list) => {
+                    *models.write().await = list;
+                    log::info!("huggingface model discovery completed");
+                }
+                Err(e) => {
+                    log::debug!("huggingface model discovery failed: {}", e);
+                }
+            }
+        });
+    } else {
+        log::debug!("huggingface model discovery skipped (not in enabledProviders)");
+    }
+    if resolve_provider_choice(&config.agents) == ProviderChoice::Nim {
         log::warn!(
             "NVIDIA NIM hosted API is enabled; this is not a privacy-preserving option. Requests and data are sent to NVIDIA servers. Free tier is rate-limited (~40 requests/min)."
         );
         if nim_api_key.is_none() || nim_api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
-            log::warn!("NIM backend selected but no API key set (agents.backends.nim.apiKey or NVIDIA_API_KEY). Requests will fail until a key is configured.");
+            log::warn!("NIM provider selected but no API key set (providers.nim.apiKey or NVIDIA_API_KEY). Requests will fail until a key is configured.");
+        }
+    }
+    if resolve_provider_choice(&config.agents) == ProviderChoice::OpenAi {
+        log::warn!(
+            "OpenAI API is enabled; requests and data are sent to OpenAI (not a local-first option)."
+        );
+        if openai_api_key.is_none() || openai_api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true)
+        {
+            log::warn!("openai provider selected but no API key set (providers.openai.apiKey or OPENAI_API_KEY). Requests will fail until a key is configured.");
+        }
+    }
+    if resolve_provider_choice(&config.agents) == ProviderChoice::Hf {
+        log::info!(
+            "huggingface provider selected; set providers.hf.baseUrl to your OpenAI-compatible endpoint (Inference Endpoints or TGI) including /v1."
+        );
+        if resolve_hf_base_url(&config) == "http://127.0.0.1:8080/v1" {
+            log::warn!("hf provider uses default base URL http://127.0.0.1:8080/v1; set providers.hf.baseUrl to your deployment unless testing locally.");
         }
     }
 
@@ -1101,15 +1179,18 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 } else {
                     "none"
                 };
-                let backend_choice = resolve_backend(&state.config.agents);
+                let provider_choice = resolve_provider_choice(&state.config.agents);
                 let default_model = resolve_model(
                     state.config.agents.default_model.as_deref(),
                     None,
-                    backend_choice,
+                    provider_choice,
                 );
                 let ollama_models = state.ollama_models.read().await.clone();
-                let lm_studio_models = state.lm_studio_models.read().await.clone();
+                let lms_models = state.lms_models.read().await.clone();
+                let vllm_models = state.vllm_models.read().await.clone();
                 let nim_models = state.nim_models.read().await.clone();
+                let openai_models = state.openai_models.read().await.clone();
+                let hf_models = state.hf_models.read().await.clone();
                 let system_context = build_system_context_for_today(&state.system_context_static);
                 let skills_context = match state.config.skills.context_mode {
                     SkillContextMode::Full => build_skill_context_full(&state.skills),
@@ -1131,17 +1212,39 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         }
                     });
                 let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+                let orchestration_catalog = build_orchestration_catalog(
+                    &state.config.agents,
+                    &ollama_models,
+                    &lms_models,
+                    &vllm_models,
+                    &nim_models,
+                    &openai_models,
+                    &hf_models,
+                );
+                let orchestrator_id = state
+                    .config
+                    .agents
+                    .orchestrator_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("orchestrator");
                 let payload = json!({
                     "runtime": "running",
                     "protocol": PROTOCOL_VERSION,
                     "port": state.config.gateway.port,
                     "bind": state.config.gateway.bind,
                     "auth": auth_mode,
-                    "defaultBackend": backend_name(backend_choice),
+                    "orchestratorId": orchestrator_id,
+                    "defaultProvider": provider_id(provider_choice),
                     "defaultModel": default_model,
                     "ollamaModels": ollama_models,
-                    "lmStudioModels": lm_studio_models,
+                    "lmsModels": lms_models,
+                    "vllmModels": vllm_models,
                     "nimModels": nim_models,
+                    "openaiModels": openai_models,
+                    "hfModels": hf_models,
+                    "orchestrationCatalog": orchestration_catalog,
                     "agentContext": state.agent_ctx,
                     "systemContext": system_context,
                     "date": today,
@@ -1215,69 +1318,54 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     None,
                     None,
+                    None,
                 );
-                // Use request backend override when valid ("ollama" | "lmstudio" | "nim"), else config default.
-                let backend_choice = params
-                    .backend
+                // Use request provider override when valid (see canonical_provider), else config default.
+                let provider_choice = params
+                    .provider
                     .as_deref()
-                    .and_then(config::canonical_backend)
-                    .map(|b| match b {
-                        "lmstudio" => BackendChoice::LmStudio,
-                        "nim" => BackendChoice::Nim,
-                        _ => BackendChoice::Ollama,
-                    })
-                    .unwrap_or_else(|| resolve_backend(&state.config.agents));
+                    .and_then(config::canonical_provider)
+                    .map(provider_choice_from_canonical)
+                    .unwrap_or_else(|| resolve_provider_choice(&state.config.agents));
                 let model_name = resolve_model(
                     state.config.agents.default_model.as_deref(),
                     params.model.as_deref(),
-                    backend_choice,
+                    provider_choice,
                 );
                 let system_context = build_system_context_for_today(&state.system_context_static);
                 let (tools, tool_executor) = state.tools_and_executor();
-                let run_result = match backend_choice {
-                    BackendChoice::Ollama => {
-                        agent::run_turn(
-                            &state.session_store,
-                            &session_id,
-                            &state.ollama_client,
-                            &model_name,
-                            Some(&system_context),
-                            state.config.agents.max_session_messages,
-                            tools,
-                            tool_executor,
-                            None,
-                        )
-                        .await
-                    }
-                    BackendChoice::LmStudio => {
-                        agent::run_turn(
-                            &state.session_store,
-                            &session_id,
-                            &state.lm_studio_client,
-                            &model_name,
-                            Some(&system_context),
-                            state.config.agents.max_session_messages,
-                            tools,
-                            tool_executor,
-                            None,
-                        )
-                        .await
-                    }
-                    BackendChoice::Nim => {
-                        agent::run_turn(
-                            &state.session_store,
-                            &session_id,
-                            &state.nim_client,
-                            &model_name,
-                            Some(&system_context),
-                            state.config.agents.max_session_messages,
-                            tools,
-                            tool_executor,
-                            None,
-                        )
-                        .await
-                    }
-                };
+                let tools = merge_delegate_task(tools);
+                let worker_tools = worker_tool_list(tools.as_ref());
+                let delegate = Some(DelegateContext {
+                    clients: state.provider_clients(),
+                    agents: &state.config.agents,
+                    system_context: if system_context.trim().is_empty() {
+                        None
+                    } else {
+                        Some(system_context.as_str())
+                    },
+                    worker_tools,
+                    tool_executor,
+                    observability: Some(DelegateObservability {
+                        event_tx: state.event_tx.clone(),
+                        session_id: Some(session_id.clone()),
+                    }),
+                    session_store: Some(&state.session_store),
+                    session_id: Some(session_id.as_str()),
+                });
+                let run_result = agent::run_turn_dyn(
+                    &state.session_store,
+                    &session_id,
+                    state.provider_clients().as_dyn(provider_choice),
+                    &model_name,
+                    Some(&system_context),
+                    state.config.agents.max_session_messages,
+                    tools,
+                    tool_executor,
+                    delegate,
+                    None,
+                )
+                .await;
                 match run_result
                 {
                     Ok(result) => {
@@ -1296,6 +1384,11 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             } else {
                                 Some(&result.tool_calls[..])
                             },
+                            if result.tool_calls.is_empty() {
+                                None
+                            } else {
+                                Some(&result.tool_results[..])
+                            },
                             channel_id.as_deref(),
                             conv_id.as_deref(),
                         );
@@ -1310,6 +1403,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         }
                         let tool_calls_payload = serde_json::to_value(&result.tool_calls)
                             .unwrap_or_else(|_| json!([]));
+                        let tool_results_payload = serde_json::to_value(&result.tool_results)
+                            .unwrap_or_else(|_| json!([]));
                         log::debug!(
                             "agent turn: {} tool call(s), session_id: {}",
                             result.tool_calls.len(),
@@ -1318,7 +1413,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         let payload = json!({
                             "reply": result.content,
                             "sessionId": session_id,
-                            "toolCalls": tool_calls_payload
+                            "toolCalls": tool_calls_payload,
+                            "toolResults": tool_results_payload
                         });
                         let res = WsResponse::ok(&req.id, payload);
                         let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;

@@ -232,17 +232,22 @@ mod tests {
     #[test]
     fn load_skills_parses_tools_json_when_present() {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        let skills_dir: PathBuf = [&manifest_dir, "config", "skills"].iter().collect();
-        if !skills_dir.join("notesmd").join("SKILL.md").exists() {
-            return;
+        let skills_dir: PathBuf = [&manifest_dir, "tests", "fixtures", "loader_tool_test"]
+            .iter()
+            .collect();
+        if !skills_dir.join("SKILL.md").exists() {
+            panic!(
+                "missing test fixture at {}",
+                skills_dir.join("SKILL.md").display()
+            );
         }
-        let skills = load_skills(Some(skills_dir.as_path()), &[]).unwrap();
-        let notesmd = skills.iter().find(|s| s.name == "notesmd");
-        let Some(entry) = notesmd else {
-            return;
-        };
+        let skills = load_skills(Some(skills_dir.parent().unwrap()), &[]).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "loader_tool_test")
+            .expect("fixture skill loader_tool_test");
         let Some(desc) = &entry.tool_descriptor else {
-            panic!("notesmd skill dir has tools.json but tool_descriptor is None");
+            panic!("fixture has tools.json but tool_descriptor is None");
         };
         assert!(desc.tools.len() >= 1);
         assert_eq!(desc.tools[0].name, "notesmd_search");

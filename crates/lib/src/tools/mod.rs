@@ -3,4 +3,4 @@
 mod generic;
 
 pub use generic::GenericToolExecutor;
-pub use crate::llm::ToolDefinition;
+pub use crate::providers::ToolDefinition;

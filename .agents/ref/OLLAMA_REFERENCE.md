@@ -20,7 +20,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 ### Client and Configuration
 
-- **`crates/lib/src/llm/ollama.rs`** — Single Ollama HTTP client.
+- **`crates/lib/src/providers/ollama.rs`** — Single Ollama HTTP client.
 - **`OllamaClient::new(base_url: Option<String>)`** — Default base URL `http://127.0.0.1:11434`; no auth (local only).
 - **Config** — `agents.defaultModel` in config (e.g. `llama3.2:latest`, `qwen3:8b`). Model name must match `ollama list` exactly (no extra segments like `:latest` unless that tag exists). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
@@ -39,8 +39,8 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 ### Where Ollama Is Referenced
 
-- **Gateway server** — Holds `OllamaClient` and `ollama_models`; resolves model via `resolve_model(config.agents.default_model)`; calls `agent::run_turn(..., ollama_client, model, ...)` for inbound messages and WebSocket `agent` requests.
-- **Agent** — `run_turn()` builds messages and calls `ollama.chat()` or `ollama.chat_stream()` with the model name from config (backend is chosen via `agents.defaultBackend`; model id from `agents.default_model` is passed as-is). Handles tool_calls and re-calls up to a fixed max iterations.
+- **Gateway server** — Holds **`OllamaClient`** and **`ollama_models`**; resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when **`defaultProvider`** is **`"ollama"`** (inbound messages and WebSocket **`agent`** requests).
+- **Agent** — **`run_turn_dyn`** builds messages and calls the provider’s **`chat`** / **`chat_stream`**; when the backend is Ollama, that is **`OllamaClient`**. Model id comes from config or override (**`agents.defaultModel`** in JSON). Handles **`tool_calls`** and re-calls up to a fixed max iterations.
 - **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd, notesmd-daily, obsidian, obsidian-daily) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
 
 ## Ollama API Overview

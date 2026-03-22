@@ -67,8 +67,8 @@ pub struct ChaiApp {
     session_meta: HashMap<String, (Option<String>, Option<String>)>,
     /// When Some, a session events stream is in flight; we read gateway session.message events here.
     session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
-    /// Currently selected backend override (None = use gateway default).
-    current_backend: Option<String>,
+    /// Currently selected provider override (None = use gateway default).
+    current_provider: Option<String>,
     /// Currently selected model override (None = use gateway default).
     current_model: Option<String>,
     /// Default model from config (cached for display / fallback).
@@ -83,8 +83,8 @@ pub struct ChaiApp {
     was_gateway_running: bool,
     /// Currently selected skill on the Skills screen (by name).
     selected_skill_name: Option<String>,
-    /// Cached list of enabled backends for the chat backend dropdown (invalidated when Config screen is shown).
-    cached_enabled_backends: Option<Vec<String>>,
+    /// Cached list of enabled providers for the chat provider dropdown (invalidated when Config screen is shown).
+    cached_enabled_providers: Option<Vec<String>>,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
@@ -140,7 +140,7 @@ impl Default for ChaiApp {
             session_messages: BTreeMap::new(),
             session_meta: HashMap::new(),
             session_events_receiver: None,
-            current_backend: None,
+            current_provider: None,
             current_model: None,
             default_model: None,
             current_screen: Screen::default(),
@@ -148,7 +148,7 @@ impl Default for ChaiApp {
             session_order: Vec::new(),
             was_gateway_running: false,
             selected_skill_name: None,
-            cached_enabled_backends: None,
+            cached_enabled_providers: None,
         }
     }
 }
@@ -159,30 +159,30 @@ impl ChaiApp {
     /// Space between the bottom of the content and the window edge on full‑screen panels.
     const SCREEN_FOOTER_SPACING: f32 = 48.0;
 
-    /// Returns the list of enabled backends for the chat dropdown. Cached until the Config screen is shown.
-    pub fn enabled_backends(&mut self) -> Vec<String> {
-        if let Some(ref list) = self.cached_enabled_backends {
+    /// Returns the list of enabled providers for the chat dropdown. Cached until the Config screen is shown.
+    pub fn enabled_providers(&mut self) -> Vec<String> {
+        if let Some(ref list) = self.cached_enabled_providers {
             return list.clone();
         }
         let (config, _) = lib::config::load_config(None)
             .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
-        // Start from enabledBackends when set; otherwise fall back to the effective default backend.
+        // Start from enabledProviders when set; otherwise fall back to the effective default provider.
         let mut list: Vec<String> =
             if config
                 .agents
-                .enabled_backends
+                .enabled_providers
                 .as_ref()
                 .map(|v| v.is_empty())
                 .unwrap_or(true)
             {
                 let (default, _) =
-                    lib::config::resolve_effective_backend_and_model(&config.agents);
+                    lib::config::resolve_effective_provider_and_model(&config.agents);
                 vec![default]
             } else {
                 let mut seen = std::collections::HashSet::new();
                 config
                     .agents
-                    .enabled_backends
+                    .enabled_providers
                     .as_ref()
                     .unwrap()
                     .iter()
@@ -190,37 +190,29 @@ impl ChaiApp {
                     .filter(|s| !s.is_empty())
                     .filter(|s| {
                         *s == "ollama"
-                            || *s == "lmstudio"
-                            || *s == "lm_studio"
+                            || *s == "lms"
+                            || *s == "vllm"
                             || *s == "nim"
-                            || *s == "nvidia_nim"
-                    })
-                    .map(|s| {
-                        if s == "lm_studio" {
-                            "lmstudio".to_string()
-                        } else if s == "nvidia_nim" {
-                            "nim".to_string()
-                        } else {
-                            s
-                        }
+                            || *s == "openai"
+                            || *s == "hf"
                     })
                     .filter(|s| seen.insert(s.clone()))
                     .collect()
             };
-        // Always include the effective default backend in the dropdown so the UI reflects
-        // which backend the gateway will actually use when no override is provided.
-        let (default_backend, _) =
-            lib::config::resolve_effective_backend_and_model(&config.agents);
-        if !list.contains(&default_backend) {
-            list.push(default_backend);
+        // Always include the effective default provider in the dropdown so the UI reflects
+        // which provider the gateway will actually use when no override is provided.
+        let (default_provider, _) =
+            lib::config::resolve_effective_provider_and_model(&config.agents);
+        if !list.contains(&default_provider) {
+            list.push(default_provider);
         }
-        self.cached_enabled_backends = Some(list.clone());
+        self.cached_enabled_providers = Some(list.clone());
         list
     }
 
-    /// Invalidates the enabled-backends cache (call when showing Config so next Chat use reloads).
-    pub fn invalidate_enabled_backends_cache(&mut self) {
-        self.cached_enabled_backends = None;
+    /// Invalidates the enabled-providers cache (call when showing Config so next Chat use reloads).
+    pub fn invalidate_enabled_providers_cache(&mut self) {
+        self.cached_enabled_providers = None;
     }
 
     fn start_new_session(&mut self) {
@@ -230,6 +222,7 @@ impl ChaiApp {
         self.chat_error = None;
         self.chat_messages.push(ChatMessage::assistant(
             "Session restarted. Next message will start with a clean history.".to_string(),
+            None,
             None,
         ));
     }
@@ -269,12 +262,12 @@ impl ChaiApp {
                         // Deduplicate: broadcast session events may have already added these messages.
                         if was_new_session {
                             if let Some(ref user_content) = self.pending_user_message {
-                                let already = entry
-                                    .last()
-                                    .map(|m| m.role == "user" && m.content == *user_content)
-                                    .unwrap_or(false);
+                                let already = entry.iter().any(|m| {
+                                    m.role == "user" && m.content == *user_content
+                                });
                                 if !already {
-                                    entry.push(ChatMessage::user(user_content.clone()));
+                                    // Prepend so the user line stays before any delegation rows that arrived from the WebSocket while the turn was running (we skip the gateway echo of this user message).
+                                    entry.insert(0, ChatMessage::user(user_content.clone()));
                                 }
                             }
                         }
@@ -285,14 +278,27 @@ impl ChaiApp {
                             } else {
                                 Some(reply.tool_calls.clone())
                             },
+                            if reply.tool_calls.is_empty() {
+                                None
+                            } else {
+                                Some(reply.tool_results.clone())
+                            },
                         );
-                        let last_is_same = entry.last().map(|m| {
-                            m.role == assistant_msg.role && m.content == assistant_msg.content
-                        }).unwrap_or(false);
+                        let last_is_same = state::chat::last_non_delegation(entry.as_slice())
+                            .map(|m| {
+                                state::chat::is_duplicate_assistant_row(
+                                    m,
+                                    &assistant_msg.role,
+                                    &assistant_msg.content,
+                                    &assistant_msg.tool_calls,
+                                )
+                            })
+                            .unwrap_or(false);
                         if last_is_same {
                             // Prefer the agent response's tool_calls (source of truth for this turn).
                             let last = entry.last_mut().unwrap();
                             last.tool_calls = assistant_msg.tool_calls;
+                            last.tool_results = assistant_msg.tool_results;
                         } else {
                             entry.push(assistant_msg);
                         }
@@ -445,6 +451,7 @@ impl ChaiApp {
             self.chat_messages.push(ChatMessage::assistant(
                 "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message".to_string(),
                 None,
+                None,
             ));
             return;
         }
@@ -469,16 +476,16 @@ impl ChaiApp {
         if self.selected_session_id == self.chat_session_id {
             self.chat_messages.push(ChatMessage::user(message.clone()));
         }
-        // Send backend only when we know it (from UI override or gateway status). Do not hardcode
+        // Send provider only when we know it (from UI override or gateway status). Do not hardcode
         // a fallback (e.g. "ollama") when status is unavailable—let the gateway use its config.
-        let backend = self
-            .current_backend
+        let provider = self
+            .current_provider
             .clone()
-            .or_else(|| self.gateway_status.as_ref().and_then(|s| s.default_backend.clone()));
+            .or_else(|| self.gateway_status.as_ref().and_then(|s| s.default_provider.clone()));
         let model = self.current_model.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = state::gateway::run_agent_turn(session_id, message, backend, model);
+            let result = state::gateway::run_agent_turn(session_id, message, provider, model);
             let _ = tx.send(result);
         });
         self.chat_turn_receiver = Some(rx);
@@ -491,7 +498,7 @@ impl eframe::App for ChaiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_gateway_probe();
         self.poll_status_fetch();
-        self.poll_chat_turn();
+        // Drain WebSocket session + delegation events before applying the RPC turn result so timeline order matches gateway order (user → delegation → assistant).
         let owned = self.gateway_owned();
         let running = owned || self.gateway_responds;
         if self.was_gateway_running && !running {
@@ -500,6 +507,7 @@ impl eframe::App for ChaiApp {
         self.was_gateway_running = running;
         self.ensure_session_events_listener(running);
         self.poll_session_events();
+        self.poll_chat_turn();
 
         // Layout-level UI components
         let mut start_gateway = false;

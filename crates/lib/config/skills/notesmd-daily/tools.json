@@ -50,36 +50,36 @@
   "tools": [
     {
       "name": "notesmd_daily_read",
-      "description": "Read a daily note.",
+      "description": "read a daily note",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Daily note date in YYYY-MM-DD format."
+            "description": "today's date in YYYY-MM-DD format"
           }
         }
       }
     },
     {
       "name": "notesmd_daily_update",
-      "description": "Create or update a daily note.",
+      "description": "create or update a daily note",
       "parameters": {
         "type": "object",
         "required": ["date", "content"],
         "properties": {
           "date": {
             "type": "string",
-            "description": "Daily note date in YYYY-MM-DD format."
+            "description": "today's date in YYYY-MM-DD format"
           },
           "content": {
             "type": "string",
-            "description": "The content of the note (the entire content of the read note with changes applied)."
+            "description": "the new or updated content in markdown format"
           },
           "replace": {
             "type": "boolean",
-            "description": "True when modifying existing content. False when appending to existing content."
+            "description": "true when overwriting existing content; false when appending to existing content"
           }
         }
       }

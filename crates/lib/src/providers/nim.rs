@@ -3,7 +3,7 @@
 //! Uses the free tier at https://integrate.api.nvidia.com. Requires an API key from
 //! build.nvidia.com. This is not a privacy-preserving option; all requests are sent to NVIDIA.
 
-use crate::llm::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
+use crate::providers::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
 use anyhow::Result;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -57,15 +57,8 @@ impl NimClient {
     /// when set in config or request even if not listed here.
     pub(crate) fn static_model_list() -> Vec<NimModel> {
         [
-            "google/gemma-2-9b-it",
-            "google/gemma-2-27b-it",
             "meta/llama-3.1-8b-instruct",
             "meta/llama-3.1-70b-instruct",
-            "mistralai/mistral-7b-instruct",
-            "mistralai/mixtral-8x7b-instruct",
-            "mistralai/mixtral-8x22b-instruct",
-            "qwen/qwen3-5-122b-a10b",
-            "qwen/qwen3-5-397b-a17b",
             "qwen/qwen3-coder-480b-a35b-instruct",
             "qwen/qwen3-next-80b-a3b-instruct",
             "qwen/qwen3-next-80b-a3b-thinking",

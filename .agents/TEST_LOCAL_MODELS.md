@@ -16,7 +16,6 @@ This document describes a repeatable test procedure for comparing local LLM perf
 | `llama3:latest` | Default |
 | `deepseek-1:7b` | |
 | `qwen3:8b` | |
-| `gemma2:9b` | |
 
 Each model is tested **in both skill context modes** (**full** and **readOnDemand**), **three runs per mode**, with the same message sequence. Same gateway config (skills, workspace) except `skills.contextMode`; restart the gateway when switching mode so the system prompt and tool list match.
 
@@ -123,10 +122,6 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 *(Same table structure.)*
 
-#### Ollama — gemma2:9b
-
-*(Same table structure.)*
-
 ### Read-on-demand mode (`skills.contextMode: "readOnDemand"`)
 
 #### Ollama — llama3:latest
@@ -144,10 +139,6 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 *(Same table structure.)*
 
 #### Ollama — qwen3:8b
-
-*(Same table structure.)*
-
-#### Ollama — gemma2:9b
 
 *(Same table structure.)*
 

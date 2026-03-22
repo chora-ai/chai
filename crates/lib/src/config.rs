@@ -1,10 +1,12 @@
 //! Configuration types and loading.
 //!
 //! Config is loaded from a JSON file (e.g. `~/.chai/config.json`) and environment.
-//! Kept minimal for short-term goals; extend as needed for gateway, channels, and skills.
+//! Top-level keys include `gateway`, `channels`, `providers` (URLs/keys for model APIs), `agents`
+//! (JSON array of `id` / `role` entries; omit the key for a single default orchestrator), and `skills`.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Top-level application config.
@@ -19,8 +21,12 @@ pub struct Config {
     #[serde(default)]
     pub channels: ChannelsConfig,
 
-    /// Agent defaults (e.g. default model for Ollama).
+    /// Model provider connection settings (base URLs, API keys). Sibling to `channels`: integration points for model APIs.
     #[serde(default)]
+    pub providers: Option<ProvidersConfig>,
+
+    /// Agent definitions: JSON array of `id` + `role` (`orchestrator` \| `worker`). Omit for defaults (one orchestrator, id `orchestrator`).
+    #[serde(default = "default_agents_config", with = "agents_config_de")]
     pub agents: AgentsConfig,
 
     /// Skills load paths and options.
@@ -158,65 +164,403 @@ pub struct TelegramChannelConfig {
     pub webhook_secret: Option<String>,
 }
 
-/// Agent defaults (backend, model, workspace, enabled backends for discovery).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+/// Resolved agent policy: one orchestrator (flattened fields) plus optional worker presets for `delegate_task`.
+///
+/// In `config.json`, **`agents`** is a JSON **array** of entries with `id`, `role` (`orchestrator` \| `worker`),
+/// and per-entry fields. Exactly one orchestrator and unique ids are required. Omit **`agents`** entirely
+/// for built-in defaults (single orchestrator id `orchestrator`).
+#[derive(Debug, Clone)]
 pub struct AgentsConfig {
-    /// Which LLM backend to use: "ollama", "lmstudio", or "nim". When absent, defaults to "ollama".
-    #[serde(default)]
-    pub default_backend: Option<String>,
-    /// Model id for the selected backend. Use the id format the backend expects (e.g. for Ollama "llama3.2:latest"; for LM Studio "openai/gpt-oss-20b", "ibm/granite-4-micro"). Not used for routing—backend is chosen by defaultBackend.
+    /// Orchestrator entry's `id` from config (defaults to `orchestrator` when `agents` is omitted).
+    pub orchestrator_id: Option<String>,
+    /// Which default provider to use: "ollama", "lms", "vllm", or "nim". When absent, defaults to "ollama".
+    pub default_provider: Option<String>,
+    /// Model id for the selected provider. Use the id format the provider expects (e.g. for Ollama "llama3.2:latest"; for LM Studio "openai/gpt-oss-20b", "ibm/granite-4-micro"). Not used for routing—provider is chosen by defaultProvider.
     pub default_model: Option<String>,
-    /// Backends to fetch models from at startup (e.g. `["ollama", "lmstudio"]`). Opt-in: when absent or empty, only the default backend (from defaultBackend) is discovered; when set, only listed backends are polled.
-    #[serde(default)]
-    pub enabled_backends: Option<Vec<String>>,
+    /// Providers to fetch models from at startup (e.g. `["ollama", "lms"]`). Opt-in: when absent or empty, only the default provider (from defaultProvider) is discovered; when set, only listed providers are polled.
+    pub enabled_providers: Option<Vec<String>>,
     /// Workspace root (default ~/.chai/workspace).
     pub workspace: Option<PathBuf>,
-    /// Optional per-backend settings (base URLs, LM Studio endpoint type).
-    #[serde(default)]
-    pub backends: Option<BackendsConfig>,
     /// Optional cap on the number of recent session messages sent to the model on each turn.
-    /// When set, only the last N messages are included in the LLM request; the full session
+    /// When set, only the last N messages are included in the provider request; the full session
     /// history is still stored in memory. Default: unset (no cap).
-    #[serde(default)]
     pub max_session_messages: Option<usize>,
+
+    /// Optional cap on the number of `delegate_task` tool calls allowed per turn.
+    /// When unset, delegation is limited only by the tool loop iteration cap.
+    pub max_delegations_per_turn: Option<usize>,
+
+    /// Worker presets for `delegate_task` `workerId` (from array entries with `role: worker`).
+    ///
+    /// Worker presets let you constrain which provider targets are allowed and provide per-worker
+    /// default provider/model selections.
+    pub workers: Option<Vec<WorkerConfig>>,
+
+    /// Optional allowlist of `(provider, model)` pairs permitted for **`delegate_task`** when no
+    /// worker-specific non-empty [`WorkerConfig::delegate_allowed_models`] applies. Omitted or empty
+    /// means no catalog restriction (subject to `enabledProviders` and discovery rules).
+    pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
+
+    /// Max successful **`delegate_task`** calls per session (orchestrator only). Omitted = no limit.
+    pub max_delegations_per_session: Option<usize>,
+
+    /// Optional per-provider caps on successful delegations per session (`nim` → 5). Canonical provider ids as keys.
+    pub max_delegations_per_provider: Option<HashMap<String, usize>>,
+
+    /// Providers delegation cannot target (canonical: `ollama`, `lms`, `vllm`, `nim`).
+    pub delegate_blocked_providers: Option<Vec<String>>,
+
+    /// When **`instruction`** starts with a route’s prefix, merge missing **`workerId`** / **`provider`** / **`model`** from that route (first match wins).
+    pub delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
 }
 
-/// Per-backend configuration (base URL, API key where applicable).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct BackendsConfig {
-    #[serde(default)]
-    pub ollama: Option<OllamaBackendEntry>,
-    #[serde(default, alias = "lmstudio")]
-    pub lm_studio: Option<LmStudioBackendEntry>,
-    #[serde(default)]
-    pub nim: Option<NimBackendEntry>,
+impl Default for AgentsConfig {
+    fn default() -> Self {
+        Self {
+            orchestrator_id: Some("orchestrator".to_string()),
+            default_provider: None,
+            default_model: None,
+            enabled_providers: None,
+            workspace: None,
+            max_session_messages: None,
+            max_delegations_per_turn: None,
+            workers: None,
+            delegate_allowed_models: None,
+            max_delegations_per_session: None,
+            max_delegations_per_provider: None,
+            delegate_blocked_providers: None,
+            delegation_instruction_routes: None,
+        }
+    }
 }
 
-/// Ollama backend entry (e.g. base URL override).
+fn default_agents_config() -> AgentsConfig {
+    AgentsConfig::default()
+}
+
+/// Route **`delegate_task`** by **`instruction`** prefix (orchestrator policy). First matching prefix wins.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DelegationInstructionRoute {
+    /// When **`instruction`** starts with this string (after trim), apply the optional overrides below.
+    pub instruction_prefix: String,
+    #[serde(default)]
+    pub worker_id: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub model: Option<String>,
+}
+
+/// One allowed `(provider, model)` pair for delegation policy. Provider ids use the same canonical
+/// names as elsewhere: `ollama`, `lms`, `vllm`, `nim`. Model must match the resolved id exactly
+/// (after trim), including any `:` or `/` in the provider's model naming.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct AllowedModelEntry {
+    pub provider: String,
+    pub model: String,
+    /// Hint for policy UIs: model is expected to run locally or self-hosted.
+    #[serde(default)]
+    pub local: bool,
+    /// Hint: model supports tool calling well enough for worker turns.
+    #[serde(default)]
+    pub tool_capable: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct AgentDefinition {
+    id: String,
+    role: AgentRole,
+    #[serde(default)]
+    default_provider: Option<String>,
+    #[serde(default)]
+    default_model: Option<String>,
+    #[serde(default)]
+    enabled_providers: Option<Vec<String>>,
+    #[serde(default)]
+    workspace: Option<PathBuf>,
+    #[serde(default)]
+    max_session_messages: Option<usize>,
+    #[serde(default)]
+    max_delegations_per_turn: Option<usize>,
+    #[serde(default)]
+    delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
+    #[serde(default)]
+    max_delegations_per_session: Option<usize>,
+    #[serde(default)]
+    max_delegations_per_provider: Option<HashMap<String, usize>>,
+    #[serde(default)]
+    delegate_blocked_providers: Option<Vec<String>>,
+    #[serde(default)]
+    delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+enum AgentRole {
+    Orchestrator,
+    Worker,
+}
+
+fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
+    let oid = agents
+        .orchestrator_id
+        .as_deref()
+        .unwrap_or("orchestrator")
+        .to_string();
+    let mut out = vec![AgentDefinition {
+        id: oid,
+        role: AgentRole::Orchestrator,
+        default_provider: agents.default_provider.clone(),
+        default_model: agents.default_model.clone(),
+        enabled_providers: agents.enabled_providers.clone(),
+        workspace: agents.workspace.clone(),
+        max_session_messages: agents.max_session_messages,
+        max_delegations_per_turn: agents.max_delegations_per_turn,
+        delegate_allowed_models: agents.delegate_allowed_models.clone(),
+        max_delegations_per_session: agents.max_delegations_per_session,
+        max_delegations_per_provider: agents.max_delegations_per_provider.clone(),
+        delegate_blocked_providers: agents.delegate_blocked_providers.clone(),
+        delegation_instruction_routes: agents.delegation_instruction_routes.clone(),
+    }];
+    if let Some(ws) = &agents.workers {
+        for w in ws {
+            out.push(AgentDefinition {
+                id: w.id.clone(),
+                role: AgentRole::Worker,
+                default_provider: w.default_provider.clone(),
+                default_model: w.default_model.clone(),
+                enabled_providers: w.enabled_providers.clone(),
+                workspace: None,
+                max_session_messages: None,
+                max_delegations_per_turn: None,
+                delegate_allowed_models: w.delegate_allowed_models.clone(),
+                max_delegations_per_session: None,
+                max_delegations_per_provider: None,
+                delegate_blocked_providers: None,
+                delegation_instruction_routes: None,
+            });
+        }
+    }
+    out
+}
+
+fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, String> {
+    struct OrchestratorFields {
+        id: String,
+        default_provider: Option<String>,
+        default_model: Option<String>,
+        enabled_providers: Option<Vec<String>>,
+        workspace: Option<PathBuf>,
+        max_session_messages: Option<usize>,
+        max_delegations_per_turn: Option<usize>,
+        delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
+        max_delegations_per_session: Option<usize>,
+        max_delegations_per_provider: Option<HashMap<String, usize>>,
+        delegate_blocked_providers: Option<Vec<String>>,
+        delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
+    }
+
+    let mut orchestrator: Option<OrchestratorFields> = None;
+    let mut worker_rows: Vec<WorkerConfig> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for e in entries {
+        let id = e.id.trim().to_string();
+        if id.is_empty() {
+            return Err("agent id must not be empty".to_string());
+        }
+        if !seen.insert(id.clone()) {
+            return Err(format!("duplicate agent id: {id}"));
+        }
+
+        match e.role {
+            AgentRole::Orchestrator => {
+                if orchestrator.is_some() {
+                    return Err("agents array must include exactly one orchestrator".to_string());
+                }
+                orchestrator = Some(OrchestratorFields {
+                    id,
+                    default_provider: e.default_provider,
+                    default_model: e.default_model,
+                    enabled_providers: e.enabled_providers,
+                    workspace: e.workspace,
+                    max_session_messages: e.max_session_messages,
+                    max_delegations_per_turn: e.max_delegations_per_turn,
+                    delegate_allowed_models: e.delegate_allowed_models,
+                    max_delegations_per_session: e.max_delegations_per_session,
+                    max_delegations_per_provider: e.max_delegations_per_provider,
+                    delegate_blocked_providers: e.delegate_blocked_providers,
+                    delegation_instruction_routes: e.delegation_instruction_routes,
+                });
+            }
+            AgentRole::Worker => {
+                worker_rows.push(WorkerConfig {
+                    id,
+                    default_provider: e.default_provider,
+                    default_model: e.default_model,
+                    enabled_providers: e.enabled_providers,
+                    delegate_allowed_models: e.delegate_allowed_models,
+                });
+            }
+        }
+    }
+
+    let o = orchestrator.ok_or_else(|| {
+        "agents array must include exactly one entry with role \"orchestrator\"".to_string()
+    })?;
+
+    Ok(AgentsConfig {
+        orchestrator_id: Some(o.id),
+        default_provider: o.default_provider,
+        default_model: o.default_model,
+        enabled_providers: o.enabled_providers,
+        workspace: o.workspace,
+        max_session_messages: o.max_session_messages,
+        max_delegations_per_turn: o.max_delegations_per_turn,
+        workers: if worker_rows.is_empty() {
+            None
+        } else {
+            Some(worker_rows)
+        },
+        delegate_allowed_models: o.delegate_allowed_models,
+        max_delegations_per_session: o.max_delegations_per_session,
+        max_delegations_per_provider: o.max_delegations_per_provider,
+        delegate_blocked_providers: o.delegate_blocked_providers,
+        delegation_instruction_routes: o.delegation_instruction_routes,
+    })
+}
+
+mod agents_config_de {
+    use super::{agents_from_array, agents_to_definitions, AgentDefinition, AgentsConfig};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(agents: &AgentsConfig, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        agents_to_definitions(agents).serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<AgentsConfig, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt = Option::<Vec<AgentDefinition>>::deserialize(deserializer)?;
+        match opt {
+            None => Ok(AgentsConfig::default()),
+            Some(entries) => agents_from_array(entries).map_err(serde::de::Error::custom),
+        }
+    }
+}
+
+/// Worker preset definition for delegation (`delegate_task`).
+///
+/// The main model can delegate to `workerId` to get per-worker defaults and an allowlist of enabled providers.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WorkerConfig {
+    /// Stable worker id used as `workerId` in the `delegate_task` tool call.
+    pub id: String,
+    /// Which default provider to use when the worker is selected and `provider` is omitted in the tool call.
+    #[serde(default)]
+    pub default_provider: Option<String>,
+    /// Model id for the selected provider. Not used for routing.
+    pub default_model: Option<String>,
+    /// Providers allowed for this worker when delegating.
+    ///
+    /// If omitted or empty, the global `agents.enabledProviders` rules apply.
+    #[serde(default)]
+    pub enabled_providers: Option<Vec<String>>,
+
+    /// Optional allowlist of `(provider, model)` for **`delegate_task`** when **`workerId`** matches
+    /// this worker. When **non-empty**, only these pairs are allowed for that worker (orchestrator
+    /// [`AgentsConfig::delegate_allowed_models`] is not applied for that worker). When omitted or
+    /// empty, the orchestrator-level [`AgentsConfig::delegate_allowed_models`] applies if set.
+    #[serde(default)]
+    pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
+}
+
+/// Per-provider configuration (base URL, API key where applicable).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProvidersConfig {
+    pub ollama: Option<OllamaProviderEntry>,
+    /// JSON key **`lms`** (same string as **`agents.defaultProvider`** `"lms"`). LM Studio (OpenAI-compat).
+    pub lms: Option<LmsProviderEntry>,
+    pub nim: Option<NimProviderEntry>,
+    pub vllm: Option<VllmProviderEntry>,
+    /// OpenAI API (`https://api.openai.com/v1` by default). Optional base URL override (e.g. Azure OpenAI proxy).
+    pub openai: Option<OpenAiProviderEntry>,
+    /// Hugging Face Inference Endpoints or TGI with OpenAI-compatible routes; set **`baseUrl`** to the deployment URL including `/v1`.
+    pub hf: Option<HfProviderEntry>,
+}
+
+/// Ollama provider entry (e.g. base URL override).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct OllamaBackendEntry {
+pub struct OllamaProviderEntry {
     pub base_url: Option<String>,
 }
 
-/// LM Studio backend entry: base URL only. We always use the OpenAI-compatible API (with native chat fallback when the server rejects the model param) so tools are supported.
+/// LM Studio provider entry (`lms`): base URL only. We always use the OpenAI-compatible API (with native chat fallback when the server rejects the model param) so tools are supported.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct LmStudioBackendEntry {
+pub struct LmsProviderEntry {
     pub base_url: Option<String>,
 }
 
-/// NVIDIA NIM hosted API backend entry. API key from config or NVIDIA_API_KEY env. Not a privacy option; data is sent to NVIDIA.
+/// NVIDIA NIM hosted API provider entry. API key from config or NVIDIA_API_KEY env. Not a privacy option; data is sent to NVIDIA.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct NimBackendEntry {
+pub struct NimProviderEntry {
     pub api_key: Option<String>,
 }
 
-/// Resolve NVIDIA NIM API key: NVIDIA_API_KEY env, else agents.backends.nim.apiKey.
-pub fn resolve_nim_api_key(agents: &AgentsConfig) -> Option<String> {
+/// vLLM OpenAI-compatible server (`vllm serve`). Base URL should include `/v1` (e.g. `http://127.0.0.1:8000/v1`). Optional API key when the server uses `--api-key`.
+/// LocalAI in OpenAI-compat mode can use the same settings: set **`agents.defaultProvider`** to **`"vllm"`** and point **`baseUrl`** at LocalAI's `/v1` base (Ollama-compatible LocalAI mode uses **`"ollama"`** and **`providers.ollama.baseUrl`** instead).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VllmProviderEntry {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+/// OpenAI API. API key: **`OPENAI_API_KEY`** env, else **`providers.openai.apiKey`**.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OpenAiProviderEntry {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+/// Hugging Face OpenAI-compatible endpoint. API key: **`HF_API_KEY`** env, else **`providers.hf.apiKey`**. Set **`baseUrl`** to your Inference Endpoint or TGI URL (include `/v1`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HfProviderEntry {
+    pub base_url: Option<String>,
+    pub api_key: Option<String>,
+}
+
+fn providers_config(config: &Config) -> Option<&ProvidersConfig> {
+    config.providers.as_ref()
+}
+
+/// Resolve Ollama base URL override: `providers.ollama.baseUrl` when set, else `None` (client default).
+pub fn resolve_ollama_base_url(config: &Config) -> Option<String> {
+    providers_config(config)?
+        .ollama
+        .as_ref()
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.trim_end_matches('/').to_string())
+}
+
+/// Resolve NVIDIA NIM API key: NVIDIA_API_KEY env, else `providers.nim.apiKey`.
+pub fn resolve_nim_api_key(config: &Config) -> Option<String> {
     // Follow the same pattern as resolve_telegram_token / resolve_gateway_token:
     // environment variable takes precedence (easy to override at runtime),
     // then fall back to config when env is unset or empty.
@@ -231,28 +575,127 @@ pub fn resolve_nim_api_key(agents: &AgentsConfig) -> Option<String> {
             }
         })
         .or_else(|| {
-            agents
-                .backends
+            providers_config(config)?
+                .nim
                 .as_ref()
-                .and_then(|b| b.nim.as_ref())
                 .and_then(|e| e.api_key.as_ref())
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
         })
 }
 
-/// Resolve LM Studio base URL: agents.backends.lmStudio.baseUrl, else default.
-pub fn resolve_lm_studio_base_url(agents: &AgentsConfig) -> String {
-    agents
-        .backends
-        .as_ref()
-        .and_then(|b| b.lm_studio.as_ref())
+/// Resolve LM Studio base URL: `providers.lms.baseUrl`, else default.
+pub fn resolve_lms_base_url(config: &Config) -> String {
+    providers_config(config)
+        .and_then(|b| b.lms.as_ref())
         .and_then(|e| e.base_url.as_ref())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "http://127.0.0.1:1234/v1".to_string())
         .trim_end_matches('/')
         .to_string()
+}
+
+/// Resolve vLLM base URL: `providers.vllm.baseUrl`, else default `http://127.0.0.1:8000/v1`.
+pub fn resolve_vllm_base_url(config: &Config) -> String {
+    providers_config(config)
+        .and_then(|b| b.vllm.as_ref())
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:8000/v1".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Resolve vLLM API key: VLLM_API_KEY env, else `providers.vllm.apiKey`.
+pub fn resolve_vllm_api_key(config: &Config) -> Option<String> {
+    std::env::var("VLLM_API_KEY")
+        .ok()
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .or_else(|| {
+            providers_config(config)?
+                .vllm
+                .as_ref()
+                .and_then(|e| e.api_key.as_ref())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve OpenAI base URL: `providers.openai.baseUrl`, else `https://api.openai.com/v1`.
+pub fn resolve_openai_base_url(config: &Config) -> String {
+    providers_config(config)
+        .and_then(|b| b.openai.as_ref())
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Resolve OpenAI API key: OPENAI_API_KEY env, else `providers.openai.apiKey`.
+pub fn resolve_openai_api_key(config: &Config) -> Option<String> {
+    std::env::var("OPENAI_API_KEY")
+        .ok()
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .or_else(|| {
+            providers_config(config)?
+                .openai
+                .as_ref()
+                .and_then(|e| e.api_key.as_ref())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve Hugging Face OpenAI-compat base URL: `providers.hf.baseUrl`, else `http://127.0.0.1:8080/v1` (set a real endpoint for Inference Endpoints or TGI).
+pub fn resolve_hf_base_url(config: &Config) -> String {
+    providers_config(config)
+        .and_then(|b| b.hf.as_ref())
+        .and_then(|e| e.base_url.as_ref())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "http://127.0.0.1:8080/v1".to_string())
+        .trim_end_matches('/')
+        .to_string()
+}
+
+/// Resolve Hugging Face API key: HF_API_KEY env, else `providers.hf.apiKey`.
+pub fn resolve_hf_api_key(config: &Config) -> Option<String> {
+    std::env::var("HF_API_KEY")
+        .ok()
+        .and_then(|s| {
+            let t = s.trim().to_string();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t)
+            }
+        })
+        .or_else(|| {
+            providers_config(config)?
+                .hf
+                .as_ref()
+                .and_then(|e| e.api_key.as_ref())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
 }
 
 /// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
@@ -284,59 +727,65 @@ pub struct SkillsConfig {
     pub context_mode: SkillContextMode,
 }
 
-/// Canonical backend name: "ollama", "lmstudio" (or "lm_studio"), and "nim" (or "nvidia_nim") are valid (trimmed, lowercased). Returns None for any other value.
-pub fn canonical_backend(s: &str) -> Option<&'static str> {
+/// Canonical provider id: "ollama", "lms", "vllm", "nim", "openai", and "hf" are valid (trimmed, lowercased). Returns None for any other value.
+pub fn canonical_provider(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().as_str() {
         "ollama" => Some("ollama"),
-        "lmstudio" | "lm_studio" => Some("lmstudio"),
-        "nim" | "nvidia_nim" => Some("nim"),
+        "lms" => Some("lms"),
+        "vllm" => Some("vllm"),
+        "nim" => Some("nim"),
+        "openai" => Some("openai"),
+        "hf" => Some("hf"),
         _ => None,
     }
 }
 
-/// True if model discovery should run for the given backend. Opt-in: when agents.enabled_backends is absent or empty, only the default backend is discovered; when set, only backends in the list are discovered. "ollama", "lmstudio", and "nim" are valid.
-pub fn backend_discovery_enabled(agents: &AgentsConfig, backend: &str) -> bool {
-    let backend_canonical = match canonical_backend(backend) {
+/// True if model discovery should run for the given provider. Opt-in: when agents.enabled_providers is absent or empty, only the default provider is discovered; when set, only providers in the list are discovered.
+pub fn provider_discovery_enabled(agents: &AgentsConfig, provider: &str) -> bool {
+    let provider_canonical = match canonical_provider(provider) {
         Some(b) => b,
         None => return false,
     };
-    let use_default_only = match &agents.enabled_backends {
+    let use_default_only = match &agents.enabled_providers {
         None => true,
         Some(v) => v.is_empty(),
     };
     if use_default_only {
         let default_canonical = agents
-            .default_backend
+            .default_provider
             .as_deref()
-            .and_then(canonical_backend)
+            .and_then(canonical_provider)
             .unwrap_or("ollama");
-        return backend_canonical == default_canonical;
+        return provider_canonical == default_canonical;
     }
-    let list = agents.enabled_backends.as_ref().unwrap();
+    let list = agents.enabled_providers.as_ref().unwrap();
     list.iter()
-        .filter_map(|b| canonical_backend(b))
-        .any(|b| b == backend_canonical)
+        .filter_map(|b| canonical_provider(b))
+        .any(|b| b == provider_canonical)
 }
 
-/// Resolve effective default backend and model for display (e.g. in desktop when gateway status is not yet available).
-/// Returns (backend_name, model_id). Invalid backend values fall back to "ollama".
-pub fn resolve_effective_backend_and_model(agents: &AgentsConfig) -> (String, String) {
-    let backend = agents
-        .default_backend
+/// Resolve effective default provider and model for display (e.g. in desktop when gateway status is not yet available).
+/// Returns (provider_id, model_id). Invalid provider values fall back to "ollama".
+pub fn resolve_effective_provider_and_model(agents: &AgentsConfig) -> (String, String) {
+    let provider = agents
+        .default_provider
         .as_deref()
-        .and_then(canonical_backend)
+        .and_then(canonical_provider)
         .unwrap_or("ollama");
     let model = agents
         .default_model
         .as_deref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let model = model.unwrap_or_else(|| match backend {
-        "lmstudio" => "gpt-oss-20b".to_string(),
+    let model = model.unwrap_or_else(|| match provider {
+        "lms" => "gpt-oss-20b".to_string(),
+        "vllm" => "Qwen/Qwen2.5-7B-Instruct".to_string(),
         "nim" => "qwen/qwen3-5-122b-a10b".to_string(),
+        "openai" => "gpt-4o-mini".to_string(),
+        "hf" => "meta-llama/Llama-3.1-8B-Instruct".to_string(),
         _ => "llama3.2:latest".to_string(),
     });
-    (backend.to_string(), model)
+    (provider.to_string(), model)
 }
 
 /// Resolve config path from env or default.
@@ -441,5 +890,108 @@ mod tests {
             resolve_skills_dir(&config, path),
             PathBuf::from("/repo/skills")
         );
+    }
+
+    #[test]
+    fn agents_missing_key_uses_default_orchestrator() {
+        let c: Config = serde_json::from_str("{}").expect("parse");
+        assert_eq!(c.agents.orchestrator_id.as_deref(), Some("orchestrator"));
+        assert!(c.agents.workers.is_none());
+    }
+
+    #[test]
+    fn agents_array_one_orchestrator_and_worker() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator","defaultProvider":"ollama","defaultModel":"m"},
+            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"w"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.agents.orchestrator_id.as_deref(), Some("main"));
+        assert_eq!(c.agents.default_provider.as_deref(), Some("ollama"));
+        let w = c.agents.workers.as_ref().expect("workers");
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, "fast");
+        assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
+    }
+
+    #[test]
+    fn agents_delegate_allowed_models_round_trips() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator","defaultProvider":"ollama","defaultModel":"m",
+             "delegateAllowedModels":[{"provider":"ollama","model":"llama3.2:latest","local":true}]},
+            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"w",
+             "delegateAllowedModels":[{"provider":"lms","model":"ibm/granite-4-micro"}]}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let orch = c.agents.delegate_allowed_models.as_ref().expect("orch catalog");
+        assert_eq!(orch.len(), 1);
+        assert_eq!(orch[0].provider, "ollama");
+        assert_eq!(orch[0].model, "llama3.2:latest");
+        assert!(orch[0].local);
+        let w = &c.agents.workers.as_ref().expect("workers")[0];
+        let wl = w.delegate_allowed_models.as_ref().expect("worker catalog");
+        assert_eq!(wl[0].model, "ibm/granite-4-micro");
+        let out = serde_json::to_string(&c).expect("serialize");
+        assert!(out.contains("delegateAllowedModels"));
+    }
+
+    #[test]
+    fn agents_array_rejects_two_orchestrators() {
+        let j = r#"{"agents":[
+            {"id":"a","role":"orchestrator"},
+            {"id":"b","role":"orchestrator"}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("orchestrator"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_array_rejects_duplicate_ids() {
+        let j = r#"{"agents":[
+            {"id":"x","role":"orchestrator"},
+            {"id":"x","role":"worker"}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(err.to_string().contains("duplicate"), "{}", err);
+    }
+
+    #[test]
+    fn agents_rejects_object_instead_of_array() {
+        let j = r#"{"agents":{"defaultProvider":"ollama"}}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
+    }
+
+    #[test]
+    fn agents_empty_array_errors() {
+        let j = r#"{"agents":[]}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
+    }
+
+    #[test]
+    fn providers_lms_key_round_trips() {
+        let j = r#"{"providers":{"lms":{"baseUrl":"http://127.0.0.1:9999/v1"}}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let p = c.providers.as_ref().expect("providers");
+        let lm = p.lms.as_ref().expect("lms");
+        assert_eq!(
+            lm.base_url.as_deref(),
+            Some("http://127.0.0.1:9999/v1")
+        );
+        let out = serde_json::to_string(&c).expect("serialize");
+        assert!(
+            out.contains("\"lms\""),
+            "expected canonical key lms in {}",
+            out
+        );
+    }
+
+    #[test]
+    fn providers_rejects_unknown_keys() {
+        let j = r#"{"providers":{"lmstudio":{"baseUrl":"http://example/v1"}}}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
     }
 }

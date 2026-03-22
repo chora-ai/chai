@@ -4,7 +4,119 @@ use std::time::Duration;
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
-use super::super::{ChaiApp, SessionEvent};
+use lib::orchestration::{
+    EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
+};
+
+use super::super::{ChaiApp, ChatMessage, SessionEvent};
+
+/// Last timeline row that is not an orchestration delegation line (used so RPC + WebSocket do not duplicate the same assistant turn).
+pub(crate) fn last_non_delegation(messages: &[ChatMessage]) -> Option<&ChatMessage> {
+    messages.iter().rev().find(|m| m.role != "delegation")
+}
+
+/// Same assistant turn as already shown (same content and tool_calls), ignoring delegation rows in between.
+pub(crate) fn is_duplicate_assistant_row(
+    prev: &ChatMessage,
+    role: &str,
+    content: &str,
+    tool_calls: &Option<Vec<serde_json::Value>>,
+) -> bool {
+    role == "assistant"
+        && prev.role == "assistant"
+        && prev.content == content
+        && prev.tool_calls.as_ref() == tool_calls.as_ref()
+}
+
+/// Human-readable line for a gateway `orchestration.delegate.*` payload.
+fn format_delegation_line(event_name: &str, data: &serde_json::Value) -> String {
+    let worker = data
+        .get("workerId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+    let provider = data
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let model = data.get("model").and_then(|v| v.as_str()).unwrap_or("");
+    let pm = if provider.is_empty() && model.is_empty() {
+        String::new()
+    } else if model.is_empty() {
+        provider.to_string()
+    } else if provider.is_empty() {
+        model.to_string()
+    } else {
+        format!("{} / {}", provider, model)
+    };
+
+    if event_name == EVENT_DELEGATE_START {
+        let mut s = String::from("Delegation starting");
+        if let Some(w) = worker {
+            s.push_str(&format!(" · worker `{}`", w));
+        }
+        if !pm.is_empty() {
+            s.push_str(&format!(" · {}", pm));
+        }
+        return s;
+    }
+    if event_name == EVENT_DELEGATE_COMPLETE {
+        let n_calls = data
+            .get("workerToolCalls")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let mut s = String::from("Delegation finished");
+        if let Some(w) = worker {
+            s.push_str(&format!(" · worker `{}`", w));
+        }
+        if !pm.is_empty() {
+            s.push_str(&format!(" · {}", pm));
+        }
+        s.push_str(&format!(" · {} tool call(s)", n_calls));
+        return s;
+    }
+    if event_name == EVENT_DELEGATE_ERROR {
+        let err = data
+            .get("error")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown error");
+        let mut s = format!("Delegation failed: {}", err);
+        if !pm.is_empty() {
+            s.push_str(&format!(" ({})", pm));
+        }
+        return s;
+    }
+    if event_name == EVENT_DELEGATE_REJECTED {
+        let reason = data
+            .get("reason")
+            .and_then(|v| v.as_str())
+            .unwrap_or("rejected");
+        if reason == "max_delegations_per_turn" {
+            let max = data
+                .get("maxDelegationsPerTurn")
+                .and_then(|v| v.as_u64())
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "?".to_string());
+            let mut s = format!(
+                "Delegation rejected: max delegations per turn exceeded (max {})",
+                max
+            );
+            if let Some(w) = worker {
+                s.push_str(&format!(" · worker `{}`", w));
+            }
+            return s;
+        }
+        if reason == "max_delegations_per_session" {
+            return "Delegation rejected: max delegations per session reached".to_string();
+        }
+        if reason == "max_delegations_per_provider" {
+            return "Delegation rejected: max delegations to this provider for the session reached"
+                .to_string();
+        }
+        return format!("Delegation rejected: {}", reason);
+    }
+    format!("Delegation: {}", event_name)
+}
 
 impl ChaiApp {
     /// Move a session to the front of session_order (most recently active first).
@@ -14,9 +126,7 @@ impl ChaiApp {
     }
 
     /// Poll for session.message events from the gateway and update local session timelines.
-    /// When we're waiting for a new-session reply, skip events for sessions we don't have yet
-    /// so we don't duplicate the first user message (gateway echoes it before our reply arrives).
-    /// For all other events we add them; if the last message in the session has the same role and
+    /// For all events we add them in gateway order (user → assistant); if the last message in the session has the same role and
     /// content (e.g. echo of our own turn from start_chat_turn + poll_chat_turn), we skip to avoid duplicate.
     pub(crate) fn poll_session_events(&mut self) {
         loop {
@@ -35,23 +145,24 @@ impl ChaiApp {
                 Some(e) => e,
                 None => break,
             };
-            // When we're waiting for a new-session reply, skip only the gateway echo of our own
-            // user message (same role + content as pending_user_message). Do not skip other
-            // new-session events (e.g. from channels), or we'd lose their first message.
-            if self.chat_turn_receiver.is_some()
-                && self.chat_session_id.is_none()
-                && !self.session_messages.contains_key(&ev.session_id)
-                && ev.role == "user"
-                && self.pending_user_message.as_deref() == Some(ev.content.as_str())
-            {
-                continue;
-            }
             let session_id = ev.session_id.clone();
             let entry = self
                 .session_messages
                 .entry(session_id.clone())
                 .or_insert_with(Vec::new);
-            // Skip if this is a duplicate of the last message (e.g. gateway echo of our own turn).
+            // Skip duplicate user line (gateway echo after poll_chat_turn already prepended the same user for a new session).
+            if ev.role == "user"
+                && ev.delegation_event.is_none()
+                && entry
+                    .iter()
+                    .any(|m| m.role == "user" && m.content == ev.content)
+            {
+                self.session_meta
+                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.move_session_to_front(&session_id);
+                continue;
+            }
+            // Skip if this is a duplicate of the last message (e.g. echo of our own turn from start_chat_turn + poll_chat_turn).
             if let Some(last) = entry.last() {
                 if last.role == ev.role && last.content == ev.content {
                     self.session_meta
@@ -60,10 +171,38 @@ impl ChaiApp {
                     continue;
                 }
             }
+            // Assistant from session.message broadcast can duplicate the RPC reply when delegation
+            // rows were appended in between (last != assistant). Match against last non-delegation row.
+            if ev.role == "assistant" && ev.delegation_event.is_none() {
+                if let Some(prev) = last_non_delegation(entry.as_slice()) {
+                    if is_duplicate_assistant_row(prev, &ev.role, &ev.content, &ev.tool_calls) {
+                        if let Some(existing) = entry.iter_mut().find(|m| {
+                            m.role == "assistant"
+                                && m.content == ev.content
+                                && m.tool_calls == ev.tool_calls
+                        }) {
+                            let fill_results = existing.tool_results.as_ref().map(|v| v.is_empty()).unwrap_or(true);
+                            if fill_results {
+                                if let Some(ref tr) = ev.tool_results {
+                                    if !tr.is_empty() {
+                                        existing.tool_results = Some(tr.clone());
+                                    }
+                                }
+                            }
+                        }
+                        self.session_meta
+                            .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                        self.move_session_to_front(&session_id);
+                        continue;
+                    }
+                }
+            }
             entry.push(crate::app::ChatMessage {
                 role: ev.role.clone(),
                 content: ev.content.clone(),
                 tool_calls: ev.tool_calls.clone(),
+                tool_results: ev.tool_results.clone(),
+                delegation_event: ev.delegation_event.clone(),
             });
             self.session_meta
                 .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
@@ -243,62 +382,102 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
             let msg = msg.map_err(|e| e.to_string())?;
             if let Message::Text(text) = msg {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(&text) {
-                    if val.get("type") == Some(&serde_json::Value::String("event".into()))
-                        && val.get("event")
-                            == Some(&serde_json::Value::String("session.message".into()))
-                    {
+                    if val.get("type") != Some(&serde_json::Value::String("event".into())) {
+                        continue;
+                    }
+                    let Some(event_name) = val.get("event").and_then(|v| v.as_str()) else {
+                        continue;
+                    };
+                    if event_name == "session.message" {
                         if let Some(payload) = val.get("payload") {
                             // Session fields are in payload; support optional nested `data` for
                             // compatibility with older formats.
                             let data = payload.get("data").unwrap_or(payload);
-                                let session_id_opt = data
-                                    .get("sessionId")
-                                    .and_then(|v| v.as_str());
-                                let role_opt = data
-                                    .get("role")
-                                    .and_then(|v| v.as_str());
-                                let content_opt = data
-                                    .get("content")
-                                    .and_then(|v| v.as_str());
+                            let session_id_opt = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str());
+                            let role_opt = data.get("role").and_then(|v| v.as_str());
+                            let content_opt = data.get("content").and_then(|v| v.as_str());
 
-                                // Skip events missing any required field or with empty/whitespace-only values.
-                                let (session_id, role, content) =
-                                    if let (Some(session_id), Some(role), Some(content)) =
-                                        (session_id_opt, role_opt, content_opt)
+                            // Skip events missing any required field or with empty/whitespace-only values.
+                            let (session_id, role, content) =
+                                if let (Some(session_id), Some(role), Some(content)) =
+                                    (session_id_opt, role_opt, content_opt)
+                                {
+                                    if session_id.trim().is_empty()
+                                        || role.trim().is_empty()
+                                        || content.trim().is_empty()
                                     {
-                                        if session_id.trim().is_empty()
-                                            || role.trim().is_empty()
-                                            || content.trim().is_empty()
-                                        {
-                                            continue;
-                                        }
-                                        (session_id.to_string(), role.to_string(), content.to_string())
-                                    } else {
                                         continue;
-                                    };
-
-                                let channel_id = data
-                                    .get("channelId")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let conversation_id = data
-                                    .get("conversationId")
-                                    .and_then(|v| v.as_str())
-                                    .map(|s| s.to_string());
-                                let tool_calls = data
-                                    .get("toolCalls")
-                                    .and_then(|v| v.as_array())
-                                    .map(|arr| arr.clone());
-                                let ev = SessionEvent {
-                                    session_id,
-                                    role,
-                                    content,
-                                    channel_id,
-                                    conversation_id,
-                                    tool_calls,
+                                    }
+                                    (session_id.to_string(), role.to_string(), content.to_string())
+                                } else {
+                                    continue;
                                 };
-                                let _ = tx.send(ev);
-                            }
+
+                            let channel_id = data
+                                .get("channelId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let conversation_id = data
+                                .get("conversationId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let tool_calls = data
+                                .get("toolCalls")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.clone());
+                            let tool_results = data
+                                .get("toolResults")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                                        .collect::<Vec<_>>()
+                                });
+                            let tool_results = tool_results.filter(|v| !v.is_empty());
+                            let ev = SessionEvent {
+                                session_id,
+                                role,
+                                content,
+                                channel_id,
+                                conversation_id,
+                                tool_calls,
+                                tool_results,
+                                delegation_event: None,
+                            };
+                            let _ = tx.send(ev);
+                        }
+                    } else if matches!(
+                        event_name,
+                        EVENT_DELEGATE_START
+                            | EVENT_DELEGATE_COMPLETE
+                            | EVENT_DELEGATE_ERROR
+                            | EVENT_DELEGATE_REJECTED
+                    ) {
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let Some(session_id) = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                            else {
+                                continue;
+                            };
+                            let content = format_delegation_line(event_name, data);
+                            let ev = SessionEvent {
+                                session_id: session_id.to_string(),
+                                role: "delegation".to_string(),
+                                content,
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: Some(event_name.to_string()),
+                            };
+                            let _ = tx.send(ev);
+                        }
                     }
                 }
             }

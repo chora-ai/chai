@@ -6,9 +6,9 @@ This file provides guidance to agents when working with code in this repository.
 
 This repository is a monorepo but may become separate repositories when appropriate. A separation of concerns should be maintained within the architecture of this repository in preparation for any potential separations at a later point in time.
 
-- **`crates/cli`** — A command-line interface for creating, managing, and orchestrating agents
-- **`crates/desktop`** — A graphical user interface for creating, managing, and orchestrating agents
-- **`crates/lib`** — A shared library for creating, managing, and orchestrating agents
+- **`crates/cli`** — A command-line interface for running the gateway and a workspace
+- **`crates/desktop`** — A graphical user-interface for running the gateway and a workspace
+- **`crates/lib`** — All shared business logic for the multi-agent managements system
 
 The above crates are a starting point and are not intended to be restrictive. If creating a new crate would improve separation of concerns without adding unnecessary complexity, recommendations would be welcome.
 

@@ -16,9 +16,27 @@ Reference extracted from OpenClaw documentation and code for continuation work o
 
 Relevant doc areas: gateway (security, configuration, remote, tailscale, health, troubleshooting), device pairing, control UI, concepts (agent-workspace, multi-agent), tools (web, skills), security, sandbox, automation/hooks, CLI (webhooks, status, agent, nodes).
 
+## Chai vs OpenClaw (Feature Summary)
+
+Minimal scan. **Yes** = supported, **Partial** = subset or different shape, **No** = not present, **N/A** = not applicable. See [Chai vs OpenClaw (Detailed)](#chai-vs-openclaw-detailed) for prose-level rows.
+
+| Feature | Chai | OpenClaw |
+|---------|------|----------|
+| WebSocket gateway + `agent` turn | Yes | Yes |
+| Protocol version | v1 | v3 |
+| Operator / **node** roles, node pairing API | No | Yes |
+| Pending device/node approval (CLI/UI) | No | Yes |
+| Many messaging channels (Discord, Slack, …) | No (Telegram) | Yes |
+| Skills: compact list + **read** tool on demand | Partial (`read_skill`) | Yes (`read`) |
+| Skills: full SKILL.md in system context | Yes (`contextMode: full`) | No (compact + read) |
+| Plugin / extension model | No | Yes |
+| `agent` → `runId` + `agent.wait` | No | Yes |
+| Tool exec **approval** + gateway sandbox options | No | Yes |
+| TLS / cert pinning on gateway | Partial | Yes |
+
 ## Overview
 
-The following subsections summarize OpenClaw’s gateway protocol, pairing, system prompt and skills, context, agent loop, exec and sandboxing, config and state paths, and channels. Use them to align or extend this project’s implementation; for a side-by-side comparison with the current implementation, see [Differences from OpenClaw](#differences-from-openclaw).
+The following subsections summarize OpenClaw’s gateway protocol, pairing, system prompt and skills, context, agent loop, exec and sandboxing, config and state paths, and channels. Use them to align or extend this project’s implementation. Quick **Chai vs OpenClaw** scan: [Feature Summary](#chai-vs-openclaw-feature-summary); narrative rows: [Detailed](#chai-vs-openclaw-detailed).
 
 ### Gateway Protocol
 
@@ -69,15 +87,16 @@ The following subsections summarize OpenClaw’s gateway protocol, pairing, syst
 - **Channel-specific config**: Topics, allowlists, etc.
 - **Messaging**: Consider all built-in + extension channels when refactoring shared logic (routing, allowlists, pairing, command gating).
 
-## Differences from OpenClaw
+## Chai vs OpenClaw (Detailed)
 
-| Area | Current implementation | OpenClaw (from docs) |
-|------|-------------------|------------------------|
-| **Language & stack** | Rust; single binary (CLI) + desktop (egui/eframe). | TypeScript/Node; CLI, gateway, web UI, macOS app; plugins/extensions. |
-| **Scope** | One channel (Telegram), four bundled skills (notesmd, notesmd-daily, obsidian, obsidian-daily), one LLM (Ollama). | Many channels (Telegram, Discord, Slack, Signal, etc.), many skills, multiple LLM providers; nodes (iOS/Android), plugins. |
-| **Gateway protocol** | Connect handshake with `connect.challenge`, optional `params.device`, optional `params.auth.deviceToken`; hello-ok with optional `auth.deviceToken`; methods `health`, `status`, `send`, `agent`. Protocol version 1. | Same connect.challenge/device/deviceToken idea; protocol version 3; roles (operator/node), scopes, caps/commands/permissions for nodes; presence (`system-presence`); idempotency keys; `device.token.rotate`/`device.token.revoke`; TLS and cert pinning. |
+Finer-grained differences between **Chai** and **OpenClaw** only (supplements [CLAW_ECOSYSTEM_COMPARISON.md](CLAW_ECOSYSTEM_COMPARISON.md)).
+
+| Area | Chai (this repo) | OpenClaw (from docs) |
+|------|------------------|------------------------|
+| **Language & stack** | Rust; CLI + desktop (egui/eframe). | TypeScript/Node; CLI, gateway, web UI, macOS app; plugins/extensions. |
+| **Scope** | Telegram channel; bundled skills (notesmd, notesmd-daily, obsidian, obsidian-daily); multiple LLM **backends** (Ollama, LM Studio, vLLM, NIM, …). | Many channels; many skills; multiple **model providers**; nodes (iOS/Android); plugins. |
+| **Gateway protocol** | Connect handshake with `connect.challenge`, optional `params.device`, optional `params.auth.deviceToken`; hello-ok with optional `auth.deviceToken`; methods `health`, `status`, `send`, `agent`. Protocol version **1**. | Same connect.challenge/device/deviceToken idea; protocol version **3**; roles (operator/node), scopes, caps/commands/permissions for nodes; presence (`system-presence`); idempotency keys; `device.token.rotate`/`device.token.revoke`; TLS and cert pinning. |
 | **Pairing** | Device signing + pairing store; **auto-approve** when client provides gateway token (or auth is none). No pending-request UI or CLI. Store: `~/.chai/paired.json`. | Device signing; **pending requests** with approval/reject (CLI: `nodes pending`, `nodes approve`/`reject`; events `node.pair.requested`/`node.pair.resolved`). Optional silent approval (e.g. SSH to gateway host). Pending requests expire (e.g. 5 min). Separate `node.pair.*` API for node pairing. |
-| **Skills in the agent** | **Full or compact**: `skills.contextMode` **`full`** (default; full SKILL.md per skill in system message) or **`readOnDemand`** (compact list + **`read_skill`** tool to load SKILL.md on demand). Tools from skills’ `tools.json`; optional scripts for param resolution via `resolveCommand.script`. | **Compact list** in system prompt (name, description, path); model is instructed to use a **`read` tool** to load SKILL.md **on demand** when a skill applies. Keeps base prompt smaller; scales to many skills. |
-| **Agent loop** | Single turn: load session, append user message, call Ollama (with skill context and tools), parse tool calls, execute via allowlist, optionally re-call model (max 5 tool iterations); return reply and optionally deliver to channel. | pi-agent-core; streaming lifecycle events; `agent` RPC returns `runId`; `agent.wait` for completion; hooks (e.g. `agent:bootstrap`); queue and concurrency control; workspace bootstrap (AGENTS.md, SOUL.md, etc.); sandboxing. |
-| **Channels** | Telegram only; long-poll or webhook. | Many channels; extensions for additional channels; channel-specific config (e.g. topics, allowlists). |
-| **Security / ops** | Gateway token or deviceToken; loopback vs non-loopback bind; no sandboxing, no exec-approval flow, no plugin isolation. | Tool policy, exec approvals, sandboxing, channel allowlists; control UI can disable device auth (break-glass); TLS pinning. |
+| **Skills in the agent** | **Full or compact**: `skills.contextMode` **`full`** (default; full SKILL.md per skill in system message) or **`readOnDemand`** (compact list + **`read_skill`** tool). Tools from skills’ `tools.json`; optional scripts via `resolveCommand.script`. | **Compact list** in system prompt (name, description, path); model uses a **`read` tool** to load SKILL.md **on demand**. |
+| **Agent loop** | Session load, append message, call configured **Provider**, tool iterations (capped), reply to channel when applicable. | pi-agent-core; streaming lifecycle events; `agent` returns `runId`; `agent.wait`; hooks (e.g. `agent:bootstrap`); queue/concurrency; workspace bootstrap; sandboxing options. |
+| **Security / ops** | Gateway token or deviceToken; loopback vs non-loopback bind; no WASM sandbox or exec-approval flow in-repo. | Tool policy, exec approvals, sandboxing, channel allowlists; control UI can disable device auth (break-glass); TLS pinning. |

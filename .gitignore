@@ -1,4 +1,5 @@
 .env
+.chai
 /target
 /tmp
 *.rs.bk

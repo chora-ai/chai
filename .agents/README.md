@@ -19,16 +19,23 @@ This directory includes additional resources for agents (and humans) working on 
 
 ### `/ref`
 
+- **[CLAW_ECOSYSTEM_COMPARISON.md](ref/CLAW_ECOSYSTEM_COMPARISON.md)** — Single maintained matrix: OpenClaw, IronClaw, NemoClaw, and Chai
 - **[OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design reference for alignment.
+- **[IRONCLAW_REFERENCE.md](ref/IRONCLAW_REFERENCE.md)** — IronClaw (Rust, security-focused OpenClaw-inspired gateway): architecture, LLM providers, relation to Chai
 - **[OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md)** — Ollama API references, how it is used, and additional API capabilities.
 - **[LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md)** — LM Studio API reference, how it is used, and additional API capabilities
+- **[NEMOCLAW_REFERENCE.md](ref/NEMOCLAW_REFERENCE.md)** — NVIDIA NemoClaw: OpenClaw in OpenShell, sandbox, Nemotron cloud inference; distinct from Chai’s NIM backend
 - **[NVIDIA_NIM_REFERENCE.md](ref/NVIDIA_NIM_REFERENCE.md)** — NVIDIA NIM hosted API (free tier) reference; not a privacy option; rate limits and integration notes
+- **[VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md)** — vLLM OpenAI-compatible serving API; self-hosted inference; alignment with the LM Studio/OpenAI-compat path
+- **[OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md)** — OpenAI HTTP API (`openai` provider); auth, base URL, and how it relates to `openai_compat`
+- **[HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md)** — Hugging Face OpenAI-compatible endpoints (`hf` provider); Inference Endpoints, TGI, configuration
 
 ### `/spec`
 
 - **[AGENT_CONTEXT.md](spec/AGENT_CONTEXT.md)** — How context is built and provided to the model.
 - **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — The format for skills, frontmatter, metadata, and loaders.
 - **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — The tools.json schema for declarative skill tools.
+- **[ORCHESTRATION.md](spec/ORCHESTRATION.md)** — Orchestrator vs worker roles, **`delegate_task`**, and delegation behavior (see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) for roadmap and phases).
 
 ### root
 
@@ -36,7 +43,8 @@ This directory includes additional resources for agents (and humans) working on 
 - **[POC_DELIVERABLE.md](POC_DELIVERABLE.md)** — High-level summary of the proof-of-concept implementation and next steps.
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Detailed technical reference for the proof-of-concept implementation.
 - **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Epic: LLM services and API alignment (proposal and tracking for multiple backends).
-- **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Epic: Orchestrators and workers (proposal and tracking for multi-model flows).
+- **[EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md)** — Phase 2 specification (not implemented): Anthropic and Google first-party APIs; adapter scope and checklist
+- **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Epic: Orchestrators and workers (multi-model flows; phases, `run_turn_with_messages` in `crates/lib`).
 - **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Epic: RAG with vector database (proposal and tracking for semantic search).
 - **[SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md)** — Working document for comparing LLM services and models.
 - **[TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md)** — Working document for testing the performance of local models.
@@ -46,6 +54,6 @@ This directory includes additional resources for agents (and humans) working on 
 ## Adding Documents
 
 - **Decisions** (rationale, alternatives, “why we chose X”) → add under **`adr/`**. Use a clear filename (e.g. `PROGRAMMING_LANGUAGE.md`, `DESKTOP_FRAMEWORK.md`). Follow the general format and tone of other documents in the directory.
-- **Reference** (external system or spec summary for alignment) → add under **`ref/`**. Use a clear filename (e.g. `OPENCLAW_REFERENCE.md`, `OLLAMA_REFERENCE.md`). Follow the general format and tone of other documents in the directory.
-- **Specifcation** (internal: how this project works—context shape, format, loader behavior) → add under **`spec/`**. Use a clear filename (e.g. `AGENT_CONTEXT.md`, `SKILL_FORMAT.md`). Follow the general format and tone of other documents in the directory.
+- **Reference** (external system or spec summary for alignment) → add under **`ref/`**. Use a clear filename (e.g. `OPENCLAW_REFERENCE.md`, `OLLAMA_REFERENCE.md`). For a **comparison across multiple external systems**, prefer a single shared doc (e.g. `CLAW_ECOSYSTEM_COMPARISON.md`) and link to it from each per-system reference to avoid duplicated tables. Follow the general format and tone of other documents in the directory.
+- **Specification** (internal: how this project works—context shape, format, loader behavior) → add under **`spec/`**. Use a clear filename (e.g. `AGENT_CONTEXT.md`, `SKILL_FORMAT.md`). Follow the general format and tone of other documents in the directory.
 - **Work In Progress** (what's built, what’s next, comparing and testing different models) → add at **root**. Use a clear filename (e.g. `POC_DELIVERABLE.md`, `POC_IMPLEMENTATION.md`). Follow the general format and tone of other documents in the directory.

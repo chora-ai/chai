@@ -1,4 +1,10 @@
 //! Gateway WebSocket protocol types (connect, health, etc.).
+//!
+//! **Orchestration events** (broadcast JSON frames, same shape as other `type: "event"` messages) use the `event` field
+//! values defined on [`crate::orchestration::EVENT_DELEGATE_START`] and related constants in `crate::orchestration`.
+//!
+//! The **`status`** response payload may include **`orchestrationCatalog`**: a merged list of `(provider, model)` rows
+//! from discovery plus allowlist-only entries; see [`crate::orchestration::build_orchestration_catalog`].
 
 use serde::{Deserialize, Serialize};
 
@@ -118,17 +124,17 @@ pub struct SendParams {
     pub message: String,
 }
 
-/// Params for WS method "agent": run one turn (optional session, message, optional backend and model override).
+/// Params for WS method "agent": run one turn (optional session, message, optional provider and model override).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub message: String,
-    /// Override backend for this turn: "ollama", "lmstudio", or "nim". When set, the model is resolved within this backend.
+    /// Override provider for this turn (see `canonical_provider` in config): e.g. "ollama", "lms", "vllm", "nim", "openai", "hf". When set, the model is resolved within this provider.
     #[serde(default)]
-    pub backend: Option<String>,
-    /// Override model for this turn. When backend is also set, must be a model id for that backend.
+    pub provider: Option<String>,
+    /// Override model for this turn. When provider is also set, must be a model id for that provider.
     #[serde(default)]
     pub model: Option<String>,
 }

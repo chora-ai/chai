@@ -5,11 +5,11 @@ use crate::app::ChaiApp;
 pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     const INFO_LINE_SPACING: f32 = 6.0;
     const INFO_SUBSECTION_SPACING: f32 = 18.0;
-    app.invalidate_enabled_backends_cache();
+    app.invalidate_enabled_providers_cache();
     let (config, config_path) = lib::config::load_config(None)
         .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
     if app.default_model.is_none() {
-        let (_, model) = lib::config::resolve_effective_backend_and_model(&config.agents);
+        let (_, model) = lib::config::resolve_effective_provider_and_model(&config.agents);
         app.default_model = Some(model);
     }
 
@@ -62,17 +62,21 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 
             ui.label(egui::RichText::new("Agents").strong());
             ui.add_space(INFO_LINE_SPACING);
-            let (default_backend, default_model) =
-                lib::config::resolve_effective_backend_and_model(&config.agents);
-            ui.label(format!("Default backend: {}", default_backend));
+            let (default_provider, default_model) =
+                lib::config::resolve_effective_provider_and_model(&config.agents);
+            ui.label(format!("Default provider: {}", default_provider));
             ui.add_space(INFO_LINE_SPACING);
             ui.label(format!("Default model: {}", default_model));
             ui.add_space(INFO_LINE_SPACING);
-            let enabled_backends_display =
-                if config.agents.enabled_backends.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
-                    default_backend
+            if let Some(ref oid) = config.agents.orchestrator_id {
+                ui.label(format!("Orchestrator id: {}", oid));
+                ui.add_space(INFO_LINE_SPACING);
+            }
+            let enabled_providers_display =
+                if config.agents.enabled_providers.as_ref().map(|v| v.is_empty()).unwrap_or(true) {
+                    default_provider
                 } else {
-                    let v = config.agents.enabled_backends.as_ref().unwrap();
+                    let v = config.agents.enabled_providers.as_ref().unwrap();
                     let s = v
                         .iter()
                         .map(|s| s.as_str())
@@ -80,18 +84,18 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                         .collect::<Vec<_>>()
                         .join(", ");
                     if s.is_empty() {
-                        default_backend
+                        default_provider
                     } else {
                         s
                     }
                 };
-            ui.label(format!("Enabled backends: {}", enabled_backends_display));
+            ui.label(format!("Enabled providers: {}", enabled_providers_display));
             ui.add_space(INFO_LINE_SPACING);
             if let Some(ref w) = config.agents.workspace {
                 ui.label(format!("Workspace: {}", w.display()));
                 ui.add_space(INFO_LINE_SPACING);
             }
-            if let Some(ref b) = config.agents.backends {
+            if let Some(ref b) = config.providers {
                 if b.ollama
                     .as_ref()
                     .and_then(|o| o.base_url.as_ref())
@@ -104,7 +108,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                     ));
                     ui.add_space(INFO_LINE_SPACING);
                 }
-                if b.lm_studio
+                if b.lms
                     .as_ref()
                     .and_then(|l| l.base_url.as_ref())
                     .map(|u| !u.trim().is_empty())
@@ -112,7 +116,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                 {
                     ui.label(format!(
                         "LM Studio base URL: {}",
-                        b.lm_studio.as_ref().unwrap().base_url.as_ref().unwrap()
+                        b.lms.as_ref().unwrap().base_url.as_ref().unwrap()
                     ));
                     ui.add_space(INFO_LINE_SPACING);
                 }

@@ -2,6 +2,8 @@
 
 When a skill directory contains a `tools.json` file, the loader parses it and attaches tool definitions, an allowlist, and per-tool execution mapping to the skill. This allows skills to declare their tools declaratively so a generic executor can run them without per-skill code.
 
+**Parameters (JSON Schema):** Each tool’s **`parameters`** object uses the same **JSON Schema subset** used across LLM **function / tool** APIs: typically `type: "object"`, **`properties`**, **`required`**, and per-argument **`type`**, **`description`**, and optional constraints. That matches what **OpenAI** (tools / function parameters), **Ollama** (`tools` in chat), and **OpenAI-compatible** servers expect. Chai forwards the descriptor’s tool list to the active **`Provider`** without rewriting the schema. For examples and field conventions, see vendor docs (e.g. OpenAI function-calling parameter shape).
+
 ## File Location
 
 - **Path**: `<skill_dir>/tools.json` (same directory as `SKILL.md`).
@@ -27,7 +29,7 @@ Each element:
 |-------|------|-------------|
 | `name` | string | Tool name (e.g. `notesmd_search`). Must match an execution spec. |
 | `description` | string (optional) | Short description for the model. |
-| `parameters` | object | JSON schema for parameters (same shape Ollama expects: `type`, `properties`, `required`, etc.). |
+| `parameters` | object | JSON Schema for arguments (see **Parameters (JSON Schema)** above). |
 
 ### `allowlist` (object)
 
@@ -111,6 +113,6 @@ One tool, one positional argument:
 
 - **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`.
 - **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill’s SKILL.md content in-process; see [AGENT_CONTEXT.md](AGENT_CONTEXT.md).
-- **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` for the Ollama API. `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `normalizeNewlines` and `resolveCommand` when set) and runs via the allowlist.
+- **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `normalizeNewlines` and `resolveCommand` when set) and runs via the allowlist.
 - **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
 - **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill’s `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.

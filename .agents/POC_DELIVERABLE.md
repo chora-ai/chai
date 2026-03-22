@@ -36,6 +36,8 @@ The proof-of-concept implementation is organized so the gateway, model integrati
 
 For more details about the implementation, see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md).
 
+**After the POC:** Multiple providers, orchestration, and gateway **`status`** have evolved beyond this deliverable’s baseline. Treat [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md), [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md), and [README.md](../README.md) as the up-to-date sources for model backends and delegation; the sections below remain useful themes for future work. The built-in orchestrator delegation tool is **`delegate_task`** (formerly **`chai_delegate`**); see [spec/ORCHESTRATION.md](spec/ORCHESTRATION.md).
+
 ## What Comes Next
 
 These are natural extensions once the proof-of-concept implementation is accepted; they are not part of the current deliverable. The POC intentionally starts with a small, privacy-friendly baseline (local models via Ollama, one channel, a couple of skills) and a modular architecture that can expand.

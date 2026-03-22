@@ -2,9 +2,11 @@
 
 This document is the **detailed technical reference** for the proof-of-concept implementation.
 
+**Scope note:** The POC was **Ollama-first**; the codebase has since gained **multiple model providers**, **orchestration** (`delegate_task`; workers), and richer gateway **`status`**. For the current provider set and alignment status, see [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md), [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md), and [README.md](../README.md). For delegation behavior, see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) and [spec/ORCHESTRATION.md](spec/ORCHESTRATION.md). Sections below still describe architecture accurately; passages that name **Ollama** alone are the **primary example**, not an exhaustive list of backends.
+
 ## Implementation Details
 
-The following subsections are a reference for developers: CLI and desktop behavior, config, gateway server, session/routing/agent, LLM, Ollama model discovery, channels, skills, modularity, and how the crates fit together.
+The following subsections are a reference for developers: CLI and desktop behavior, config, gateway server, session/routing/agent, LLM integration (Ollama as the original default), model discovery, channels, skills, modularity, and how the crates fit together.
 
 ### CLI
 
@@ -17,7 +19,7 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 - **Start/Stop**: Start spawns `chai gateway` from same directory as executable or PATH; Stop kills that subprocess.
 - **Gateway detection**: ~1 s TCP probe to bind:port (800 ms timeout). "Gateway: running" when probe succeeds; "Stop gateway" only when this app started the process.
-- **Live details**: WebSocket connect then `status`; displays protocol, port, bind, auth, and discovered Ollama models at ~0.5 Hz. Uses token from config or `CHAI_GATEWAY_TOKEN` when auth is enabled.
+- **Live details**: WebSocket connect then `status`; displays protocol, port, bind, auth, and discovered model lists (per enabled provider) at ~0.5 Hz. Uses token from config or `CHAI_GATEWAY_TOKEN` when auth is enabled.
 - **Errors**: Config load or spawn failure shown in red.
 
 ### Config
@@ -37,21 +39,21 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 - **SessionStore**: In-memory; create, get_or_create, get, append_message.
 - **SessionBindingStore**: Binds (channel_id, conversation_id) ↔ session_id for inbound routing and outbound delivery.
-- **Agent `run_turn`**: Loads session history, prepends system message (skill context), calls Ollama (non-streaming chat; tool_calls parsed and executed via allowlist; up to 5 iterations), appends assistant and tool messages.
+- **Agent `run_turn`**: Loads session history, prepends system message (skill context), calls the configured **`Provider`** (Ollama was the POC default; non-streaming chat on the main path; tool_calls parsed and executed via allowlist; up to 5 iterations), appends assistant and tool messages.
 - **Channel reply**: Only the model’s text when non-empty; when reply is empty (e.g. tool-calls-only), nothing is sent to the channel (no placeholder).
 - **WS `send`**: Params `channelId`, `conversationId`, `message` → registry `send_message`.
 - **WS `agent`**: Params `sessionId?`, `message` → get-or-create session, run turn, return `{ reply, sessionId, toolCalls }`; if session is bound to a channel and reply has non-empty text, deliver to that channel via registry.
 
-### LLM (Ollama)
+### LLM (Ollama as default example)
 
-- **Client**: `OllamaClient::new(base_url?)`; default base URL `http://127.0.0.1:11434`.
+- **Client**: `OllamaClient::new(base_url?)`; default base URL `http://127.0.0.1:11434`. Other backends implement the same **`Provider`** trait (see `crates/lib/src/providers/`).
 - **API**: `list_models()`, `chat()`, `chat_stream(model, messages, tools?, on_chunk)`; non-streaming and streaming. `chat_stream` parses NDJSON and invokes `on_chunk` for content deltas; tool_calls taken from stream when present.
 - **Types**: `ChatMessage`/`ChatResponse` with optional `tool_calls` and helpers `content()`, `tool_calls()`.
 
-### Ollama model discovery
+### Model discovery (Ollama example)
 
-- At startup a task calls `list_models()`; list stored in state and exposed in WS `status` as `ollamaModels` (array of `{ name, size? }`).
-- If Ollama unreachable, list is empty (debug log).
+- At startup, tasks call each enabled provider’s `list_models()` where applicable; lists are stored in state and exposed in WS `status` (e.g. `ollamaModels` as array of `{ name, size? }`; other keys for other providers).
+- If a backend is unreachable, its list is empty (debug log).
 
 ### Channels
 
@@ -75,7 +77,7 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 ### Modularity
 
-- Desktop reuses lib: same config, gateway types, Ollama client, channel registry, skill loader, device identity.
+- Desktop reuses lib: same config, gateway types, provider clients, channel registry, skill loader, device identity.
 - CLI runs gateway in-process; desktop spawns CLI subprocess for Start gateway.
 
 
@@ -96,7 +98,7 @@ Inbound messages from a channel (e.g. Telegram) are mapped to a session by chann
 
 - **Session store**: In-memory sessions keyed by session id; each session holds a message history (user, assistant, tool messages) used for the next agent turn.
 - **Binding store**: Maps (channel_id, conversation_id) to session_id. When an inbound message arrives (e.g. from Telegram), the gateway looks up or creates a session for that channel and conversation, appends the user message, runs one agent turn, then sends the reply back via the channel’s `send_message`. Outbound delivery (e.g. after an explicit `agent` request from a client) uses the same binding: if the session is bound to a channel and the reply has non-empty text, it is also delivered to that channel.
-- **Single-turn flow**: Each inbound message or `agent` request triggers one `run_turn` (load history, call Ollama, execute tool calls in a loop up to 5 times, append results). There is no streaming to the channel in the current implementation; the full reply is sent when the turn completes. Empty replies (e.g. tool-calls only with no text) are not sent to the channel.
+- **Single-turn flow**: Each inbound message or `agent` request triggers one `run_turn` (load history, call the configured model provider, execute tool calls in a loop up to 5 times, append results). There is no streaming to the channel in the current implementation; the full reply is sent when the turn completes. Empty replies (e.g. tool-calls only with no text) are not sent to the channel.
 
 ### Safe execution
 

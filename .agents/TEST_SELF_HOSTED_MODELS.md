@@ -16,8 +16,6 @@ Update the models in this table to match the Hugging Face models you are current
 | Model | Notes |
 |-------|--------|
 | `meta-llama/Llama-3.1-8B-Instruct` | Default |
-| `mistralai/Mistral-7B-Instruct-v0.3` | |
-| `google/gemma-2-9b-it` | |
 | `Qwen/Qwen2.5-7B-Instruct` | |
 
 Each model is tested **in both skill context modes** (**full** and **readOnDemand**), **three runs per mode**, with the same message sequence. Use the same gateway config (skills, workspace) except for `skills.contextMode`; restart the gateway when switching mode so the system prompt and tool list match.
@@ -117,14 +115,6 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 *(Duplicate for runs 2–3.)*
 
-#### Hugging Face — mistralai/Mistral-7B-Instruct-v0.3
-
-*(Same table structure.)*
-
-#### Hugging Face — google/gemma-2-9b-it
-
-*(Same table structure.)*
-
 #### Hugging Face — Qwen/Qwen2.5-7B-Instruct
 
 *(Same table structure.)*
@@ -141,14 +131,6 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 *(Same structure: three runs per model; note whether model called read_skill before skill tools.)*
 
-#### Hugging Face — mistralai/Mistral-7B-Instruct-v0.3
-
-*(Same table structure.)*
-
-#### Hugging Face — google/gemma-2-9b-it
-
-*(Same table structure.)*
-
 #### Hugging Face — Qwen/Qwen2.5-7B-Instruct
 
 *(Same table structure.)*
@@ -157,5 +139,5 @@ Record outcomes per **context mode** and **model**. For each cell: **Run** (1–
 
 ## Future: LocalAI And llama.cpp
 
-When LocalAI and llama.cpp backends are supported, add corresponding model lists and result tables here, reusing the same message sequence and expectations above. Group results by backend (e.g. LocalAI vs. llama.cpp) and by model, and keep the same **full** vs **readOnDemand** structure so results can be compared consistently across all providers.
+When LocalAI, llama.cpp, and Venice (OpenAI-compat via **`openai`**) backends are exercised, add corresponding model lists and result tables here, reusing the same message sequence and expectations above. Group results by backend (e.g. LocalAI vs. llama.cpp vs. Venice) and by model, and keep the same **full** vs **readOnDemand** structure so results can be compared consistently across all providers.
 

@@ -4,7 +4,7 @@ This document provides an overview of the vision for this project.
 
 ## Current State
 
-An experimental project to learn about multi-agent management systems.
+An exploratory project (proof-of-concept + partially completed epics).
 
 ## Short-Term Goals
 
@@ -16,6 +16,8 @@ A minimalist multi-agent management system that includes the following:
 - Support for at least one skill (i.e. managing an Obsidian vault)
 - A modular architecture that makes it easy to extend the above
 
+Status: These goals were met with the proof-of-concept implementation.
+
 ## Long-Term Goals
 
-An advanced multi-agent management system with a strong focus on privacy.
+An advanced multi-agent management system with a focus on security and privacy.
