@@ -22,7 +22,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 - **`crates/lib/src/providers/ollama.rs`** — Single Ollama HTTP client.
 - **`OllamaClient::new(base_url: Option<String>)`** — Default base URL `http://127.0.0.1:11434`; no auth (local only).
-- **Config** — `agents.defaultModel` in config (e.g. `llama3.2:latest`, `qwen3:8b`). Model name must match `ollama list` exactly (no extra segments like `:latest` unless that tag exists). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
+- **Config** — `agents.defaultModel` in config (e.g. `llama3.2:3b`, `qwen3:8b`). Model name must match `ollama list` exactly. See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
 ### Endpoints Used
 

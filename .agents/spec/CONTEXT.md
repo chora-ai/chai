@@ -1,4 +1,4 @@
-# Agent Context at Session Start
+# Context at Session Start
 
 This document describes the **context** the model receives for a turn, as implemented in `crates/lib` (gateway `server.rs`, `orchestration/workers_context.rs`, and skills loading). It is kept in sync with the code.
 

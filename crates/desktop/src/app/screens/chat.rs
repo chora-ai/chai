@@ -17,16 +17,16 @@ fn local_user_display_name() -> String {
         .unwrap_or_else(|| "You".to_string())
 }
 
-/// Pretty-print tool results when the payload is valid JSON (e.g. `delegate_task`); otherwise show unchanged.
-fn format_tool_result_display(result: &str) -> String {
-    let trimmed = result.trim();
+/// Pretty-print a tool message's `content` when it is valid JSON (e.g. `delegate_task`); otherwise show unchanged.
+fn format_tool_content_display(content: &str) -> String {
+    let trimmed = content.trim();
     if trimmed.is_empty() {
         return String::new();
     }
     serde_json::from_str::<serde_json::Value>(trimmed)
         .ok()
         .and_then(|v| serde_json::to_string_pretty(&v).ok())
-        .unwrap_or_else(|| result.to_string())
+        .unwrap_or_else(|| content.to_string())
 }
 
 /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
@@ -140,10 +140,10 @@ fn render_chat_message(
                                         .unwrap_or_else(|_| tool_args.to_string())
                                 ));
                                 if let Some(results) = tool_results {
-                                    if let Some(result) = results.get(idx) {
-                                        if !result.trim().is_empty() {
-                                            let shown = format_tool_result_display(result);
-                                            ui.label(format!("Result: {}", shown));
+                                    if let Some(tool_content) = results.get(idx) {
+                                        if !tool_content.trim().is_empty() {
+                                            let shown = format_tool_content_display(tool_content);
+                                            ui.label(format!("Content: {}", shown));
                                         }
                                     }
                                 }

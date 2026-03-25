@@ -32,6 +32,8 @@ cargo run -p desktop
 cargo test
 ```
 
+Use `--features matrix` to build or run with the `matrix` adaptor.
+
 ## Command-Line Interface
 
 Install the CLI locally:
@@ -39,6 +41,8 @@ Install the CLI locally:
 ```bash
 cargo install --path crates/cli
 ```
+
+Use `--features matrix` to install the `matrix` adaptor.
 
 Run the installed CLI:
 
@@ -56,6 +60,8 @@ Install the app locally:
 ```bash
 cargo install --path crates/desktop
 ```
+
+Use `--features matrix` to install the `matrix` adaptor.
 
 Run the installed app:
 
@@ -82,7 +88,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
 {}
 ```
 
-**Runtime example** — the effective values for **`{}`** (shown here for reference, not required). With no **`agents`** key, **`defaultProvider`** and **`defaultModel`** are unset on disk; **`ollama`** and **`llama3.2:latest`** are the defaults the gateway uses at runtime for routing and model selection.
+**Runtime example** — the effective values for **`{}`** (shown here for reference, not required). With no **`agents`** key, **`defaultProvider`** and **`defaultModel`** are unset on disk; **`ollama`** and **`llama3.2:3b`** are the defaults the gateway uses at runtime for routing and model selection (other providers use their own fallbacks when **`defaultModel`** is unset; see **Providers and Models** below).
 
 ```json
 {
@@ -98,7 +104,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "id": "orchestrator",
       "role": "orchestrator",
       "defaultProvider": "ollama",
-      "defaultModel": "llama3.2:latest"
+      "defaultModel": "llama3.2:3b"
     }
   ],
   "skills": {
@@ -124,6 +130,19 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "botToken": null,
       "webhookUrl": null,
       "webhookSecret": null
+    },
+    "matrix": {
+      "homeserver": null,
+      "accessToken": null,
+      "user": null,
+      "password": null,
+      "userId": null,
+      "storePath": null,
+      "deviceId": null
+    },
+    "signal": {
+      "httpBase": null,
+      "account": null
     }
   },
   "providers": {
@@ -154,7 +173,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "id": "orchestrator",
       "role": "orchestrator",
       "defaultProvider": "ollama",
-      "defaultModel": "llama3.2:latest",
+      "defaultModel": "llama3.2:3b",
       "enabledProviders": [],
       "workspace": null,
       "maxSessionMessages": null,
@@ -164,7 +183,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "delegateAllowedModels": [
         {
           "provider": "ollama",
-          "model": "llama3.2:latest",
+          "model": "llama3.2:3b",
           "local": false,
           "toolCapable": null
         }
@@ -188,7 +207,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "delegateAllowedModels": [
         {
           "provider": "ollama",
-          "model": "llama3.2:latest",
+          "model": "llama3.2:3b",
           "local": false,
           "toolCapable": null
         }
@@ -224,6 +243,17 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   - Optional **`webhookUrl`**
   - Optional **`webhookSecret`**
   - **`TELEGRAM_BOT_TOKEN`** overrides **`botToken`** (see **Environment variables**)
+- **`channels.signal`**
+  - **`httpBase`** — Required base URL of a **user-run** [signal-cli](https://github.com/AsamK/signal-cli) HTTP daemon (e.g. **`http://127.0.0.1:7583`**)
+  - Optional **`account`** (Signal account **`+E.164`** for multi-account daemons)
+  - **`SIGNAL_CLI_HTTP`** overrides **`httpBase`** and **`SIGNAL_CLI_ACCOUNT`** overrides **`account`** (see **Environment variables**)
+  - Chai does **not** ship signal-cli; see **`.agents/adr/SIGNAL_CLI_INTEGRATION.md`**
+- **`channels.matrix`**
+  - **`homeserver`** — Required HTTPS base URL (e.g. **`https://matrix.example.org`**)
+  - Either **`accessToken`** (optional **`userId`**) or **`user`** + **`password`**
+  - Optional **`storePath`** (defaults to **`~/.chai/matrix`** when not set)
+  - Optional **`deviceId`** (used with **`accessToken`** when server does not return device id)
+  - **`MATRIX_HOMESERVER`**, **`MATRIX_ACCESS_TOKEN`**, **`MATRIX_USER_ID`**, **`MATRIX_USER`**, **`MATRIX_PASSWORD`**, **`CHAI_MATRIX_STORE`**, and **`MATRIX_DEVICE_ID`** override config fields (see **Environment variables**)
 
 ### Providers
 
@@ -244,6 +274,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
 - **`providers.nim`**
   - Always **`https://integrate.api.nvidia.com/v1`**
   - Optional **`apiKey`**
+  - Optional **`extraModels`** — array of NIM model ids merged into the gateway **`nimModels`** list (in addition to the built-in static catalog) for desktop and **`status`**
   - **`NVIDIA_API_KEY`** overrides **`apiKey`** (see **Environment variables**)
 - **`providers.openai`**
   - Optional **`baseUrl`** (defaults to **`https://api.openai.com/v1`** when not set)
@@ -257,7 +288,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
 - **Orchestrator entry**
   - Required **`id`**
   - Optional **`defaultProvider`** (defaults to **`ollama`**)
-  - Optional **`defaultModel`** (defaults to a fallback, e.g. **`llama3.2:latest`**)
+  - Optional **`defaultModel`** (defaults to a provider-specific fallback, e.g. **`llama3.2:3b`** for **`ollama`**, **`llama-3.2-3B-instruct`** for **`lms`**, **`meta/llama-3.2-3b-instruct`** for **`nim`**)
   - Optional **`enabledProviders`**
   - Optional **`workspace`**
   - Optional **`maxSessionMessages`**
@@ -313,8 +344,17 @@ The configuration directory contains the following:
 | `CHAI_CONFIG_PATH` | Config file path | Full path to the configuration file. The default path is `~/.chai/config.json`. |
 | `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret for WebSocket connect when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
-| `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face OpenAI-compatible endpoints when required. |
+| `SIGNAL_CLI_HTTP` | `channels.signal.httpBase` | signal-cli HTTP daemon base URL (`http://127.0.0.1:7583`). |
+| `SIGNAL_CLI_ACCOUNT` | `channels.signal.account` | Optional `+E.164` for multi-account signal-cli JSON-RPC. |
+| `MATRIX_HOMESERVER` | `channels.matrix.homeserver` | Matrix homeserver base URL (`https://…`). |
+| `MATRIX_ACCESS_TOKEN` | `channels.matrix.accessToken` | Matrix client access token. |
+| `MATRIX_USER_ID` | `channels.matrix.userId` | Matrix user id (`@user:server`) when using an access token without password login. |
+| `MATRIX_USER` | `channels.matrix.user` | Localpart or full MXID for password login. |
+| `MATRIX_PASSWORD` | `channels.matrix.password` | Password for **`m.login.password`**. |
+| `MATRIX_DEVICE_ID` | `channels.matrix.deviceId` | Device id for access-token session restore when whoami omits it. |
+| `CHAI_MATRIX_STORE` | `channels.matrix.storePath` | Directory for Matrix SDK SQLite + crypto store (default `~/.chai/matrix`). |
 | `VLLM_API_KEY` | `providers.vllm.apiKey` | Bearer token for vLLM when the server was started with `--api-key`. |
+| `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face OpenAI-compatible endpoints when required. |
 | `NVIDIA_API_KEY` | `providers.nim.apiKey` | API key for NVIDIA NIM hosted API at `https://integrate.api.nvidia.com`. When set, this is used for the NIM provider. |
 | `OPENAI_API_KEY` | `providers.openai.apiKey` | API key for the OpenAI API (or compatible **`providers.openai.baseUrl`**). |
 
@@ -331,6 +371,14 @@ When **`gateway.bind`** is not loopback, use **`gateway.auth`** with **`mode`** 
 **Long-poll** — The gateway calls Telegram’s **`getUpdates`**; good for local use. Set **`channels.telegram.botToken`** (or **`TELEGRAM_BOT_TOKEN`**).
 
 **Webhook** — Telegram POSTs updates to your URL; better for a public gateway. Set **`channels.telegram.webhookUrl`** and optionally **`channels.telegram.webhookSecret`**.
+
+### Signal
+
+The gateway connects to a **BYO** signal-cli **`daemon --http`** instance: **`GET /api/v1/events`** (SSE) for inbound messages and **`POST /api/v1/rpc`** with method **`send`** for replies. Install and run signal-cli yourself (see upstream docs); start the daemon before the gateway, e.g. **`signal-cli -a +1234567890 daemon --http 127.0.0.1:7583`**, then set **`channels.signal.httpBase`** or **`SIGNAL_CLI_HTTP`**. Policy: **`.agents/adr/SIGNAL_CLI_INTEGRATION.md`**. **`/new`** in a 1:1 or group context starts a fresh session for that **`conversation_id`**, same as other channels.
+
+### Matrix
+
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store under **`~/.chai/matrix`** by default (override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It syncs with the **Client-Server API**, decrypts **encrypted** rooms when the account has keys, and sends replies with **`m.room.message`** (**plain text**; encrypted in **encrypted** rooms). Configure **`channels.matrix`** (see **Configuration → Channels**) or the **`MATRIX_*`** environment variables. The bot user must already be a member of rooms you expect to use; invite the bot from Element (or another client) first. **`/new`** in a room starts a fresh session for that room, same as Telegram.
 
 ## Agents
 
@@ -350,7 +398,7 @@ The orchestrator entry may set **`workspace`** (directory for agent context such
     "id": "assistant",
     "role": "orchestrator",
     "defaultProvider": "ollama",
-    "defaultModel": "llama3.2:latest",
+    "defaultModel": "llama3.2:3b",
     "enabledProviders": ["ollama", "lms"]
   },
   {
@@ -374,7 +422,7 @@ The orchestrator entry may set **`workspace`** (directory for agent context such
 
 The gateway integrates **six** model **backends** (named by **`agents.defaultProvider`**): **Ollama** (native Ollama API), **LM Studio** (`lms`, OpenAI-compatible local server), **vLLM** (OpenAI-compatible **`vllm serve`** for self-hosted inference), **Hugging Face** (`hf`, OpenAI-compatible Inference Endpoints, TGI, or similar), **NVIDIA NIM** (`nim`, hosted NVIDIA catalog API), **OpenAI** (`openai`, and OpenAI HTTP API or compatible base URL). They differ in **where** the model runs (your machine, your infrastructure, or a cloud API), **which** wire protocol and discovery endpoints Chai uses, and **whether** an API key or fixed base URL applies.
 
-For **categories** of services (local, self-hosted, third-party), broader **comparisons** across backends, and how this fits the project roadmap, see [.agents/SERVICES_AND_MODELS.md](.agents/SERVICES_AND_MODELS.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
+For **provider** taxonomy, configuration, and API comparisons, see [.agents/spec/PROVIDERS.md](.agents/spec/PROVIDERS.md). For **model** ids, repository inventory, and tool-fit notes, see [.agents/spec/MODELS.md](.agents/spec/MODELS.md). For the **API alignment** roadmap, see [.agents/EPIC_API_ALIGNMENT.md](.agents/EPIC_API_ALIGNMENT.md). To run **repeatable model tests** by deployment category, see [.testing](.testing/README.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
 
 | Backend | Document |
 |---------|----------|
@@ -390,11 +438,11 @@ Set **`defaultProvider`** on the orchestrator entry to **`ollama`**, **`lms`**, 
 
 Use the exact model id expected by the selected provider for **`defaultModel`**:
 
-- For `ollama`, use the name from `ollama list` (e.g. `llama3.2:latest`, `qwen3:8b`).
-- For `lms`, use the name from `lms ls` (e.g. `openai/gpt-oss-20b`, `ibm/granite-4-micro`).
+- For `ollama`, use the name from `ollama list` (e.g. `llama3.2:3b`, `qwen3:8b`).
+- For `lms`, use the name from LM Studio or `GET /v1/models` (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`).
 - For `vllm`, use the same id you pass to `vllm serve` (e.g. `Qwen/Qwen2.5-7B-Instruct`).
 - For `hf`, use the model id your endpoint expects (e.g. `meta-llama/Llama-3.1-8B-Instruct`).
-- For `nim`, use a NIM catalog id (e.g. `qwen/qwen3-5-122b-a10b`); see [LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis).
+- For `nim`, use a NIM catalog id (e.g. `meta/llama-3.2-3b-instruct`); see [LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis).
 - For `openai`, use an OpenAI model id (e.g. `gpt-4o-mini`); see [OpenAI models](https://platform.openai.com/docs/models).
 
 ## Skills

@@ -58,6 +58,55 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                 ui.label("Telegram: not configured.");
                 ui.add_space(INFO_LINE_SPACING);
             }
+            let matrix_configured = config.channels.matrix.homeserver.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                && (config.channels.matrix.access_token.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                    || (config.channels.matrix.user.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)
+                        && config.channels.matrix.password.as_ref().map(|s| !s.trim().is_empty()).unwrap_or(false)));
+            if matrix_configured {
+                if let Some(ref h) = config.channels.matrix.homeserver {
+                    ui.label(format!("Matrix homeserver: {}", h));
+                    ui.add_space(INFO_LINE_SPACING);
+                }
+                ui.label(format!(
+                    "Matrix: {}",
+                    if config
+                        .channels
+                        .matrix
+                        .access_token
+                        .as_ref()
+                        .map(|s| !s.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        "access token set"
+                    } else {
+                        "password login"
+                    }
+                ));
+                ui.add_space(INFO_LINE_SPACING);
+            } else {
+                ui.label("Matrix: not configured.");
+                ui.add_space(INFO_LINE_SPACING);
+            }
+            let signal_configured = config
+                .channels
+                .signal
+                .http_base
+                .as_ref()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(false);
+            if signal_configured {
+                if let Some(ref h) = config.channels.signal.http_base {
+                    ui.label(format!("Signal (signal-cli HTTP): {}", h));
+                    ui.add_space(INFO_LINE_SPACING);
+                }
+                if let Some(ref a) = config.channels.signal.account {
+                    ui.label(format!("Signal account: {}", a));
+                    ui.add_space(INFO_LINE_SPACING);
+                }
+            } else {
+                ui.label("Signal: not configured.");
+                ui.add_space(INFO_LINE_SPACING);
+            }
             ui.add_space(INFO_SUBSECTION_SPACING);
 
             ui.label(egui::RichText::new("Agents").strong());

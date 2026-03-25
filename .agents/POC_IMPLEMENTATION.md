@@ -2,7 +2,7 @@
 
 This document is the **detailed technical reference** for the proof-of-concept implementation.
 
-**Scope note:** The POC was **Ollama-first**; the codebase has since gained **multiple model providers**, **orchestration** (`delegate_task`; workers), and richer gateway **`status`**. For the current provider set and alignment status, see [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md), [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md), and [README.md](../README.md). For delegation behavior, see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) and [spec/ORCHESTRATION.md](spec/ORCHESTRATION.md). Sections below still describe architecture accurately; passages that name **Ollama** alone are the **primary example**, not an exhaustive list of backends.
+**Scope note:** The POC was **Ollama-first**; the codebase has since gained **multiple model providers**, **orchestration** (`delegate_task`; workers), and richer gateway **`status`**. For the current provider set and alignment status, see [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md), [spec/PROVIDERS.md](spec/PROVIDERS.md), [spec/MODELS.md](spec/MODELS.md), and [README.md](../README.md). For delegation behavior, see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) and [spec/ORCHESTRATION.md](spec/ORCHESTRATION.md). Sections below still describe architecture accurately; passages that name **Ollama** alone are the **primary example**, not an exhaustive list of backends.
 
 ## Implementation Details
 

@@ -34,7 +34,7 @@ pub trait ToolExecutor: Send + Sync {
 }
 
 /// Run one agent turn: load session messages, call the given provider (streaming when on_chunk is Some); if tools are provided and the model returns tool_calls, execute them and re-call until no more tool_calls or max iterations.
-/// `model` is the provider-specific model name (no prefix; e.g. `llama3.2:latest` for Ollama, `gpt-oss-20b` for LM Studio).
+/// `model` is the provider-specific model name (no prefix; e.g. `llama3.2:3b` for Ollama, `llama-3.2-3B-instruct` for LM Studio).
 pub async fn run_turn<B: Provider>(
     store: &SessionStore,
     session_id: &str,
@@ -176,7 +176,7 @@ async fn execute_turn_worker(
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
         log::warn!("agent: configured model was empty, using fallback");
-        "llama3.2:latest"
+        crate::orchestration::DEFAULT_MODEL_FALLBACK
     } else {
         model_name
     };
@@ -307,7 +307,7 @@ async fn execute_turn_main(
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
         log::warn!("agent: configured model was empty, using fallback");
-        "llama3.2:latest"
+        crate::orchestration::DEFAULT_MODEL_FALLBACK
     } else {
         model_name
     };

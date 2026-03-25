@@ -35,8 +35,8 @@ When implementing, expect to touch at least:
 - **`crates/lib/src/orchestration/`** — **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks.
 - **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload keys (e.g. `anthropicModels`, `geminiModels`).
 - **`crates/desktop/`** — Provider allowlist, model reconciliation, info screen.
-- **User docs** — [README.md](../README.md), reference docs under [`.agents/ref/`](ref/), [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md).
-- **Tests** — [TEST_THIRD_PARTY_MODELS.md](TEST_THIRD_PARTY_MODELS.md) procedures when applicable.
+- **User docs** — [README.md](../README.md), reference docs under [`.agents/ref/`](ref/), [spec/PROVIDERS.md](spec/PROVIDERS.md), [spec/MODELS.md](spec/MODELS.md).
+- **Tests** — [10-third-party-openai-gpt.md](../.testing/10-third-party-openai-gpt.md) and the index at [.testing/README.md](../.testing/README.md) when applicable.
 
 ## Relationship to OpenAI-Compat
 

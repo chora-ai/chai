@@ -5,6 +5,10 @@ edition = "2021"
 description = "Shared library for Chai CLI and Chai Desktop"
 license = "LGPL-3.0"
 
+[features]
+default = []
+matrix = ["dep:matrix-channel"]
+
 [dependencies]
 anyhow = "1"
 chrono = "0.4"
@@ -24,3 +28,4 @@ base64 = "0.22"
 ed25519-dalek = "2"
 getrandom = "0.2"
 include_dir = "0.7"
+matrix-channel = { path = "../adapters/matrix", optional = true }

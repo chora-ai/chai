@@ -3,6 +3,8 @@
 //! Single port serves HTTP and WebSocket. Protocol: first frame must be `connect`;
 //! then requests (req/res) and events. Minimal implementation for short-term goals.
 
+#[cfg(feature = "matrix")]
+mod matrix_routes;
 mod pairing;
 mod protocol;
 mod server;

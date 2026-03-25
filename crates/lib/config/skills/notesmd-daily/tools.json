@@ -79,7 +79,7 @@
           },
           "replace": {
             "type": "boolean",
-            "description": "true when overwriting existing content; false when appending to existing content"
+            "description": "true when updating content; false when adding content"
           }
         }
       }

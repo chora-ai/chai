@@ -2,8 +2,11 @@
 
 use crate::agent;
 use crate::channels::{
-    ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramUpdate,
+    resolve_signal_daemon_config, ChannelHandle, ChannelRegistry, InboundMessage, SignalChannel,
+    TelegramChannel, TelegramUpdate,
 };
+#[cfg(feature = "matrix")]
+use crate::channels::{connect_matrix_client, MatrixChannel};
 use crate::config::{
     self, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url, resolve_nim_api_key,
     resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url, resolve_vllm_api_key,
@@ -18,6 +21,8 @@ use crate::orchestration::{
 };
 use crate::skills::{load_skills, Skill, SkillEntry};
 use crate::tools::GenericToolExecutor;
+#[cfg(feature = "matrix")]
+use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
@@ -182,6 +187,9 @@ pub struct GatewayState {
     pub tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
     /// Paired devices (deviceId → role, scopes, deviceToken); used for deviceToken auth and issuing new tokens.
     pub pairing_store: Arc<PairingStore>,
+    /// Matrix channel handle when Matrix is configured (HTTP verification + allowlist).
+    #[cfg(feature = "matrix")]
+    pub matrix_channel: Option<Arc<MatrixChannel>>,
 }
 
 /// Executor that handles read_skill (lookup by name, return SKILL.md content) and delegates all other tools to the generic executor. Used when context mode is ReadOnDemand.
@@ -266,7 +274,7 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
     out.push_str("- call `read_skill` when you need to use a skill\n");
-    out.push_str("- share available skills and ask the user to choose\n");
+    out.push_str("- share available skills and ask the user to choose\n\n");
     for s in skills {
         out.push_str("### ");
         out.push_str(&s.name);
@@ -303,7 +311,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
     out.push_str("- call `read_skill` when you need to use a skill\n");
-    out.push_str("- share available skills and ask the user to choose\n");
+    out.push_str("- share available skills and ask the user to choose\n\n");
     out.push_str("Available skills (name — description):\n\n");
     for s in skills {
         out.push_str("- `");
@@ -339,7 +347,7 @@ fn build_system_context_static(
     let workers_ctx = build_workers_context(agents);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
-        out.push_str("\n\n");
+        out.push_str("\n");
     }
     let skills_ctx = match context_mode {
         SkillContextMode::Full => build_skill_context_full(skills),
@@ -701,7 +709,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         None
     };
 
-    let state = GatewayState {
+    #[cfg_attr(not(feature = "matrix"), allow(unused_mut))]
+    let mut state = GatewayState {
         config: Arc::new(config.clone()),
         agent_ctx,
         system_context_static,
@@ -728,6 +737,8 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         tools_list,
         tool_executor,
         pairing_store,
+        #[cfg(feature = "matrix")]
+        matrix_channel: None,
     };
 
     if config::provider_discovery_enabled(&config.agents, "ollama") {
@@ -783,9 +794,10 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     }
     if config::provider_discovery_enabled(&config.agents, "nim") {
         let models = nim_models.clone();
+        let cfg_for_nim = config.clone();
         tokio::spawn(async move {
-            *models.write().await = NimClient::static_model_list();
-            log::info!("nim model list loaded (static catalog)");
+            *models.write().await = NimClient::gateway_model_list(&cfg_for_nim);
+            log::info!("nim model list loaded (static catalog plus optional extraModels)");
         });
     }
     if config::provider_discovery_enabled(&config.agents, "openai") {
@@ -875,7 +887,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
                     .await;
                 Some(telegram)
             } else {
-                let handle = telegram.clone().start_inbound(inbound_tx);
+                let handle = telegram.clone().start_inbound(inbound_tx.clone());
                 state.channel_tasks.write().await.push(handle);
                 state
                     .channel_registry
@@ -888,12 +900,68 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
             None
         };
 
+    #[cfg(feature = "matrix")]
+    {
+        if let Some(matrix) = connect_matrix_client(&config).await {
+            let matrix = Arc::new(matrix);
+            state.matrix_channel = Some(matrix.clone());
+            let handle = matrix.clone().start_inbound(inbound_tx.clone());
+            state.channel_tasks.write().await.push(handle);
+            state
+                .channel_registry
+                .register(matrix.id().to_string(), matrix)
+                .await;
+            log::info!("matrix channel registered and sync loop started");
+        }
+    }
+
+    if let Some(sig_cfg) = resolve_signal_daemon_config(&config) {
+        let signal = Arc::new(SignalChannel::new(sig_cfg));
+        let handle = signal.clone().start_inbound(inbound_tx.clone());
+        state.channel_tasks.write().await.push(handle);
+        state
+            .channel_registry
+            .register(signal.id().to_string(), signal)
+            .await;
+        log::info!("signal channel registered and SSE events loop started");
+    }
+
     let channel_registry = state.channel_registry.clone();
     let app = Router::new()
         .route("/", get(health_http))
         .route("/ws", get(ws_handler))
-        .route("/telegram/webhook", post(telegram_webhook))
-        .with_state(state);
+        .route("/telegram/webhook", post(telegram_webhook));
+    #[cfg(feature = "matrix")]
+    let app = app
+        .route(
+            "/matrix/verification/pending",
+            get(matrix_routes::matrix_verification_pending),
+        )
+        .route(
+            "/matrix/verification/accept",
+            post(matrix_routes::matrix_verification_accept),
+        )
+        .route(
+            "/matrix/verification/start-sas",
+            post(matrix_routes::matrix_verification_start_sas),
+        )
+        .route(
+            "/matrix/verification/sas",
+            get(matrix_routes::matrix_verification_sas),
+        )
+        .route(
+            "/matrix/verification/confirm",
+            post(matrix_routes::matrix_verification_confirm),
+        )
+        .route(
+            "/matrix/verification/mismatch",
+            post(matrix_routes::matrix_verification_mismatch),
+        )
+        .route(
+            "/matrix/verification/cancel",
+            post(matrix_routes::matrix_verification_cancel),
+        );
+    let app = app.with_state(state);
 
     let bind_addr = format!("{}:{}", bind, config.gateway.port);
     let listener = tokio::net::TcpListener::bind(&bind_addr)
@@ -1185,12 +1253,18 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     provider_choice,
                 );
-                let ollama_models = state.ollama_models.read().await.clone();
-                let lms_models = state.lms_models.read().await.clone();
-                let vllm_models = state.vllm_models.read().await.clone();
-                let nim_models = state.nim_models.read().await.clone();
-                let openai_models = state.openai_models.read().await.clone();
-                let hf_models = state.hf_models.read().await.clone();
+                let mut ollama_models = state.ollama_models.read().await.clone();
+                let mut lms_models = state.lms_models.read().await.clone();
+                let mut vllm_models = state.vllm_models.read().await.clone();
+                let mut nim_models = state.nim_models.read().await.clone();
+                let mut openai_models = state.openai_models.read().await.clone();
+                let mut hf_models = state.hf_models.read().await.clone();
+                ollama_models.sort_by(|a, b| a.name.cmp(&b.name));
+                lms_models.sort_by(|a, b| a.name.cmp(&b.name));
+                vllm_models.sort_by(|a, b| a.name.cmp(&b.name));
+                nim_models.sort_by(|a, b| a.name.cmp(&b.name));
+                openai_models.sort_by(|a, b| a.name.cmp(&b.name));
+                hf_models.sort_by(|a, b| a.name.cmp(&b.name));
                 let system_context = build_system_context_for_today(&state.system_context_static);
                 let skills_context = match state.config.skills.context_mode {
                     SkillContextMode::Full => build_skill_context_full(&state.skills),

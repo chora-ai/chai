@@ -89,7 +89,7 @@ The following subsections summarize OpenClaw’s gateway protocol, pairing, syst
 
 ## Chai vs OpenClaw (Detailed)
 
-Finer-grained differences between **Chai** and **OpenClaw** only (supplements [CLAW_ECOSYSTEM_COMPARISON.md](CLAW_ECOSYSTEM_COMPARISON.md)).
+Finer-grained differences between **Chai** and **OpenClaw** only (supplements [CLAW_ECOSYSTEM.md](CLAW_ECOSYSTEM.md)).
 
 | Area | Chai (this repo) | OpenClaw (from docs) |
 |------|------------------|------------------------|

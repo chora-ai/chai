@@ -3,6 +3,7 @@
 //! Uses the free tier at https://integrate.api.nvidia.com. Requires an API key from
 //! build.nvidia.com. This is not a privacy-preserving option; all requests are sent to NVIDIA.
 
+use crate::config::Config;
 use crate::providers::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
 use anyhow::Result;
 use futures_util::StreamExt;
@@ -50,6 +51,30 @@ impl NimClient {
         Ok(Self::static_model_list())
     }
 
+    /// Static catalog plus optional [`crate::config::NimProviderEntry::extra_models`] from config.
+    /// Deduped by exact id; sorted by name for stable **`status`** / UI.
+    pub(crate) fn gateway_model_list(config: &Config) -> Vec<NimModel> {
+        let mut names: Vec<String> = Self::static_model_list()
+            .into_iter()
+            .map(|m| m.name)
+            .collect();
+        if let Some(extra) = config
+            .providers
+            .as_ref()
+            .and_then(|p| p.nim.as_ref())
+            .and_then(|n| n.extra_models.as_ref())
+        {
+            for s in extra {
+                let t = s.trim();
+                if !t.is_empty() && !names.iter().any(|n| n == t) {
+                    names.push(t.to_string());
+                }
+            }
+        }
+        names.sort();
+        names.into_iter().map(|name| NimModel { name }).collect()
+    }
+
     /// Returns the static list of known NIM model ids (for discovery/status). Not part of public API.
     /// Chosen to give a small, representative set for the UI: one or two chat/instruct models per
     /// major vendor (Meta, Mistral, Google, Qwen, Microsoft, NVIDIA), mix of small and large, so
@@ -57,11 +82,20 @@ impl NimClient {
     /// when set in config or request even if not listed here.
     pub(crate) fn static_model_list() -> Vec<NimModel> {
         [
+            "deepseek-ai/deepseek-v3.1",
+            "deepseek-ai/deepseek-v3.1-terminus",
+            "deepseek-ai/deepseek-v3.2",
+            "meta/llama3-70b-instruct",
             "meta/llama-3.1-8b-instruct",
             "meta/llama-3.1-70b-instruct",
+            "meta/llama-3.1-405b-instruct",
+            "meta/llama-3.2-3b-instruct",
+            "meta/llama-3.3-70b-instruct",
+            "meta/llama-4-maverick-17b-128e-instruct",
             "qwen/qwen3-coder-480b-a35b-instruct",
             "qwen/qwen3-next-80b-a3b-instruct",
             "qwen/qwen3-next-80b-a3b-thinking",
+            "qwen/qwen3.5-122b-a10b",
         ]
         .into_iter()
         .map(|s| NimModel {
@@ -489,4 +523,33 @@ struct OpenAiStreamToolCall {
 struct OpenAiStreamToolCallFunction {
     name: String,
     arguments: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{Config, NimProviderEntry, ProvidersConfig};
+
+    #[test]
+    fn gateway_model_list_appends_extra_models_and_dedupes() {
+        let mut c = Config::default();
+        c.providers = Some(ProvidersConfig {
+            nim: Some(NimProviderEntry {
+                extra_models: Some(vec![
+                    "vendor/extra-model".to_string(),
+                    "meta/llama-3.2-3b-instruct".to_string(),
+                ]),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        let list = NimClient::gateway_model_list(&c);
+        assert!(list.iter().any(|m| m.name == "vendor/extra-model"));
+        assert_eq!(
+            list.iter()
+                .filter(|m| m.name == "meta/llama-3.2-3b-instruct")
+                .count(),
+            1
+        );
+    }
 }

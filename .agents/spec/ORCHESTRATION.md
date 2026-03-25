@@ -11,7 +11,7 @@ This document describes how **orchestrator** and **worker** entries in **`config
 
 ## Configuration Quick Reference
 
-Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`** (see [README.md](../../README.md) and [SERVICES_AND_MODELS.md](../SERVICES_AND_MODELS.md)).
+Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`** (see [README.md](../../README.md), [PROVIDERS.md](PROVIDERS.md), and [MODELS.md](MODELS.md)).
 
 ### Orchestrator entry
 
@@ -93,4 +93,5 @@ Interactive **human approval** queues, **sandboxing**, and **arbitrary exec appr
 | Document | Purpose |
 |----------|---------|
 | **[EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md)** | Epic: goals, config evolution, implementation phases, requirements checklist, closure, follow-ups. |
-| **[SERVICES_AND_MODELS.md](../SERVICES_AND_MODELS.md)** | Provider comparison and model id notes. |
+| **[PROVIDERS.md](PROVIDERS.md)** | Provider ids, configuration, API comparison. |
+| **[MODELS.md](MODELS.md)** | Model ids, repository inventory, tool-fit notes. |

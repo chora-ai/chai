@@ -42,7 +42,7 @@ For more details about the implementation, see [POC_IMPLEMENTATION.md](POC_IMPLE
 
 These are natural extensions once the proof-of-concept implementation is accepted; they are not part of the current deliverable. The POC intentionally starts with a small, privacy-friendly baseline (local models via Ollama, one channel, a couple of skills) and a modular architecture that can expand.
 
-For deeper technical detail about what exists and how it works, see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md). For planned model/provider directions (local, self-hosted, third-party), see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md).
+For deeper technical detail about what exists and how it works, see [POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md). For planned model/provider directions (local, self-hosted, third-party), see [spec/PROVIDERS.md](spec/PROVIDERS.md) and [spec/MODELS.md](spec/MODELS.md).
 
 ### Improve Security and Trust
 
@@ -61,10 +61,10 @@ For deeper technical detail about what exists and how it works, see [POC_IMPLEME
 
 ### Add More Model and Provider Options (Privacy-Preserving First)
 
-- **Local options**: Add additional local runtimes such as LM Studio (see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#services-at-a-glance)).
+- **Local options**: Add additional local runtimes such as LM Studio (see [spec/PROVIDERS.md](spec/PROVIDERS.md#providers-at-a-glance)).
 - **Self-hosted options**: Support running models on your own servers (for privacy, cost control, and customization) using common stacks like Hugging Face TGI, vLLM, LocalAI, or llama.cpp.
 - **Third-party options**: Support hosted APIs such as OpenAI, Anthropic, and Google for cases where the workload is low-sensitivity or needs a specific capability.
-- **Hybrid routing**: Enable a “default to local/self-hosted” posture and allow third-party services only when appropriate (see the hybrid and privacy framing in [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md#hybrid-approaches-are-common)).
+- **Hybrid routing**: Enable a “default to local/self-hosted” posture and allow third-party providers only when appropriate (see the hybrid and privacy framing in [spec/PROVIDERS.md](spec/PROVIDERS.md#hybrid-approaches-are-common)).
 - **Multi-agent orchestration**: Over time, allow an **orchestrator** model or agent to plan work and **delegate** subtasks to **worker** models or agents. Workers handle narrow, well-defined steps (e.g. a single tool call or classification); the orchestrator holds the conversation and chooses which model handles each step. That way smaller or faster models can be used as workers where appropriate, and sensitive work can be routed only to local or self-hosted models. See [Orchestrator vs Worker Models](POC_IMPLEMENTATION.md#orchestrator-vs-worker-models) in the implementation doc.
 
 ### Expand Channels and Clients

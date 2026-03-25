@@ -45,14 +45,14 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 // Models
                 ui.label(egui::RichText::new("Models").strong());
                 ui.add_space(INFO_LINE_SPACING);
-                let available_providers = {
-                    let list = app.enabled_providers();
-                    if list.is_empty() {
-                        "—".to_string()
-                    } else {
-                        list.join(", ")
-                    }
+                let enabled_list = app.enabled_providers();
+                let available_providers = if enabled_list.is_empty() {
+                    "—".to_string()
+                } else {
+                    enabled_list.join(", ")
                 };
+                let provider_enabled =
+                    |id: &str| enabled_list.iter().any(|e| e == id);
                 if let Some(ref s) = app.gateway_status {
                     let provider = app
                         .current_provider
@@ -71,50 +71,67 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     ui.label(format!("Available providers: {}", available_providers));
                     ui.add_space(INFO_LINE_SPACING);
 
-                    let ollama_models = if s.ollama_models.is_empty() {
-                        "(no models discovered)".to_string()
-                    } else {
-                        s.ollama_models.join(", ")
-                    };
-                    let lms_models = if s.lms_models.is_empty() {
-                        "(no models discovered)".to_string()
-                    } else {
-                        s.lms_models.join(", ")
-                    };
-                    let vllm_models = if s.vllm_models.is_empty() {
-                        "(no models discovered)".to_string()
-                    } else {
-                        s.vllm_models.join(", ")
-                    };
-                    let nim_models = if s.nim_models.is_empty() {
-                        "(static catalog not loaded)".to_string()
-                    } else {
-                        s.nim_models.join(", ")
-                    };
-                    let openai_models = if s.openai_models.is_empty() {
-                        "(no models discovered)".to_string()
-                    } else {
-                        s.openai_models.join(", ")
-                    };
-                    let hf_models = if s.hf_models.is_empty() {
-                        "(no models discovered)".to_string()
-                    } else {
-                        s.hf_models.join(", ")
-                    };
-                    ui.label(format!("Ollama models: {}", ollama_models));
-                    ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("LM Studio models: {}", lms_models));
-                    ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("vLLM models: {}", vllm_models));
-                    ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("NIM models: {}", nim_models));
-                    ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("OpenAI models: {}", openai_models));
-                    ui.add_space(INFO_LINE_SPACING);
-                    ui.label(format!("Hugging Face models: {}", hf_models));
-                    ui.add_space(INFO_LINE_SPACING);
+                    if provider_enabled("ollama") {
+                        let ollama_models = if s.ollama_models.is_empty() {
+                            "(no models discovered)".to_string()
+                        } else {
+                            s.ollama_models.join(", ")
+                        };
+                        ui.label(format!("Ollama models: {}", ollama_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
+                    if provider_enabled("lms") {
+                        let lms_models = if s.lms_models.is_empty() {
+                            "(no models discovered)".to_string()
+                        } else {
+                            s.lms_models.join(", ")
+                        };
+                        ui.label(format!("LM Studio models: {}", lms_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
+                    if provider_enabled("vllm") {
+                        let vllm_models = if s.vllm_models.is_empty() {
+                            "(no models discovered)".to_string()
+                        } else {
+                            s.vllm_models.join(", ")
+                        };
+                        ui.label(format!("vLLM models: {}", vllm_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
+                    if provider_enabled("nim") {
+                        let nim_models = if s.nim_models.is_empty() {
+                            "(static catalog not loaded)".to_string()
+                        } else {
+                            s.nim_models.join(", ")
+                        };
+                        ui.label(format!("NIM models: {}", nim_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
+                    if provider_enabled("openai") {
+                        let openai_models = if s.openai_models.is_empty() {
+                            "(no models discovered)".to_string()
+                        } else {
+                            s.openai_models.join(", ")
+                        };
+                        ui.label(format!("OpenAI models: {}", openai_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
+                    if provider_enabled("hf") {
+                        let hf_models = if s.hf_models.is_empty() {
+                            "(no models discovered)".to_string()
+                        } else {
+                            s.hf_models.join(", ")
+                        };
+                        ui.label(format!("Hugging Face models: {}", hf_models));
+                        ui.add_space(INFO_LINE_SPACING);
+                    }
 
-                    let n_cat = s.orchestration_catalog.len();
+                    let cat_rows: Vec<_> = s
+                        .orchestration_catalog
+                        .iter()
+                        .filter(|row| provider_enabled(row.provider.as_str()))
+                        .collect();
+                    let n_cat = cat_rows.len();
                     if n_cat > 0 {
                         ui.add_space(INFO_SUBSECTION_SPACING);
                         ui.label(egui::RichText::new("Orchestration catalog").strong());
@@ -125,7 +142,7 @@ pub fn ui_info_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                         ))
                         .default_open(false)
                         .show(ui, |ui| {
-                            for row in &s.orchestration_catalog {
+                            for row in cat_rows {
                                 let mut bits: Vec<String> = Vec::new();
                                 bits.push(format!("{} / {}", row.provider, row.model));
                                 if !row.discovered {

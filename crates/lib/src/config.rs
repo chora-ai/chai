@@ -1,12 +1,12 @@
 //! Configuration types and loading.
 //!
 //! Config is loaded from a JSON file (e.g. `~/.chai/config.json`) and environment.
-//! Top-level keys include `gateway`, `channels`, `providers` (URLs/keys for model APIs), `agents`
+//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (URLs/keys for model APIs), `agents`
 //! (JSON array of `id` / `role` entries; omit the key for a single default orchestrator), and `skills`.
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// Top-level application config.
@@ -138,6 +138,34 @@ pub fn resolve_telegram_token(config: &Config) -> Option<String> {
         })
 }
 
+/// When [`Some`], only inbound Matrix messages in these rooms are processed. When [`None`], all joined rooms are allowed.
+/// `MATRIX_ROOM_ALLOWLIST` (comma-separated) overrides `channels.matrix.roomIds` when set and non-empty.
+pub fn resolve_matrix_room_allowlist(config: &Config) -> Option<HashSet<String>> {
+    let mut rooms: Vec<String> = std::env::var("MATRIX_ROOM_ALLOWLIST")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| {
+            s.split(',')
+                .map(|p| p.trim().to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default();
+    if rooms.is_empty() {
+        if let Some(ref v) = config.channels.matrix.room_ids {
+            rooms = v
+                .iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+    }
+    if rooms.is_empty() {
+        return None;
+    }
+    Some(rooms.into_iter().collect())
+}
+
 /// True if the bind address is loopback (127.0.0.1, ::1, etc.).
 pub fn is_loopback_bind(bind: &str) -> bool {
     let b = bind.trim();
@@ -150,6 +178,42 @@ pub fn is_loopback_bind(bind: &str) -> bool {
 pub struct ChannelsConfig {
     #[serde(default)]
     pub telegram: TelegramChannelConfig,
+    #[serde(default)]
+    pub matrix: MatrixChannelConfig,
+    #[serde(default)]
+    pub signal: SignalChannelConfig,
+}
+
+/// Signal channel: user-run signal-cli HTTP daemon (BYO). See `.agents/adr/SIGNAL_CLI_INTEGRATION.md`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignalChannelConfig {
+    /// Base URL of `signal-cli daemon --http`, e.g. `http://127.0.0.1:7583`. Overridden by `SIGNAL_CLI_HTTP`.
+    pub http_base: Option<String>,
+    /// Multi-account daemon: account (`+E.164`) for JSON-RPC `params`. Overridden by `SIGNAL_CLI_ACCOUNT`.
+    pub account: Option<String>,
+}
+
+/// Matrix channel: homeserver URL and access token or password login.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MatrixChannelConfig {
+    /// HTTPS base URL of the homeserver (e.g. `https://matrix.example.org`).
+    pub homeserver: Option<String>,
+    /// Client API access token. Overridden by `MATRIX_ACCESS_TOKEN` when set.
+    pub access_token: Option<String>,
+    /// Localpart or full MXID for `m.login.password`. Overridden by `MATRIX_USER`.
+    pub user: Option<String>,
+    /// Password for `m.login.password` when `access_token` is not used. Overridden by `MATRIX_PASSWORD`.
+    pub password: Option<String>,
+    /// `@user:server` for echo filtering when using `access_token` without a login response. Overridden by `MATRIX_USER_ID`.
+    pub user_id: Option<String>,
+    /// Directory for matrix-sdk SQLite state and E2EE keys (default `~/.chai/matrix`). Overridden by `CHAI_MATRIX_STORE`.
+    pub store_path: Option<String>,
+    /// Device id for access-token restore when `/account/whoami` does not return one. Overridden by `MATRIX_DEVICE_ID`.
+    pub device_id: Option<String>,
+    /// When non-empty, only these room ids (`!room:server`) receive agent turns. Overridden by `MATRIX_ROOM_ALLOWLIST` (comma-separated).
+    pub room_ids: Option<Vec<String>>,
 }
 
 /// Telegram channel config.
@@ -175,7 +239,7 @@ pub struct AgentsConfig {
     pub orchestrator_id: Option<String>,
     /// Which default provider to use: "ollama", "lms", "vllm", or "nim". When absent, defaults to "ollama".
     pub default_provider: Option<String>,
-    /// Model id for the selected provider. Use the id format the provider expects (e.g. for Ollama "llama3.2:latest"; for LM Studio "openai/gpt-oss-20b", "ibm/granite-4-micro"). Not used for routing—provider is chosen by defaultProvider.
+    /// Model id for the selected provider. Use the id format the provider expects (e.g. for Ollama `llama3.2:3b`; for LM Studio `llama-3.2-3B-instruct`; for NIM `meta/llama-3.2-3b-instruct`). Not used for routing—provider is chosen by defaultProvider.
     pub default_model: Option<String>,
     /// Providers to fetch models from at startup (e.g. `["ollama", "lms"]`). Opt-in: when absent or empty, only the default provider (from defaultProvider) is discovered; when set, only listed providers are polled.
     pub enabled_providers: Option<Vec<String>>,
@@ -517,6 +581,9 @@ pub struct LmsProviderEntry {
 #[serde(rename_all = "camelCase")]
 pub struct NimProviderEntry {
     pub api_key: Option<String>,
+    /// Extra NIM model ids merged into gateway **`nimModels`** (and desktop) in addition to the built-in static catalog. Use exact ids from the NIM docs.
+    #[serde(default)]
+    pub extra_models: Option<Vec<String>>,
 }
 
 /// vLLM OpenAI-compatible server (`vllm serve`). Base URL should include `/v1` (e.g. `http://127.0.0.1:8000/v1`). Optional API key when the server uses `--api-key`.
@@ -778,12 +845,12 @@ pub fn resolve_effective_provider_and_model(agents: &AgentsConfig) -> (String, S
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let model = model.unwrap_or_else(|| match provider {
-        "lms" => "gpt-oss-20b".to_string(),
+        "lms" => "llama-3.2-3B-instruct".to_string(),
         "vllm" => "Qwen/Qwen2.5-7B-Instruct".to_string(),
-        "nim" => "qwen/qwen3-5-122b-a10b".to_string(),
+        "nim" => "meta/llama-3.2-3b-instruct".to_string(),
         "openai" => "gpt-4o-mini".to_string(),
         "hf" => "meta-llama/Llama-3.1-8B-Instruct".to_string(),
-        _ => "llama3.2:latest".to_string(),
+        _ => "llama3.2:3b".to_string(),
     });
     (provider.to_string(), model)
 }

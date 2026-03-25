@@ -9,6 +9,10 @@ license = "LGPL-3.0"
 name = "chai-desktop"
 path = "src/main.rs"
 
+[features]
+default = []
+matrix = ["lib/matrix"]
+
 [dependencies]
 lib = { path = "../lib" }
 log = "0.4"
@@ -17,16 +21,13 @@ log = "0.4"
 tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
 
 # WebSocket client for gateway status
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.24"
 futures-util = "0.3"
 
 # Serialization
-serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # Error handling
 anyhow = "1"
-thiserror = "1"
 
-egui = "0.24"
 eframe = { version = "0.24", features = ["default"] }

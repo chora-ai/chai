@@ -30,7 +30,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ### Chat (`POST /v1/chat/completions`)
 
 - **OpenAI-compatible:** Same path and request/response shape as OpenAI chat completions (`model`, `messages`, `stream`, `temperature`, `top_p`, `max_tokens`, `stop`, etc.). Tool/function calling follows the OpenAI format (e.g. `tool_call_id` for tool results).
-- **Model ID:** Must be one of the NIM catalog model identifiers (e.g. `qwen/qwen3-5-122b-a10b`). Use the exact id from the API docs. Full list: https://docs.api.nvidia.com/nim/reference/llm-apis  
+- **Model ID:** Must be one of the NIM catalog model identifiers (e.g. `meta/llama-3.2-3b-instruct`). Use the exact id from the API docs. Full list: https://docs.api.nvidia.com/nim/reference/llm-apis  
 - **Streaming:** Supported via `stream: true`; response is SSE (Server-Sent Events), same as OpenAI.  
 - **Errors:** 402 Payment Required when credits/limits are exceeded; 422 for validation errors.
 
@@ -44,7 +44,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ### Client and Configuration
 
 - **`crates/lib/src/providers/nim.rs`** — `NimClient` calls `https://integrate.api.nvidia.com/v1/chat/completions` with `Authorization: Bearer <api_key>`. Same OpenAI-compat request/response as LM Studio (internal `tool_name` ↔ `tool_call_id` mapping).
-- **Config:** **`agents.defaultProvider`**: **`"nim"`**; **`agents.defaultModel`**: a NIM model id (e.g. `qwen/qwen3-5-122b-a10b`). API key from **`providers.nim.apiKey`** or **`NVIDIA_API_KEY`** env. No base URL override (fixed hosted API).
+- **Config:** **`agents.defaultProvider`**: **`"nim"`**; **`agents.defaultModel`**: a NIM model id (e.g. `meta/llama-3.2-3b-instruct`). API key from **`providers.nim.apiKey`** or **`NVIDIA_API_KEY`** env. Optional **`providers.nim.extraModels`**: extra catalog ids merged into **`nimModels`** for the UI. No base URL override (fixed hosted API).
 
 ### Endpoints Used
 
@@ -62,7 +62,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 - **Gateway server** — Resolves backend from **`agents.defaultProvider`** (**`"nim"`**); builds **`NimClient`** with API key from config/env; runs the agent turn via **`run_turn_dyn`** with that **`Provider`** and model id from **`agents.defaultModel`**. Logs a **warning at startup** when NIM is the default backend (privacy and rate-limit notice) and when the API key is missing.
 - **Agent** — Same **`Provider`** path as other backends; gateway passes the NIM client and model id.
 - **Tools** — Same skill `tools.json` and tool definitions, converted to OpenAI tool format for NIM (as with LM Studio).
-- **Status** — WebSocket `status` includes **`nimModels`** (static list of known NIM model ids for UI).
+- **Status** — WebSocket `status` includes **`nimModels`**: built-in static catalog plus optional **`providers.nim.extraModels`** (deduped, sorted).
 
 ## What We Do Not Support (Out of Scope)
 

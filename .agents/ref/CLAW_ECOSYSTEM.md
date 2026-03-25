@@ -1,4 +1,4 @@
-# Claw Ecosystem Comparison
+# Claw Ecosystem
 
 **Single source of truth** for the high-level matrix comparing **OpenClaw** (upstream), **IronClaw**, **NemoClaw**, and **Chai** (this monorepo). The per-project references link here so the table is maintained in one place:
 

@@ -1,4 +1,4 @@
-# Additional Resources
+# Agent Resources
 
 This directory includes additional resources for agents (and humans) working on the codebase. Use it to find additional context and to add and update documents for future reference.
 
@@ -7,53 +7,93 @@ This directory includes additional resources for agents (and humans) working on 
 | Location | Purpose |
 |----------|---------|
 | **`adr/`** | Architecture Decision Records: why we chose X, alternatives considered. |
-| **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama, LM Studio) for alignment. |
-| **`spec/`** | Internal specs and design summaries: how this project works (e.g. agent context, skill format and loader). |
-| **root** | Deliverables and working documents: what was built, how it was built, and what's next. |
+| **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
+| **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
+| **root** | Primary workspace. Deliverables and epics: what was built and what's next. |
+
 ## Current Documents
 
 ### `/adr`
 
-- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why Rust was chosen for this project.
-- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why egui/eframe was chosen for the desktop UI.
+- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Rationale for choosing Rust for the project.
+- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Rationale for choosing egui/eframe for the desktop UI.
+- **[SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md)** — Rationale for BYO signal-cli for the Signal channel.
 
 ### `/ref`
 
-- **[CLAW_ECOSYSTEM_COMPARISON.md](ref/CLAW_ECOSYSTEM_COMPARISON.md)** — Single maintained matrix: OpenClaw, IronClaw, NemoClaw, and Chai
-- **[OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design reference for alignment.
-- **[IRONCLAW_REFERENCE.md](ref/IRONCLAW_REFERENCE.md)** — IronClaw (Rust, security-focused OpenClaw-inspired gateway): architecture, LLM providers, relation to Chai
-- **[OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md)** — Ollama API references, how it is used, and additional API capabilities.
-- **[LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md)** — LM Studio API reference, how it is used, and additional API capabilities
-- **[NEMOCLAW_REFERENCE.md](ref/NEMOCLAW_REFERENCE.md)** — NVIDIA NemoClaw: OpenClaw in OpenShell, sandbox, Nemotron cloud inference; distinct from Chai’s NIM backend
-- **[NVIDIA_NIM_REFERENCE.md](ref/NVIDIA_NIM_REFERENCE.md)** — NVIDIA NIM hosted API (free tier) reference; not a privacy option; rate limits and integration notes
-- **[VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md)** — vLLM OpenAI-compatible serving API; self-hosted inference; alignment with the LM Studio/OpenAI-compat path
-- **[OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md)** — OpenAI HTTP API (`openai` provider); auth, base URL, and how it relates to `openai_compat`
-- **[HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md)** — Hugging Face OpenAI-compatible endpoints (`hf` provider); Inference Endpoints, TGI, configuration
+#### Claw Ecosystem
+
+- **[CLAW_ECOSYSTEM.md](ref/CLAW_ECOSYSTEM.md)** — Comparison of OpenClaw, IronClaw, NemoClaw, and Chai.
+- **[OPENCLAW_REFERENCE.md](ref/OPENCLAW_REFERENCE.md)** — OpenClaw concepts, protocol, and design for alignment.
+- **[IRONCLAW_REFERENCE.md](ref/IRONCLAW_REFERENCE.md)** — IronClaw architecture, LLM integration, and relation to Chai.
+- **[NEMOCLAW_REFERENCE.md](ref/NEMOCLAW_REFERENCE.md)** — NemoClaw in OpenShell, sandbox, and Nemotron cloud inference.
+
+#### Channels (External APIs)
+
+- **[TELEGRAM_REFERENCE.md](ref/TELEGRAM_REFERENCE.md)** — Telegram Bot API usage in Chai: configuration, long-poll, and webhook.
+- **[SIGNAL_REFERENCE.md](ref/SIGNAL_REFERENCE.md)** — Signal channel via BYO signal-cli: HTTP SSE and JSON-RPC in `crates/lib`.
+- **[MATRIX_REFERENCE.md](ref/MATRIX_REFERENCE.md)** — Matrix channel via `crates/adapters/matrix` (optional `matrix` feature): federation, E2EE, room allowlist, and SAS verification.
+
+#### Providers (External APIs)
+
+- **[OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md)** — Ollama API usage in Chai and available endpoints.
+- **[LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md)** — LM Studio OpenAI-compatible API usage in Chai.
+- **[VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md)** — vLLM OpenAI-compatible serving for self-hosted inference.
+- **[HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md)** — Hugging Face OpenAI-compatible endpoints for the `hf` provider.
+- **[NVIDIA_NIM_REFERENCE.md](ref/NVIDIA_NIM_REFERENCE.md)** — NVIDIA hosted NIM API (free tier): auth, limits, and privacy caveats.
+- **[OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md)** — OpenAI HTTP API for the `openai` provider and `openai_compat` mapping.
 
 ### `/spec`
 
-- **[AGENT_CONTEXT.md](spec/AGENT_CONTEXT.md)** — How context is built and provided to the model.
-- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — The format for skills, frontmatter, metadata, and loaders.
-- **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — The tools.json schema for declarative skill tools.
-- **[ORCHESTRATION.md](spec/ORCHESTRATION.md)** — Orchestrator vs worker roles, **`delegate_task`**, and delegation behavior (see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) for roadmap and phases).
+#### Context and Skills
 
-### root
+- **[CONTEXT.md](spec/CONTEXT.md)** — How agent context is assembled and passed to the model.
+- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill directory layout, frontmatter, metadata, and loaders.
+- **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — `tools.json` schema for declarative skill tools.
 
-- **[POC_CHANGELOG.md](POC_CHANGELOG.md)** — Changelog of features added in the proof-of-concept implementation.
-- **[POC_DELIVERABLE.md](POC_DELIVERABLE.md)** — High-level summary of the proof-of-concept implementation and next steps.
+#### Channels and Orchestration
+
+- **[CHANNELS.md](spec/CHANNELS.md)** — Internal channel types, sessions, WebSocket delivery, and shutdown.
+- **[ORCHESTRATION.md](spec/ORCHESTRATION.md)** — Orchestrator and worker roles, **`delegate_task`**, and delegation policy.
+
+#### Providers and Models
+
+- **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, configuration, discovery, and API-family comparison.
+- **[MODELS.md](spec/MODELS.md)** — Model identifiers, families, repository inventory, and tool-calling fit.
+
+### root (this directory)
+
+#### Proof-of-Concept
+
+- **[POC_CHANGELOG.md](POC_CHANGELOG.md)** — Chronology of proof-of-concept features.
+- **[POC_DELIVERABLE.md](POC_DELIVERABLE.md)** — Proof-of-concept scope, outcomes, and follow-up themes.
 - **[POC_IMPLEMENTATION.md](POC_IMPLEMENTATION.md)** — Detailed technical reference for the proof-of-concept implementation.
-- **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Epic: LLM services and API alignment (proposal and tracking for multiple backends).
-- **[EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md)** — Phase 2 specification (not implemented): Anthropic and Google first-party APIs; adapter scope and checklist
-- **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Epic: Orchestrators and workers (multi-model flows; phases, `run_turn_with_messages` in `crates/lib`).
-- **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Epic: RAG with vector database (proposal and tracking for semantic search).
-- **[SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md)** — Working document for comparing LLM services and models.
-- **[TEST_LOCAL_MODELS.md](TEST_LOCAL_MODELS.md)** — Working document for testing the performance of local models.
-- **[TEST_SELF_HOSTED_MODELS.md](TEST_SELF_HOSTED_MODELS.md)** — Working document for testing the performance of self-hosted models.
-- **[TEST_THIRD_PARTY_MODELS.md](TEST_THIRD_PARTY_MODELS.md)** — Working document for testing the performance of third-party models.
+
+#### Proposals and Epics
+
+- **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Proposal and tracking for multi-backend LLM alignment.
+- **[EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md)** — Proposal for official Anthropic and Google APIs.
+- **[EPIC_MSG_CHANNELS.md](EPIC_MSG_CHANNELS.md)** — Proposal and tracking for messaging channels (Telegram, Matrix, Signal).
+- **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Proposal and tracking for orchestrators, workers, and delegation.
+- **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Proposal and tracking for RAG with a vector store using pgvector.
+- **[EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md)** — Draft proposal for simulation harnesses versus `crates/spike` probes.
 
 ## Adding Documents
 
-- **Decisions** (rationale, alternatives, “why we chose X”) → add under **`adr/`**. Use a clear filename (e.g. `PROGRAMMING_LANGUAGE.md`, `DESKTOP_FRAMEWORK.md`). Follow the general format and tone of other documents in the directory.
-- **Reference** (external system or spec summary for alignment) → add under **`ref/`**. Use a clear filename (e.g. `OPENCLAW_REFERENCE.md`, `OLLAMA_REFERENCE.md`). For a **comparison across multiple external systems**, prefer a single shared doc (e.g. `CLAW_ECOSYSTEM_COMPARISON.md`) and link to it from each per-system reference to avoid duplicated tables. Follow the general format and tone of other documents in the directory.
-- **Specification** (internal: how this project works—context shape, format, loader behavior) → add under **`spec/`**. Use a clear filename (e.g. `AGENT_CONTEXT.md`, `SKILL_FORMAT.md`). Follow the general format and tone of other documents in the directory.
-- **Work In Progress** (what's built, what’s next, comparing and testing different models) → add at **root**. Use a clear filename (e.g. `POC_DELIVERABLE.md`, `POC_IMPLEMENTATION.md`). Follow the general format and tone of other documents in the directory.
+Follow the general format and tone of documents in the same **Location** (see [Directory Layout](#directory-layout)).
+
+- **`adr/`** — New architecture decision records (rationale, alternatives, “why we chose X”).
+
+- **`ref/`** — New material on **external** systems or APIs. Prefer [CLAW_ECOSYSTEM.md](ref/CLAW_ECOSYSTEM.md) or something similar for cross-product comparison tables instead of duplicating them.
+
+- **`spec/`** — New **internal** specs (how Chai behaves: context, skills, tools, orchestration, gateway channels, providers, models).
+
+- **root** (this directory) — New **proof-of-concept**, **proposals/epics**, or issue tracking documents.
+
+## External Documents
+
+The following documents are user resources; they live outside of this directory (`.agents`). While they are not intended for use by agents, they do need to be updated, especially when adding new features.
+
+- **`/.journey/`** - User journeys for understanding the system and manually testing it.
+- **`/.testing/`** - Testing playbooks for testing models using supported providers. 
+

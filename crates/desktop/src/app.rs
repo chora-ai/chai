@@ -218,6 +218,10 @@ impl ChaiApp {
     fn start_new_session(&mut self) {
         self.chat_session_id = None;
         self.selected_session_id = None;
+        // Drop any in-flight agent RPC so a late reply cannot re-bind `chat_session_id` to the
+        // previous server session (which would make the next send continue that history).
+        self.chat_turn_receiver = None;
+        self.pending_user_message = None;
         self.chat_messages.clear();
         self.chat_error = None;
         self.chat_messages.push(ChatMessage::assistant(

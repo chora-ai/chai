@@ -2,7 +2,7 @@
 
 **Summary** — Align the gateway with multiple LLM services (local, self-hosted, third-party) via a consistent internal message/tool format and provider-specific clients or adapters.
 
-**Status** — **Phase 1 complete** for all shipped backends (Ollama-native and OpenAI-compat families). **Phase 2** (Anthropic and Google first-party APIs) is **specified and tracked**; implementation is **not** done. See [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
+**Status** — **Phase 1 complete** for all shipped backends (Ollama-native and OpenAI-compat families). **Phase 2** (official Anthropic and Google APIs) is **specified and tracked**; implementation is **not** done. See [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
 
 ## Goal
 
@@ -18,7 +18,7 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 ## Scope
 
 - **Phase 1 (done):** Ollama-native and OpenAI-compat backends listed above; message/tool documentation; compatibility for LocalAI, llama.cpp, and Venice (OpenAI-compat) when they expose those API families; deployment and streaming notes in ref docs.
-- **Phase 2 (tracked, not implemented):** First-party **Anthropic** and **Google** APIs — see below and [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md).
+- **Phase 2 (tracked, not implemented):** Official **Anthropic** and **Google** APIs — see below and [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md).
 - **Out of scope:** Orchestrator–worker delegation as an API-alignment deliverable; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md).
 
 ## Compatibility Targets (No Dedicated Provider Id)
@@ -41,7 +41,7 @@ These stacks are **tracked** here so expectations stay clear: Chai does **not** 
 
 ## Phase 2: Anthropic and Google
 
-**Goal:** Add **`Provider`** implementations for first-party **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies).
+**Goal:** Add **`Provider`** implementations for official **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies).
 
 **Specification:** [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md) — API families, adapter responsibilities, implementation checklist.
 
@@ -50,7 +50,7 @@ These stacks are **tracked** here so expectations stay clear: Chai does **not** 
 - [ ] **Anthropic:** Client + adapter + config + gateway **`status`** discovery (or documented static catalog) + desktop + docs.
 - [ ] **Google (Gemini):** Same as above for the chosen Gemini API surface.
 
-Until Phase 2 ships, [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md) continues to list Claude and Gemini under **planned**.
+Until Phase 2 ships, [spec/PROVIDERS.md](spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
 
 ## Technical Reference
 
@@ -87,7 +87,7 @@ OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`
 | **OpenAI-compat** | LM Studio, OpenAI, Hugging Face TGI/IE, vLLM, LocalAI (OpenAI mode), NIM | Phase 1 done | **`OpenAiCompatClient`** (+ thin provider wrappers); `tool_name` ↔ `tool_call_id`. |
 | **Provider-specific** | Claude (Anthropic), Gemini (Google) | Phase 2 | See [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md). |
 
-For the full list of services, model families, and configuration, see [SERVICES_AND_MODELS.md](SERVICES_AND_MODELS.md).
+For providers, configuration, and API families, see [spec/PROVIDERS.md](spec/PROVIDERS.md). For model families and named model ids, see [spec/MODELS.md](spec/MODELS.md).
 
 ### Implementation Notes
 
