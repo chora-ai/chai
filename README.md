@@ -302,6 +302,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       - **`model`** (model id for that provider)
       - **`local`** (optional boolean hint)
       - **`toolCapable`** (optional boolean hint)
+    - Omit or use an empty array to allow only the orchestrator’s effective default **`provider`** / **`model`** for **`delegate_task`** calls that do not specify **`workerId`**.
   - Optional **`delegateBlockedProviders`**
     - Array of canonical provider id strings (**`ollama`**, **`lms`**, **`hf`**, **`vllm`**, **`nim`**, **`openai`**).
   - Optional **`delegationInstructionRoutes`**
@@ -317,6 +318,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   - Optional **`enabledProviders`**
   - Optional **`delegateAllowedModels`**
     - Same shape as on the orchestrator (array of objects with **`provider`**, **`model`**, optional **`local`**, optional **`toolCapable`**).
+    - Omit or use an empty array to allow only that worker’s effective default **`provider`** / **`model`** for **`delegate_task`** when **`workerId`** matches.
 
 ### Skills
 

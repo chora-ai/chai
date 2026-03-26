@@ -5,6 +5,8 @@
 //!
 //! The **`status`** response payload may include **`orchestrationCatalog`**: a merged list of `(provider, model)` rows
 //! from discovery plus allowlist-only entries; see [`crate::orchestration::build_orchestration_catalog`].
+//! It may include **`workers`**: an array of `{ "id", "defaultProvider", "defaultModel" }` per configured worker
+//! (effective defaults for delegation; see [`crate::orchestration::effective_worker_defaults`]).
 
 use serde::{Deserialize, Serialize};
 

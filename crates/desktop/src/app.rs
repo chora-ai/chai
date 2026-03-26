@@ -16,12 +16,29 @@ pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, SessionEvent};
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Screen {
     #[default]
-    Info,
     Chat,
-    Config,
+    Status,
     Context,
+    Tools,
+    Config,
     Skills,
     Logs,
+}
+
+/// **Status** screen: human-readable dashboard vs full `status` WebSocket response JSON.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum StatusViewMode {
+    #[default]
+    Dashboard,
+    RawJson,
+}
+
+/// **Config** screen: human-readable dashboard vs on-disk **`config.json`**.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ConfigViewMode {
+    #[default]
+    Dashboard,
+    RawJson,
 }
 
 /// Frames between gateway probes (probe at ~1 Hz if 60 fps).
@@ -73,7 +90,7 @@ pub struct ChaiApp {
     current_model: Option<String>,
     /// Default model from config (cached for display / fallback).
     default_model: Option<String>,
-    /// Current screen (Info, Chat, Config, Context, Skills, Logs).
+    /// Current screen (Chat, Status, Context, Tools, Config, Skills, Logs).
     current_screen: Screen,
     /// Session whose messages are shown in the chat area (None = "New session" / desktop buffer).
     selected_session_id: Option<String>,
@@ -85,10 +102,18 @@ pub struct ChaiApp {
     selected_skill_name: Option<String>,
     /// Cached list of enabled providers for the chat provider dropdown (invalidated when Config screen is shown).
     cached_enabled_providers: Option<Vec<String>>,
+    /// Status screen: show parsed fields or the raw `status` response JSON.
+    status_view_mode: StatusViewMode,
+    /// Stable buffer for **Tools** screen `TextEdit` (updated only when `gateway_status.tools` changes).
+    tools_display_buffer: String,
+    /// Config screen: dashboard vs raw file.
+    config_view_mode: ConfigViewMode,
+    /// **Config** raw view: file text (synced when content changes; avoids `TextEdit` flicker).
+    config_raw_display_buffer: String,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
-/// gap at the bottom. Use for full-screen panels (Context, Skills, Info, Config).
+/// gap at the bottom. Use for full-screen panels (Context, Skills, Status, Config).
 pub fn ui_screen(
     ui: &mut egui::Ui,
     title: &str,
@@ -149,6 +174,10 @@ impl Default for ChaiApp {
             was_gateway_running: false,
             selected_skill_name: None,
             cached_enabled_providers: None,
+            status_view_mode: StatusViewMode::default(),
+            tools_display_buffer: String::new(),
+            config_view_mode: ConfigViewMode::default(),
+            config_raw_display_buffer: String::new(),
         }
     }
 }
@@ -430,6 +459,26 @@ impl ChaiApp {
         self.gateway_error = None;
     }
 
+    /// Append the same text as the **`/help`** command to the active chat session.
+    pub(crate) fn show_chat_help(&mut self) {
+        const TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
+        let msg = ChatMessage::assistant(TEXT.to_string(), None, None);
+        if let Some(sid) = self.chat_session_id.clone() {
+            self.session_messages.entry(sid.clone()).or_default().push(msg);
+            self.move_session_to_front(&sid);
+            // Keep the visible transcript in sync when the active session is also selected.
+            if self.selected_session_id.as_deref() == Some(sid.as_str()) {
+                self.chat_messages = self
+                    .session_messages
+                    .get(&sid)
+                    .cloned()
+                    .unwrap_or_default();
+            }
+        } else {
+            self.chat_messages.push(msg);
+        }
+    }
+
     /// Start a chat turn in a background thread if possible.
     fn start_chat_turn(&mut self) {
         if self.chat_turn_receiver.is_some() {
@@ -452,11 +501,7 @@ impl ChaiApp {
 
         if message.eq_ignore_ascii_case("/help") {
             self.pending_user_message = None;
-            self.chat_messages.push(ChatMessage::assistant(
-                "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message".to_string(),
-                None,
-                None,
-            ));
+            self.show_chat_help();
             return;
         }
 
@@ -539,49 +584,41 @@ impl eframe::App for ChaiApp {
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_screen == Screen::Chat {
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        let subtitle = if !running {
-                            Some("Start the gateway to chat with the model.")
-                        } else {
-                            None
-                        };
-                        ui_screen(ui, "Chat", subtitle, |ui| {
-                            screens::chat::ui_chat(self, ui, running);
-                        });
+                ui::layout::central_padded(ui, |ui| {
+                    let subtitle = if !running {
+                        Some("Start the gateway to chat with the orchestrator.")
+                    } else {
+                        Some("Chat with the orchestrator using the selected model.")
+                    };
+                    ui_screen(ui, "Chat", subtitle, |ui| {
+                        screens::chat::ui_chat(self, ui, running);
                     });
-            } else if self.current_screen == Screen::Info {
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        screens::info::ui_info_screen(self, ui, running);
-                    });
+                });
+            } else if self.current_screen == Screen::Status {
+                ui::layout::central_padded(ui, |ui| {
+                    screens::status::ui_status_screen(self, ui, running);
+                });
             } else if self.current_screen == Screen::Config {
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        screens::config::ui_config_screen(self, ui);
-                    });
+                ui::layout::central_padded(ui, |ui| {
+                    screens::config::ui_config_screen(self, ui);
+                });
             } else if self.current_screen == Screen::Context {
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        screens::context::ui_context_screen(self, ui, running);
-                    });
+                ui::layout::central_padded(ui, |ui| {
+                    screens::context::ui_context_screen(self, ui, running);
+                });
+            } else if self.current_screen == Screen::Tools {
+                ui::layout::central_padded(ui, |ui| {
+                    screens::tools::ui_tools_screen(self, ui, running);
+                });
             } else if self.current_screen == Screen::Skills {
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        screens::skills::ui_skills_screen(self, ui);
-                    });
+                ui::layout::central_padded(ui, |ui| {
+                    screens::skills::ui_skills_screen(self, ui);
+                });
             } else if self.current_screen == Screen::Logs {
                 // Logs screen has its own scroll area for the log lines; avoid double scrollbars
-                egui::Frame::none()
-                    .inner_margin(egui::Margin::symmetric(24.0, 0.0))
-                    .show(ui, |ui| {
-                        screens::logs::ui_logs_screen(self, ui);
-                    });
+                ui::layout::central_padded(ui, |ui| {
+                    screens::logs::ui_logs_screen(self, ui);
+                });
             }
         });
     }

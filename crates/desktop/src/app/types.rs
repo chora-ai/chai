@@ -70,6 +70,14 @@ pub struct SessionEvent {
     pub(crate) delegation_event: Option<String>,
 }
 
+/// One worker row from gateway **`status`** (`workers`): effective defaults for delegation.
+#[derive(Clone, Default)]
+pub struct StatusWorkerRow {
+    pub(crate) id: String,
+    pub(crate) default_provider: String,
+    pub(crate) default_model: String,
+}
+
 /// One row of the merged orchestration catalog from gateway **`status`** (`orchestrationCatalog`).
 #[derive(Clone, Default)]
 pub struct OrchestrationCatalogRow {
@@ -93,6 +101,8 @@ pub struct GatewayStatusDetails {
     pub(crate) default_provider: Option<String>,
     /// Resolved default model id (from config or provider fallback).
     pub(crate) default_model: Option<String>,
+    /// Canonical provider ids with discovery enabled (`enabledProviders` in status). `None` if the gateway omitted the field.
+    pub(crate) enabled_providers: Option<Vec<String>>,
     /// Ollama model names from gateway discovery (empty if Ollama unreachable).
     pub(crate) ollama_models: Vec<String>,
     /// LM Studio model names from gateway discovery (empty if LM Studio unreachable).
@@ -123,5 +133,9 @@ pub struct GatewayStatusDetails {
     pub(crate) tools: Option<String>,
     /// Discovery + allowlist merge for delegation / UI (see lib `build_orchestration_catalog`).
     pub(crate) orchestration_catalog: Vec<OrchestrationCatalogRow>,
+    /// Worker presets from the running gateway config (`workers` in **`status`**).
+    pub(crate) workers: Vec<StatusWorkerRow>,
+    /// Pretty-printed JSON for the full WebSocket **`res`** to the `status` request (type, id, ok, payload).
+    pub(crate) status_response_json: Option<String>,
 }
 

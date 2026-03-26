@@ -1,8 +1,12 @@
 //! Delegation policy: optional allowlists of (provider, model) pairs (see `.agents/EPIC_ORCHESTRATION.md`).
 
-use crate::config::{canonical_provider, AgentsConfig, AllowedModelEntry};
+use crate::config::{
+    canonical_provider, resolve_effective_provider_and_model, AgentsConfig, AllowedModelEntry,
+};
 use crate::session::SessionStore;
 use serde_json::{json, Value};
+
+use super::workers_context::effective_worker_defaults;
 
 fn pair_matches_catalog(
     catalog: &[AllowedModelEntry],
@@ -15,9 +19,20 @@ fn pair_matches_catalog(
     })
 }
 
-/// When **`agents.delegateAllowedModels`** and/or a worker's **`delegateAllowedModels`** are set
-/// (non-empty), the resolved `(provider, model)` for **`delegate_task`** must appear in the
-/// effective catalog: the worker's list if non-empty, otherwise the orchestrator list.
+fn matches_effective_default(
+    provider_canonical: &str,
+    model: &str,
+    default_provider: &str,
+    default_model: &str,
+) -> bool {
+    provider_canonical == default_provider && model == default_model.trim()
+}
+
+/// When **`delegateAllowedModels`** is **non-empty**, the resolved `(provider, model)` for
+/// **`delegate_task`** must appear in that list (worker list if set and non-empty; otherwise
+/// orchestrator list). When the effective list is **omitted or empty**, only the **effective
+/// default** provider/model for that scope is allowed (`effective_worker_defaults` for a worker,
+/// `resolve_effective_provider_and_model` when no worker).
 pub fn assert_delegation_pair_allowed(
     agents: &AgentsConfig,
     worker_id: Option<&str>,
@@ -46,19 +61,37 @@ pub fn assert_delegation_pair_allowed(
                     return Ok(());
                 }
             }
+            let (def_p, def_m) = effective_worker_defaults(agents, w);
+            if matches_effective_default(provider_canonical, model, &def_p, &def_m) {
+                return Ok(());
+            }
+            return Err(format!(
+                "provider/model not allowed for worker {} (delegateAllowedModels empty: only default {} / {})",
+                wid, def_p, def_m
+            ));
         }
     }
 
     if let Some(ref list) = agents.delegate_allowed_models {
-        if !list.is_empty() && !pair_matches_catalog(list, provider_canonical, model) {
-            return Err(
-                "provider/model not allowed for delegation (agents.delegateAllowedModels)"
-                    .to_string(),
-            );
+        if !list.is_empty() {
+            if !pair_matches_catalog(list, provider_canonical, model) {
+                return Err(
+                    "provider/model not allowed for delegation (agents.delegateAllowedModels)"
+                        .to_string(),
+                );
+            }
+            return Ok(());
         }
     }
 
-    Ok(())
+    let (def_p, def_m) = resolve_effective_provider_and_model(agents);
+    if matches_effective_default(provider_canonical, model, &def_p, &def_m) {
+        return Ok(());
+    }
+    Err(format!(
+        "provider/model not allowed for delegation (delegateAllowedModels empty: only default {} / {})",
+        def_p, def_m
+    ))
 }
 
 /// Merge **`delegationInstructionRoutes`**: first matching **`instructionPrefix`** fills missing **`workerId`** / **`provider`** / **`model`**.
@@ -185,9 +218,13 @@ mod tests {
     }
 
     #[test]
-    fn no_lists_allows_any() {
+    fn no_lists_allows_only_orchestrator_default() {
         let agents = AgentsConfig::default();
-        assert!(assert_delegation_pair_allowed(&agents, None, "ollama", "llama3.2:latest").is_ok());
+        let (def_p, def_m) = crate::config::resolve_effective_provider_and_model(&agents);
+        assert!(
+            assert_delegation_pair_allowed(&agents, None, def_p.as_str(), def_m.as_str()).is_ok()
+        );
+        assert!(assert_delegation_pair_allowed(&agents, None, "lms", "x").is_err());
     }
 
     #[test]
@@ -214,18 +251,18 @@ mod tests {
     }
 
     #[test]
-    fn worker_empty_list_falls_back_to_global() {
+    fn worker_empty_list_uses_worker_defaults_not_orchestrator_list() {
         let mut agents = AgentsConfig::default();
         agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
         agents.workers = Some(vec![WorkerConfig {
             id: "w".to_string(),
-            default_provider: None,
-            default_model: None,
+            default_provider: Some("lms".to_string()),
+            default_model: Some("granite".to_string()),
             enabled_providers: None,
             delegate_allowed_models: Some(vec![]),
         }]);
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest").is_ok());
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "x").is_err());
+        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
+        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest").is_err());
     }
 
     #[test]

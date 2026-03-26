@@ -20,7 +20,7 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`id`**, **`role`** | Identity; must include exactly one **`orchestrator`**. |
 | **`defaultProvider`**, **`defaultModel`** | Main session defaults. |
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
-| **`delegateAllowedModels`** | Optional non-empty allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When set, every resolved **`delegate_task`** target must match a pair. |
+| **`delegateAllowedModels`** | Optional allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When **non-empty**, every resolved **`delegate_task`** target (without **`workerId`**) must match a pair. When **omitted** or **empty**, only the orchestrator effective default **`provider`** / **`model`** is allowed for those delegations. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
 | **`maxDelegationsPerSession`** | Cap on **successful** delegations per persisted session (requires session id on the gateway path). |
 | **`maxDelegationsPerProvider`** | Per-session caps keyed by canonical provider id. |
@@ -32,7 +32,7 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | Key | Purpose |
 |-----|---------|
 | **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`** | Same ideas as orchestrator; **`id`** is **`workerId`**. |
-| **`delegateAllowedModels`** | When non-empty, narrows targets for delegations that use this **`workerId`**; when omitted or empty, orchestrator-level list applies if non-empty. |
+| **`delegateAllowedModels`** | When non-empty, narrows targets for delegations that use this **`workerId`**. When omitted or empty, only that worker's effective default **`provider`** / **`model`** is allowed. |
 
 ## Delegation Tool (`delegate_task`; formerly `chai_delegate`)
 
@@ -52,8 +52,8 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on another pr
 ## Allowlists (`delegateAllowedModels`)
 
 - On the **orchestrator** entry, when **non-empty**, every successful **`delegate_task`** resolution must match one **`{ "provider", "model" }`** pair exactly (after defaulting). Optional **`local`** and **`toolCapable`** are hints for catalog and UX only.
-- On a **worker** entry, **`delegateAllowedModels`** narrows delegations that use that **`workerId`**. When **omitted** or **empty**, the orchestrator-level list applies if it is non-empty.
-- Empty or omitted orchestrator **`delegateAllowedModels`** imposes no extra restriction beyond **`enabledProviders`** and other policy.
+- On a **worker** entry, **`delegateAllowedModels`** narrows delegations that use that **`workerId`**. When **omitted** or **empty**, only that worker's resolved default **`provider`** / **`model`** is allowed.
+- Empty or omitted orchestrator **`delegateAllowedModels`** restricts delegations **without** **`workerId`** to the orchestrator default pair only (in addition to **`enabledProviders`** and other policy).
 
 ## Worker Turn Behavior
 
@@ -83,6 +83,10 @@ Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs
 ## Gateway `status` — `orchestrationCatalog`
 
 The **`status`** WebSocket method returns **`orchestrationCatalog`**: a merged array of **`{ provider, model, discovered, local?, toolCapable? }`** built from per-provider discovery plus any **`delegateAllowedModels`** pairs not present in discovery (**`discovered: false`**). Hints attach when the pair matches an allowlist entry. See **`crates/lib/src/orchestration/catalog.rs`**.
+
+## Gateway `status` — `workers`
+
+The **`status`** payload includes **`workers`**: an array of **`{ id, defaultProvider, defaultModel }`** for each non-empty worker id in config, using the same effective **`(provider, model)`** resolution as **`delegate_task`** when **`provider`** / **`model`** are omitted (see **`crates/lib/src/orchestration/workers_context.rs`**). Empty when no workers are configured. **Chai Desktop** **Status** lists these under **Agents**.
 
 ## Out of Scope for This Spec
 

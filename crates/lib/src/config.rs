@@ -262,7 +262,8 @@ pub struct AgentsConfig {
 
     /// Optional allowlist of `(provider, model)` pairs permitted for **`delegate_task`** when no
     /// worker-specific non-empty [`WorkerConfig::delegate_allowed_models`] applies. Omitted or empty
-    /// means no catalog restriction (subject to `enabledProviders` and discovery rules).
+    /// means only the orchestrator effective default provider/model pair is allowed (see
+    /// [`resolve_effective_provider_and_model`]).
     pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
 
     /// Max successful **`delegate_task`** calls per session (orchestrator only). Omitted = no limit.
@@ -542,7 +543,8 @@ pub struct WorkerConfig {
     /// Optional allowlist of `(provider, model)` for **`delegate_task`** when **`workerId`** matches
     /// this worker. When **non-empty**, only these pairs are allowed for that worker (orchestrator
     /// [`AgentsConfig::delegate_allowed_models`] is not applied for that worker). When omitted or
-    /// empty, the orchestrator-level [`AgentsConfig::delegate_allowed_models`] applies if set.
+    /// empty, only this worker's effective default provider/model pair is allowed (same resolution
+    /// as runtime `delegate_task` defaults).
     #[serde(default)]
     pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
 }
@@ -829,6 +831,17 @@ pub fn provider_discovery_enabled(agents: &AgentsConfig, provider: &str) -> bool
     list.iter()
         .filter_map(|b| canonical_provider(b))
         .any(|b| b == provider_canonical)
+}
+
+/// Canonical provider ids (`ollama`, `lms`, …) for which [`provider_discovery_enabled`] is true.
+/// Matches which backends run model discovery at gateway startup and which **`status`** includes `*Models` for.
+pub fn discovery_enabled_provider_ids(agents: &AgentsConfig) -> Vec<String> {
+    ["ollama", "lms", "vllm", "nim", "openai", "hf"]
+        .iter()
+        .copied()
+        .filter(|p| provider_discovery_enabled(agents, p))
+        .map(str::to_string)
+        .collect()
 }
 
 /// Resolve effective default provider and model for display (e.g. in desktop when gateway status is not yet available).

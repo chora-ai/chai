@@ -224,7 +224,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             bottom: 4.0,
         })
         .show(&mut row_ui, |ui| {
-            // Right-to-left layout: first added = rightmost. We want left-to-right: Provider, Model, /new, Send.
+            // Right-to-left layout: first added = rightmost. Left-to-right: Provider, Model, /help, /new, Send.
             let effective_provider = app
                 .current_provider
                 .as_deref()
@@ -268,7 +268,9 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
 
             let mut send_now = false;
 
-            let send_button = ui.add_enabled(can_send, egui::Button::new("Send"));
+            let send_button = ui
+                .add_enabled(can_send, egui::Button::new("Send"))
+                .on_hover_text("ctrl/cmd+enter to send");
 
             if !model_options.is_empty() {
                 ui.add_space(8.0);
@@ -320,6 +322,10 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 });
             }
 
+            ui.add_space(8.0);
+            if ui.add_enabled(can_send_base, egui::Button::new("/help")).clicked() {
+                app.show_chat_help();
+            }
             ui.add_space(8.0);
             if ui.add_enabled(can_send_base, egui::Button::new("/new")).clicked() {
                 app.start_new_session();

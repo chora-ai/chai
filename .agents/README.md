@@ -45,6 +45,11 @@ This directory includes additional resources for agents (and humans) working on 
 
 ### `/spec`
 
+#### Configuration and Runtime
+
+- **[CONFIGURATION.md](spec/CONFIGURATION.md)** — Draft: on-disk `config.json` top-level blocks, env overrides, and pairing with gateway status for cross-checking.
+- **[GATEWAY_STATUS.md](spec/GATEWAY_STATUS.md)** — Draft: WebSocket `status` payload, block alignment with config, redaction rules, and config vs runtime comparison.
+
 #### Context and Skills
 
 - **[CONTEXT.md](spec/CONTEXT.md)** — How agent context is assembled and passed to the model.
@@ -73,10 +78,12 @@ This directory includes additional resources for agents (and humans) working on 
 
 - **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Proposal and tracking for multi-backend LLM alignment.
 - **[EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md)** — Proposal for official Anthropic and Google APIs.
+- **[EPIC_DESKTOP_APP.md](EPIC_DESKTOP_APP.md)** — Draft: desktop app improvements, UX, and roadmap (explorer, editing).
 - **[EPIC_MSG_CHANNELS.md](EPIC_MSG_CHANNELS.md)** — Proposal and tracking for messaging channels (Telegram, Matrix, Signal).
 - **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Proposal and tracking for orchestrators, workers, and delegation.
 - **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Proposal and tracking for RAG with a vector store using pgvector.
 - **[EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md)** — Draft proposal for simulation harnesses versus `crates/spike` probes.
+- **[EPIC_TOOL_APPROVAL.md](EPIC_TOOL_APPROVAL.md)** — Draft proposal for an approval gate before executing model tool calls.
 
 ## Adding Documents
 

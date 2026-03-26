@@ -1,14 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/adapters/matrix",
     "crates/cli",
     "crates/desktop",
     "crates/lib",
-    "crates/adapters/matrix",
     "crates/spike",
 ]
-# Plain `cargo build` / `cargo test` (no `-p`) only build these; omit `adapters/matrix` so
-# matrix-sdk is not compiled unless a crate enables `lib`'s `matrix` feature or you pass `-p matrix-channel`.
 default-members = [
     "crates/cli",
     "crates/desktop",

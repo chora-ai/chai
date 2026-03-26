@@ -256,7 +256,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
                 continue;
             }
-            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if res.get("id").and_then(|v| v.as_str()) == Some("2") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
                     let err = res
                         .get("error")
@@ -264,6 +264,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                         .unwrap_or("status failed");
                     return Err(err.to_string());
                 }
+                details.status_response_json = serde_json::to_string_pretty(&res).ok();
                 let payload = res.get("payload").ok_or("missing payload")?;
                 details.protocol = payload.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
                 details.port = payload.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
@@ -280,6 +281,12 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 details.orchestrator_id = payload.get("orchestratorId").and_then(|v| v.as_str()).map(String::from);
                 details.default_provider = payload.get("defaultProvider").and_then(|v| v.as_str()).map(String::from);
                 details.default_model = payload.get("defaultModel").and_then(|v| v.as_str()).map(String::from);
+                details.enabled_providers = payload.get("enabledProviders").and_then(|v| v.as_array()).map(|arr| {
+                    arr.iter()
+                        .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
+                        .filter(|s| !s.is_empty())
+                        .collect()
+                });
                 details.ollama_models = payload
                     .get("ollamaModels")
                     .and_then(|v| v.as_array())
@@ -372,6 +379,33 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                                         .unwrap_or(false),
                                     local: o.get("local").and_then(|v| v.as_bool()),
                                     tool_capable: o.get("toolCapable").and_then(|v| v.as_bool()),
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.workers = payload
+                    .get("workers")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|o| {
+                                let id = o.get("id").and_then(|v| v.as_str())?.trim();
+                                if id.is_empty() {
+                                    return None;
+                                }
+                                Some(crate::app::types::StatusWorkerRow {
+                                    id: id.to_string(),
+                                    default_provider: o
+                                        .get("defaultProvider")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    default_model: o
+                                        .get("defaultModel")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
                                 })
                             })
                             .collect()

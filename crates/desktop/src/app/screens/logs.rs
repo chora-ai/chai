@@ -9,7 +9,11 @@ pub fn ui_logs_screen(_app: &ChaiApp, ui: &mut egui::Ui) {
         .map(|b| b.iter().cloned().collect())
         .unwrap_or_default();
 
-    crate::app::ui_screen(ui, "Logs", None, |ui| {
+    crate::app::ui_screen(
+        ui,
+        "Logs",
+        Some("Values below are loaded from an in-memory buffer."),
+        |ui| {
         let available = ui.available_height();
         let scroll_height = available.max(0.0);
         egui::ScrollArea::vertical()
@@ -25,6 +29,7 @@ pub fn ui_logs_screen(_app: &ChaiApp, ui: &mut egui::Ui) {
                     ui.label("No log output yet.");
                 }
             });
-    });
+        },
+    );
 }
 

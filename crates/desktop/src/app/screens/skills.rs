@@ -1,10 +1,9 @@
 use eframe::egui;
 
+use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
-    const LINE_SPACING: f32 = 6.0;
-    const SECTION_SPACING: f32 = 18.0;
 
     let (config, config_path) = lib::config::load_config(None)
         .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
@@ -17,7 +16,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let mut skills = match skills_result {
         Ok(list) => list,
         Err(e) => {
-            let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+            let subtitle = format!("Values below are loaded from {}", skills_root.display());
             crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
                 ui.colored_label(
                     egui::Color32::RED,
@@ -29,7 +28,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     };
 
     if skills.is_empty() {
-        let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+        let subtitle = format!("Values below are loaded from {}", skills_root.display());
         crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
             ui.label("No skills found in the configured directories.");
         });
@@ -44,42 +43,39 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let disabled_skills: Vec<_> =
         skills.iter().filter(|e| !enabled_set.contains(e.name.as_str())).collect();
 
-    let subtitle = format!("Values below are loaded from: {}", skills_root.display());
+    let subtitle = format!("Values below are loaded from {}", skills_root.display());
 
     crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
-            ui.style_mut().spacing.item_spacing.x = 24.0;
-
-            ui.columns(2, |columns| {
+            dashboard::dashboard_two_columns(ui, |ui_left, ui_right| {
                 // Left column: skills list
                 {
-                    let ui_left = &mut columns[0];
                     egui::ScrollArea::vertical()
                         .id_source("skills_list_scroll")
                         .show(ui_left, |ui| {
                             // Enabled section
                             ui.label(egui::RichText::new("Enabled").strong());
-                            ui.add_space(LINE_SPACING);
+                            ui.add_space(spacing::LINE);
                             if enabled_skills.is_empty() {
                                 ui.label("No skills enabled.");
                             } else {
                                 for entry in enabled_skills.iter() {
                                     let title = entry.name.as_str();
-                                    paint_one_skill(ui, app, entry, title, column_width_for_skills(ui));
-                                    ui.add_space(SECTION_SPACING);
+                                    paint_one_skill(ui, app, entry, title);
+                                    ui.add_space(spacing::SUBSECTION);
                                 }
                             }
-                            ui.add_space(SECTION_SPACING);
+                            ui.add_space(spacing::SUBSECTION);
 
                             // Disabled section
                             ui.label(egui::RichText::new("Disabled").strong());
-                            ui.add_space(LINE_SPACING);
+                            ui.add_space(spacing::LINE);
                             if disabled_skills.is_empty() {
                                 ui.label("No skills disabled.");
                             } else {
                                 for entry in disabled_skills.iter() {
                                     let title = entry.name.as_str();
-                                    paint_one_skill(ui, app, entry, title, column_width_for_skills(ui));
-                                    ui.add_space(SECTION_SPACING);
+                                    paint_one_skill(ui, app, entry, title);
+                                    ui.add_space(spacing::SUBSECTION);
                                 }
                             }
                         });
@@ -87,7 +83,6 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 
                 // Right column: SKILL.md (top) + tools.json (bottom) for selected skill
                 {
-                    let ui_right = &mut columns[1];
                     let selected = app
                         .selected_skill_name
                         .as_ref()
@@ -103,7 +98,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                             egui::Layout::top_down(egui::Align::Min),
                             |ui| {
                                 ui.label(egui::RichText::new("Skill").strong());
-                                ui.add_space(LINE_SPACING);
+                                ui.add_space(spacing::LINE);
 
                                 let body = strip_skill_frontmatter(&entry.content);
                                 if body.trim().is_empty() {
@@ -124,7 +119,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                             },
                         );
 
-                        ui_right.add_space(SECTION_SPACING);
+                        ui_right.add_space(spacing::SUBSECTION);
 
                         // Bottom half: tools.json (use remaining height after SKILL.md + spacing)
                         let tools_path = entry.path.join("tools.json");
@@ -137,7 +132,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                                     .unwrap_or(contents);
 
                                 ui_right.label(egui::RichText::new("Tools").strong());
-                                ui_right.add_space(LINE_SPACING);
+                                ui_right.add_space(spacing::LINE);
 
                                 let remaining_height = ui_right.available_height();
                                 ui_right.allocate_ui_with_layout(
@@ -160,7 +155,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                             }
                             Err(_) => {
                                 ui_right.label(egui::RichText::new("Tools").strong());
-                                ui_right.add_space(LINE_SPACING);
+                                ui_right.add_space(spacing::LINE);
                                 ui_right.label("No tools.json found for this skill.");
                             }
                         }
@@ -197,13 +192,26 @@ fn strip_skill_frontmatter(content: &str) -> &str {
     }
 }
 
-/// Returns (column_width, content_width) for the current left column.
-/// Border aligns with headings; padding is inside the button on all sides.
-fn column_width_for_skills(ui: &egui::Ui) -> (f32, f32) {
-    let horizontal_padding = 8.0 * 2.0;
-    let column_width = ui.available_width();
-    let content_width = (column_width - horizontal_padding).max(0.0);
-    (column_width, content_width)
+/// [`dashboard::kv`] layout with white key and value (selected skill card on selection fill).
+fn skill_kv_row_selected(ui: &mut egui::Ui, key: &str, value: &str) {
+    ui.horizontal_top(|ui| {
+        let gap = ui.spacing().item_spacing.x;
+        ui.spacing_mut().item_spacing.x = spacing::KV_KEY_VALUE_GAP;
+        ui.allocate_ui_with_layout(
+            egui::vec2(spacing::KV_LABEL_COLUMN_WIDTH, 0.0),
+            egui::Layout::top_down(egui::Align::Min),
+            |ui| {
+                ui.label(
+                    egui::RichText::new(format!("{}:", key)).color(egui::Color32::WHITE),
+                );
+            },
+        );
+        ui.add(egui::Label::new(
+            egui::RichText::new(value).color(egui::Color32::WHITE),
+        ));
+        ui.spacing_mut().item_spacing.x = gap;
+    });
+    ui.add_space(spacing::KV_AFTER);
 }
 
 fn paint_one_skill(
@@ -211,158 +219,78 @@ fn paint_one_skill(
     app: &mut ChaiApp,
     entry: &lib::skills::SkillEntry,
     title: &str,
-    (column_width, content_width): (f32, f32),
 ) {
-    // Padding between content and border on all sides (border still aligns with headings).
-    let margin = egui::Margin {
-        left: 8.0,
-        right: 8.0,
-        top: 8.0,
-        bottom: 8.0,
-    };
-
-    let heading_font = egui::TextStyle::Button.resolve(ui.style());
-    let body_font = egui::TextStyle::Body.resolve(ui.style());
-    let path_text = format!("Path: {}", entry.path.display());
-
-    let mut size_job = egui::text::LayoutJob::default();
-    size_job.wrap.max_width = content_width;
-    size_job.append(
-        title,
-        0.0,
-        egui::text::TextFormat {
-            font_id: heading_font.clone(),
-            ..Default::default()
-        },
-    );
-    size_job.append(
-        "\n\n",
-        0.0,
-        egui::text::TextFormat {
-            font_id: body_font.clone(),
-            ..Default::default()
-        },
-    );
-    if !entry.description.is_empty() {
-        size_job.append(
-            entry.description.trim(),
-            0.0,
-            egui::text::TextFormat {
-                font_id: body_font.clone(),
-                ..Default::default()
-            },
-        );
-        size_job.append(
-            "\n",
-            0.0,
-            egui::text::TextFormat {
-                font_id: body_font.clone(),
-                ..Default::default()
-            },
-        );
-    }
-    size_job.append(
-        &path_text,
-        0.0,
-        egui::text::TextFormat {
-            font_id: body_font.clone(),
-            ..Default::default()
-        },
-    );
-
     let selected = app
         .selected_skill_name
         .as_deref()
         .map(|n| n == entry.name.as_str())
         .unwrap_or(false);
 
-    let galley = ui.fonts(|f| f.layout_job(size_job));
-    let desired_height = galley.size().y + margin.sum().y;
-    let desired_size = egui::vec2(column_width, desired_height);
-
-    let (outer_rect, response) = ui.allocate_exact_size(desired_size, egui::Sense::click());
-    // Inner rect: padding between content and border (inside the button).
-    let content_rect = egui::Rect::from_min_max(
-        outer_rect.min + egui::vec2(margin.left, margin.top),
-        outer_rect.max - egui::vec2(margin.right, margin.bottom),
-    );
-
-    let visuals = ui.style().interact_selectable(&response, selected);
-    let rounding = visuals.rounding;
-    // Draw border on the full allocation so padding is inside the button.
-    if selected {
-        ui.painter().rect(outer_rect, rounding, visuals.bg_fill, visuals.bg_stroke);
+    let bg_fill = if selected {
+        ui.visuals().selection.bg_fill
     } else {
-        let light_stroke = egui::Stroke {
+        egui::Color32::TRANSPARENT
+    };
+    let stroke = if selected {
+        ui.visuals().selection.stroke
+    } else {
+        egui::Stroke {
             width: 1.0,
             color: ui.visuals().widgets.noninteractive.bg_stroke.color,
-        };
-        ui.painter().rect(outer_rect, rounding, egui::Color32::TRANSPARENT, light_stroke);
-    }
-
-    let heading_color = ui.visuals().strong_text_color();
-    let body_color = if selected || response.hovered() {
-        ui.visuals().text_color()
-    } else {
-        ui.visuals().weak_text_color()
+        }
     };
 
-    let mut paint_job = egui::text::LayoutJob::default();
-    paint_job.wrap.max_width = content_width;
-    paint_job.append(
-        title,
-        0.0,
-        egui::text::TextFormat {
-            font_id: heading_font,
-            color: heading_color,
-            ..Default::default()
-        },
-    );
-    paint_job.append(
-        "\n\n",
-        0.0,
-        egui::text::TextFormat {
-            font_id: body_font.clone(),
-            color: body_color,
-            ..Default::default()
-        },
-    );
-    if !entry.description.is_empty() {
-        paint_job.append(
-            entry.description.trim(),
-            0.0,
-            egui::text::TextFormat {
-                font_id: body_font.clone(),
-                color: body_color,
-                ..Default::default()
-            },
-        );
-        paint_job.append(
-            "\n",
-            0.0,
-            egui::text::TextFormat {
-                font_id: body_font.clone(),
-                color: body_color,
-                ..Default::default()
-            },
-        );
-    }
-    paint_job.append(
-        &path_text,
-        0.0,
-        egui::text::TextFormat {
-            font_id: body_font,
-            color: body_color,
-            ..Default::default()
-        },
-    );
+    let frame = egui::Frame::group(ui.style())
+        .inner_margin(egui::Margin::same(spacing::GROUP_INNER_MARGIN))
+        .fill(bg_fill)
+        .stroke(stroke);
 
-    if ui.is_rect_visible(content_rect) {
-        let paint_galley = ui.fonts(|f| f.layout_job(paint_job));
-        ui.painter().galley(content_rect.left_top(), paint_galley);
-    }
+    let frame_response = frame.show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.vertical(|ui| {
+            let title_rt = if selected {
+                egui::RichText::new(title).strong().color(egui::Color32::WHITE)
+            } else {
+                egui::RichText::new(title).strong()
+            };
+            ui.label(title_rt);
+            ui.add_space(spacing::GROUP_TITLE_AFTER);
 
-    if response.clicked() {
+            let sep_stroke = if selected {
+                egui::Stroke::new(1.0, egui::Color32::WHITE)
+            } else {
+                egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
+            };
+            let sep_w = ui.available_width();
+            let (sep_rect, _) = ui.allocate_exact_size(egui::vec2(sep_w, 1.0), egui::Sense::hover());
+            ui.painter()
+                .hline(sep_rect.x_range(), sep_rect.center().y, sep_stroke);
+            ui.add_space(spacing::GROUP_AFTER_SEPARATOR);
+
+            if !entry.description.is_empty() {
+                let desc = entry.description.trim();
+                if selected {
+                    skill_kv_row_selected(ui, "Description", desc);
+                } else {
+                    dashboard::kv(ui, "Description", desc);
+                }
+            }
+
+            let path_str = entry.path.display().to_string();
+            if selected {
+                skill_kv_row_selected(ui, "Path", &path_str);
+            } else {
+                dashboard::kv(ui, "Path", &path_str);
+            }
+        });
+    });
+
+    let click = ui.interact(
+        frame_response.response.rect,
+        frame_response.response.id,
+        egui::Sense::click(),
+    );
+    if click.clicked() {
         app.selected_skill_name = Some(entry.name.clone());
     }
 }

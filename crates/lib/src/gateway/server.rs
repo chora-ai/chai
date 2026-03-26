@@ -15,7 +15,7 @@ use crate::config::{
 use crate::agent_ctx;
 use crate::init;
 use crate::orchestration::{
-    build_orchestration_catalog, build_workers_context, merge_delegate_task,
+    build_orchestration_catalog, build_workers_context, effective_worker_defaults, merge_delegate_task,
     provider_choice_from_canonical, provider_id, resolve_model, resolve_provider_choice,
     worker_tool_list, DelegateContext, DelegateObservability, ProviderChoice, ProviderClients,
 };
@@ -1303,31 +1303,123 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .unwrap_or("orchestrator");
-                let payload = json!({
-                    "runtime": "running",
-                    "protocol": PROTOCOL_VERSION,
-                    "port": state.config.gateway.port,
-                    "bind": state.config.gateway.bind,
-                    "auth": auth_mode,
-                    "orchestratorId": orchestrator_id,
-                    "defaultProvider": provider_id(provider_choice),
-                    "defaultModel": default_model,
-                    "ollamaModels": ollama_models,
-                    "lmsModels": lms_models,
-                    "vllmModels": vllm_models,
-                    "nimModels": nim_models,
-                    "openaiModels": openai_models,
-                    "hfModels": hf_models,
-                    "orchestrationCatalog": orchestration_catalog,
-                    "agentContext": state.agent_ctx,
-                    "systemContext": system_context,
-                    "date": today,
-                    "skillsContext": skills_context,
-                    "skillsContextFull": skills_context_full,
-                    "skillsContextBodies": if skills_context_bodies.is_empty() { serde_json::Value::Null } else { serde_json::Value::String(skills_context_bodies) },
-                    "contextMode": state.config.skills.context_mode,
-                    "tools": tools_string,
-                });
+                let workers_status: Vec<serde_json::Value> = state
+                    .config
+                    .agents
+                    .workers
+                    .as_ref()
+                    .map(|ws| {
+                        ws.iter()
+                            .filter_map(|w| {
+                                let id = w.id.trim();
+                                if id.is_empty() {
+                                    return None;
+                                }
+                                let (prov, model) =
+                                    effective_worker_defaults(&state.config.agents, w);
+                                Some(json!({
+                                    "id": id,
+                                    "defaultProvider": prov,
+                                    "defaultModel": model,
+                                }))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let discovery_ids = config::discovery_enabled_provider_ids(&state.config.agents);
+                let mut pl = serde_json::Map::new();
+                pl.insert("runtime".into(), json!("running"));
+                pl.insert("protocol".into(), json!(PROTOCOL_VERSION));
+                pl.insert("port".into(), json!(state.config.gateway.port));
+                pl.insert("bind".into(), json!(state.config.gateway.bind));
+                pl.insert("auth".into(), json!(auth_mode));
+                pl.insert("orchestratorId".into(), json!(orchestrator_id));
+                pl.insert(
+                    "workers".into(),
+                    serde_json::to_value(&workers_status).unwrap_or_else(|_| json!([])),
+                );
+                pl.insert("defaultProvider".into(), json!(provider_id(provider_choice)));
+                pl.insert("defaultModel".into(), json!(default_model));
+                pl.insert(
+                    "enabledProviders".into(),
+                    serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
+                );
+                let agents = &state.config.agents;
+                if config::provider_discovery_enabled(agents, "ollama") {
+                    pl.insert(
+                        "ollamaModels".into(),
+                        serde_json::to_value(&ollama_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                if config::provider_discovery_enabled(agents, "lms") {
+                    pl.insert(
+                        "lmsModels".into(),
+                        serde_json::to_value(&lms_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                if config::provider_discovery_enabled(agents, "vllm") {
+                    pl.insert(
+                        "vllmModels".into(),
+                        serde_json::to_value(&vllm_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                if config::provider_discovery_enabled(agents, "nim") {
+                    pl.insert(
+                        "nimModels".into(),
+                        serde_json::to_value(&nim_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                if config::provider_discovery_enabled(agents, "openai") {
+                    pl.insert(
+                        "openaiModels".into(),
+                        serde_json::to_value(&openai_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                if config::provider_discovery_enabled(agents, "hf") {
+                    pl.insert(
+                        "hfModels".into(),
+                        serde_json::to_value(&hf_models).unwrap_or_else(|_| json!([])),
+                    );
+                }
+                pl.insert(
+                    "orchestrationCatalog".into(),
+                    serde_json::to_value(&orchestration_catalog).unwrap_or_else(|_| json!([])),
+                );
+                pl.insert(
+                    "agentContext".into(),
+                    serde_json::to_value(&state.agent_ctx).unwrap_or_else(|_| serde_json::Value::Null),
+                );
+                pl.insert(
+                    "systemContext".into(),
+                    serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
+                );
+                pl.insert("date".into(), json!(today));
+                pl.insert(
+                    "skillsContext".into(),
+                    serde_json::to_value(&skills_context).unwrap_or_else(|_| json!("")),
+                );
+                pl.insert(
+                    "skillsContextFull".into(),
+                    serde_json::to_value(&skills_context_full).unwrap_or_else(|_| json!("")),
+                );
+                pl.insert(
+                    "skillsContextBodies".into(),
+                    if skills_context_bodies.is_empty() {
+                        serde_json::Value::Null
+                    } else {
+                        serde_json::Value::String(skills_context_bodies)
+                    },
+                );
+                pl.insert(
+                    "contextMode".into(),
+                    serde_json::to_value(&state.config.skills.context_mode)
+                        .unwrap_or_else(|_| json!("full")),
+                );
+                pl.insert(
+                    "tools".into(),
+                    serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
+                );
+                let payload = serde_json::Value::Object(pl);
                 let res = WsResponse::ok(&req.id, payload);
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
             }
