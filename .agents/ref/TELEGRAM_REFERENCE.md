@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Telegram Reference
 
 Reference for how the Telegram Bot API is used in this codebase and how this channel maps into the gateway. **Shared behavior for all channels** (inbound queue, **`process_inbound_message`**, bindings, shutdown) is specified in [CHANNELS.md](../spec/CHANNELS.md); this document focuses on Telegram-specific wiring.

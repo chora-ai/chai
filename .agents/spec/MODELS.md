@@ -1,3 +1,7 @@
+---
+status: stable
+---
+
 # Models
 
 Internal spec for **model identifiers** in Chai: examples per backend, cross-provider **families**, a **repository inventory** of every model id named in code and docs, and **tool-calling** fit for the agent loop. For **backend** configuration and wire protocols, see [PROVIDERS.md](PROVIDERS.md).

@@ -1,3 +1,7 @@
+---
+status: stable
+---
+
 # Messaging Channels
 
 This document describes how **messaging channels** connect to the Chai gateway: **`InboundMessage`** ingestion, **`ChannelHandle`** registration, **`SessionBindingStore`** routing, WebSocket **`send`** / **`agent`** delivery, and shutdown. It is an internal spec aligned with the current implementation in **`crates/lib`** (`channels/`, `routing.rs`, `gateway/server.rs`, `gateway/protocol.rs`, `config.rs`).

@@ -1,3 +1,7 @@
+---
+status: stable
+---
+
 # Tools Schema (tools.json)
 
 When a skill directory contains a `tools.json` file, the loader parses it and attaches tool definitions, an allowlist, and per-tool execution mapping to the skill. This allows skills to declare their tools declaratively so a generic executor can run them without per-skill code.

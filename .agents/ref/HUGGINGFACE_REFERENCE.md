@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Hugging Face OpenAI-Compat Reference
 
 Reference for **Hugging Face** deployments that expose an **OpenAI-compatible** HTTP API (`/v1/chat/completions`, `/v1/models`), used by Chai’s **`hf`** provider (`agents.defaultProvider: "hf"`). Typical cases: **Inference Endpoints** (managed) or **Text Generation Inference (TGI)** / similar stacks on your infrastructure.

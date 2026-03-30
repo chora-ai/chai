@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # LM Studio Reference
 
 Reference for how the LM Studio API is used in this codebase, what the full API offers, and how it aligns with the OpenAI-compatible endpoints. Use this when extending LLM support or aligning with LM Studio’s capabilities.

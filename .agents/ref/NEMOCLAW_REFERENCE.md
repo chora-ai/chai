@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # NVIDIA NemoClaw Reference
 
 Reference for **[NVIDIA NemoClaw](https://www.nvidia.com/en-us/ai/nemoclaw/)**—NVIDIA’s open source **reference stack** for running **[OpenClaw](https://openclaw.ai/)** inside **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)** with managed inference and policy. Use this when comparing “secured OpenClaw” offerings or NVIDIA agent tooling; this project (**Chai**) is not NemoClaw.

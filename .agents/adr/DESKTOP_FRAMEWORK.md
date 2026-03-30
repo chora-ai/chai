@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # UI Frameworks for Desktop Application
 
 This document explores UI framework choices for the desktop application. The project uses **egui/eframe** for minimal dependencies and a pure-Rust workflow.

@@ -1,11 +1,14 @@
+---
+status: stable
+---
+
 # Providers
 
 Internal spec for **LLM backends** in Chai: canonical **`defaultProvider`** ids, configuration, discovery, API family (Ollama-native vs OpenAI-compatible), and compatibility targets. For **model** identifiers, repository inventory, and tool-fit notes, see [MODELS.md](MODELS.md).
 
 ## Relationship to Other Documents
 
-- **[EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md)** — Proposal and tracking for API alignment, message/tool mapping, and Phase 2 (Anthropic/Google). This spec lists **which** backends exist and **how** to configure them; the epic defines **what “done” means** across backends.
-- **[EPIC_API_ALIGNMENT_PHASE_2.md](../EPIC_API_ALIGNMENT_PHASE_2.md)** — Phase 2 official Anthropic and Google APIs (specified; not implemented).
+- **[EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md)** — Proposal and tracking for API alignment, message/tool mapping, and [Phase 2 (Anthropic/Google)](../EPIC_API_ALIGNMENT.md#phase-2-anthropic-and-google). This spec lists **which** backends exist and **how** to configure them; the epic defines **what “done” means** across backends.
 - **[MODELS.md](MODELS.md)** — Model ids, repository inventory, deployment categories, and Chai tool compatibility.
 
 ## Categories of Providers

@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Matrix / Element Reference
 
 Reference for the **Matrix** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md) shows the Telegram mapping for comparison. Matrix emphasizes **open federation** and **decentralization**: users and rooms live on **homeservers** that interoperate over the protocol ([Matrix](https://matrix.org/)). **Element** is a common [client](https://matrix.org/ecosystem/clients/element/) for humans; the gateway uses a normal Matrix user account (access token or password login). **Interactive device verification (SAS)** can be completed via **gateway HTTP** so Element is not required for that step.

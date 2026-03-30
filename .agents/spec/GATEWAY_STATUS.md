@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Gateway Status
 
 **Status:** Draft — the **preferred** wire shape is **nested** under `gateway`, `channels`, `providers`, `agents`, and `skills` (see [Target Shape](#target-shape-preferred)) so status aligns with [CONFIGURATION.md](CONFIGURATION.md) for cross-checking. The gateway **today** still emits a largely **flat** payload (see [Current Wire Behavior](#current-wire-behavior)); implementation should migrate toward nesting. Update this document when the payload or client parsing changes.

@@ -1,3 +1,7 @@
+---
+status: stable
+---
+
 # Skills
 
 Skills are markdown-based instructions (one per directory) that can be loaded and used by the agent. The format and bundled skills for this project are described below.

@@ -1,11 +1,15 @@
+---
+status: accepted
+---
+
 # Signal (`signal-cli`) Integration
 
-This document records how Chai will integrate with **[signal-cli](https://github.com/AsamK/signal-cli)** for a future **Signal** messaging channel: **bring your own (BYO)** binary, **no distribution** of signal-cli by this project, and **no change** to Chai’s **LICENSE** file for this integration.
+This document records how Chai will integrate with **[signal-cli](https://github.com/AsamK/signal-cli)** for a future **Signal** messaging channel: **bring your own (BYO)** binary, **no distribution** of signal-cli by this project, and **no change** to Chai's **LICENSE** file for this integration.
 
 ## Context
 
 - **signal-cli** is **GPL-3.0** and implements access to the Signal service. Chai remains **LGPL-3.0** (see the repository **LICENSE**).
-- Integrating via **separate process** and **IPC** (HTTP JSON-RPC and SSE, or stdin/stdout JSON-RPC) keeps Chai’s code **independent** of signal-cli **source**—Chai is a client of a **user-run** program, not a linked derivative of signal-cli.
+- Integrating via **separate process** and **IPC** (HTTP JSON-RPC and SSE, or stdin/stdout JSON-RPC) keeps Chai's code **independent** of signal-cli **source**—Chai is a client of a **user-run** program, not a linked derivative of signal-cli.
 
 ## Decision
 
@@ -20,7 +24,7 @@ This document records how Chai will integrate with **[signal-cli](https://github
 
 - **BYO** avoids **GPL redistribution** obligations **for this repository** when shipping Chai (no bundled GPL artifact to offer source for).
 - **HTTP sidecar** gives a **stable** receive path (SSE) and **send** path (JSON-RPC) without embedding Java or linking GPL code into Rust binaries.
-- **License file unchanged** — Chai’s license terms stay clear; signal-cli remains a **third-party** dependency in the **operational** sense only.
+- **License file unchanged** — Chai's license terms stay clear; signal-cli remains a **third-party** dependency in the **operational** sense only.
 
 ## Alternatives Considered
 

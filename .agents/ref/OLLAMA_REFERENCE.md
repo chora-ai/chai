@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Ollama Reference
 
 Reference for how the Ollama API is used in this codebase, what the full API offers, and how Ollama differs from hosted APIs (OpenAI, Anthropic). Use this when extending LLM support or aligning with Ollama’s full capabilities.

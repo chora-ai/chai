@@ -1,3 +1,7 @@
+---
+status: stable
+---
+
 # Orchestration and Delegation
 
 This document describes how **orchestrator** and **worker** entries in **`config.json`** map to runtime behavior—especially **delegation** via the built-in **`delegate_task`** tool. For goals, phased implementation history, and optional backlog, see **[EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md)**.

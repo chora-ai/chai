@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # Signal Reference
 
 Reference for the **Signal** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md) shows the Telegram mapping for comparison. Signal is positioned as a **privacy-preserving** option ([Signal](https://signal.org/)); the service remains **centralized** (Signal-operated servers), which is a different axis from federation.

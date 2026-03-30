@@ -1,3 +1,7 @@
+---
+status: accepted
+---
+
 # Programming Language Choice
 
 This document records why **Rust** was chosen for the desktop and CLI, so the context is preserved as the project evolves.

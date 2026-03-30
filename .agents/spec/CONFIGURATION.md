@@ -1,3 +1,7 @@
+---
+status: draft
+---
+
 # Configuration File
 
 **Status:** Draft — describes the **on-disk** `config.json` shape at the level of top-level blocks and responsibilities. **Authoritative field lists and types** remain in **`crates/lib/src/config.rs`** (serde) and user **`README.md`**; update this document when behavior or grouping changes in a way operators care about.

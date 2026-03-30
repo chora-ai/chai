@@ -2,11 +2,14 @@
 
 This directory includes additional resources for agents (and humans) working on the codebase. Use it to find additional context and to add and update documents for future reference.
 
+**Read [meta/CONVENTIONS.md](meta/CONVENTIONS.md) before adding or modifying documents.**
+
 ## Directory Layout
 
 | Location | Purpose |
 |----------|---------|
 | **`adr/`** | Architecture Decision Records: why we chose X, alternatives considered. |
+| **`meta/`** | Conventions for each document type. Read before adding or modifying documents. |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
 | **root** | Primary workspace. Deliverables and epics: what was built and what's next. |
@@ -18,6 +21,14 @@ This directory includes additional resources for agents (and humans) working on 
 - **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Rationale for choosing Rust for the project.
 - **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Rationale for choosing egui/eframe for the desktop UI.
 - **[SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md)** — Rationale for BYO signal-cli for the Signal channel.
+
+### `/meta`
+
+- **[CONVENTIONS.md](meta/CONVENTIONS.md)** — Routing file: read before adding or modifying documents.
+- **[EPIC.md](meta/EPIC.md)** — Conventions for epics: frontmatter, structure, lifecycle, naming, maintenance.
+- **[SPEC.md](meta/SPEC.md)** — Conventions for specs: frontmatter, structure, naming, maintenance.
+- **[ADR.md](meta/ADR.md)** — Conventions for ADRs: frontmatter, structure, naming, maintenance.
+- **[REF.md](meta/REF.md)** — Conventions for reference documents: frontmatter, structure, naming, maintenance.
 
 ### `/ref`
 
@@ -76,26 +87,26 @@ This directory includes additional resources for agents (and humans) working on 
 
 #### Proposals and Epics
 
-- **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Proposal and tracking for multi-backend LLM alignment.
-- **[EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md)** — Proposal for official Anthropic and Google APIs.
+- **[EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md)** — Proposal and tracking for multi-backend LLM alignment (Phase 1 done; Phase 2 Anthropic/Google specified in the same doc).
 - **[EPIC_DESKTOP_APP.md](EPIC_DESKTOP_APP.md)** — Draft: desktop app improvements, UX, and roadmap (explorer, editing).
 - **[EPIC_MSG_CHANNELS.md](EPIC_MSG_CHANNELS.md)** — Proposal and tracking for messaging channels (Telegram, Matrix, Signal).
 - **[EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)** — Proposal and tracking for orchestrators, workers, and delegation.
 - **[EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)** — Proposal and tracking for RAG with a vector store using pgvector.
+- **[EPIC_RUNTIME_PROFILES.md](EPIC_RUNTIME_PROFILES.md)** — Draft: NixOS-like named runtime profiles with isolated environments.
 - **[EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md)** — Draft proposal for simulation harnesses versus `crates/spike` probes.
+- **[EPIC_SKILL_PACKAGES.md](EPIC_SKILL_PACKAGES.md)** — Draft: skill packages (revisions, locks, derivation metadata; flake-style resolution).
 - **[EPIC_TOOL_APPROVAL.md](EPIC_TOOL_APPROVAL.md)** — Draft proposal for an approval gate before executing model tool calls.
 
 ## Adding Documents
 
-Follow the general format and tone of documents in the same **Location** (see [Directory Layout](#directory-layout)).
+Read the relevant convention file in [meta/](meta/) before adding or modifying documents. Each convention file defines frontmatter, structure, naming, and maintenance rules for its document type.
 
-- **`adr/`** — New architecture decision records (rationale, alternatives, “why we chose X”).
-
-- **`ref/`** — New material on **external** systems or APIs. Prefer [CLAW_ECOSYSTEM.md](ref/CLAW_ECOSYSTEM.md) or something similar for cross-product comparison tables instead of duplicating them.
-
-- **`spec/`** — New **internal** specs (how Chai behaves: context, skills, tools, orchestration, gateway channels, providers, models).
-
-- **root** (this directory) — New **proof-of-concept**, **proposals/epics**, or issue tracking documents.
+| Document type | Convention | Location |
+|---------------|-----------|----------|
+| Epic | [meta/EPIC.md](meta/EPIC.md) | Root directory (`EPIC_*.md`) |
+| Spec | [meta/SPEC.md](meta/SPEC.md) | `spec/` |
+| ADR | [meta/ADR.md](meta/ADR.md) | `adr/` |
+| Reference | [meta/REF.md](meta/REF.md) | `ref/` |
 
 ## External Documents
 

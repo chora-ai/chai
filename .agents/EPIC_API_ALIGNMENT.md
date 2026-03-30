@@ -1,8 +1,16 @@
+---
+status: in-progress
+---
+
 # Epic: LLM Services and API Alignment
 
 **Summary** — Align the gateway with multiple LLM services (local, self-hosted, third-party) via a consistent internal message/tool format and provider-specific clients or adapters.
 
-**Status** — **Phase 1 complete** for all shipped backends (Ollama-native and OpenAI-compat families). **Phase 2** (official Anthropic and Google APIs) is **specified and tracked**; implementation is **not** done. See [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
+**Status** — **Phase 1 complete** for all shipped backends (Ollama-native and OpenAI-compat families). **Phase 2** (official Anthropic and Google APIs) is **specified below**; implementation is **not** done. See [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
+
+## Problem Statement
+
+The gateway needs to support a growing range of LLM backends — local, self-hosted, and third-party — each with its own HTTP API shape, authentication model, and tool-calling wire format. Without a consistent internal message and tool format and a per-provider adapter layer, adding a new backend would require changes to the agent loop itself, and the agent could not switch providers without code-level branching. This epic establishes the alignment layer so that the agent loop stays provider-agnostic.
 
 ## Goal
 
@@ -17,9 +25,14 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 
 ## Scope
 
+### In Scope
+
 - **Phase 1 (done):** Ollama-native and OpenAI-compat backends listed above; message/tool documentation; compatibility for LocalAI, llama.cpp, and Venice (OpenAI-compat) when they expose those API families; deployment and streaming notes in ref docs.
-- **Phase 2 (tracked, not implemented):** Official **Anthropic** and **Google** APIs — see below and [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md).
-- **Out of scope:** Orchestrator–worker delegation as an API-alignment deliverable; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md).
+- **Phase 2 (tracked, not implemented):** Official **Anthropic** and **Google** APIs — see [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
+
+### Out of Scope
+
+- Orchestrator–worker delegation as an API-alignment deliverable; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md).
 
 ## Compatibility Targets (No Dedicated Provider Id)
 
@@ -41,29 +54,94 @@ These stacks are **tracked** here so expectations stay clear: Chai does **not** 
 
 ## Phase 2: Anthropic and Google
 
-**Goal:** Add **`Provider`** implementations for official **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies).
+**Status:** **Proposed.** Phase 2 has not yet begun; **`anthropic`** and **`gemini`** are not currently valid **`agents.defaultProvider`** values.
 
-**Specification:** [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md) — API families, adapter responsibilities, implementation checklist.
+**Goal:** Add **`Provider`** implementations for official **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies). Chai supports **`anthropic`** and **`gemini`** as valid **`agents.defaultProvider`** values. Each provider has a dedicated adapter that maps the internal agent contract (full history, system context, tools, **`tool_name`** on tool results) to and from the vendor API. Users targeting official Anthropic or Google endpoints get the same reliable routing and tool correlation as users on the OpenAI path.
 
-**Requirements (not yet satisfied):**
+### Problem Statement (Phase 2)
+
+Chai's current provider support covers OpenAI-compatible APIs via the **`openai_compat`** module. Claude (Anthropic) and Gemini (Google) use distinct wire formats — different message layouts, tool-calling conventions, and model discovery mechanisms — that cannot be handled by the existing **`openai_compat`** path when users target official Anthropic or Google endpoints. First-class support requires dedicated adapter families for each vendor API.
+
+### Scope (Phase 2)
+
+#### In Scope
+
+- **`anthropic` provider:** adapter, config, model discovery, tool-calling support
+- **`gemini` provider:** adapter, config, model discovery, tool-calling support
+- Config changes for **`providers.anthropic`** / **`providers.gemini`**, env vars, **`canonical_provider`**
+- Orchestration changes: **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks
+- Gateway server changes: client construction, discovery, **`status`** payload keys
+- Desktop changes: provider allowlist, model reconciliation, info screen
+- User docs and ref docs for both providers
+- Tests for both providers
+
+#### Out of Scope
+
+- OpenAI-compatible routing for Anthropic or Google hosted endpoints (these can use the existing **`openai`** or **`vllm`** path with a custom base URL — this is a compatibility route, not a substitute for first-class support)
+
+### Design (Phase 2)
+
+#### Why a Separate Adapter Family
+
+These APIs are **not** OpenAI-compatible chat completions in the narrow sense Chai's **`openai_compat`** module implements. Each has its own:
+
+- Message and role layout (e.g. Anthropic system vs messages; Gemini system instruction and **`contents`** parts).
+- Tool / function-calling wire format and IDs for tool invocations and results.
+- List-models or catalog discovery (if any).
+
+The internal agent contract stays the same: full history, system context, tools, **`tool_name`** on tool results in session storage; each new **`Provider`** maps that to and from the vendor API.
+
+#### Relationship to OpenAI-Compat
+
+Servers that expose **OpenAI-compatible** HTTP for Claude or Gemini (if hosted that way) could use the existing **`openai`** or **`vllm`** path with a provider base URL; that is a **compatibility** route, not a substitute for first-class Anthropic/Google APIs when users use official endpoints.
+
+### Requirements (Phase 2, Not Yet Satisfied)
 
 - [ ] **Anthropic:** Client + adapter + config + gateway **`status`** discovery (or documented static catalog) + desktop + docs.
 - [ ] **Google (Gemini):** Same as above for the chosen Gemini API surface.
+- [ ] **`crates/lib/src/config.rs`** — **`providers.anthropic`** / **`providers.gemini`** (or similar), env vars, **`canonical_provider`**
+- [ ] **`crates/lib/src/providers/`** — New client modules and **`Provider`** impls for Anthropic and Google
+- [ ] **`crates/lib/src/orchestration/`** — **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks
+- [ ] **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload keys (e.g. **`anthropicModels`**, **`geminiModels`**)
+- [ ] **`crates/desktop/`** — Provider allowlist, model reconciliation, info screen
+- [ ] User docs — [README.md](../README.md), ref docs under [`.agents/ref/`](ref/), [spec/PROVIDERS.md](spec/PROVIDERS.md), [spec/MODELS.md](spec/MODELS.md)
+- [ ] Tests — [10-third-party-openai-gpt.md](../.testing/10-third-party-openai-gpt.md) and the index at [.testing/README.md](../.testing/README.md) when applicable
 
 Until Phase 2 ships, [spec/PROVIDERS.md](spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
+
+### API Reference (Phase 2)
+
+#### Anthropic (Claude)
+
+- **Docs:** https://docs.anthropic.com/claude/reference/messages_post
+- **Typical surface:** Messages API (`POST /v1/messages`), models like `claude-3-5-sonnet-latest`; tools and tool results use Anthropic's **`tool_use`** / **`tool_result`** blocks rather than OpenAI's **`tool_calls`** on the assistant message.
+- **Adapter responsibilities:** Map internal **`ChatMessage`** list + tools to Anthropic **`messages`**, **`system`**, and **`tools`**; map assistant output and tool calls back to **`ChatResponse`**; map tool execution results by stable id ↔ internal **`tool_name`** as required by the agent loop.
+
+#### Google (Gemini)
+
+- **Docs:** https://ai.google.dev/api/generate-content (and current model list for your API version).
+- **Typical surface:** **`generateContent`** / chat with **`contents`** and **`tools`**; schema differs from both OpenAI and Anthropic.
+- **Adapter responsibilities:** Map internal messages and tools to Gemini **`contents`** and tool declarations; map model responses back to **`ChatResponse`**; preserve tool correlation for follow-up turns.
+
+### Related Docs (Phase 2)
+
+- [spec/PROVIDERS.md](spec/PROVIDERS.md) — Provider configuration spec
+- [spec/MODELS.md](spec/MODELS.md) — Model resolution and fallback spec
+- [ref/OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md) — Reference for the existing OpenAI-compat adapter (useful baseline for new adapters)
+- [.testing/README.md](../.testing/README.md) — Test index
 
 ## Technical Reference
 
 ### Concepts
 
 - **Internal format** — The gateway uses a single message and tool shape for the agent (e.g. messages with `role`, `content`, optional `tool_calls`; tool results keyed by **`tool_name`**). Each backend adapter translates between this and the provider's request/response.
-- **API families** — **Ollama-native**: `/api/chat`, `/api/tags`; tool results use `tool_name`. **OpenAI-compat**: `/v1/chat/completions`, `/v1/models`; tool results use **`tool_call_id`**; assistant `tool_calls` have `id`, `function.name`, `function.arguments`. **Provider-specific** (Claude, Gemini): own request/response and tool schema; need a dedicated adapter each (Phase 2).
+- **API families** — **Ollama-native**: `/api/chat`, `/api/tags`; tool results use `tool_name`. **OpenAI-compat**: `/v1/chat/completions`, `/v1/models`; tool results use **`tool_call_id`**; assistant `tool_calls` have `id`, `function.name`, `function.arguments`. **Provider-specific** (Claude, Gemini): own request/response and tool schema; need a dedicated adapter each ([Phase 2](#phase-2-anthropic-and-google)).
 - **Statelessness** — All backends are stateless: the client sends full history and system prompt every call. The agent builds the message list from the session store and prepends system context; no backend-specific state.
 
 ### Message and Tool Translation
 
 | Backend (`defaultProvider`) | API family | Where mapping lives | Documentation |
-|-----------------------------|------------|---------------------|---------------|
+|---------------------------|------------|---------------------|---------------|
 | `ollama` | Ollama-native | `OllamaClient` | [OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md) |
 | `lms` | OpenAI-compat | `LmsClient` → `OpenAiCompatClient` | [LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md) |
 | `vllm` | OpenAI-compat | `VllmClient` → `OpenAiCompatClient` | [VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md) |
@@ -85,7 +163,7 @@ OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`
 |--------|----------|--------|-----------------|
 | **Ollama-native** | Ollama, LocalAI (Ollama mode), llama.cpp if same API | Phase 1 done | **`OllamaClient`**. Same path when server exposes `/api/chat`, `/api/tags`. |
 | **OpenAI-compat** | LM Studio, OpenAI, Hugging Face TGI/IE, vLLM, LocalAI (OpenAI mode), NIM | Phase 1 done | **`OpenAiCompatClient`** (+ thin provider wrappers); `tool_name` ↔ `tool_call_id`. |
-| **Provider-specific** | Claude (Anthropic), Gemini (Google) | Phase 2 | See [EPIC_API_ALIGNMENT_PHASE_2.md](EPIC_API_ALIGNMENT_PHASE_2.md). |
+| **Provider-specific** | Claude (Anthropic), Gemini (Google) | Phase 2 | [Phase 2](#phase-2-anthropic-and-google). |
 
 For providers, configuration, and API families, see [spec/PROVIDERS.md](spec/PROVIDERS.md). For model families and named model ids, see [spec/MODELS.md](spec/MODELS.md).
 

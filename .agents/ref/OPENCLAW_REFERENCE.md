@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # OpenClaw Reference
 
 Reference extracted from OpenClaw documentation and code for continuation work on this project (e.g. pending pairing, read-on-demand skills, exec approvals). Use it to align or extend without depending on the full OpenClaw repo.

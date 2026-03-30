@@ -1,14 +1,45 @@
+---
+status: in-progress
+---
+
 # Epic: Desktop Application
 
 **Summary** — Track improvements to **`crates/desktop`** (egui/eframe): what exists today, gaps versus the gateway and config, short-term UX wins that need no new backend contracts, **constrained read/write** of config, workspace, and skill files (markdown + JSON) as preparation for **project** roots, and longer-term ideas (full explorer, broader editing) that depend on projects or new APIs.
 
-**Status** — Draft (living document; extend as we explore).
-
-**Related** — [DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md), [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md) (projects + retrieval alignment), [CONTEXT.md](spec/CONTEXT.md) (what the gateway sends as context).
+**Status** — In-progress. Constrained file editing (config, workspace, skills) is the active short-term focus. UX polish and medium-term goals follow. Long-term explorer depends on projects design.
 
 ---
 
-## Shipped
+## Problem Statement
+
+The desktop app is a functional operator console but lacks in-app editing of the files users already manage — `config.json`, `AGENTS.md`, and skill files. Users must leave the app to edit these files and restart the gateway manually. Additionally, several fields already available from `status` and `config.json` are not yet surfaced in the UI, and UX consistency (loading states, spacing, accessibility) has gaps. The app also has no filesystem visibility into what the orchestrator "sees," which limits its usefulness as a control surface beyond gateway lifecycle management.
+
+---
+
+## Goal
+
+A desktop app that serves as the primary control surface for Chai: operators can inspect and edit all gateway-relevant config and workspace artifacts in-app, receive clear feedback on when changes require a gateway restart, and navigate live runtime state (status, context, skills, tools, logs) with consistent UX. The app complements external editors (Cursor, Obsidian) for broader workflows but owns the gateway lifecycle and Chai-specific configuration surface.
+
+---
+
+## Current State
+
+The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess or attach to an **already listening** gateway on the configured bind/port.
+
+| Area | Behavior |
+|------|----------|
+| **Header** | Start/stop gateway when the app spawned it; if another process owns the port, shows disabled "Gateway running". |
+| **Probe** | Periodic TCP connect to `gateway.bind`:`gateway.port` (~1 Hz) to detect liveness. |
+| **WebSocket** | When responding: `connect` (device identity or token + device pairing) then **`status`**; caches `GatewayStatusDetails`. |
+| **Chat** | **`agent`** RPC over WebSocket; provider/model overrides; session list with **`session.message`** / orchestration events for timelines; hint for **`/help`** and **Ctrl/Cmd+Enter** when gateway is running. |
+| **Screens** | Sidebar: **Chat** (ungrouped), **Runtime** (**Status**, Context, Tools), **Source** (Config, Skills), **Diagnostics** (Logs). **Status** is gateway **`status`** only (orchestrator + **`workers`** + discovery + context mode); merged **Tools** JSON lives on **Tools**; **Config** has full on-disk agents policy. |
+| **Config** | Reads **`config.json`** via `lib::config::load_config` (same as CLI); **Config** screen is a read-only summary (no JSON editor): effective workspace (**`resolve_workspace_dir`**), workers, session cap, delegation policy fields when set. |
+| **Context** | Shows live **`systemContext`** from **`status`**; in read-on-demand mode, right column loads skill bodies from disk to match **`read_skill`**. |
+| **Skills** | Lists enabled/disabled skill entries from disk; detail pane for SKILL.md + **tools.json** (read-only; no save). |
+| **Workspace** | **`AGENTS.md`** is not edited in-app; no workspace tree UI. |
+| **Logs** | In-memory buffer fed by gateway stderr/stdout when started from desktop. |
+
+### Shipped
 
 **2025-03-25** — Config: **`resolve_workspace_dir`** as **Workspace (effective)** with note when **`agents.workspace`** is unset; **Workers** with **`effective_worker_defaults`**; **`maxSessionMessages`**; delegation caps (**per turn**, **per session**, **per provider**), **blocked providers**, **instruction routes**, orchestrator **delegate allowed models**. Chat: muted hint **`use /help for commands; ctrl/cmd+enter to send`** when gateway is running.
 
@@ -24,63 +55,56 @@
 
 ---
 
-## Potential Future Improvements (Not Decided)
+## Scope
 
-Larger directions worth revisiting when there is time; **no commitment** — trade-offs and scope need discussion.
+### In Scope
 
-- **Split `ChaiApp` state** — Separate gateway lifecycle, WebSocket/cache, and per-screen UI state into smaller structs to reduce merge conflicts and clarify dependencies (may pair with a small “screen context” type passed into screen functions).
-- **Dashboard / screen modules** — If **`config.rs`** / **`status.rs`** keep growing, consider submodules (e.g. `config_summary.rs`) or screen-local private types; only if file size hurts navigation.
-- **egui persistence** — eframe **storage** for window geometry and optional UI prefs (last chat model, sidebar width); must not fight explicit **`config.json`** defaults in confusing ways.
-- **Thin egui reference** — Short internal note (patterns used here: **`CentralPanel`**, **`ScrollArea`**, **`TextEdit`**, ids) — optional; official **egui** docs remain the source of truth.
+**Short-term (current system, no new gateway contracts):**
 
----
+- Constrained file editing: `config.json`, workspace `AGENTS.md`, and per-skill `SKILL.md` / `tools.json` — read and write for this fixed artifact set only
+- Apply/restart banner after saves that require gateway restart
+- UX polish: empty/loading states, sessions panel scroll and truncation, logs clear button, header tri-state
+- Quality of life: reveal config in file manager, persist window size and last chat provider/model
+- Surfacing remaining `status` / `config.json` fields not yet shown (per-worker allowlists, provider enumeration)
 
-## Current Implementation (Inventory)
+**Medium-term (some gateway or shared contract required):**
 
-The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess or attach to an **already listening** gateway on the configured bind/port.
+- Streaming assistant tokens (requires gateway streaming/SSE path)
+- Unified connection panel (WebSocket + HTTP health)
+- Skills/Context parity via `status` skill payloads to avoid drift
 
-| Area | Behavior |
-|------|----------|
-| **Header** | Start/stop gateway when the app spawned it; if another process owns the port, shows disabled “Gateway running”. |
-| **Probe** | Periodic TCP connect to `gateway.bind`:`gateway.port` (~1 Hz) to detect liveness. |
-| **WebSocket** | When responding: `connect` (device identity or token + device pairing) then **`status`**; caches `GatewayStatusDetails`. |
-| **Chat** | **`agent`** RPC over WebSocket; provider/model overrides; session list with **`session.message`** / orchestration events for timelines; hint for **`/help`** and **Ctrl/Cmd+Enter** when gateway is running. |
-| **Screens** | Sidebar: **Chat** (ungrouped), **Runtime** (**Status**, Context, Tools), **Source** (Config, Skills), **Diagnostics** (Logs). **Status** is gateway **`status`** only (orchestrator + **`workers`** + discovery + context mode); merged **Tools** JSON lives on **Tools**; **Config** has full on-disk agents policy. |
-| **Config** | Reads **`config.json`** via `lib::config::load_config` (same as CLI); **Config** screen is a read-only summary (no JSON editor): effective workspace (**`resolve_workspace_dir`**), workers, session cap, delegation policy fields when set. |
-| **Context** | Shows live **`systemContext`** from **`status`**; in read-on-demand mode, right column loads skill bodies from disk to match **`read_skill`**. |
-| **Skills** | Lists enabled/disabled skill entries from disk; detail pane for SKILL.md + **tools.json** (read-only; no save). |
-| **Workspace** | **`AGENTS.md`** is not edited in-app; no workspace tree UI. |
-| **Logs** | In-memory buffer fed by gateway stderr/stdout when started from desktop. |
+### Out of Scope
+
+- **General file manager / arbitrary path editing** — deferred to long-term; depends on named project directories and allowlist policy
+- **File explorer (read-only)** — depends on projects design and canonical path rules; see Long-Term phase below and [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)
+- **Broader in-app editing** (multi-file, arbitrary project roots) — out of scope until projects exist; Chai complements Cursor/Obsidian rather than replacing them
+- **Per-session or per-project scope in Chat** — depends on gateway session metadata from projects
 
 ---
 
-## Gaps: What the System Exposes but the Desktop Does Not (Yet)
+## Design
+
+### Gaps: What the System Exposes but the Desktop Does Not (Yet)
 
 These are **additive** to the current stack: either **`status`** already returns the data, or **`lib::config`** can supply it without new gateway methods.
 
-### From Gateway **`status`**
+#### From Gateway **`status`**
 
 - **Skills fields** — **`skillsContextFull`**, **`skillsContextBodies`**, **`skillsContext`** are available for richer **Context** / **Skills** parity when avoiding duplicate disk reads (optional optimization).
 
-### From **`config.json`** (read locally)
+#### From **`config.json`** (read locally)
 
 - **Per-worker `delegateAllowedModels`** — Not shown on **Config** (orchestrator-level allowlist is shown).
 - **Providers block** — Partial: Ollama/LMS base URLs when set; other provider entries may exist in config but are **not** enumerated in the same way as in **README**.
 
-### Operational
+#### Operational
 
 - **HTTP health** — Gateway exposes **GET /** JSON health; desktop uses **TCP only**. Not wrong, but a **health summary** (e.g. protocol version) could use the same HTTP client if desired later.
 - **External gateway** — When the user runs the gateway elsewhere, **Logs** only capture subprocess output from **Start gateway** in-app; **no** remote log tail (expected limitation).
 
----
+### Constrained File Editing Design
 
-## Short-Term Goals (High Leverage, Current System)
-
-Small, incremental improvements that **fit today’s architecture** (mostly UI + `lib::config`).
-
-### Constrained File Editing (Pre-Projects)
-
-Before **named project directories** and per-agent path policy exist, the desktop can still implement **read and write** for a **fixed set of artifacts** the user already manages: **`config.json`**, files under the **resolved workspace** (e.g. **`AGENTS.md`**), and **skill** files under the resolved skills root (**`SKILL.md`**, **`tools.json`**). Focus on **markdown** and **JSON** only—matching what the stack already uses.
+Before **named project directories** and per-agent path policy exist, the desktop can still implement **read and write** for a **fixed set of artifacts** the user already manages: **`config.json`**, files under the **resolved workspace** (e.g. **`AGENTS.md`**), and **skill** files under the resolved skills root (**`SKILL.md`**, **`tools.json`**). Focus on **markdown** and **JSON** only — matching what the stack already uses.
 
 **Why this is valuable**
 
@@ -90,30 +114,47 @@ Before **named project directories** and per-agent path policy exist, the deskto
 
 **Design caveats (bake in early)**
 
-- **Apply vs restart** — The gateway loads **config** and **skills** at startup; **agent context** is built at startup from workspace **`AGENTS.md`**. After a save, show a clear **“restart gateway to apply”** (or equivalent) when the running process will not pick up changes live.
+- **Apply vs restart** — The gateway loads **config** and **skills** at startup; **agent context** is built at startup from workspace **`AGENTS.md`**. After a save, show a clear **"restart gateway to apply"** (or equivalent) when the running process will not pick up changes live.
 - **Concurrency** — Detect **external modification** (mtime or content hash) since open; offer **reload** before overwrite.
 - **Validation** — **`config.json`**: parse as JSON and validate with the same rules as **`load_config`** (or fail with a readable error). **`tools.json`**: parse as JSON and validate against **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** or a **serde** round-trip through existing descriptor types where practical; pretty-print on save for diff-friendly files.
-- **Scope creep** — UI copy should state these are **Chai config / workspace / skills roots** only—not a general file manager (that remains **Long-Term**).
+- **Scope creep** — UI copy should state these are **Chai config / workspace / skills roots** only — not a general file manager (that remains Long-Term).
 
 **Suggested order**
 
 1. **`config.json`** + **workspace `AGENTS.md`** — Few files, largest usability win.
 2. **Per-skill `SKILL.md` and `tools.json`** — More surface area; **`tools.json`** requires stricter validation.
 
-**Checklist**
+### Potential Future Improvements (Not Decided)
+
+Larger directions worth revisiting when there is time; **no commitment** — trade-offs and scope need discussion.
+
+- **Split `ChaiApp` state** — Separate gateway lifecycle, WebSocket/cache, and per-screen UI state into smaller structs to reduce merge conflicts and clarify dependencies (may pair with a small "screen context" type passed into screen functions).
+- **Dashboard / screen modules** — If **`config.rs`** / **`status.rs`** keep growing, consider submodules (e.g. `config_summary.rs`) or screen-local private types; only if file size hurts navigation.
+- **egui persistence** — eframe **storage** for window geometry and optional UI prefs (last chat model, sidebar width); must not fight explicit **`config.json`** defaults in confusing ways.
+- **Thin egui reference** — Short internal note (patterns used here: **`CentralPanel`**, **`ScrollArea`**, **`TextEdit`**, ids) — optional; official **egui** docs remain the source of truth.
+
+### Baseline Assessment
+
+The desktop is already a **credible operator console**: gateway control, **live status**, **Context** inspection, **Skills** inspection, and **Chat** with **delegation** timeline support. The largest **documentation gap** on the **Config** screen is largely addressed for workspace, workers, and delegation; remaining gaps include **per-worker allowlists** and full **provider** enumeration. The largest **product gap** relative to user mental models is **no filesystem visibility** of what the orchestrator "sees," which the long-term **explorer** addresses. **Constrained file editing** (config, **`AGENTS.md`**, skill markdown/JSON) is the recommended **bridge**: it delivers value immediately and exercises patterns (paths, validation, apply/restart) needed for **projects** without waiting for the full multi-root design. Short-term work should prioritize **surfacing existing config and status fields**, **polishing** discovery, sessions, and logs, and **incremental** editing support as above.
+
+---
+
+## Requirements
+
+### Constrained File Editing
 
 - [ ] **Config editor** — Open `config.json` from resolved path; syntax-colored or plain **TextEdit**; **Save** after JSON validation; **Revert** / reload from disk.
 - [ ] **Workspace `AGENTS.md`** — Edit under **`resolve_workspace_dir`**; create file if missing (optional; mirror **`chai init`** behavior).
 - [ ] **Skill files** — From **Skills** screen: edit **SKILL.md** and **tools.json** with save; validate **JSON** before write; optional **format** button.
 - [ ] **Apply banner** — After any save that requires it, prompt to **restart gateway** (when desktop owns the subprocess, offer **Restart** action).
 
-### Information density and trust
+### Information Density and Trust
 
 - [x] **Status screen** — **Agents** block: orchestrator + workers, **`date`** when status loaded; pointer to **Context** for full message (shipped 2025-03-25, revised same day).
 - [x] **Config screen** — Effective workspace, workers, **`maxSessionMessages`**, delegation policy (shipped 2025-03-25).
 - [x] **Chat** — **`/help`** and **Ctrl/Cmd+Enter** hint (shipped 2025-03-25).
 
-### UX and visual design
+### UX and Visual Design
 
 - [ ] **Empty and loading states** — Align copy when **`status`** is refetching (some screens already avoid flash; apply the same pattern everywhere).
 - [ ] **Sessions panel** — Ensure **scroll** and **long session id** truncation with **full id on hover** (if egui allows).
@@ -123,32 +164,35 @@ Before **named project directories** and per-agent path policy exist, the deskto
 - [x] **Accessibility (readability)** — Less **small** / **weak** on primary labels; **kv** table-style alignment; headers **strong** (shipped 2025-03-25 follow-up 5).
 - [ ] **Accessibility (DPI)** — Confirm behavior under system scaling and egui **UI scale**; document if anything is still fixed-pixel.
 
-### Quality of life
+### Quality of Life
 
-- [ ] **Open config path** — Button or menu: **“Reveal config in file manager”** / **copy path** (uses known **`CHAI_CONFIG_PATH`** / default path from `lib`).
+- [ ] **Open config path** — Button or menu: **"Reveal config in file manager"** / **copy path** (uses known **`CHAI_CONFIG_PATH`** / default path from `lib`).
 - [ ] **Persist UI state** — eframe **storage** for **window size** and optionally **last Chat provider/model** (optional; must not override explicit config defaults confusingly).
 
----
-
-## Medium-Term Goals (Some Gateway or Shared Contract)
+### Medium-Term
 
 - [ ] **Streaming assistant tokens** — Only if the gateway exposes a **streaming** `agent` or SSE path; today the desktop expects a **single** `agent` response.
-- [ ] **Unified “connection” panel** — Test **WebSocket** + **HTTP health** in one place for supportability.
+- [ ] **Unified "connection" panel** — Test **WebSocket** + **HTTP health** in one place for supportability.
 - [ ] **Skills / Context** — Prefer **`status`** skill payloads when present to avoid **drift** between gateway and disk (edge cases: config changed since gateway start).
 
 ---
 
-## Long-Term Goals (Projects and Beyond)
+## Phases
 
-- [ ] **File explorer (read-only)** — Browse **orchestrator-accessible roots** (future **projects** or multiple resolved roots); see [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md) (Projects section). Likely needs **canonical path rules** and either **gateway list API** or **desktop-only FS** with the **same** allowlist as the agent. Builds on **Constrained File Editing** (path handling, save/reload patterns).
-- [ ] **Broader in-app editing** — **Constrained File Editing** covers fixed config/workspace/skills; long-term **editing** means arbitrary files under **project** roots, **multi-file** workflows, and **optional** “open in external editor.” Full **IDE** parity is out of scope for Chai unless product direction changes (complement **Cursor/Obsidian**, not necessarily replace them).
-- [ ] **Per-session or per-project scope** — When projects exist, show **which roots** apply to the current chat (depends on gateway session metadata).
+| Phase | Focus | Status |
+|-------|-------|--------|
+| 1 — UX foundation | Shared UI helpers, spacing constants, dashboard widgets, accessibility/readability pass | Complete |
+| 2 — Config and status surfacing | Effective workspace, workers, delegation policy, status agents/models screens | Complete |
+| 3 — Constrained file editing | Read/write `config.json`, workspace `AGENTS.md`, skill `SKILL.md` / `tools.json`; apply/restart banner | In progress |
+| 4 — UX polish | Loading/empty states, sessions panel, logs clear, header tri-state, DPI accessibility, QoL items | Pending |
+| 5 — Medium-term contracts | Streaming tokens, unified connection panel, Skills/Context status parity | Pending |
+| 6 — Long-term (projects) | Read-only file explorer over project roots, broader in-app editing, per-session/project scope | Pending |
 
 ---
 
-## Ideas Backlog (Unsorted)
+## Follow-ups
 
-_Add items here as they come up._
+_Items that do not block any phase but are worth revisiting._
 
 - Keyboard shortcuts overlay (**?** key).
 - Copy **session id** to clipboard from Chat or Sessions.
@@ -158,6 +202,9 @@ _Add items here as they come up._
 
 ---
 
-## Review Notes (Baseline Assessment)
+## Related Epics and Docs
 
-The desktop is already a **credible operator console**: gateway control, **live status**, **Context** inspection, **Skills** inspection, and **Chat** with **delegation** timeline support. The largest **documentation gap** on the **Config** screen is largely addressed for workspace, workers, and delegation; remaining gaps include **per-worker allowlists** and full **provider** enumeration. The largest **product gap** relative to user mental models is **no filesystem visibility** of what the orchestrator “sees,” which the long-term **explorer** addresses. **Constrained file editing** (config, **`AGENTS.md`**, skill markdown/JSON) is the recommended **bridge**: it delivers value immediately and exercises patterns (paths, validation, apply/restart) needed for **projects** without waiting for the full multi-root design. Short-term work should prioritize **surfacing existing config and status fields**, **polishing** discovery, sessions, and logs, and **incremental** editing support as above.
+- [adr/DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)
+- [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md) — projects + retrieval alignment
+- [spec/CONTEXT.md](spec/CONTEXT.md) — what the gateway sends as context
+- [spec/TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md) — tools.json validation reference

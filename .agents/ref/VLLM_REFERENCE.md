@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # vLLM Reference
 
 Reference for the **vLLM** inference and serving stack: OpenAI-compatible HTTP APIs, vLLM-specific options, and how it is used in this codebase. Use this when configuring or extending the vLLM backend.

@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # OpenAI API Reference
 
 Reference for the **OpenAI** HTTP API as used by Chai’s **`openai`** provider (`agents.defaultProvider: "openai"`). Data is sent to OpenAI (or to a compatible URL you configure); this is not a local-first option.

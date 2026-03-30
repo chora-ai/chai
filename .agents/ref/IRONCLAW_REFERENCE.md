@@ -1,3 +1,7 @@
+---
+status: current
+---
+
 # IronClaw Reference
 
 Reference extracted from [IronClaw](https://www.ironclaw.com/) marketing material and the [IronClaw repository](https://github.com/nearai/ironclaw) for alignment when comparing gateways, security models, or LLM integration patterns. This project (**Chai**) is not IronClaw; use this doc to understand IronClaw on its own terms and to spot ideas worth borrowing or contrasting.
