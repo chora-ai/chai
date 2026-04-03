@@ -56,13 +56,13 @@ The existing **`crates/spike`** crate serves as a **wire / ops validation** tool
 
 ### Relationship to Model Testing (`.testing` Playbooks)
 
-Model-comparison procedures live under **[`.testing/`](../.testing/)**. They are **numbered markdown playbooks** (e.g. `01-local-ollama-llama.md`, `08-third-party-nim-qwen.md`). Together they define what a **simulation harness would want**: a **fixed message sequence**, **skill context modes**, **multiple runs per configuration**, and an **expected-behavior table** (tool use vs chat-only) so different **models** and **providers** can be compared.
+Model-comparison procedures live under **[`.testing/`](../../.testing/)**. They are **numbered markdown playbooks** (e.g. `01-local-ollama-llama.md`, `08-third-party-nim-qwen.md`). Together they define what a **simulation harness would want**: a **fixed message sequence**, **skill context modes**, **multiple runs per configuration**, and an **expected-behavior table** (tool use vs chat-only) so different **models** and **providers** can be compared.
 
 | Aspect | `.testing` playbooks (today) | Simulations epic (future) |
 |--------|------------------------------|---------------------------|
 | **Purpose** | Human-run **regression** and comparison across **LLM backends** | Automated **repeatable runs**, optional **assertions**, transcripts, timing |
 | **Entry** | WebSocket **`agent`** (or desktop) with a **live gateway** | Same **`agent`** path—or **stubbed provider** for channel-only tests |
-| **Overlap** | High: both need **scenario = ordered user messages + config** | The harness could **encode** the shared sequence from **[`.testing/README.md`](../.testing/README.md)** and loop over **`defaultProvider` / `defaultModel`** (or overrides) |
+| **Overlap** | High: both need **scenario = ordered user messages + config** | The harness could **encode** the shared sequence from **[`.testing/README.md`](../../.testing/README.md)** and loop over **`defaultProvider` / `defaultModel`** (or overrides) |
 | **Difference** | Does **not** mandate channels; often **Telegram** mentioned as one way to send messages | Originally motivated by **channel fixtures**; model testing is an equally valid **use of the same machinery** |
 
 **View:** Ongoing **model testing** is a **strong fit** for the simulations epic **once** the harness can drive **`agent`** turns with **deterministic config** and capture **tool calls + reply text**. The **`.testing`** playbooks stay the **source of truth for expectations** ("what good looks like"); the epic covers **how** those scenarios get run **repeatedly** (manual checklist → scripted or CI). The **inventory** phase should explicitly include those playbooks as **candidate first scenarios**.
@@ -78,7 +78,7 @@ Model-comparison procedures live under **[`.testing/`](../.testing/)**. They are
 
 ## Phases
 
-1. **Inventory** — List what is already testable (`lib` tests, `gateway_health` integration test) and gaps (channels, multi-turn transcripts). Include the **numbered playbooks** in **[`.testing/`](../.testing/)** (e.g. `01-local-ollama-llama.md`, …) as **scenario candidates** (same sequences, optional automation).
+1. **Inventory** — List what is already testable (`lib` tests, `gateway_health` integration test) and gaps (channels, multi-turn transcripts). Include the **numbered playbooks** in **[`.testing/`](../../.testing/)** (e.g. `01-local-ollama-llama.md`, …) as **scenario candidates** (same sequences, optional automation).
 2. **Fixture format** — Agree on minimal JSON (or Rust builders) for **`InboundMessage`** and channel-specific envelopes.
 3. **Harness MVP** — In-process gateway or direct **`process_inbound_message`** calls from tests behind a feature flag or separate binary.
 4. **CI policy** — Which jobs are **fixture-only** (always run) vs **live** (optional, secrets).
@@ -90,6 +90,6 @@ Model-comparison procedures live under **[`.testing/`](../.testing/)**. They are
 
 ## Related Epics and Docs
 
-- [EPIC_MSG_CHANNELS.md](EPIC_MSG_CHANNELS.md) — Channels product work; spike probes originated here.
+- [MSG_CHANNELS.md](MSG_CHANNELS.md) — Channels product work; spike probes originated here.
 - **`crates/spike/README.md`** — Current probe binaries; how similutions are different.
-- [.testing/README.md](../.testing/README.md) — Numbered model-comparison playbooks by category, provider, and family.
+- [.testing/README.md](../../.testing/README.md) — Numbered model-comparison playbooks by category, provider, and family.

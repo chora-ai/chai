@@ -4,7 +4,7 @@ status: draft
 
 # Epic: Skill Packages (Revisions, Locks, and Derivation Metadata — Flake-Style)
 
-**Summary** — Treat each directory under **`~/.chai/skills/<name>/`** as a **skill package**: a **revision space** inside that tree (e.g. **git** history, tags, or an internal **`versions/`** layout with an **active** pointer). A **lockfile** (or embedded pins in profile **`config.json`**) records **exact revisions** the gateway loads—**metaphorically** like **[Nix flakes](https://nixos.wiki/wiki/Flakes)** and **`flake.lock`**: **immutable inputs**, **pinned resolution**, **reproducible** restarts, **rollback** by pointing at a previous pin. **Switching pins** (and **restart**) parallels **activating** a new system configuration. This epic is **orthogonal** to **[EPIC_RUNTIME_PROFILES.md](EPIC_RUNTIME_PROFILES.md)**: **runtime profiles** decide **which** config (and thus **which** lock / pin set) is live; this epic defines **how** skill packages expose **revisions**, **locks**, **derivation metadata**, and **rollback**.
+**Summary** — Treat each directory under **`~/.chai/skills/<name>/`** as a **skill package**: a **revision space** inside that tree (e.g. **git** history, tags, or an internal **`versions/`** layout with an **active** pointer). A **lockfile** (or embedded pins in profile **`config.json`**) records **exact revisions** the gateway loads—**metaphorically** like **[Nix flakes](https://nixos.wiki/wiki/Flakes)** and **`flake.lock`**: **immutable inputs**, **pinned resolution**, **reproducible** restarts, **rollback** by pointing at a previous pin. **Switching pins** (and **restart**) parallels **activating** a new system configuration. This epic is **orthogonal** to **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**: **runtime profiles** decide **which** config (and thus **which** lock / pin set) is live; this epic defines **how** skill packages expose **revisions**, **locks**, **derivation metadata**, and **rollback**.
 
 **Status** — **Draft.** No implementation commitment.
 
@@ -78,7 +78,7 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 
 ### Relationship to Runtime Profiles
 
-| Concern | [EPIC_RUNTIME_PROFILES.md](EPIC_RUNTIME_PROFILES.md) | This epic (skill packages) |
+| Concern | [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) | This epic (skill packages) |
 |---------|-------------------|----------------------------|
 | **Trust boundary** | **Workspace**, **pairing**, **channels**, **secrets** | **Skill source** revision only |
 | **What switches on profile change** | **Active profile** → that profile’s **`config.json`** | That profile’s **skill pins** / **lockfile path** |
@@ -110,7 +110,7 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 2. **Pin model** — Minimal schema: **skill name** → **rev** (+ optional **hash**); **profile-local** lockfile path in **`config.json`**.
 3. **Resolver MVP** — Given lock + **`skills/<name>/`**, resolve **working tree** to **pinned** content (git **checkout** or **read snapshot path**); integrate with **gateway** startup.
 4. **UX** — Document **dirty** vs **pinned** behavior; optional CLI to **bump** and **rollback** locks.
-5. **CI / harness** — Optional: simulations or tests **record** lockfile for **repro** (see [EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md)).
+5. **CI / harness** — Optional: simulations or tests **record** lockfile for **repro** (see [SIMULATIONS.md](SIMULATIONS.md)).
 
 ## Open Questions
 
@@ -118,8 +118,19 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 - **Lock scope** — One **global** lock under **`~/.chai/`** vs **one lock per profile** under **`profiles/<name>/`** (latter aligns with **per-profile** composition).
 - **Skill identity** — **Directory name** vs **manifest `name`** in **`SKILL.md`** when they **differ**.
 
+## Implementation order (with related epics)
+
+When implementing **runtime profiles**, **agent isolation**, and **skill packages** together, use this sequence:
+
+1. **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — **First.** Active profile and **`profileRoot`**; lockfile path is profile-scoped (see **Open Questions** / **Decisions** in that epic).
+2. **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — **Second.** Per-agent **`skillsEnabled`** and skill policy in config; shared **`~/.chai/skills/`** with composition per agent.
+3. **This epic** — **Third.** Immutable pins and **`skills.lock`** (or equivalent) on top of the shared store; **rollback** and CLI **without** re-negotiating profile or agent layout.
+
+**Note:** Implementing this epic **before** profiles forces awkward lockfile placement; implementing **before** agent isolation complicates which skill names are in scope per agent. See **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** for the full ordering rationale.
+
 ## Related Epics and Docs
 
-- [EPIC_RUNTIME_PROFILES.md](EPIC_RUNTIME_PROFILES.md) — **Active profile** selects **which** lock/pin set applies after restart.
-- [EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md) — Repeatable runs may **fix** a lockfile for **determinism**.
-- [README.md](../README.md) — Current **skills** layout and **`skills.directory`**.
+- [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — **Active profile** selects **which** lock/pin set applies after restart; implement **before** this epic (see **Implementation order** above).
+- [AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent skill enablement; implement **before** this epic so locks pin revisions for skills **actually loaded** per agent.
+- [SIMULATIONS.md](SIMULATIONS.md) — Repeatable runs may **fix** a lockfile for **determinism**.
+- [README.md](../../README.md) — Current **skills** layout and **`skills.directory`**.

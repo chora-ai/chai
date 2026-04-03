@@ -424,16 +424,16 @@ The orchestrator entry may set **`workspace`** (directory for agent context such
 
 The gateway integrates **six** model **backends** (named by **`agents.defaultProvider`**): **Ollama** (native Ollama API), **LM Studio** (`lms`, OpenAI-compatible local server), **vLLM** (OpenAI-compatible **`vllm serve`** for self-hosted inference), **Hugging Face** (`hf`, OpenAI-compatible Inference Endpoints, TGI, or similar), **NVIDIA NIM** (`nim`, hosted NVIDIA catalog API), **OpenAI** (`openai`, and OpenAI HTTP API or compatible base URL). They differ in **where** the model runs (your machine, your infrastructure, or a cloud API), **which** wire protocol and discovery endpoints Chai uses, and **whether** an API key or fixed base URL applies.
 
-For **provider** taxonomy, configuration, and API comparisons, see [.agents/spec/PROVIDERS.md](.agents/spec/PROVIDERS.md). For **model** ids, repository inventory, and tool-fit notes, see [.agents/spec/MODELS.md](.agents/spec/MODELS.md). For the **API alignment** roadmap, see [.agents/EPIC_API_ALIGNMENT.md](.agents/EPIC_API_ALIGNMENT.md). To run **repeatable model tests** by deployment category, see [.testing](.testing/README.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
+For **provider** taxonomy, configuration, and API comparisons, see [.agents/spec/PROVIDERS.md](.agents/spec/PROVIDERS.md). For **model** ids, repository inventory, and tool-fit notes, see [.agents/spec/MODELS.md](.agents/spec/MODELS.md). For the **API alignment** roadmap, see [.agents/epic/API_ALIGNMENT.md](.agents/epic/API_ALIGNMENT.md). To run **repeatable model tests** by deployment category, see [.testing](.testing/README.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
 
 | Backend | Document |
 |---------|----------|
-| Ollama (`ollama`) | [.agents/ref/OLLAMA_REFERENCE.md](.agents/ref/OLLAMA_REFERENCE.md) |
-| LM Studio (`lms`) | [.agents/ref/LM_STUDIO_REFERENCE.md](.agents/ref/LM_STUDIO_REFERENCE.md) |
-| vLLM (`vllm`) | [.agents/ref/VLLM_REFERENCE.md](.agents/ref/VLLM_REFERENCE.md) |
-| Hugging Face (`hf`) | [.agents/ref/HUGGINGFACE_REFERENCE.md](.agents/ref/HUGGINGFACE_REFERENCE.md) |
-| NVIDIA NIM (`nim`) | [.agents/ref/NVIDIA_NIM_REFERENCE.md](.agents/ref/NVIDIA_NIM_REFERENCE.md) |
-| OpenAI (`openai`) | [.agents/ref/OPENAI_REFERENCE.md](.agents/ref/OPENAI_REFERENCE.md) |
+| Ollama (`ollama`) | [.agents/ref/OLLAMA.md](.agents/ref/OLLAMA.md) |
+| LM Studio (`lms`) | [.agents/ref/LM_STUDIO.md](.agents/ref/LM_STUDIO.md) |
+| vLLM (`vllm`) | [.agents/ref/VLLM.md](.agents/ref/VLLM.md) |
+| Hugging Face (`hf`) | [.agents/ref/HUGGINGFACE.md](.agents/ref/HUGGINGFACE.md) |
+| NVIDIA NIM (`nim`) | [.agents/ref/NVIDIA_NIM.md](.agents/ref/NVIDIA_NIM.md) |
+| OpenAI (`openai`) | [.agents/ref/OPENAI.md](.agents/ref/OPENAI.md) |
 
 Set **`defaultProvider`** on the orchestrator entry to **`ollama`**, **`lms`**, **`vllm`**, **`hf`**, **`nim`**, or **`openai`** when no per-request override is used. Optional **`enabledProviders`** on the orchestrator entry lists which providers to poll for model discovery at startup (e.g. `["ollama", "lms", "vllm", "hf", "nim", "openai"]`). When absent or empty, only the default provider (`ollama`) is discovered.
 

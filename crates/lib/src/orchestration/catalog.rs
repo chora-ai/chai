@@ -1,4 +1,4 @@
-//! Merged `(provider, model)` catalog for discovery + delegation allowlists (see `.agents/EPIC_ORCHESTRATION.md`).
+//! Merged `(provider, model)` catalog for discovery + delegation allowlists (see `.agents/epic/ORCHESTRATION.md`).
 
 use std::collections::{HashMap, HashSet};
 

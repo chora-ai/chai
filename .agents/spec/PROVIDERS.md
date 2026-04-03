@@ -8,7 +8,7 @@ Internal spec for **LLM backends** in Chai: canonical **`defaultProvider`** ids,
 
 ## Relationship to Other Documents
 
-- **[EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md)** — Proposal and tracking for API alignment, message/tool mapping, and [Phase 2 (Anthropic/Google)](../EPIC_API_ALIGNMENT.md#phase-2-anthropic-and-google). This spec lists **which** backends exist and **how** to configure them; the epic defines **what “done” means** across backends.
+- **[API_ALIGNMENT.md](../epic/API_ALIGNMENT.md)** — Proposal and tracking for API alignment, message/tool mapping, and [Phase 2 (Anthropic/Google)](../epic/API_ALIGNMENT.md#phase-2-anthropic-and-google). This spec lists **which** backends exist and **how** to configure them; the epic defines **what “done” means** across backends.
 - **[MODELS.md](MODELS.md)** — Model ids, repository inventory, deployment categories, and Chai tool compatibility.
 
 ## Categories of Providers
@@ -89,7 +89,7 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 ### Compatibility: LocalAI, llama.cpp, and Venice
 
-None of these uses a dedicated **`defaultProvider`** id in Chai today; they are **compatibility** stories (see [EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md) — **Compatibility Targets**).
+None of these uses a dedicated **`defaultProvider`** id in Chai today; they are **compatibility** stories (see [API_ALIGNMENT.md](../epic/API_ALIGNMENT.md) — **Compatibility Targets**).
 
 | Product | How to use Chai |
 |---------|-----------------|
@@ -97,7 +97,7 @@ None of these uses a dedicated **`defaultProvider`** id in Chai today; they are 
 | **LocalAI** (OpenAI-compatible API) | **`"vllm"`** + **`providers.vllm.baseUrl`** → LocalAI’s **`/v1`** base. |
 | **llama.cpp** (OpenAI-compatible server, e.g. `llama-server` with `/v1/...`) | **`"vllm"`** or **`"lms"`** (or **`"hf"`** if that matches your deployment) + matching **`providers.*.baseUrl`**. |
 | **llama.cpp** (custom or legacy HTTP not matching Ollama or OpenAI chat) | Not supported until a dedicated adapter is added; treat as future epic work, not documentation-only. |
-| **Venice** (hosted OpenAI-compatible API) | **`"openai"`** + **`providers.openai.baseUrl`** → **`https://api.venice.ai/api/v1`** (or the current base from [Venice docs](https://docs.venice.ai/overview/about-venice)); Venice API key via **`OPENAI_API_KEY`** / **`providers.openai.apiKey`**. See [OPENAI_REFERENCE.md](../ref/OPENAI_REFERENCE.md). |
+| **Venice** (hosted OpenAI-compatible API) | **`"openai"`** + **`providers.openai.baseUrl`** → **`https://api.venice.ai/api/v1`** (or the current base from [Venice docs](https://docs.venice.ai/overview/about-venice)); Venice API key via **`OPENAI_API_KEY`** / **`providers.openai.apiKey`**. See [OPENAI.md](../ref/OPENAI.md). |
 
 ## API Comparison (Current Implementation)
 
@@ -125,7 +125,7 @@ Canonical comparison of what the gateway uses vs what each API offers. For endpo
 | **Models** | `GET /api/tags` at startup | `GET /api/v1/models` | — |
 | **Config** | `defaultProvider: "ollama"`, `defaultModel` | `defaultProvider: "lms"`, `defaultModel`, `providers.lms.baseUrl` | — |
 
-**OpenAI-compat family (vLLM, OpenAI, Hugging Face `hf`, NIM):** Shared patterns in **`openai_compat`** — `POST /v1/chat/completions`, `GET /v1/models` where supported. See [VLLM_REFERENCE.md](../ref/VLLM_REFERENCE.md), [HUGGINGFACE_REFERENCE.md](../ref/HUGGINGFACE_REFERENCE.md), [NVIDIA_NIM_REFERENCE.md](../ref/NVIDIA_NIM_REFERENCE.md), [OPENAI_REFERENCE.md](../ref/OPENAI_REFERENCE.md).
+**OpenAI-compat family (vLLM, OpenAI, Hugging Face `hf`, NIM):** Shared patterns in **`openai_compat`** — `POST /v1/chat/completions`, `GET /v1/models` where supported. See [VLLM.md](../ref/VLLM.md), [HUGGINGFACE.md](../ref/HUGGINGFACE.md), [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md), [OPENAI.md](../ref/OPENAI.md).
 
 ## Providers at a Glance
 

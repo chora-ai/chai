@@ -6,7 +6,7 @@ status: stable
 
 This document describes how **messaging channels** connect to the Chai gateway: **`InboundMessage`** ingestion, **`ChannelHandle`** registration, **`SessionBindingStore`** routing, WebSocket **`send`** / **`agent`** delivery, and shutdown. It is an internal spec aligned with the current implementation in **`crates/lib`** (`channels/`, `routing.rs`, `gateway/server.rs`, `gateway/protocol.rs`, `config.rs`).
 
-For roadmap, privacy goals, and planned channels beyond Telegram, see **[EPIC_MSG_CHANNELS.md](../EPIC_MSG_CHANNELS.md)**. For third-party Telegram Bot API usage in this codebase, see **[TELEGRAM_REFERENCE.md](../ref/TELEGRAM_REFERENCE.md)**.
+For roadmap, privacy goals, and planned channels beyond Telegram, see **[MSG_CHANNELS.md](../epic/MSG_CHANNELS.md)**. For third-party Telegram Bot API usage in this codebase, see **[TELEGRAM.md](../ref/TELEGRAM.md)**.
 For experimental **Matrix** / **Signal** wire probes (not the gateway), see **`crates/spike/`** and **`crates/spike/README.md`**.
 
 ## Core Types
@@ -68,7 +68,7 @@ Defined in **`crates/lib/src/channels/registry.rs`** (`async_trait`):
 ## HTTP Routes
 
 - **Telegram** — **`POST /telegram/webhook`** with an optional secret header (**`X-Telegram-Bot-Api-Secret-Token`**).
-- **Matrix** — When the Matrix client is connected, **`GET` / `POST`** routes under **`/matrix/verification/*`** support **E2EE interactive verification** (SAS) without relying on Element; see [MATRIX_REFERENCE.md](../ref/MATRIX_REFERENCE.md).
+- **Matrix** — When the Matrix client is connected, **`GET` / `POST`** routes under **`/matrix/verification/*`** support **E2EE interactive verification** (SAS) without relying on Element; see [MATRIX.md](../ref/MATRIX.md).
 
 New channels that use HTTP push need new routes on the **`Router`** in **`run_gateway`** and **`State<GatewayState>`** to access **`inbound_tx`**.
 

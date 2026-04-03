@@ -17,7 +17,7 @@ This document records how Chai will integrate with **[signal-cli](https://github
 |-------|--------|
 | **Distribution** | **Do not** ship, bundle, or redistribute signal-cli or a build of it as part of Chai releases, installers, or container images **maintained here**. Operators **install and run** signal-cli themselves (**BYO**). |
 | **Repository licenses** | **No** updates to **LICENSE** or crate licenses solely for this integration. Compliance for **signal-cli** itself is between the **user** and **upstream** when they install it. |
-| **Wire protocol** | Prefer the **HTTP daemon** (`signal-cli … daemon --http HOST:PORT`): Chai uses **`reqwest`** (or equivalent) to **`POST /api/v1/rpc`** and **`GET /api/v1/events`** (see upstream docs). Matches [signal-probe](../../crates/spike/src/bin/signal_probe.rs) and [SIGNAL_REFERENCE.md](../ref/SIGNAL_REFERENCE.md). |
+| **Wire protocol** | Prefer the **HTTP daemon** (`signal-cli … daemon --http HOST:PORT`): Chai uses **`reqwest`** (or equivalent) to **`POST /api/v1/rpc`** and **`GET /api/v1/events`** (see upstream docs). Matches [signal-probe](../../crates/spike/src/bin/signal_probe.rs) and [SIGNAL.md](../ref/SIGNAL.md). |
 | **Configuration** | Document **base URL** (e.g. `http://127.0.0.1:7583`) and expectations: daemon running before or alongside the gateway. |
 
 ## Rationale
@@ -39,5 +39,5 @@ Chai may implement a **Signal channel** that talks to a **locally installed, use
 
 ## Related Documents
 
-- [SIGNAL_REFERENCE.md](../ref/SIGNAL_REFERENCE.md) — Integration notes and upstream links.
-- [EPIC_MSG_CHANNELS.md](../EPIC_MSG_CHANNELS.md) — Roadmap for the Signal channel.
+- [SIGNAL.md](../ref/SIGNAL.md) — Integration notes and upstream links.
+- [MSG_CHANNELS.md](../epic/MSG_CHANNELS.md) — Roadmap for the Signal channel.

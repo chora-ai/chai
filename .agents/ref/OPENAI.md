@@ -6,7 +6,7 @@ status: current
 
 Reference for the **OpenAI** HTTP API as used by Chai’s **`openai`** provider (`agents.defaultProvider: "openai"`). Data is sent to OpenAI (or to a compatible URL you configure); this is not a local-first option.
 
-**Scope:** Chat Completions and List Models—the same routes used by other OpenAI-compatible backends in this repo. See [LM_STUDIO_REFERENCE.md](LM_STUDIO_REFERENCE.md) for internal message and tool mapping (`tool_name` ↔ `tool_call_id`).
+**Scope:** Chat Completions and List Models—the same routes used by other OpenAI-compatible backends in this repo. See [LM_STUDIO.md](LM_STUDIO.md) for internal message and tool mapping (`tool_name` ↔ `tool_call_id`).
 
 ## Purpose and How to Use
 

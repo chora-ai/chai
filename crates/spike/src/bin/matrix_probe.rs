@@ -123,7 +123,7 @@ async fn main() -> Result<()> {
         }
     }
     eprintln!(
-        "spike: use room_id as Chai conversation_id for Matrix (see CHANNELS.md / MATRIX_REFERENCE.md)"
+        "spike: use room_id as Chai conversation_id for Matrix (see CHANNELS.md / MATRIX.md)"
     );
     Ok(())
 }

@@ -4,7 +4,7 @@ status: current
 
 # Signal Reference
 
-Reference for the **Signal** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md) shows the Telegram mapping for comparison. Signal is positioned as a **privacy-preserving** option ([Signal](https://signal.org/)); the service remains **centralized** (Signal-operated servers), which is a different axis from federation.
+Reference for the **Signal** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM.md](TELEGRAM.md) shows the Telegram mapping for comparison. Signal is positioned as a **privacy-preserving** option ([Signal](https://signal.org/)); the service remains **centralized** (Signal-operated servers), which is a different axis from federation.
 
 **Distribution and license (project policy)** — Chai **does not** ship signal-cli; operators **BYO** an install and run the **HTTP daemon** (see [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md)). Repository **LICENSE** files are unchanged for this integration.
 
@@ -13,7 +13,7 @@ Reference for the **Signal** channel in Chai. Gateway behavior is specified in [
 ## Purpose and How to Use
 
 - **Purpose:** Record how Signal could connect to the gateway without assuming a final design; highlight **signal-cli** and operational requirements.
-- **How to use:** Read [CHANNELS.md](../spec/CHANNELS.md) first, then this file and [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md) for a working reference implementation.
+- **How to use:** Read [CHANNELS.md](../spec/CHANNELS.md) first, then this file and [TELEGRAM.md](TELEGRAM.md) for a working reference implementation.
 
 ## Ecosystem Facts
 

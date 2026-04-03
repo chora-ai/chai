@@ -76,7 +76,7 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 ### Out of Scope
 
 - **General file manager / arbitrary path editing** — deferred to long-term; depends on named project directories and allowlist policy
-- **File explorer (read-only)** — depends on projects design and canonical path rules; see Long-Term phase below and [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md)
+- **File explorer (read-only)** — depends on projects design and canonical path rules; see Long-Term phase below and [RAG_VECTOR.md](RAG_VECTOR.md)
 - **Broader in-app editing** (multi-file, arbitrary project roots) — out of scope until projects exist; Chai complements Cursor/Obsidian rather than replacing them
 - **Per-session or per-project scope in Chat** — depends on gateway session metadata from projects
 
@@ -116,7 +116,7 @@ Before **named project directories** and per-agent path policy exist, the deskto
 
 - **Apply vs restart** — The gateway loads **config** and **skills** at startup; **agent context** is built at startup from workspace **`AGENTS.md`**. After a save, show a clear **"restart gateway to apply"** (or equivalent) when the running process will not pick up changes live.
 - **Concurrency** — Detect **external modification** (mtime or content hash) since open; offer **reload** before overwrite.
-- **Validation** — **`config.json`**: parse as JSON and validate with the same rules as **`load_config`** (or fail with a readable error). **`tools.json`**: parse as JSON and validate against **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** or a **serde** round-trip through existing descriptor types where practical; pretty-print on save for diff-friendly files.
+- **Validation** — **`config.json`**: parse as JSON and validate with the same rules as **`load_config`** (or fail with a readable error). **`tools.json`**: parse as JSON and validate against **[TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)** or a **serde** round-trip through existing descriptor types where practical; pretty-print on save for diff-friendly files.
 - **Scope creep** — UI copy should state these are **Chai config / workspace / skills roots** only — not a general file manager (that remains Long-Term).
 
 **Suggested order**
@@ -204,7 +204,7 @@ _Items that do not block any phase but are worth revisiting._
 
 ## Related Epics and Docs
 
-- [adr/DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)
-- [EPIC_RAG_VECTOR.md](EPIC_RAG_VECTOR.md) — projects + retrieval alignment
-- [spec/CONTEXT.md](spec/CONTEXT.md) — what the gateway sends as context
-- [spec/TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md) — tools.json validation reference
+- [adr/DESKTOP_FRAMEWORK.md](../adr/DESKTOP_FRAMEWORK.md)
+- [RAG_VECTOR.md](RAG_VECTOR.md) — projects + retrieval alignment
+- [spec/CONTEXT.md](../spec/CONTEXT.md) — what the gateway sends as context
+- [spec/TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) — tools.json validation reference

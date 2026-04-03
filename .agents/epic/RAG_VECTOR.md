@@ -20,7 +20,7 @@ Provide a **local-first** retrieval-augmented flow: content (e.g. from an Obsidi
 
 - **Skills and tools** — Notes and vault access are provided by skills (e.g. notesmd, obsidian) that expose tools (search, create, read). The model decides when to call these tools and receives results in the conversation; there is no semantic search or pre-indexed vector store.
 - **Embeddings** — Not used. Ollama and LM Studio support embedding models but the endpoints are not yet integrated.
-- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
+- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [ORCHESTRATION.md](ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
 
 ## Scope
 
@@ -30,12 +30,12 @@ Vector store using **pgvector** (local Postgres or compatible) for portability a
 
 ### Out of Scope
 
-Implementing the full orchestrator–worker loop (see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)); replacing or removing existing note/vault skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
+Implementing the full orchestrator–worker loop (see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing note/vault skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
 
 ## Dependencies
 
-- **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md) and reference documentation for supported or planned backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
-- **Orchestration** — This epic would ideally follow or overlap with [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md). The worker embedding model (a model provided by Ollama, LM Studio, etc) handles index build and query embedding; the orchestrator (or single model) calls tools to build the index and to query the knowledge base and consumes retrieved context.
+- **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [API_ALIGNMENT.md](API_ALIGNMENT.md) and reference documentation for supported or planned backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
+- **Orchestration** — This epic would ideally follow or overlap with [ORCHESTRATION.md](ORCHESTRATION.md). The worker embedding model (a model provided by Ollama, LM Studio, etc) handles index build and query embedding; the orchestrator (or single model) calls tools to build the index and to query the knowledge base and consumes retrieved context.
 
 ## Design
 
@@ -212,5 +212,5 @@ These can be resolved during design or early implementation:
 
 ## Related Epics and Docs
 
-- [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) — Orchestrator–worker delegation loop; the RAG flow assumes `delegate_task` and per-worker tool policy from this epic. Out-of-scope items for this epic (full orchestrator–worker loop) are tracked there.
-- [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md) — Backend client alignment; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.
+- [ORCHESTRATION.md](ORCHESTRATION.md) — Orchestrator–worker delegation loop; the RAG flow assumes `delegate_task` and per-worker tool policy from this epic. Out-of-scope items for this epic (full orchestrator–worker loop) are tracked there.
+- [API_ALIGNMENT.md](API_ALIGNMENT.md) — Backend client alignment; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.

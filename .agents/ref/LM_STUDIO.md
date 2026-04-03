@@ -24,7 +24,7 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 ### Client and Configuration
 
 - **LM Studio client** — Uses only the OpenAI-compatible API: **`GET /api/v1/models`** for model list and **`POST /v1/chat/completions`** for chat (with tools). All API errors (400, 500, etc.) are returned to the caller; the only automatic retry is when chat returns 500 "Model is unloaded" — we call POST `/api/v1/models/load` then retry chat once (aligns with Ollama).
-- **Config** — LM Studio is selected when **`agents.defaultProvider`** is **`"lms"`** (see [EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md) for the full provider list). **`agents.defaultModel`** is the model id passed as-is (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`). Under **`providers`** use **`lms`** for LM Studio settings. Only **`baseUrl`** is supported (default `http://127.0.0.1:1234/v1`).
+- **Config** — LM Studio is selected when **`agents.defaultProvider`** is **`"lms"`** (see [API_ALIGNMENT.md](../epic/API_ALIGNMENT.md) for the full provider list). **`agents.defaultModel`** is the model id passed as-is (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`). Under **`providers`** use **`lms`** for LM Studio settings. Only **`baseUrl`** is supported (default `http://127.0.0.1:1234/v1`).
 
 ### Base URL
 

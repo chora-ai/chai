@@ -91,7 +91,7 @@ async fn main() -> Result<()> {
     }
 
     eprintln!(
-        "spike: map JSON-RPC + SSE payloads to `conversation_id` + text (see SIGNAL_REFERENCE.md)"
+        "spike: map JSON-RPC + SSE payloads to `conversation_id` + text (see SIGNAL.md)"
     );
     Ok(())
 }

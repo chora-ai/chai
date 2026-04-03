@@ -4,7 +4,7 @@
 
 The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys (default directory **`~/.chai/matrix`**; override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
 
-**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [.agents/ref/MATRIX_REFERENCE.md](../.agents/ref/MATRIX_REFERENCE.md).
+**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [.agents/ref/MATRIX.md](../.agents/ref/MATRIX.md).
 
 ## Prerequisites
 
@@ -103,7 +103,7 @@ Use this when another client or device wants to verify the gateway’s session a
 
    If they do not match, use **`/matrix/verification/mismatch`** instead. To abort, **`/matrix/verification/cancel`**.
 
-Full route list and behavior: [.agents/ref/MATRIX_REFERENCE.md](../.agents/ref/MATRIX_REFERENCE.md).
+Full route list and behavior: [.agents/ref/MATRIX.md](../.agents/ref/MATRIX.md).
 
 ## How to get an access token (Element Web / Desktop)
 
@@ -132,7 +132,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 | Store | Default `~/.chai/matrix` (or `CHAI_MATRIX_STORE`) |
 | Config | `channels.matrix` + token or password |
 | Allowlist (optional) | `channels.matrix.roomIds` or `MATRIX_ROOM_ALLOWLIST` |
-| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX_REFERENCE.md](../.agents/ref/MATRIX_REFERENCE.md)) |
+| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX.md](../.agents/ref/MATRIX.md)) |
 | Gateway | `chai gateway` |
 | Room | Invite Chai user; send text |
 | Verify | Reply in room; optional logs |

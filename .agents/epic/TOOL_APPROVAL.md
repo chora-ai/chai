@@ -6,7 +6,7 @@ status: draft
 
 **Summary** — Optional **human-in-the-loop** approval before executing tool calls from the assistant, so operators can prevent unintended or harmful actions. Approval would be **configurable** (default: current behavior — execute tools immediately). This document is a **draft proposal**: requirements, implications, performance concerns, and open decisions. It does **not** commit the project to implementation.
 
-**Status** — **Draft.** Not scheduled. Review against [VISION.md](../VISION.md) (long-term security goals) and [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md).
+**Status** — **Draft.** Not scheduled. Review against [VISION.md](../../VISION.md) (long-term security goals) and [ORCHESTRATION.md](ORCHESTRATION.md).
 
 ## Problem Statement
 
@@ -21,7 +21,7 @@ Today, tool calls are executed immediately after the model returns them — ther
 ## Current State (Baseline)
 
 - **Execution model** — In **`crates/lib/src/agent.rs`**, after the model returns **`tool_calls`**, the runtime invokes **`ToolExecutor::execute`** for each call **immediately** (synchronous `execute`), appends **`tool`** role messages, and continues the tool loop (up to **`MAX_TOOL_LOOP`**) without user input.
-- **Gateway** — **`GenericToolExecutor`** is built from skills; **`ReadOnDemandExecutor`** wraps file reads ([`gateway/server.rs`](../crates/lib/src/gateway/server.rs)). Channels (**Telegram**, **Matrix**, **Signal**) funnel **`InboundMessage`** into the same session/agent path; there is **no** pending-approval state today.
+- **Gateway** — **`GenericToolExecutor`** is built from skills; **`ReadOnDemandExecutor`** wraps file reads ([`gateway/server.rs`](../../crates/lib/src/gateway/server.rs)). Channels (**Telegram**, **Matrix**, **Signal**) funnel **`InboundMessage`** into the same session/agent path; there is **no** pending-approval state today.
 - **Delegation** — **`delegate_task`** can run worker turns with their own tool loop; approval policy would need an explicit story (inherit orchestrator policy, or separate rules).
 
 ## Scope
@@ -78,7 +78,7 @@ In both cases, **the model is not "re-prompted" for approval** unless you explic
 #### What changes for the model transcript
 
 - **Approved path** — Same as today after tools run: **`assistant` (with tool_calls) → `tool` results → …**
-- **Denied path** — The model still needs **`tool`** messages for calls it proposed, or a clear abort. Common pattern: one **`tool`** result per denied call: e.g. `error: user denied execution` (wording should be consistent and logged per [AGENTS.md](../AGENTS.md) style). The next model call may "waste" context recovering politely; **small models** may loop or apologize instead of progressing — a **product risk**, not just a performance metric.
+- **Denied path** — The model still needs **`tool`** messages for calls it proposed, or a clear abort. Common pattern: one **`tool`** result per denied call: e.g. `error: user denied execution` (wording should be consistent and logged per [AGENTS.md](../../AGENTS.md) style). The next model call may "waste" context recovering politely; **small models** may loop or apologize instead of progressing — a **product risk**, not just a performance metric.
 - **Partial approval** — If only some calls are approved, the transcript must remain **valid** for the chat API (tool results matching tool_calls order — exact rules depend on provider; must be specified in a future spec).
 
 #### Interruption nuance
@@ -168,8 +168,8 @@ Chai's approval mechanism would need to generalize across its gateway/session mo
 
 ## Related Epics and Docs
 
-- [VISION.md](../VISION.md) — Long-term security and privacy direction.
-- [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) — Delegation and agent policy.
-- [EPIC_MSG_CHANNELS.md](EPIC_MSG_CHANNELS.md) — Channel surfaces and shared inbound path.
-- [AGENTS.md](../AGENTS.md) — Repository guidelines (logging style, architecture).
+- [VISION.md](../../VISION.md) — Long-term security and privacy direction.
+- [ORCHESTRATION.md](ORCHESTRATION.md) — Delegation and agent policy.
+- [MSG_CHANNELS.md](MSG_CHANNELS.md) — Channel surfaces and shared inbound path.
+- [AGENTS.md](../../AGENTS.md) — Repository guidelines (logging style, architecture).
 - Implementation touchpoints (when/if built): **`crates/lib/src/agent.rs`** (`ToolExecutor`, tool loop), **`crates/lib/src/gateway/server.rs`**, channel **`InboundMessage`** handling, **`crates/desktop`** for UI.

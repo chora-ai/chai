@@ -19,9 +19,9 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 ## Current State
 
 - **Backends implemented:** **Ollama** (native API), **LM Studio** (`lms`, OpenAI-compat), **vLLM** (`vllm`, OpenAI-compat), **NVIDIA NIM** (`nim`, hosted OpenAI-compat), **OpenAI** (`openai`, OpenAI API or compatible base URL), **Hugging Face** (`hf`, OpenAI-compat Inference Endpoints / TGI / similar). The agent uses a common **`Provider`** trait; **`agents.defaultProvider`** and **`agents.defaultModel`** select which client and model are used.
-- **Shared HTTP layer:** LM Studio, vLLM, OpenAI, Hugging Face, and NIM chat paths use the shared **`openai_compat`** module (`OpenAiCompatClient` or equivalent) for `/v1/chat/completions` and `/v1/models` where applicable. **`openai.rs`** / **`hf.rs`** are thin wrappers with provider defaults and error types; they are not merged into **`openai_compat`** (see [OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md)).
+- **Shared HTTP layer:** LM Studio, vLLM, OpenAI, Hugging Face, and NIM chat paths use the shared **`openai_compat`** module (`OpenAiCompatClient` or equivalent) for `/v1/chat/completions` and `/v1/models` where applicable. **`openai.rs`** / **`hf.rs`** are thin wrappers with provider defaults and error types; they are not merged into **`openai_compat`** (see [OPENAI.md](../ref/OPENAI.md)).
 - **Model discovery:** Gateway discovers models from configured backends at startup (per **`agents.enabledProviders`** rules) and exposes **`ollamaModels`**, **`lmsModels`**, **`vllmModels`**, **`nimModels`**, **`openaiModels`**, and **`hfModels`** in WebSocket **`status`**.
-- **Single backend per run:** One default backend and model for the entire agent loop; no per-request or per-step backend selection (orchestration delegation is separate; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md)).
+- **Single backend per run:** One default backend and model for the entire agent loop; no per-request or per-step backend selection (orchestration delegation is separate; see [ORCHESTRATION.md](ORCHESTRATION.md)).
 
 ## Scope
 
@@ -32,7 +32,7 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 
 ### Out of Scope
 
-- Orchestrator–worker delegation as an API-alignment deliverable; see [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md).
+- Orchestrator–worker delegation as an API-alignment deliverable; see [ORCHESTRATION.md](ORCHESTRATION.md).
 
 ## Compatibility Targets (No Dedicated Provider Id)
 
@@ -40,17 +40,17 @@ These stacks are **tracked** here so expectations stay clear: Chai does **not** 
 
 - **LocalAI** — **Done (compatibility only).** **Ollama-compatible** deployment → use **`"ollama"`** and **`providers.ollama.baseUrl`**. **OpenAI-compatible** deployment → use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at that server’s **`/v1`** base (same client as vLLM). A future **`localai`** provider id would be optional UX only, not a new wire format.
 - **llama.cpp** — **OpenAI-compatible** HTTP (e.g. **`llama-server`** with OpenAI-style routes when enabled) → use an existing OpenAI-compat path: typically **`"vllm"`** or **`"lms"`** with **`providers.*.baseUrl`** set to the server’s **`/v1`** origin, same as any other OpenAI-shaped endpoint. **Not** tracked as a separate shipped backend until we need one. A **non–OpenAI-compat**, **non–Ollama** HTTP API from llama.cpp would require **new adapter work** and would be a distinct epic item if prioritized (not current scope).
-- **Venice** — **OpenAI-compatible** hosted API → use **`"openai"`** with **`providers.openai.baseUrl`** set to Venice’s base (e.g. **`https://api.venice.ai/api/v1`**) and a Venice API key via **`OPENAI_API_KEY`** / **`providers.openai.apiKey`**. No dedicated **`venice`** provider id; see [OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md) and [Venice docs](https://docs.venice.ai/overview/about-venice). Venice-specific request fields (e.g. **`venice_parameters`**) are **not** sent by Chai’s client today.
+- **Venice** — **OpenAI-compatible** hosted API → use **`"openai"`** with **`providers.openai.baseUrl`** set to Venice’s base (e.g. **`https://api.venice.ai/api/v1`**) and a Venice API key via **`OPENAI_API_KEY`** / **`providers.openai.apiKey`**. No dedicated **`venice`** provider id; see [OPENAI.md](../ref/OPENAI.md) and [Venice docs](https://docs.venice.ai/overview/about-venice). Venice-specific request fields (e.g. **`venice_parameters`**) are **not** sent by Chai’s client today.
 
 ## Phase 1 Requirements
 
 - [x] Ollama integrated (native API: `/api/tags`, `/api/chat`).
 - [x] LM Studio integrated (OpenAI-compat: `/v1/*`).
-- [x] LocalAI: **Ollama mode** — use **`agents.defaultProvider`**: **`"ollama"`** and optional **`providers.ollama.baseUrl`** (no code change). **OpenAI-compat mode** — use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at LocalAI’s `/v1` base (same shared adapter as vLLM); see [README.md](../README.md) and [HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md).
-- [x] vLLM: **`VllmClient`** + shared **`openai_compat`**; see [VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md).
-- [x] Hugging Face (TGI / Inference Endpoints / OpenAI-compat): **`HfClient`** + **`openai_compat`**; **`providers.hf.baseUrl`**, **`HF_API_KEY`**; see [HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md).
-- [x] OpenAI: **`OpenAiClient`** + **`openai_compat`**; **`OPENAI_API_KEY`**, optional **`providers.openai.baseUrl`**; see [OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md).
-- [x] Message and tool format translation **implemented** for every **Phase 1** backend and **documented** in this epic (see [Message and Tool Translation](#message-and-tool-translation)) and per-backend [ref/](ref/) docs.
+- [x] LocalAI: **Ollama mode** — use **`agents.defaultProvider`**: **`"ollama"`** and optional **`providers.ollama.baseUrl`** (no code change). **OpenAI-compat mode** — use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at LocalAI’s `/v1` base (same shared adapter as vLLM); see [README.md](../../README.md) and [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
+- [x] vLLM: **`VllmClient`** + shared **`openai_compat`**; see [VLLM.md](../ref/VLLM.md).
+- [x] Hugging Face (TGI / Inference Endpoints / OpenAI-compat): **`HfClient`** + **`openai_compat`**; **`providers.hf.baseUrl`**, **`HF_API_KEY`**; see [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
+- [x] OpenAI: **`OpenAiClient`** + **`openai_compat`**; **`OPENAI_API_KEY`**, optional **`providers.openai.baseUrl`**; see [OPENAI.md](../ref/OPENAI.md).
+- [x] Message and tool format translation **implemented** for every **Phase 1** backend and **documented** in this epic (see [Message and Tool Translation](#message-and-tool-translation)) and per-backend [reference docs](../ref/).
 
 ## Phase 2: Anthropic and Google
 
@@ -104,10 +104,10 @@ Servers that expose **OpenAI-compatible** HTTP for Claude or Gemini (if hosted t
 - [ ] **`crates/lib/src/orchestration/`** — **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks
 - [ ] **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload keys (e.g. **`anthropicModels`**, **`geminiModels`**)
 - [ ] **`crates/desktop/`** — Provider allowlist, model reconciliation, info screen
-- [ ] User docs — [README.md](../README.md), ref docs under [`.agents/ref/`](ref/), [spec/PROVIDERS.md](spec/PROVIDERS.md), [spec/MODELS.md](spec/MODELS.md)
-- [ ] Tests — [10-third-party-openai-gpt.md](../.testing/10-third-party-openai-gpt.md) and the index at [.testing/README.md](../.testing/README.md) when applicable
+- [ ] User docs — [README.md](../../README.md), ref docs under [`.agents/ref/`](../ref/), [spec/PROVIDERS.md](../spec/PROVIDERS.md), [spec/MODELS.md](../spec/MODELS.md)
+- [ ] Tests — [10-third-party-openai-gpt.md](../../.testing/10-third-party-openai-gpt.md) and the index at [.testing/README.md](../../.testing/README.md) when applicable
 
-Until Phase 2 ships, [spec/PROVIDERS.md](spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
+Until Phase 2 ships, [spec/PROVIDERS.md](../spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
 
 ### API Reference (Phase 2)
 
@@ -125,10 +125,10 @@ Until Phase 2 ships, [spec/PROVIDERS.md](spec/PROVIDERS.md) continues to list Cl
 
 ### Related Docs (Phase 2)
 
-- [spec/PROVIDERS.md](spec/PROVIDERS.md) — Provider configuration spec
-- [spec/MODELS.md](spec/MODELS.md) — Model resolution and fallback spec
-- [ref/OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md) — Reference for the existing OpenAI-compat adapter (useful baseline for new adapters)
-- [.testing/README.md](../.testing/README.md) — Test index
+- [spec/PROVIDERS.md](../spec/PROVIDERS.md) — Provider configuration spec
+- [spec/MODELS.md](../spec/MODELS.md) — Model resolution and fallback spec
+- [ref/OPENAI.md](../ref/OPENAI.md) — Reference for the existing OpenAI-compat adapter (useful baseline for new adapters)
+- [.testing/README.md](../../.testing/README.md) — Test index
 
 ## Technical Reference
 
@@ -142,12 +142,12 @@ Until Phase 2 ships, [spec/PROVIDERS.md](spec/PROVIDERS.md) continues to list Cl
 
 | Backend (`defaultProvider`) | API family | Where mapping lives | Documentation |
 |---------------------------|------------|---------------------|---------------|
-| `ollama` | Ollama-native | `OllamaClient` | [OLLAMA_REFERENCE.md](ref/OLLAMA_REFERENCE.md) |
-| `lms` | OpenAI-compat | `LmsClient` → `OpenAiCompatClient` | [LM_STUDIO_REFERENCE.md](ref/LM_STUDIO_REFERENCE.md) |
-| `vllm` | OpenAI-compat | `VllmClient` → `OpenAiCompatClient` | [VLLM_REFERENCE.md](ref/VLLM_REFERENCE.md) |
-| `hf` | OpenAI-compat | `HfClient` → `OpenAiCompatClient` | [HUGGINGFACE_REFERENCE.md](ref/HUGGINGFACE_REFERENCE.md) |
-| `nim` | OpenAI-compat (hosted) | `NimClient` (dedicated types; same wire ideas) | [NVIDIA_NIM_REFERENCE.md](ref/NVIDIA_NIM_REFERENCE.md) |
-| `openai` | OpenAI-compat | `OpenAiClient` → `OpenAiCompatClient` | [OPENAI_REFERENCE.md](ref/OPENAI_REFERENCE.md) |
+| `ollama` | Ollama-native | `OllamaClient` | [OLLAMA.md](../ref/OLLAMA.md) |
+| `lms` | OpenAI-compat | `LmsClient` → `OpenAiCompatClient` | [LM_STUDIO.md](../ref/LM_STUDIO.md) |
+| `vllm` | OpenAI-compat | `VllmClient` → `OpenAiCompatClient` | [VLLM.md](../ref/VLLM.md) |
+| `hf` | OpenAI-compat | `HfClient` → `OpenAiCompatClient` | [HUGGINGFACE.md](../ref/HUGGINGFACE.md) |
+| `nim` | OpenAI-compat (hosted) | `NimClient` (dedicated types; same wire ideas) | [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md) |
+| `openai` | OpenAI-compat | `OpenAiClient` → `OpenAiCompatClient` | [OPENAI.md](../ref/OPENAI.md) |
 
 OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`tool_call_id`** on the wire and reverse for assistant tool calls. Ollama uses **`tool_name`** end-to-end on its native API.
 
@@ -165,7 +165,7 @@ OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`
 | **OpenAI-compat** | LM Studio, OpenAI, Hugging Face TGI/IE, vLLM, LocalAI (OpenAI mode), NIM | Phase 1 done | **`OpenAiCompatClient`** (+ thin provider wrappers); `tool_name` ↔ `tool_call_id`. |
 | **Provider-specific** | Claude (Anthropic), Gemini (Google) | Phase 2 | [Phase 2](#phase-2-anthropic-and-google). |
 
-For providers, configuration, and API families, see [spec/PROVIDERS.md](spec/PROVIDERS.md). For model families and named model ids, see [spec/MODELS.md](spec/MODELS.md).
+For providers, configuration, and API families, see [spec/PROVIDERS.md](../spec/PROVIDERS.md). For model families and named model ids, see [spec/MODELS.md](../spec/MODELS.md).
 
 ### Implementation Notes
 

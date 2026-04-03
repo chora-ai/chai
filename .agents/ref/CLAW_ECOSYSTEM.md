@@ -6,9 +6,9 @@ status: current
 
 **Single source of truth** for the high-level matrix comparing **OpenClaw** (upstream), **IronClaw**, **NemoClaw**, and **Chai** (this monorepo). The per-project references link here so the table is maintained in one place:
 
-- [OPENCLAW_REFERENCE.md](OPENCLAW_REFERENCE.md) — OpenClaw protocol and concepts; [Chai vs OpenClaw (Feature Summary)](OPENCLAW_REFERENCE.md#chai-vs-openclaw-feature-summary); [Chai vs OpenClaw (Detailed)](OPENCLAW_REFERENCE.md#chai-vs-openclaw-detailed) for pairing and skills.
-- [IRONCLAW_REFERENCE.md](IRONCLAW_REFERENCE.md) — IronClaw architecture and providers; [Chai vs IronClaw (Feature Summary)](IRONCLAW_REFERENCE.md#chai-vs-ironclaw-feature-summary).
-- [NEMOCLAW_REFERENCE.md](NEMOCLAW_REFERENCE.md) — NemoClaw sandbox and OpenShell; [Chai vs NemoClaw (Feature Summary)](NEMOCLAW_REFERENCE.md#chai-vs-nemoclaw-feature-summary).
+- [OPENCLAW.md](OPENCLAW.md) — OpenClaw protocol and concepts; [Chai vs OpenClaw (Feature Summary)](OPENCLAW.md#chai-vs-openclaw-feature-summary); [Chai vs OpenClaw (Detailed)](OPENCLAW.md#chai-vs-openclaw-detailed) for pairing and skills.
+- [IRONCLAW.md](IRONCLAW.md) — IronClaw architecture and providers; [Chai vs IronClaw (Feature Summary)](IRONCLAW.md#chai-vs-ironclaw-feature-summary).
+- [NEMOCLAW.md](NEMOCLAW.md) — NemoClaw sandbox and OpenShell; [Chai vs NemoClaw (Feature Summary)](NEMOCLAW.md#chai-vs-nemoclaw-feature-summary).
 
 ## Purpose
 
@@ -34,5 +34,5 @@ status: current
 These supplement the matrix; they are not duplicated inside the table.
 
 - **IronClaw vs Chai:** IronClaw is a **full alternative gateway** in Rust with WASM-isolated tools and PostgreSQL-backed workspace memory. Chai is a **smaller** Rust gateway focused on Telegram + declarative skills; use IronClaw as a **reference for provider and sandbox patterns**, not as a spec to match.
-- **NemoClaw vs Chai:** NemoClaw **packages** OpenClaw and **routes** inference through OpenShell (default cloud Nemotron). Chai does **not** use NemoClaw or OpenShell; optional **`nim`** is a **thin HTTP client** to the hosted NIM API ([NVIDIA_NIM_REFERENCE.md](NVIDIA_NIM_REFERENCE.md)), not the NemoClaw product stack.
-- **Chai vs OpenClaw (pairing, skills, protocol rows):** See [OPENCLAW_REFERENCE.md § Chai vs OpenClaw (Detailed)](OPENCLAW_REFERENCE.md#chai-vs-openclaw-detailed).
+- **NemoClaw vs Chai:** NemoClaw **packages** OpenClaw and **routes** inference through OpenShell (default cloud Nemotron). Chai does **not** use NemoClaw or OpenShell; optional **`nim`** is a **thin HTTP client** to the hosted NIM API ([NVIDIA_NIM.md](NVIDIA_NIM.md)), not the NemoClaw product stack.
+- **Chai vs OpenClaw (pairing, skills, protocol rows):** See [OPENCLAW.md § Chai vs OpenClaw (Detailed)](OPENCLAW.md#chai-vs-openclaw-detailed).

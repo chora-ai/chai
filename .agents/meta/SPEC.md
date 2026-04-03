@@ -2,6 +2,10 @@
 
 Specs are behavioral contracts that describe how the system works. They live in `.agents/spec/` (e.g. `spec/SKILL_FORMAT.md`). Specs are reference documents for the implementing agent — they define the behavior the code must produce, not the code itself.
 
+**Epics** in **`epic/`** propose and track work; **specs** document behavior. When epic-driven features land, the spec for that area should reflect the new behavior.
+
+**Same base name as an epic** (e.g. `ORCHESTRATION.md` in both **`epic/`** and **`spec/`**) — The **spec** is the runtime contract; the **epic** is roadmap, phases, and rationale. In prose, say **orchestration spec** vs **orchestration epic** (or **spec `ORCHESTRATION`** vs **epic `ORCHESTRATION`**) so readers follow the correct link.
+
 ## Frontmatter
 
 Every spec must include YAML frontmatter with the following fields:
@@ -51,4 +55,5 @@ Specs are less prescriptive in structure than epics. The content should be organ
 ## Maintenance
 
 - Update the frontmatter `status` from `draft` to `stable` when the spec reflects implemented behavior
-- When implementation changes behavior, update the spec in the same session or flag it for update
+- When implementation changes behavior, update the spec in the same change or session when practical
+- Prefer keeping specs accurate over leaving known drift; link to the relevant **`epic/*.md`** when history or motivation helps

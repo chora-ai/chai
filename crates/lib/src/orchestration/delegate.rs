@@ -1,4 +1,4 @@
-//! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `.agents/EPIC_ORCHESTRATION.md`).
+//! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `.agents/epic/ORCHESTRATION.md`).
 
 use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
 use crate::config::{canonical_provider, provider_discovery_enabled, AgentsConfig};

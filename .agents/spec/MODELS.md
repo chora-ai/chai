@@ -8,7 +8,7 @@ Internal spec for **model identifiers** in Chai: examples per backend, cross-pro
 
 ## Relationship to Other Documents
 
-- **[EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md)** — Roadmap for backends and API families; this document is the canonical catalog of **named** model ids in this repository.
+- **[API_ALIGNMENT.md](../epic/API_ALIGNMENT.md)** — Roadmap for backends and API families; this document is the canonical catalog of **named** model ids in this repository.
 - **[PROVIDERS.md](PROVIDERS.md)** — `defaultProvider` ids, discovery, and compatibility; pair with **MODELS.md** for **model** strings.
 - **Testing procedures** live under **`/.testing/`** and are operational runbooks; this spec remains the canonical model taxonomy and inventory.
 
@@ -39,11 +39,11 @@ Models are identified by the model id shown in LM Studio (e.g. from the in-app l
 
 ### Self-hosted — vLLM (supported)
 
-Set **`agents.defaultProvider`** to **`"vllm"`** and **`defaultModel`** to the same id as `vllm serve`. Optional **`providers.vllm.baseUrl`** (default `http://127.0.0.1:8000/v1`), optional **`providers.vllm.apiKey`** / **`VLLM_API_KEY`**. See [VLLM_REFERENCE.md](../ref/VLLM_REFERENCE.md).
+Set **`agents.defaultProvider`** to **`"vllm"`** and **`defaultModel`** to the same id as `vllm serve`. Optional **`providers.vllm.baseUrl`** (default `http://127.0.0.1:8000/v1`), optional **`providers.vllm.apiKey`** / **`VLLM_API_KEY`**. See [VLLM.md](../ref/VLLM.md).
 
 ### Self-hosted — Hugging Face (supported)
 
-Set **`agents.defaultProvider`** to **`"hf"`**, **`providers.hf.baseUrl`** to your OpenAI-compatible base including **`/v1`**, and **`defaultModel`** to the id your server expects. Optional **`HF_API_KEY`** / **`providers.hf.apiKey`**. See [HUGGINGFACE_REFERENCE.md](../ref/HUGGINGFACE_REFERENCE.md).
+Set **`agents.defaultProvider`** to **`"hf"`**, **`providers.hf.baseUrl`** to your OpenAI-compatible base including **`/v1`**, and **`defaultModel`** to the id your server expects. Optional **`HF_API_KEY`** / **`providers.hf.apiKey`**. See [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
 
 | Model                               | Notes     |
 |-------------------------------------|-----------|
@@ -52,11 +52,11 @@ Set **`agents.defaultProvider`** to **`"hf"`**, **`providers.hf.baseUrl`** to yo
 
 ### Hosted — NVIDIA NIM (supported)
 
-Set **`agents.defaultProvider`** to **`"nim"`** and **`defaultModel`** to a NIM catalog id (default fallback **`meta/llama-3.2-3b-instruct`**, same weight class as Ollama/LMS defaults above). Not a private deployment; see [NVIDIA_NIM_REFERENCE.md](../ref/NVIDIA_NIM_REFERENCE.md).
+Set **`agents.defaultProvider`** to **`"nim"`** and **`defaultModel`** to a NIM catalog id (default fallback **`meta/llama-3.2-3b-instruct`**, same weight class as Ollama/LMS defaults above). Not a private deployment; see [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md).
 
 ### Third-party — OpenAI (supported)
 
-Set **`agents.defaultProvider`** to **`"openai"`**, **`OPENAI_API_KEY`** or **`providers.openai.apiKey`**, and **`defaultModel`** to an OpenAI model id (e.g. `gpt-4o-mini`). Optional **`providers.openai.baseUrl`** for Azure-compatible gateways or proxies. See [OPENAI_REFERENCE.md](../ref/OPENAI_REFERENCE.md).
+Set **`agents.defaultProvider`** to **`"openai"`**, **`OPENAI_API_KEY`** or **`providers.openai.apiKey`**, and **`defaultModel`** to an OpenAI model id (e.g. `gpt-4o-mini`). Optional **`providers.openai.baseUrl`** for Azure-compatible gateways or proxies. See [OPENAI.md](../ref/OPENAI.md).
 
 | Model        | Notes              |
 |--------------|--------------------|
@@ -93,19 +93,19 @@ For this document, **local** means a model that is **realistic to run on a typic
 | **`llama-3.2-3B-instruct`** | LM Studio fallback when model unset: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | **`meta/llama-3.2-3b-instruct`** | NIM fallback when model unset: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/providers/nim.rs`](../../crates/lib/src/providers/nim.rs) `static_model_list()` |
 | **`llama3:latest`** | [Local — Ollama](#local--ollama-supported) — historical test matrix id; codebase defaults use **`llama3.2:3b`**. |
-| **`qwen3:8b`** | [OLLAMA_REFERENCE.md](../ref/OLLAMA_REFERENCE.md), [README.md](../../README.md), [Local — Ollama](#local--ollama-supported) |
+| **`qwen3:8b`** | [OLLAMA.md](../ref/OLLAMA.md), [README.md](../../README.md), [Local — Ollama](#local--ollama-supported) |
 | **`gpt-oss-20b`** | LM Studio example in docs; runtime default is **`llama-3.2-3B-instruct`**: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs) |
-| **`openai/gpt-oss-20b`** | [Local — LM Studio](#local--lm-studio-supported), [LM_STUDIO_REFERENCE.md](../ref/LM_STUDIO_REFERENCE.md), [README.md](../../README.md) |
-| **`ibm/granite-4-micro`** | [Local — LM Studio](#local--lm-studio-supported), [README.md](../../README.md), [EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests |
+| **`openai/gpt-oss-20b`** | [Local — LM Studio](#local--lm-studio-supported), [LM_STUDIO.md](../ref/LM_STUDIO.md), [README.md](../../README.md) |
+| **`ibm/granite-4-micro`** | [Local — LM Studio](#local--lm-studio-supported), [README.md](../../README.md), [ORCHESTRATION.md](../epic/ORCHESTRATION.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests |
 | **`granite`** | Short id in [`crates/lib/src/orchestration/policy.rs`](../../crates/lib/src/orchestration/policy.rs) tests only |
-| **`Qwen/Qwen2.5-7B-Instruct`** | vLLM fallback and docs: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs), [VLLM_REFERENCE.md](../ref/VLLM_REFERENCE.md), [README.md](../../README.md). |
-| **`meta-llama/Llama-3.1-8B-Instruct`** | HF fallback: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [HUGGINGFACE_REFERENCE.md](../ref/HUGGINGFACE_REFERENCE.md). |
+| **`Qwen/Qwen2.5-7B-Instruct`** | vLLM fallback and docs: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs), [VLLM.md](../ref/VLLM.md), [README.md](../../README.md). |
+| **`meta-llama/Llama-3.1-8B-Instruct`** | HF fallback: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [HUGGINGFACE.md](../ref/HUGGINGFACE.md). |
 | **`qwen/qwen3.5-122b-a10b`** | NIM catalog example; [`crates/lib/src/providers/nim.rs`](../../crates/lib/src/providers/nim.rs) `static_model_list()` — runtime default for NIM is **`meta/llama-3.2-3b-instruct`**. |
 | **NIM static catalog entries** | [`crates/lib/src/providers/nim.rs`](../../crates/lib/src/providers/nim.rs) `static_model_list()`; gateway **`nimModels`** also merges optional **`providers.nim.extraModels`** (see [README.md](../../README.md)) |
-| **`gpt-4o-mini`**, **`gpt-4o`** | [Third-party — OpenAI](#third-party--openai-supported), [OPENAI_REFERENCE.md](../ref/OPENAI_REFERENCE.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
+| **`gpt-4o-mini`**, **`gpt-4o`** | [Third-party — OpenAI](#third-party--openai-supported), [OPENAI.md](../ref/OPENAI.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | **`gpt-5.2`**, **`gpt-5.1`**, **`gpt-5.1-mini`**, **`gpt-5-mini`** | OpenAI test-matrix ids used in operational testing docs under `/.testing/`. |
-| **`llama3.2:latest`**, **`ibm/granite-4-micro`** (delegation) | Orchestrator/worker examples: [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests, [EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md) |
-| **`nvidia/nemotron-3-super-120b-a12b`** | [NEMOCLAW_REFERENCE.md](../ref/NEMOCLAW_REFERENCE.md) (external NemoClaw / OpenShell stack, not a Chai default) |
+| **`llama3.2:latest`**, **`ibm/granite-4-micro`** (delegation) | Orchestrator/worker examples: [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests, [ORCHESTRATION.md](../epic/ORCHESTRATION.md) |
+| **`nvidia/nemotron-3-super-120b-a12b`** | [NEMOCLAW.md](../ref/NEMOCLAW.md) (external NemoClaw / OpenShell stack, not a Chai default) |
 
 ### Master Table: Deployment Category and Chai Fit
 

@@ -6,7 +6,7 @@ status: current
 
 Reference for **Hugging Face** deployments that expose an **OpenAI-compatible** HTTP API (`/v1/chat/completions`, `/v1/models`), used by Chai’s **`hf`** provider (`agents.defaultProvider: "hf"`). Typical cases: **Inference Endpoints** (managed) or **Text Generation Inference (TGI)** / similar stacks on your infrastructure.
 
-**Scope:** What Chai expects on the wire matches [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat) and List Models. Your deployment must expose a base URL whose **`/v1`** routes behave like OpenAI’s. See [LM_STUDIO_REFERENCE.md](LM_STUDIO_REFERENCE.md) for how Chai maps messages and tools internally.
+**Scope:** What Chai expects on the wire matches [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat) and List Models. Your deployment must expose a base URL whose **`/v1`** routes behave like OpenAI’s. See [LM_STUDIO.md](LM_STUDIO.md) for how Chai maps messages and tools internally.
 
 ## Purpose and How to Use
 

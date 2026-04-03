@@ -4,7 +4,7 @@ status: in-progress
 
 # Epic: Messaging Channels (Privacy and Federation)
 
-**Summary** — Expand Chai's messaging integrations so users can interact with the gateway through multiple chat surfaces, prioritizing **privacy-preserving** options and, where possible, **decentralized or user-controlled** infrastructure. **Matrix**, **Telegram**, and **Signal** (BYO signal-cli) are implemented in the gateway. **Integration probes** live in **`crates/spike`**; a **broader simulation / harness** story is tracked separately in [EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md).
+**Summary** — Expand Chai's messaging integrations so users can interact with the gateway through multiple chat surfaces, prioritizing **privacy-preserving** options and, where possible, **decentralized or user-controlled** infrastructure. **Matrix**, **Telegram**, and **Signal** (BYO signal-cli) are implemented in the gateway. **Integration probes** live in **`crates/spike`**; a **broader simulation / harness** story is tracked separately in [SIMULATIONS.md](SIMULATIONS.md).
 
 **Status** — **In progress.** Matrix (including **E2EE** via matrix-sdk), Telegram, and Signal are shipped; further hardening and follow-ups remain.
 
@@ -20,9 +20,9 @@ Chai launched with Telegram as its only messaging surface, which limits operator
 
 ## Current State
 
-- **Implemented:** **Telegram** — Bot API via **`getUpdates`** (long-poll) or **`setWebhook`** + **`POST /telegram/webhook`**; outbound **`sendMessage`**. **Matrix** — **[matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk)** in **`crates/adapters/matrix`** (SQLite + E2EE); **`lib`** wraps it behind the **`matrix`** Cargo feature (opt-in on **`cli`** / **`desktop`**: **`--features matrix`**). Omit Matrix by building without that feature (e.g. **`cargo install --path crates/cli`**). **`sync_once`** loop; **`m.room.message`** / **`m.text`** inbound; outbound **`room.send`** (Megolm when the room is encrypted). Optional **room allowlist** (**`channels.matrix.roomIds`**, **`MATRIX_ROOM_ALLOWLIST`**). **E2EE verification (SAS)** without Element: gateway HTTP under **`/matrix/verification/*`** (see [MATRIX_REFERENCE.md](ref/MATRIX_REFERENCE.md)). **Signal** — User-run signal-cli **HTTP** daemon: **`GET /api/v1/events`** (SSE) + JSON-RPC **`send`**. All map to **`InboundMessage`** (`channel_id`, `conversation_id`, `text`) and the same session/agent path.
+- **Implemented:** **Telegram** — Bot API via **`getUpdates`** (long-poll) or **`setWebhook`** + **`POST /telegram/webhook`**; outbound **`sendMessage`**. **Matrix** — **[matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk)** in **`crates/adapters/matrix`** (SQLite + E2EE); **`lib`** wraps it behind the **`matrix`** Cargo feature (opt-in on **`cli`** / **`desktop`**: **`--features matrix`**). Omit Matrix by building without that feature (e.g. **`cargo install --path crates/cli`**). **`sync_once`** loop; **`m.room.message`** / **`m.text`** inbound; outbound **`room.send`** (Megolm when the room is encrypted). Optional **room allowlist** (**`channels.matrix.roomIds`**, **`MATRIX_ROOM_ALLOWLIST`**). **E2EE verification (SAS)** without Element: gateway HTTP under **`/matrix/verification/*`** (see [MATRIX.md](../ref/MATRIX.md)). **Signal** — User-run signal-cli **HTTP** daemon: **`GET /api/v1/events`** (SSE) + JSON-RPC **`send`**. All map to **`InboundMessage`** (`channel_id`, `conversation_id`, `text`) and the same session/agent path.
 - **Configuration:** **`channels.telegram`**; **`channels.matrix`**; **`channels.signal`** (`httpBase`, optional **`account`**); env **`TELEGRAM_BOT_TOKEN`**, **`MATRIX_*`** (including **`MATRIX_ROOM_ALLOWLIST`**), **`SIGNAL_CLI_HTTP`**, **`SIGNAL_CLI_ACCOUNT`** (see [README.md](../../README.md)).
-- **References:** [TELEGRAM_REFERENCE.md](ref/TELEGRAM_REFERENCE.md), [MATRIX_REFERENCE.md](ref/MATRIX_REFERENCE.md), [SIGNAL_REFERENCE.md](ref/SIGNAL_REFERENCE.md), [CHANNELS.md](spec/CHANNELS.md), [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md). User journeys: [`.journey/05-channel-telegram.md`](../.journey/05-channel-telegram.md), [`.journey/08-channel-matrix.md`](../.journey/08-channel-matrix.md), [`.journey/09-channel-signal.md`](../.journey/09-channel-signal.md).
+- **References:** [TELEGRAM.md](../ref/TELEGRAM.md), [MATRIX.md](../ref/MATRIX.md), [SIGNAL.md](../ref/SIGNAL.md), [CHANNELS.md](../spec/CHANNELS.md), [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md). User journeys: [`.journey/05-channel-telegram.md`](../../.journey/05-channel-telegram.md), [`.journey/08-channel-matrix.md`](../../.journey/08-channel-matrix.md), [`.journey/09-channel-signal.md`](../../.journey/09-channel-signal.md).
 - **Probes (non-gateway):** **`crates/spike`** — **`matrix-probe`**, **`signal-probe`**; see **`crates/spike/README.md`**.
 
 ## Scope
@@ -39,7 +39,7 @@ Chai launched with Telegram as its only messaging surface, which limits operator
 
 - **Parity with every feature** of each messenger (voice, video, stickers, spaces) in v1 — text-first agent replies are the likely MVP for new channels.
 - **Replacing** the official Signal or Matrix clients for human-to-human chat — the gateway is an **automation surface**, not a full client.
-- **Bundling** a full Matrix SDK in **`lib`** without a separate decision — current Matrix path is **`crates/adapters/matrix`** (matrix-sdk, SQLite store, E2EE), optional via **`lib`**'s **`matrix`** feature. **Signal:** BYO signal-cli only — [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md).
+- **Bundling** a full Matrix SDK in **`lib`** without a separate decision — current Matrix path is **`crates/adapters/matrix`** (matrix-sdk, SQLite store, E2EE), optional via **`lib`**'s **`matrix`** feature. **Signal:** BYO signal-cli only — [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md).
 
 ## Design
 
@@ -47,7 +47,7 @@ Chai launched with Telegram as its only messaging surface, which limits operator
 
 | Channel | Role in epic | Privacy notes | Decentralization notes |
 |---------|----------------|---------------|-------------------------|
-| **Signal** | First-wave (**shipped** in `crates/lib`) | Strong E2EE on Signal clients; Chai uses **signal-cli** (BYO) over HTTP | [signal-cli](https://github.com/AsamK/signal-cli); [SIGNAL_REFERENCE.md](ref/SIGNAL_REFERENCE.md), [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md) |
+| **Signal** | First-wave (**shipped** in `crates/lib`) | Strong E2EE on Signal clients; Chai uses **signal-cli** (BYO) over HTTP | [signal-cli](https://github.com/AsamK/signal-cli); [SIGNAL.md](../ref/SIGNAL.md), [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md) |
 | **Matrix / Element** | First-wave (**shipped** in `crates/lib`) | **E2EE** via matrix-sdk for encrypted rooms | **Federation** and **self-hosted homeservers**; [Element](https://matrix.org/ecosystem/clients/element/) |
 
 ### Additional Options Under Consideration (Not Committed)
@@ -64,9 +64,9 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 
 ### Technical Direction (High Level)
 
-- **Shared contract** — [CHANNELS.md](spec/CHANNELS.md): **`InboundMessage`** → **`process_inbound_message`** → **`ChannelHandle::send_message`**. Telegram: [TELEGRAM_REFERENCE.md](ref/TELEGRAM_REFERENCE.md).
-- **Signal** — No official bot API comparable to Telegram's. Practical approaches include **signal-cli** (JSON-RPC HTTP daemon, etc.); see [SIGNAL_REFERENCE.md](ref/SIGNAL_REFERENCE.md).
-- **Matrix** — **Shipped:** **`MatrixChannel`** (`lib`) over **`matrix_channel::MatrixInner`** with SQLite + **E2EE**; **room allowlist**; **gateway HTTP verification** (SAS) under **`/matrix/verification/*`**. Reference: [MATRIX_REFERENCE.md](ref/MATRIX_REFERENCE.md); journey: [`.journey/08-channel-matrix.md`](../.journey/08-channel-matrix.md).
+- **Shared contract** — [CHANNELS.md](../spec/CHANNELS.md): **`InboundMessage`** → **`process_inbound_message`** → **`ChannelHandle::send_message`**. Telegram: [TELEGRAM.md](../ref/TELEGRAM.md).
+- **Signal** — No official bot API comparable to Telegram's. Practical approaches include **signal-cli** (JSON-RPC HTTP daemon, etc.); see [SIGNAL.md](../ref/SIGNAL.md).
+- **Matrix** — **Shipped:** **`MatrixChannel`** (`lib`) over **`matrix_channel::MatrixInner`** with SQLite + **E2EE**; **room allowlist**; **gateway HTTP verification** (SAS) under **`/matrix/verification/*`**. Reference: [MATRIX.md](../ref/MATRIX.md); journey: [`.journey/08-channel-matrix.md`](../../.journey/08-channel-matrix.md).
   - **Follow-ups (optional):** client backoff / respect for homeserver rate limits; **sync** reconnect tuning when sync errors; richer **timeline** handling (non-text, edits, reactions) beyond plain **`m.text`**.
   - **Modularity:** **matrix-sdk** is isolated in **`crates/adapters/matrix`**; **`lib`** feature **`matrix`** (opt-in via **`cli`** / **`desktop`** **`--features matrix`**) controls whether Matrix code is compiled. **Future:** optional **runtime** loading of Matrix (e.g. only connect when the gateway starts with Matrix enabled in config) to avoid linking Matrix in processes that never use it — see **Next Steps** below.
 
@@ -91,14 +91,14 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 |-------|--------|--------|
 | 1. Spikes (wire validation) | **Done** | **`crates/spike`**: **`matrix-probe`**, **`signal-probe`**. |
 | 2. Matrix gateway integration | **Done** | **`MatrixChannel`** in **`crates/lib`** + **`crates/adapters/matrix`** (matrix-sdk); README + desktop config surfacing. |
-| 3. Signal gateway integration | **Done** | **`SignalChannel`**: SSE + JSON-RPC **`send`** — [SIGNAL_REFERENCE.md](ref/SIGNAL_REFERENCE.md). |
+| 3. Signal gateway integration | **Done** | **`SignalChannel`**: SSE + JSON-RPC **`send`** — [SIGNAL.md](../ref/SIGNAL.md). |
 | 4. Matrix hardening | **Partial / ongoing** | Allowlist + verification HTTP: **done**. **Remaining:** rate limits / backoff, reconnect tuning, richer timeline events (optional) — see **Technical Direction** above. |
 | 5. Config and docs polish | **Ongoing** | **`channels.signal`** documented; Matrix **ref + journey** updated; channel-agnostic quickstart. |
 | 6. Operational hardening | **Not started** | Gateway **`status`** channel list; structured logging; secrets rotation notes. |
 
 ## Open Questions
 
-- **Signal:** Registration (dedicated number vs landline); captcha and ToS. **Distribution:** BYO signal-cli only — see [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md).
+- **Signal:** Registration (dedicated number vs landline); captcha and ToS. **Distribution:** BYO signal-cli only — see [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md).
 - **Matrix:** **Resolved** — **room allowlist** (**`channels.matrix.roomIds`**, **`MATRIX_ROOM_ALLOWLIST`**) and **SAS verification** over gateway HTTP (**`/matrix/verification/*`**) so operators are not required to use Element for device verification. Element remains usable for manual verification if preferred.
 - **Telegram:** Whether docs stay Telegram-first for quickstarts or **channel-agnostic**.
 
@@ -108,7 +108,7 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 
 1. **Signal hardening** — Richer **`receive`** payloads (attachments, edits), reconnect tuning, optional **`account`** UX in desktop.
 2. **Matrix hardening** — Rate limits / backoff, sync reconnect tuning, optional richer timeline events (aligns with phase 4).
-3. **Epic hygiene** — Move from **draft** to **tracked** when scope is decided; keep [EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md) for **harness / fixtures** (orthogonal).
+3. **Epic hygiene** — Move from **draft** to **tracked** when scope is decided; keep [SIMULATIONS.md](SIMULATIONS.md) for **harness / fixtures** (orthogonal).
 
 ### Future Considerations (Matrix Modularity)
 
@@ -125,8 +125,8 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 
 ## Related Epics and Docs
 
-- [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md) — BYO signal-cli; HTTP daemon; no bundling.
-- [EPIC_SIMULATIONS.md](EPIC_SIMULATIONS.md) — Simulation / harness (draft); relationship to **`crates/spike`**.
-- [CHANNELS.md](spec/CHANNELS.md) — Internal spec: gateway channel types, binding, **`process_inbound_message`**, shutdown.
-- [EPIC_API_ALIGNMENT.md](EPIC_API_ALIGNMENT.md) — LLM backends (orthogonal to messaging surfaces).
-- [EPIC_ORCHESTRATION.md](EPIC_ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).
+- [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md) — BYO signal-cli; HTTP daemon; no bundling.
+- [SIMULATIONS.md](SIMULATIONS.md) — Simulation / harness (draft); relationship to **`crates/spike`**.
+- [CHANNELS.md](../spec/CHANNELS.md) — Internal spec: gateway channel types, binding, **`process_inbound_message`**, shutdown.
+- [API_ALIGNMENT.md](API_ALIGNMENT.md) — LLM backends (orthogonal to messaging surfaces).
+- [ORCHESTRATION.md](ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).

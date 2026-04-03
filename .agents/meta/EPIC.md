@@ -1,6 +1,15 @@
 # Epic Conventions
 
-Epics are proposals and tracking documents for significant features or architectural changes. They live in the `.agents/` root directory with the `EPIC_` prefix (e.g. `EPIC_ORCHESTRATION.md`).
+Epics are proposals and tracking documents for significant features or architectural changes. They live in **`.agents/epic/`** as `<NAME>.md` (uppercase, underscores; e.g. `ORCHESTRATION.md`).
+
+## Epics and Specs
+
+- **Epics** (`epic/*.md`) — Proposals, phases, requirements, and tracking. They capture *what* is planned or delivered and *why*.
+- **Specs** (`spec/*.md`) — Behavioral contracts for the running system. They capture *how* the system behaves for implementers.
+
+When implementation changes product behavior, **update the relevant `spec/*.md`** in the same effort (or immediately after) so specs stay aligned with the code. Update the root **`README.md`** or **`VISION.md`** when operators or users need to see the change.
+
+Some topics use the **same file name** under **`epic/`** and **`spec/`** (e.g. `ORCHESTRATION.md`). In prose, disambiguate (**orchestration epic** vs **orchestration spec**, or **epic `ORCHESTRATION`** vs **spec `ORCHESTRATION`**) so links and reviews target the right document.
 
 ## Frontmatter
 
@@ -87,7 +96,7 @@ When present, sections appear in this order:
 
 ## Naming
 
-- File name: `EPIC_<NAME>.md` (uppercase, underscores)
+- File name: `<NAME>.md` under **`epic/`** (uppercase, underscores; e.g. `API_ALIGNMENT.md`)
 - Title: `# Epic: <Human Readable Name>`
 - Name should be concise and descriptive of the feature or change
 
@@ -99,3 +108,4 @@ When present, sections appear in this order:
 - Update Phase status as phases complete
 - Move resolved Open Questions to Design decisions or remove them
 - Update stale references to other documents (e.g. "not yet implemented" for features that have shipped)
+- When a requirement changes runtime behavior, **update the corresponding `spec/*.md`** (and link to the epic from the spec if background helps readers)

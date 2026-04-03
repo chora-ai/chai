@@ -1,4 +1,4 @@
-//! Orchestration: orchestrator and worker flows (see `.agents/EPIC_ORCHESTRATION.md`).
+//! Orchestration: orchestrator and worker flows (see `.agents/epic/ORCHESTRATION.md`).
 //!
 //! **Worker / delegation primitive** — [`crate::agent::run_turn_with_messages`] with explicit messages.
 //!

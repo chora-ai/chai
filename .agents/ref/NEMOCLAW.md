@@ -6,7 +6,7 @@ status: current
 
 Reference for **[NVIDIA NemoClaw](https://www.nvidia.com/en-us/ai/nemoclaw/)**—NVIDIA’s open source **reference stack** for running **[OpenClaw](https://openclaw.ai/)** inside **[NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell)** with managed inference and policy. Use this when comparing “secured OpenClaw” offerings or NVIDIA agent tooling; this project (**Chai**) is not NemoClaw.
 
-**Not to be confused with:** [NVIDIA_NIM_REFERENCE.md](NVIDIA_NIM_REFERENCE.md) documents Chai’s optional **`nim`** backend (direct HTTP to the **hosted NIM API** at `integrate.api.nvidia.com`). **NemoClaw** is a separate installer + sandbox + OpenShell product; it is not the same as wiring NIM into Chai’s config.
+**Not to be confused with:** [NVIDIA_NIM.md](NVIDIA_NIM.md) documents Chai’s optional **`nim`** backend (direct HTTP to the **hosted NIM API** at `integrate.api.nvidia.com`). **NemoClaw** is a separate installer + sandbox + OpenShell product; it is not the same as wiring NIM into Chai’s config.
 
 ## Purpose and How to Use
 
@@ -25,7 +25,7 @@ Reference for **[NVIDIA NemoClaw](https://www.nvidia.com/en-us/ai/nemoclaw/)**�
 
 ## Chai vs NemoClaw (Feature Summary)
 
-Minimal scan. **Yes** = supported, **Partial** = subset or different shape, **No** = not present, **N/A** = not applicable. Chai’s optional **`nim`** backend is a direct **hosted NIM HTTP client**—not the NemoClaw product ([NVIDIA_NIM_REFERENCE.md](NVIDIA_NIM_REFERENCE.md)).
+Minimal scan. **Yes** = supported, **Partial** = subset or different shape, **No** = not present, **N/A** = not applicable. Chai’s optional **`nim`** backend is a direct **hosted NIM HTTP client**—not the NemoClaw product ([NVIDIA_NIM.md](NVIDIA_NIM.md)).
 
 | Feature | Chai | NemoClaw |
 |---------|------|----------|

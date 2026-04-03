@@ -4,7 +4,7 @@ status: current
 
 # Matrix / Element Reference
 
-Reference for the **Matrix** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md) shows the Telegram mapping for comparison. Matrix emphasizes **open federation** and **decentralization**: users and rooms live on **homeservers** that interoperate over the protocol ([Matrix](https://matrix.org/)). **Element** is a common [client](https://matrix.org/ecosystem/clients/element/) for humans; the gateway uses a normal Matrix user account (access token or password login). **Interactive device verification (SAS)** can be completed via **gateway HTTP** so Element is not required for that step.
+Reference for the **Matrix** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM.md](TELEGRAM.md) shows the Telegram mapping for comparison. Matrix emphasizes **open federation** and **decentralization**: users and rooms live on **homeservers** that interoperate over the protocol ([Matrix](https://matrix.org/)). **Element** is a common [client](https://matrix.org/ecosystem/clients/element/) for humans; the gateway uses a normal Matrix user account (access token or password login). **Interactive device verification (SAS)** can be completed via **gateway HTTP** so Element is not required for that step.
 
 **Status** — **Implemented** in **`crates/adapters/matrix`** (Cargo package **`matrix-channel`**, matrix-sdk) with a thin **`MatrixChannel`** wrapper in **`crates/lib/src/channels/matrix.rs`** when the **`lib`** **`matrix`** Cargo feature is enabled (opt-in: **`cargo build -p cli --features matrix`**, **`cargo install --path crates/cli --features matrix`**, or **`--features matrix`** on **`desktop`**). SQLite state store under **`~/.chai/matrix`** by default (see **`CHAI_MATRIX_STORE`** / **`channels.matrix.storePath`**), **Megolm/Olm** for **encrypted** rooms, Client-Server **`sync_once`** loop, **`OriginalSyncRoomMessageEvent`** for **`m.text`**, outbound **`room.send(RoomMessageEventContent::text_plain(…))`** (encrypts when the room is encrypted). Access-token restore needs **`user_id`** and **`device_id`** (from **`GET /account/whoami`**, or **`MATRIX_DEVICE_ID`** / **`channels.matrix.deviceId`**).
 
@@ -15,7 +15,7 @@ Reference for the **Matrix** channel in Chai. Gateway behavior is specified in [
 ## Purpose and How to Use
 
 - **Purpose:** Describe how Matrix feeds the same gateway pipeline as Telegram; document config, allowlist, and verification HTTP.
-- **How to use:** Read [CHANNELS.md](../spec/CHANNELS.md) first, then this file and [TELEGRAM_REFERENCE.md](TELEGRAM_REFERENCE.md).
+- **How to use:** Read [CHANNELS.md](../spec/CHANNELS.md) first, then this file and [TELEGRAM.md](TELEGRAM.md).
 
 ## Ecosystem Facts
 

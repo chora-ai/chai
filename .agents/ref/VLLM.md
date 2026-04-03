@@ -11,7 +11,7 @@ Reference for the **vLLM** inference and serving stack: OpenAI-compatible HTTP A
 ## Purpose and How to Use
 
 - **Purpose:** Summarize vLLM’s serving APIs relevant to chat agents, note behaviors that differ from plain OpenAI clients, and document how the gateway uses **`VllmClient`**.
-- **How to use:** When configuring **`agents.defaultProvider: "vllm"`** or **`enabledProviders`**, consult this doc alongside [LM_STUDIO_REFERENCE.md](LM_STUDIO_REFERENCE.md) (same request/response shapes for chat) and [EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md).
+- **How to use:** When configuring **`agents.defaultProvider: "vllm"`** or **`enabledProviders`**, consult this doc alongside [LM_STUDIO.md](LM_STUDIO.md) (same request/response shapes for chat) and [API_ALIGNMENT.md](../epic/API_ALIGNMENT.md).
 
 ## Official vLLM Documentation
 
@@ -84,7 +84,7 @@ The server also exposes other routes (e.g. **Completions**, **Embeddings**, **au
 | **Client** | **`OllamaClient`** | **`LmsClient`** | **`VllmClient`** |
 | **Model list** | **`/api/tags`** | **`/api/v1/models`** (LM native) | **`GET /v1/models`** |
 
-Other OpenAI-compat backends in this repo (**`openai`**, **`hf`**, **`nim`**) use the same chat/list patterns via **`OpenAiCompatClient`** (or **`NimClient`** for NIM); see [OPENAI_REFERENCE.md](OPENAI_REFERENCE.md), [HUGGINGFACE_REFERENCE.md](HUGGINGFACE_REFERENCE.md), [NVIDIA_NIM_REFERENCE.md](NVIDIA_NIM_REFERENCE.md).
+Other OpenAI-compat backends in this repo (**`openai`**, **`hf`**, **`nim`**) use the same chat/list patterns via **`OpenAiCompatClient`** (or **`NimClient`** for NIM); see [OPENAI.md](OPENAI.md), [HUGGINGFACE.md](HUGGINGFACE.md), [NVIDIA_NIM.md](NVIDIA_NIM.md).
 
 ## Possible Future Use
 

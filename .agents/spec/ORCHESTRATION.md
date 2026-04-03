@@ -4,7 +4,7 @@ status: stable
 
 # Orchestration and Delegation
 
-This document describes how **orchestrator** and **worker** entries in **`config.json`** map to runtime behavior—especially **delegation** via the built-in **`delegate_task`** tool. For goals, phased implementation history, and optional backlog, see **[EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md)**.
+This document describes how **orchestrator** and **worker** entries in **`config.json`** map to runtime behavior—especially **delegation** via the built-in **`delegate_task`** tool. For goals, phased implementation history, and optional backlog, see **[ORCHESTRATION.md](../epic/ORCHESTRATION.md)**.
 
 **Former tool name:** The same built-in tool was previously named **`chai_delegate`**. Older notes or logs may still say **`chai_delegate`**; behavior and config are unchanged aside from the tool name exposed to the model.
 
@@ -94,12 +94,12 @@ The **`status`** payload includes **`workers`**: an array of **`{ id, defaultPro
 
 ## Out of Scope for This Spec
 
-Interactive **human approval** queues, **sandboxing**, and **arbitrary exec approval** are not described here; configuration supports **deny** and **caps** instead. New **provider backends** are tracked under **[EPIC_API_ALIGNMENT.md](../EPIC_API_ALIGNMENT.md)**.
+Interactive **human approval** queues, **sandboxing**, and **arbitrary exec approval** are not described here; configuration supports **deny** and **caps** instead. New **provider backends** are tracked under **[API_ALIGNMENT.md](../epic/API_ALIGNMENT.md)**.
 
 ## Related Documents
 
 | Document | Purpose |
 |----------|---------|
-| **[EPIC_ORCHESTRATION.md](../EPIC_ORCHESTRATION.md)** | Epic: goals, config evolution, implementation phases, requirements checklist, closure, follow-ups. |
+| **[ORCHESTRATION.md](../epic/ORCHESTRATION.md)** | Epic: goals, config evolution, implementation phases, requirements checklist, closure, follow-ups. |
 | **[PROVIDERS.md](PROVIDERS.md)** | Provider ids, configuration, API comparison. |
 | **[MODELS.md](MODELS.md)** | Model ids, repository inventory, tool-fit notes. |

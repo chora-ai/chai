@@ -1,35 +1,36 @@
 # Agents
 
-Follow these guidelines when working on code in this repository.
+Information and guidelines for working on code in this repository.
+
+## Primary Resources
+
+This document and the `.agents` directory are the primary resources.
+
+**Always read [.agents/README.md](.agents/README.md)** — the entry point for the `.agents` directory.
 
 ## Architecture Overview
 
-Maintain modularity and clear separation of concerns.
-
-### User-Facing Runtime
-
-- **`crates/cli`** — A command-line interface for running the gateway and a workspace.
-- **`crates/desktop`** — A graphical user-interface for running the gateway and a workspace.
-
-### Shared Runtime Library
-
-- **`crates/lib`** — All shared business logic for the multi-agent management system.
-
-### Optional Integrations
-
-- **`crates/adapters/matrix`** — Optional Matrix **matrix-sdk** adapter (sync, E2EE, hooks).
-
-### Optional Research Binaries
-
-- **`crates/spike`** — Optional research binaries (e.g. Matrix/Signal wire probes).
-
-The above crates are a starting point. If creating a new crate would improve modularity without adding unnecessary complexity, recommendations would be welcome.
+| Category | Crate | Purpose |
+|----------|-------|---------|
+| User-facing runtime | `crates/cli` | Command-line interface for the gateway and a workspace. |
+| User-facing runtime | `crates/desktop` | Graphical user interface for the gateway and a workspace. |
+| Shared runtime library | `crates/lib` | Shared business logic for the multi-agent management system. |
+| Optional integration | `crates/adapters/matrix` | Optional Matrix **matrix-sdk** adapter (sync, E2EE, hooks). |
+| Optional research | `crates/spike` | Optional research binaries (e.g. Matrix/Signal wire probes). |
 
 ## Architecture Guidelines
+
+### Modularity
+
+- Maintain modularity and clear separation of concerns.
 
 ### Dependencies
 
 - Add dependencies only when clearly needed; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits.
+
+### New Crates
+
+- The crates in **Architecture Overview** are a starting point. If creating a new crate would improve modularity without adding unnecessary complexity, recommendations would be welcome.
 
 ## Code Style Guidelines
 
@@ -52,14 +53,3 @@ The above crates are a starting point. If creating a new crate would improve mod
 ### `VISION.md`
 
 - This document provides the state of the project and outlines short and long-term goals.
-
-## Agent Resources
-
-### `AGENTS.md` (this document)
-
-- Information and guidelines for agents when working with code in this repository.
-
-### `/.agents` (agent resources)
-
-- Additional resources for agents when working with code in this repository.
-- See [`/.agents/README.md`](.agents/README.md) for more information about the directory.
