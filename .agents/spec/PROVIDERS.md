@@ -81,7 +81,7 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 **Configuration overview:** Set **`agents.defaultProvider`** to one of **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`**. Set **`agents.defaultModel`** to the model id that backend expects. Top-level **`providers`** supplies base URLs and API keys. User-facing field names and env vars are documented in [README.md](../../README.md).
 
-**Discovery:** When **`agents.enabledProviders`** is absent or empty, only the default provider is polled for models at startup. When set, only listed providers are polled. WebSocket **`status`** returns **`ollamaModels`**, **`lmsModels`**, **`vllmModels`**, **`nimModels`**, **`openaiModels`**, and **`hfModels`** (each a list of `{ "name": ... }` objects where applicable). For NIM, the list is a static catalog plus optional **`providers.nim.extraModels`** (NVIDIA does not expose **`/v1/models`** on the hosted API).
+**Discovery:** When **`agents.enabledProviders`** is absent or empty, only the default provider is polled for models at startup. When set, only listed providers are polled. WebSocket **`status`** returns per-provider objects under **`payload.providers`** (e.g. **`ollama`**, **`lms`**, …), each with **`discovery`** and **`models`** (list of `{ "name": ... }` where applicable). For NIM, the list is a static catalog plus optional **`providers.nim.extraModels`** (NVIDIA does not expose **`/v1/models`** on the hosted API).
 
 **Ollama-compatible backends:** If a server exposes the native Ollama API (`/api/chat`, `/api/tags`), use **`"ollama"`** and optional **`providers.ollama.baseUrl`**. LocalAI in Ollama mode is an example.
 

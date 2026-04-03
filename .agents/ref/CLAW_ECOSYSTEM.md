@@ -26,7 +26,7 @@ status: current
 | **LLM integration** | **Model providers**, catalog, plugins | **`LLM_BACKEND`**, `providers.json`, many named + OpenAI-compat providers | Default: **NVIDIA cloud** Nemotron via OpenShell; **Ollama** / **vLLM** experimental | Configurable backends: **ollama**, **lms**, **vllm**, **nim** (`crates/lib/src/providers/`) |
 | **Channels** | Many (Telegram, Discord, Slack, Signal, …) | REPL, HTTP, WASM-packaged channels, … (per README) | Whatever OpenClaw exposes **inside** the sandbox | **Telegram** (long-poll or webhook); designed to extend |
 | **Tools & isolation** | Tool policy, optional **sandbox**, exec approvals | **WASM** sandbox, MCP, Docker orchestrator, leak scanning | **OpenShell** policy layers: network, filesystem, process, **inference** routing | **`tools.json`** + optional scripts; process execution; **no** WASM / OpenShell |
-| **Config / state** | `~/.openclaw/openclaw.json` | DB + `~/.ironclaw/.env` bootstrap | Nemoclaw + OpenShell + sandbox state | `~/.chai/config.json`, `~/.chai/paired.json` |
+| **Config / state** | `~/.openclaw/openclaw.json` | DB + `~/.ironclaw/.env` bootstrap | Nemoclaw + OpenShell + sandbox state | **`~/.chai/profiles/<name>/config.json`**, **`~/.chai/active`**, per-profile **`paired.json`** / device material |
 | **Maturity / positioning** | Broad ecosystem, docs at [docs.openclaw.ai](https://docs.openclaw.ai/) | OSS, security-first narrative ([ironclaw.com](https://www.ironclaw.com/)) | **Alpha** early preview (per [NemoClaw README](https://github.com/NVIDIA/NemoClaw)); NVIDIA-packaged | POC / evolving monorepo |
 
 ## Focus Notes (Chai vs Others)

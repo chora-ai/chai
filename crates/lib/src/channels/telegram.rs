@@ -4,13 +4,35 @@ use crate::channels::inbound::InboundMessage;
 use crate::channels::registry::ChannelHandle;
 use async_trait::async_trait;
 use serde::Deserialize;
+use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
 const LONG_POLL_TIMEOUT: u64 = 30;
+
+const STATUS_ERR_MAX: usize = 512;
+
+fn set_channel_status_error(slot: &Mutex<Option<String>>, msg: &str) {
+    let t = msg.trim();
+    let s = if t.len() > STATUS_ERR_MAX {
+        format!("{}…", &t[..STATUS_ERR_MAX])
+    } else {
+        t.to_string()
+    };
+    if let Ok(mut g) = slot.lock() {
+        *g = Some(s);
+    }
+}
+
+/// How inbound Telegram updates are received.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TelegramTransport {
+    LongPoll,
+    Webhook,
+}
 
 #[derive(Debug, Deserialize)]
 struct GetUpdatesResponse {
@@ -43,17 +65,21 @@ pub struct TelegramChat {
 pub struct TelegramChannel {
     id: String,
     token: Option<String>,
+    transport: TelegramTransport,
     running: AtomicBool,
     client: reqwest::Client,
+    last_error: Mutex<Option<String>>,
 }
 
 impl TelegramChannel {
-    pub fn new(token: Option<String>) -> Self {
+    pub fn new(token: Option<String>, transport: TelegramTransport) -> Self {
         Self {
             id: "telegram".to_string(),
             token,
+            transport,
             running: AtomicBool::new(false),
             client: reqwest::Client::new(),
+            last_error: Mutex::new(None),
         }
     }
 
@@ -184,9 +210,12 @@ impl TelegramChannel {
 
 async fn run_get_updates_loop(channel: Arc<TelegramChannel>, inbound_tx: mpsc::Sender<InboundMessage>) {
     let mut offset: Option<i64> = None;
-    while channel.running() {
+        while channel.running() {
         match channel.get_updates(offset).await {
             Ok((updates, next)) => {
+                if let Ok(mut g) = channel.last_error.lock() {
+                    *g = None;
+                }
                 offset = next;
                 for u in updates {
                     if let Some(ref msg) = u.message {
@@ -207,6 +236,7 @@ async fn run_get_updates_loop(channel: Arc<TelegramChannel>, inbound_tx: mpsc::S
             }
             Err(e) => {
                 log::debug!("telegram getUpdates error: {}", e);
+                set_channel_status_error(&channel.last_error, &e);
                 tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
             }
         }
@@ -226,6 +256,18 @@ impl ChannelHandle for TelegramChannel {
 
     async fn send_message(&self, conversation_id: &str, text: &str) -> Result<(), String> {
         TelegramChannel::send_message(self, conversation_id, text).await
+    }
+
+    async fn status_detail(&self) -> serde_json::Value {
+        let transport = match self.transport {
+            TelegramTransport::LongPoll => "longPoll",
+            TelegramTransport::Webhook => "webhook",
+        };
+        let last_error = self.last_error.lock().ok().and_then(|g| g.clone());
+        json!({
+            "transport": transport,
+            "lastError": last_error,
+        })
     }
 }
 

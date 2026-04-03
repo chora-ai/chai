@@ -30,12 +30,12 @@ Vector store using **pgvector** (local Postgres or compatible) for portability a
 
 ### Out of Scope
 
-Implementing the full orchestrator–worker loop (see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing note/vault skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
+Re-implementing core **`delegate_task`** orchestration (already shipped — see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing note/vault skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
 
 ## Dependencies
 
 - **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [API_ALIGNMENT.md](API_ALIGNMENT.md) and reference documentation for supported or planned backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
-- **Orchestration** — This epic would ideally follow or overlap with [ORCHESTRATION.md](ORCHESTRATION.md). The worker embedding model (a model provided by Ollama, LM Studio, etc) handles index build and query embedding; the orchestrator (or single model) calls tools to build the index and to query the knowledge base and consumes retrieved context.
+- **Orchestration** — **`delegate_task`** and per-worker turns are **already** implemented ([ORCHESTRATION.md](ORCHESTRATION.md)). This epic adds RAG-specific tools and embedding/index flows on top of that stack; the worker embedding model (Ollama, LM Studio, etc.) would handle index build and query embedding while the orchestrator calls tools and consumes retrieved context (optionally via delegation).
 
 ## Design
 
@@ -212,5 +212,5 @@ These can be resolved during design or early implementation:
 
 ## Related Epics and Docs
 
-- [ORCHESTRATION.md](ORCHESTRATION.md) — Orchestrator–worker delegation loop; the RAG flow assumes `delegate_task` and per-worker tool policy from this epic. Out-of-scope items for this epic (full orchestrator–worker loop) are tracked there.
+- [ORCHESTRATION.md](ORCHESTRATION.md) — Orchestrator–worker delegation (**shipped**). RAG builds on **`delegate_task`** and per-worker tools; per-project filesystem policy for workers remains future work (see **Design** in this epic).
 - [API_ALIGNMENT.md](API_ALIGNMENT.md) — Backend client alignment; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.

@@ -91,5 +91,5 @@ Model-comparison procedures live under **[`.testing/`](../../.testing/)**. They 
 ## Related Epics and Docs
 
 - [MSG_CHANNELS.md](MSG_CHANNELS.md) — Channels product work; spike probes originated here.
-- **`crates/spike/README.md`** — Current probe binaries; how similutions are different.
+- **`crates/spike/README.md`** — Current probe binaries; how simulations differ from a future harness.
 - [.testing/README.md](../../.testing/README.md) — Numbered model-comparison playbooks by category, provider, and family.

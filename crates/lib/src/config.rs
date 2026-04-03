@@ -1,8 +1,8 @@
 //! Configuration types and loading.
 //!
-//! Config is loaded from a JSON file (e.g. `~/.chai/config.json`) and environment.
-//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (URLs/keys for model APIs), `agents`
-//! (JSON array of `id` / `role` entries; omit the key for a single default orchestrator), and `skills`.
+//! Config is loaded from a JSON file under the active profile (e.g. `~/.chai/profiles/assistant/config.json`) and environment.
+//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (URLs/keys for model APIs), and `agents`
+//! (JSON array of `id` / `role` entries; omit the key for a single default orchestrator). Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -28,10 +28,6 @@ pub struct Config {
     /// Agent definitions: JSON array of `id` + `role` (`orchestrator` \| `worker`). Omit for defaults (one orchestrator, id `orchestrator`).
     #[serde(default = "default_agents_config", with = "agents_config_de")]
     pub agents: AgentsConfig,
-
-    /// Skills load paths and options.
-    #[serde(default)]
-    pub skills: SkillsConfig,
 }
 
 /// Gateway bind, port, and auth settings.
@@ -208,7 +204,7 @@ pub struct MatrixChannelConfig {
     pub password: Option<String>,
     /// `@user:server` for echo filtering when using `access_token` without a login response. Overridden by `MATRIX_USER_ID`.
     pub user_id: Option<String>,
-    /// Directory for matrix-sdk SQLite state and E2EE keys (default `~/.chai/matrix`). Overridden by `CHAI_MATRIX_STORE`.
+    /// Directory for matrix-sdk SQLite state and E2EE keys (default `<profile>/matrix`). Overridden by `CHAI_MATRIX_STORE`.
     pub store_path: Option<String>,
     /// Device id for access-token restore when `/account/whoami` does not return one. Overridden by `MATRIX_DEVICE_ID`.
     pub device_id: Option<String>,
@@ -228,7 +224,18 @@ pub struct TelegramChannelConfig {
     pub webhook_secret: Option<String>,
 }
 
-/// Resolved agent policy: one orchestrator (flattened fields) plus optional worker presets for `delegate_task`.
+/// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillContextMode {
+    /// All loaded skills' full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models.
+    #[default]
+    Full,
+    /// System message contains only a compact list (name, description). The model uses the read_skill tool to load a skill's full SKILL.md when needed. Keeps prompt small and scales to many skills.
+    ReadOnDemand,
+}
+
+/// Resolved agents configuration: one orchestrator (flattened fields) plus optional worker presets for `delegate_task`.
 ///
 /// In `config.json`, **`agents`** is a JSON **array** of entries with `id`, `role` (`orchestrator` \| `worker`),
 /// and per-entry fields. Exactly one orchestrator and unique ids are required. Omit **`agents`** entirely
@@ -243,12 +250,15 @@ pub struct AgentsConfig {
     pub default_model: Option<String>,
     /// Providers to fetch models from at startup (e.g. `["ollama", "lms"]`). Opt-in: when absent or empty, only the default provider (from defaultProvider) is discovered; when set, only listed providers are polled.
     pub enabled_providers: Option<Vec<String>>,
-    /// Workspace root (default ~/.chai/workspace).
-    pub workspace: Option<PathBuf>,
     /// Optional cap on the number of recent session messages sent to the model on each turn.
     /// When set, only the last N messages are included in the provider request; the full session
     /// history is still stored in memory. Default: unset (no cap).
     pub max_session_messages: Option<usize>,
+
+    /// Skill package names enabled for the orchestrator (subset of packages under `~/.chai/skills`). Omitted or empty ⇒ no skills for the orchestrator.
+    pub skills_enabled: Option<Vec<String>>,
+    /// How orchestrator skill docs are inlined vs `read_skill`.
+    pub context_mode: Option<SkillContextMode>,
 
     /// Optional cap on the number of `delegate_task` tool calls allowed per turn.
     /// When unset, delegation is limited only by the tool loop iteration cap.
@@ -286,8 +296,9 @@ impl Default for AgentsConfig {
             default_provider: None,
             default_model: None,
             enabled_providers: None,
-            workspace: None,
             max_session_messages: None,
+            skills_enabled: None,
+            context_mode: None,
             max_delegations_per_turn: None,
             workers: None,
             delegate_allowed_models: None,
@@ -345,7 +356,9 @@ struct AgentDefinition {
     #[serde(default)]
     enabled_providers: Option<Vec<String>>,
     #[serde(default)]
-    workspace: Option<PathBuf>,
+    skills_enabled: Option<Vec<String>>,
+    #[serde(default)]
+    context_mode: Option<SkillContextMode>,
     #[serde(default)]
     max_session_messages: Option<usize>,
     #[serde(default)]
@@ -381,7 +394,8 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
         default_provider: agents.default_provider.clone(),
         default_model: agents.default_model.clone(),
         enabled_providers: agents.enabled_providers.clone(),
-        workspace: agents.workspace.clone(),
+        skills_enabled: agents.skills_enabled.clone(),
+        context_mode: agents.context_mode,
         max_session_messages: agents.max_session_messages,
         max_delegations_per_turn: agents.max_delegations_per_turn,
         delegate_allowed_models: agents.delegate_allowed_models.clone(),
@@ -398,7 +412,8 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
                 default_provider: w.default_provider.clone(),
                 default_model: w.default_model.clone(),
                 enabled_providers: w.enabled_providers.clone(),
-                workspace: None,
+                skills_enabled: w.skills_enabled.clone(),
+                context_mode: w.context_mode,
                 max_session_messages: None,
                 max_delegations_per_turn: None,
                 delegate_allowed_models: w.delegate_allowed_models.clone(),
@@ -418,7 +433,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         default_provider: Option<String>,
         default_model: Option<String>,
         enabled_providers: Option<Vec<String>>,
-        workspace: Option<PathBuf>,
+        skills_enabled: Option<Vec<String>>,
+        context_mode: Option<SkillContextMode>,
         max_session_messages: Option<usize>,
         max_delegations_per_turn: Option<usize>,
         delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
@@ -451,7 +467,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     default_provider: e.default_provider,
                     default_model: e.default_model,
                     enabled_providers: e.enabled_providers,
-                    workspace: e.workspace,
+                    skills_enabled: e.skills_enabled,
+                    context_mode: e.context_mode,
                     max_session_messages: e.max_session_messages,
                     max_delegations_per_turn: e.max_delegations_per_turn,
                     delegate_allowed_models: e.delegate_allowed_models,
@@ -467,6 +484,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     default_provider: e.default_provider,
                     default_model: e.default_model,
                     enabled_providers: e.enabled_providers,
+                    skills_enabled: e.skills_enabled,
+                    context_mode: e.context_mode,
                     delegate_allowed_models: e.delegate_allowed_models,
                 });
             }
@@ -482,7 +501,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         default_provider: o.default_provider,
         default_model: o.default_model,
         enabled_providers: o.enabled_providers,
-        workspace: o.workspace,
+        skills_enabled: o.skills_enabled,
+        context_mode: o.context_mode,
         max_session_messages: o.max_session_messages,
         max_delegations_per_turn: o.max_delegations_per_turn,
         workers: if worker_rows.is_empty() {
@@ -539,6 +559,13 @@ pub struct WorkerConfig {
     /// If omitted or empty, the global `agents.enabledProviders` rules apply.
     #[serde(default)]
     pub enabled_providers: Option<Vec<String>>,
+
+    /// Skill package names enabled for this worker. Omitted or empty ⇒ no skills.
+    #[serde(default)]
+    pub skills_enabled: Option<Vec<String>>,
+    /// How this worker's skill docs are inlined vs `read_skill`.
+    #[serde(default)]
+    pub context_mode: Option<SkillContextMode>,
 
     /// Optional allowlist of `(provider, model)` for **`delegate_task`** when **`workerId`** matches
     /// this worker. When **non-empty**, only these pairs are allowed for that worker (orchestrator
@@ -767,35 +794,6 @@ pub fn resolve_hf_api_key(config: &Config) -> Option<String> {
         })
 }
 
-/// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum SkillContextMode {
-    /// All loaded skills' full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models.
-    #[default]
-    Full,
-    /// System message contains only a compact list (name, description). The model uses the read_skill tool to load a skill's full SKILL.md when needed. Keeps prompt small and scales to many skills.
-    ReadOnDemand,
-}
-
-/// Skills load config (dirs, enabled list, context mode).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillsConfig {
-    /// Override the default skill root. If set, skills are loaded from this directory instead of the config directory's `skills` subdirectory. Relative paths are resolved against the config file's parent. Omit or leave empty to use the default (~/.chai/skills when config is ~/.chai/config.json).
-    #[serde(default)]
-    pub directory: Option<PathBuf>,
-    /// Extra skill directories (lowest precedence).
-    #[serde(default)]
-    pub extra_dirs: Vec<PathBuf>,
-    /// Skill names to load. Only skills in this list are enabled; default is empty (no skills). Add names of skills you want (e.g. `["notesmd-daily"]` or `["notesmd", "obsidian"]`).
-    #[serde(default)]
-    pub enabled: Vec<String>,
-    /// How skill docs are given to the model: "full" (default) or "readOnDemand". Full injects all SKILL.md into the system message; readOnDemand uses a compact list and a read_skill tool.
-    #[serde(default)]
-    pub context_mode: SkillContextMode,
-}
-
 /// Canonical provider id: "ollama", "lms", "vllm", "nim", "openai", and "hf" are valid (trimmed, lowercased). Returns None for any other value.
 pub fn canonical_provider(s: &str) -> Option<&'static str> {
     match s.trim().to_lowercase().as_str() {
@@ -868,65 +866,75 @@ pub fn resolve_effective_provider_and_model(agents: &AgentsConfig) -> (String, S
     (provider.to_string(), model)
 }
 
-/// Resolve config path from env or default.
-pub fn default_config_path() -> PathBuf {
-    std::env::var("CHAI_CONFIG_PATH").map(PathBuf::from).unwrap_or_else(|_| {
-        dirs::home_dir()
-            .map(|h| h.join(".chai").join("config.json"))
-            .unwrap_or_else(|| PathBuf::from("config.json"))
-    })
-}
-
-/// Resolve workspace directory for agent context (e.g. AGENTS.md).
-pub fn resolve_workspace_dir(config: &Config) -> Option<PathBuf> {
-    config
+/// Orchestrator **agent context directory** (on-disk home for **`AGENTS.md`**): `<profile_dir>/agents/<orchestratorId>/`.
+pub fn orchestrator_context_dir(config: &Config, profile_dir: &Path) -> PathBuf {
+    let oid = config
         .agents
-        .workspace
-        .clone()
-        .or_else(|| dirs::home_dir().map(|h| h.join(".chai").join("workspace")))
+        .orchestrator_id
+        .as_deref()
+        .unwrap_or("orchestrator")
+        .trim();
+    let oid = if oid.is_empty() { "orchestrator" } else { oid };
+    agent_context_dir(profile_dir, oid)
 }
 
-/// Load config from the default path (or CHAI_CONFIG_PATH). Missing file => default config.
-/// Returns the config and the path that was used (for resolving the config directory).
-pub fn load_config(path: Option<PathBuf>) -> Result<(Config, PathBuf)> {
-    let path = path.unwrap_or_else(default_config_path);
+/// Worker **agent context directory**: `<profile_dir>/agents/<worker id>/`. **`None`** if **`id`** is empty.
+pub fn worker_context_dir(worker: &WorkerConfig, profile_dir: &Path) -> Option<PathBuf> {
+    let wid = worker.id.trim();
+    if wid.is_empty() {
+        return None;
+    }
+    Some(agent_context_dir(profile_dir, wid))
+}
+
+/// `<profile_dir>/agents/<agent_id>/` — directory for that agent’s on-disk context (**`AGENTS.md`**).
+fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
+    profile_dir.join("agents").join(agent_id)
+}
+
+/// Orchestrator skill context mode (default full).
+pub fn orchestrator_context_mode(agents: &AgentsConfig) -> SkillContextMode {
+    agents.context_mode.unwrap_or_default()
+}
+
+/// Worker skill context mode (default full).
+pub fn worker_context_mode(worker: &WorkerConfig) -> SkillContextMode {
+    worker.context_mode.unwrap_or_default()
+}
+
+/// Orchestrator enabled skill names (may be empty).
+pub fn orchestrator_skills_enabled_list(agents: &AgentsConfig) -> &[String] {
+    agents.skills_enabled.as_deref().unwrap_or(&[])
+}
+
+/// Worker enabled skill names (may be empty).
+pub fn worker_skills_enabled_list(worker: &WorkerConfig) -> &[String] {
+    worker.skills_enabled.as_deref().unwrap_or(&[])
+}
+
+/// Load config for the resolved profile (`CHAI_PROFILE`, `chai gateway --profile`, or `~/.chai/active`).
+/// Missing `config.json` in the profile => default config.
+pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile::ChaiPaths)> {
+    let paths = crate::profile::resolve_profile_dir(cli_profile)?;
+    let path = &paths.config_path;
     let config = if !path.exists() {
-        log::debug!("config file not found, using defaults: {}", path.display());
+        log::debug!(
+            "config file not found, using defaults: {}",
+            path.display()
+        );
         Config::default()
     } else {
-        let s = std::fs::read_to_string(&path)
+        let s = std::fs::read_to_string(path)
             .with_context(|| format!("reading config from {}", path.display()))?;
         serde_json::from_str(&s)
             .with_context(|| format!("parsing config from {}", path.display()))?
     };
-    Ok((config, path))
+    Ok((config, paths))
 }
 
-/// Default skill root when no override is set: `skills` subdirectory of the config file's parent.
-pub fn skills_dir(config_path: &Path) -> PathBuf {
-    config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."))
-        .join("skills")
-}
-
-/// Resolve the primary skill root: uses `config.skills.directory` if set (relative paths resolved against the config file's parent), otherwise the default `skills` subdirectory.
-pub fn resolve_skills_dir(config: &Config, config_path: &Path) -> PathBuf {
-    let config_parent = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    match &config.skills.directory {
-        Some(d) if !d.as_os_str().is_empty() => {
-            if d.is_absolute() {
-                d.clone()
-            } else {
-                config_parent.join(d)
-            }
-        }
-        _ => skills_dir(config_path),
-    }
+/// Shared skill package root: `<chai_home>/skills` (typically `~/.chai/skills`).
+pub fn default_skills_dir(chai_home: &Path) -> PathBuf {
+    chai_home.join("skills")
 }
 
 #[cfg(test)]
@@ -941,34 +949,35 @@ mod tests {
     }
 
     #[test]
-    fn resolve_skills_dir_default() {
-        let config = Config::default();
-        let path = Path::new("/home/user/.chai/config.json");
+    fn default_skills_dir_under_chai_home() {
+        let chai = Path::new("/home/user/.chai");
         assert_eq!(
-            resolve_skills_dir(&config, path),
+            default_skills_dir(chai),
             PathBuf::from("/home/user/.chai/skills")
         );
     }
 
     #[test]
-    fn resolve_skills_dir_override_relative() {
-        let mut config = Config::default();
-        config.skills.directory = Some(PathBuf::from("custom/skills"));
-        let path = Path::new("/home/user/.chai/config.json");
+    fn agent_context_dirs_under_profile() {
+        let mut c = Config::default();
+        c.agents.orchestrator_id = Some("orch-id".to_string());
+        let prof = Path::new("/home/u/.chai/profiles/p1");
         assert_eq!(
-            resolve_skills_dir(&config, path),
-            PathBuf::from("/home/user/.chai/custom/skills")
+            orchestrator_context_dir(&c, prof),
+            PathBuf::from("/home/u/.chai/profiles/p1/agents/orch-id")
         );
-    }
-
-    #[test]
-    fn resolve_skills_dir_override_absolute() {
-        let mut config = Config::default();
-        config.skills.directory = Some(PathBuf::from("/repo/skills"));
-        let path = Path::new("/home/user/.chai/config.json");
+        let w = WorkerConfig {
+            id: "w1".to_string(),
+            default_provider: None,
+            default_model: None,
+            enabled_providers: None,
+            skills_enabled: None,
+            context_mode: None,
+            delegate_allowed_models: None,
+        };
         assert_eq!(
-            resolve_skills_dir(&config, path),
-            PathBuf::from("/repo/skills")
+            worker_context_dir(&w, prof),
+            Some(PathBuf::from("/home/u/.chai/profiles/p1/agents/w1"))
         );
     }
 

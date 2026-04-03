@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::vec::Vec;
 
 /// Chat message used across the app (chat screen, session timelines, logs).
@@ -70,7 +71,7 @@ pub struct SessionEvent {
     pub(crate) delegation_event: Option<String>,
 }
 
-/// One worker row from gateway **`status`** (`workers`): effective defaults for delegation.
+/// One worker row derived from gateway **`status`** `payload.agents.entries` (**`role`** **`worker`**): effective defaults for delegation.
 #[derive(Clone, Default)]
 pub struct StatusWorkerRow {
     pub(crate) id: String,
@@ -78,7 +79,7 @@ pub struct StatusWorkerRow {
     pub(crate) default_model: String,
 }
 
-/// One row of the merged orchestration catalog from gateway **`status`** (`orchestrationCatalog`).
+/// One row of the merged orchestration catalog from gateway **`status`** (`payload.agents.orchestrationCatalog`).
 #[derive(Clone, Default)]
 pub struct OrchestrationCatalogRow {
     pub(crate) provider: String,
@@ -97,11 +98,13 @@ pub struct GatewayStatusDetails {
     pub(crate) auth: String,
     /// Resolved orchestrator agent id from config (same id used for the main agent turn).
     pub(crate) orchestrator_id: Option<String>,
+    /// Orchestrator context directory from **`payload.agents.entries`** (**`role`** **`orchestrator`**, **`contextDirectory`**).
+    pub(crate) orchestrator_context_dir: Option<String>,
     /// Resolved default provider: "ollama", "lms", "vllm", "nim", "openai", or "hf".
     pub(crate) default_provider: Option<String>,
     /// Resolved default model id (from config or provider fallback).
     pub(crate) default_model: Option<String>,
-    /// Canonical provider ids with discovery enabled (`enabledProviders` in status). `None` if the gateway omitted the field.
+    /// Canonical provider ids with discovery enabled (`payload.agents.enabledProviders`). `None` if the gateway omitted the field.
     pub(crate) enabled_providers: Option<Vec<String>>,
     /// Ollama model names from gateway discovery (empty if Ollama unreachable).
     pub(crate) ollama_models: Vec<String>,
@@ -115,12 +118,20 @@ pub struct GatewayStatusDetails {
     pub(crate) openai_models: Vec<String>,
     /// Hugging Face endpoint model ids from GET /v1/models when supported.
     pub(crate) hf_models: Vec<String>,
-    /// Agent context loaded at gateway startup (e.g. AGENTS.md). None if not loaded.
-    pub(crate) agent_context: Option<String>,
-    /// Full system context sent to the model (agent context + skills). Empty if none.
+    /// Full orchestrator static system context (same string as that agent’s **`payload.agents.entries[]`** row with **`role`** **`orchestrator`**).
     pub(crate) system_context: Option<String>,
-    /// Current date (YYYY-MM-DD) from the gateway, for display in Context.
+    /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents.entries[].systemContext`**.
+    pub(crate) agent_system_contexts: BTreeMap<String, String>,
+    /// Current date (YYYY-MM-DD) from gateway **`payload.clock.date`**.
     pub(crate) date: Option<String>,
+    /// **`payload.skillPackages.discoveryRoot`**.
+    pub(crate) skill_packages_discovery_root: Option<String>,
+    /// **`payload.skillPackages.packagesDiscovered`**.
+    pub(crate) skill_packages_discovered: Option<u64>,
+    /// **`payload.providers`** (discovery + models per backend).
+    pub(crate) providers_block: Option<serde_json::Value>,
+    /// Per-agent skill **`contextMode`** from **`payload.agents.entries[].skills`**.
+    pub(crate) agent_context_modes: BTreeMap<String, String>,
     /// Skills portion of system context (full or compact per context mode).
     pub(crate) skills_context: Option<String>,
     /// Full skill content for display (always full; use for UI when present).
@@ -131,11 +142,15 @@ pub struct GatewayStatusDetails {
     pub(crate) context_mode: Option<String>,
     /// Merged tool definitions sent to the model (including read_skill when context mode is readOnDemand).
     pub(crate) tools: Option<String>,
+    /// Per-agent pretty-printed tool JSON (orchestrator + each worker). Same strings as top-level **`tools`** for the orchestrator id.
+    pub(crate) agent_tools: BTreeMap<String, String>,
     /// Discovery + allowlist merge for delegation / UI (see lib `build_orchestration_catalog`).
     pub(crate) orchestration_catalog: Vec<OrchestrationCatalogRow>,
-    /// Worker presets from the running gateway config (`workers` in **`status`**).
+    /// Worker rows from **`payload.agents.entries`** (**`role`** **`worker`**).
     pub(crate) workers: Vec<StatusWorkerRow>,
     /// Pretty-printed JSON for the full WebSocket **`res`** to the `status` request (type, id, ok, payload).
     pub(crate) status_response_json: Option<String>,
+    /// Full **`payload.channels`** (active, configured, transport, errors, Matrix verification summary, …).
+    pub(crate) channels_block: Option<serde_json::Value>,
 }
 

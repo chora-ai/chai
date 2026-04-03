@@ -24,6 +24,8 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`id`**, **`role`** | Identity; must include exactly one **`orchestrator`**. |
 | **`defaultProvider`**, **`defaultModel`** | Main session defaults. |
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
+| **`skillsEnabled`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
+| **`contextMode`** | **`full`** \| **`readOnDemand`** — how orchestrator skill text appears in system context (and whether **`read_skill`** is offered). |
 | **`delegateAllowedModels`** | Optional allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When **non-empty**, every resolved **`delegate_task`** target (without **`workerId`**) must match a pair. When **omitted** or **empty**, only the orchestrator effective default **`provider`** / **`model`** is allowed for those delegations. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
 | **`maxDelegationsPerSession`** | Cap on **successful** delegations per persisted session (requires session id on the gateway path). |
@@ -36,6 +38,8 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | Key | Purpose |
 |-----|---------|
 | **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`** | Same ideas as orchestrator; **`id`** is **`workerId`**. |
+| **`skillsEnabled`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
+| **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker’s skill presentation and tools. |
 | **`delegateAllowedModels`** | When non-empty, narrows targets for delegations that use this **`workerId`**. When omitted or empty, only that worker's effective default **`provider`** / **`model`** is allowed. |
 
 ## Delegation Tool (`delegate_task`; formerly `chai_delegate`)
@@ -61,9 +65,10 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on another pr
 
 ## Worker Turn Behavior
 
-- The worker receives the **same system context** as the main session (e.g. **`AGENTS.md`**, skills) and the **same skill tools** as the orchestrator.
-- **`delegate_task`** is **not** offered on the worker turn (nested delegation is disabled).
-- Implementation: gateway and WebSocket **`agent`** runs use **`DelegateContext`**; see **`crates/lib/src/orchestration/delegate.rs`**.
+- The worker receives **its own** static system string: **that worker’s** **`AGENTS.md`**, **that worker’s** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
+- **Tool list** — Skill tools (and optional **`read_skill`**) match the worker’s enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
+- **Messages** — The worker turn is **not** the main session transcript: **`execute_delegate_task`** builds **`[system?, user(instruction)]`** only (see **`delegate.rs`**). Delegation limits may still use the parent **`sessionId`** for caps.
+- Implementation: **`DelegateContext.worker_runtimes`** and **`crates/lib/src/orchestration/delegate.rs`**.
 
 ## Gateway Events
 
@@ -86,11 +91,11 @@ Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs
 
 ## Gateway `status` — `orchestrationCatalog`
 
-The **`status`** WebSocket method returns **`orchestrationCatalog`**: a merged array of **`{ provider, model, discovered, local?, toolCapable? }`** built from per-provider discovery plus any **`delegateAllowedModels`** pairs not present in discovery (**`discovered: false`**). Hints attach when the pair matches an allowlist entry. See **`crates/lib/src/orchestration/catalog.rs`**.
+The **`status`** WebSocket payload includes **`agents.orchestrationCatalog`**: a merged array of **`{ provider, model, discovered, local?, toolCapable? }`** from per-provider discovery plus any **`delegateAllowedModels`** pairs not present in discovery (**`discovered: false`**). Hints attach when the pair matches an allowlist entry. See **`crates/lib/src/orchestration/catalog.rs`**.
 
-## Gateway `status` — `workers`
+## Gateway `status` — worker rows
 
-The **`status`** payload includes **`workers`**: an array of **`{ id, defaultProvider, defaultModel }`** for each non-empty worker id in config, using the same effective **`(provider, model)`** resolution as **`delegate_task`** when **`provider`** / **`model`** are omitted (see **`crates/lib/src/orchestration/workers_context.rs`**). Empty when no workers are configured. **Chai Desktop** **Status** lists these under **Agents**.
+The gateway does **not** emit a top-level **`workers`** key on **`status`**. Worker runtime is represented as **`payload.agents.entries`** objects with **`role`**: **`"worker"`** (after the orchestrator row), each including **`id`**, **`defaultProvider`**, and **`defaultModel`** using the same effective **`(provider, model)`** resolution as **`delegate_task`** when **`provider`** / **`model`** are omitted (see **`crates/lib/src/orchestration/workers_context.rs`**). **Chai Desktop** builds an in-memory list of **`{ id, defaultProvider, defaultModel }`** from those entries for the **Status** screen under **Agents** (see **`crates/desktop/src/app/state/gateway.rs`**).
 
 ## Out of Scope for This Spec
 
@@ -100,6 +105,7 @@ Interactive **human approval** queues, **sandboxing**, and **arbitrary exec appr
 
 | Document | Purpose |
 |----------|---------|
+| **[AGENT_ISOLATION.md](../epic/AGENT_ISOLATION.md)** | Per-agent workspace, **`skillsEnabled`**, worker vs orchestrator system context. |
 | **[ORCHESTRATION.md](../epic/ORCHESTRATION.md)** | Epic: goals, config evolution, implementation phases, requirements checklist, closure, follow-ups. |
 | **[PROVIDERS.md](PROVIDERS.md)** | Provider ids, configuration, API comparison. |
 | **[MODELS.md](MODELS.md)** | Model ids, repository inventory, tool-fit notes. |

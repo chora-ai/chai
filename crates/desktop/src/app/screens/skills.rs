@@ -3,16 +3,84 @@ use eframe::egui;
 use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
+fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
+    agents
+        .orchestrator_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("orchestrator")
+        .to_string()
+}
+
+fn config_agent_ids(agents: &lib::config::AgentsConfig) -> Vec<String> {
+    let mut ids = vec![orchestrator_id_from_config(agents)];
+    if let Some(ws) = &agents.workers {
+        for w in ws {
+            let id = w.id.trim();
+            if !id.is_empty() && !ids.iter().any(|x| x == id) {
+                ids.push(id.to_string());
+            }
+        }
+    }
+    ids
+}
+
+/// Keep **Skills** agent selection consistent with **`config.json`** when the gateway is down or has not yet populated status.
+fn reconcile_skills_dashboard_agent(app: &mut ChaiApp, agents: &lib::config::AgentsConfig) {
+    let ids = config_agent_ids(agents);
+    let orch = orchestrator_id_from_config(agents);
+    let valid = app
+        .dashboard_agent_id
+        .as_ref()
+        .map(|id| ids.iter().any(|x| x == id))
+        .unwrap_or(false);
+    if !valid {
+        app.dashboard_agent_id = Some(orch);
+    }
+}
+
+fn skills_enabled_for_agent<'a>(
+    agents: &'a lib::config::AgentsConfig,
+    agent_id: &str,
+    orchestrator_id: &str,
+) -> &'a [String] {
+    if agent_id == orchestrator_id {
+        lib::config::orchestrator_skills_enabled_list(agents)
+    } else if let Some(ws) = agents.workers.as_ref() {
+        ws.iter()
+            .find(|w| w.id.trim() == agent_id)
+            .map(lib::config::worker_skills_enabled_list)
+            .unwrap_or(&[])
+    } else {
+        &[]
+    }
+}
+
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
+    let Ok((config, paths)) = lib::config::load_config(None) else {
+        crate::app::ui_screen(ui, "Skills", None, |ui| {
+            ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+        });
+        return;
+    };
 
-    let (config, config_path) = lib::config::load_config(None)
-        .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+    reconcile_skills_dashboard_agent(app, &config.agents);
 
-    let skills_root = lib::config::resolve_skills_dir(&config, &config_path);
-    let extra_dirs = config.skills.extra_dirs.clone();
-    let enabled = config.skills.enabled.clone();
+    let skills_root = lib::config::default_skills_dir(&paths.chai_home);
+    let orch_id = orchestrator_id_from_config(&config.agents);
+    let agent_ids = config_agent_ids(&config.agents);
+    let selected_id = app
+        .dashboard_agent_id
+        .as_deref()
+        .unwrap_or(orch_id.as_str())
+        .to_string();
+    let enabled: Vec<String> = skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
+        .iter()
+        .cloned()
+        .collect();
 
-    let skills_result = lib::skills::load_skills(Some(skills_root.as_path()), &extra_dirs);
+    let skills_result = lib::skills::load_skills(skills_root.as_path());
     let mut skills = match skills_result {
         Ok(list) => list,
         Err(e) => {
@@ -43,14 +111,44 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let disabled_skills: Vec<_> =
         skills.iter().filter(|e| !enabled_set.contains(e.name.as_str())).collect();
 
-    let subtitle = format!("Values below are loaded from {}", skills_root.display());
+    let subtitle = format!(
+        "Packages from {}; enabled/disabled for agent \"{}\" (from config).",
+        skills_root.display(),
+        selected_id
+    );
 
     crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
+            if agent_ids.len() > 1 {
+                ui.horizontal(|ui| {
+                    ui.label(egui::RichText::new("Agent").strong());
+                    egui::ComboBox::from_id_source("skills_agent_pick")
+                        .selected_text(&selected_id)
+                        .width(220.0)
+                        .show_ui(ui, |ui| {
+                            for id in &agent_ids {
+                                let suffix = if id == &orch_id {
+                                    " — orchestrator"
+                                } else {
+                                    " — worker"
+                                };
+                                let label = format!("{}{}", id, suffix);
+                                if ui
+                                    .selectable_label(selected_id == id.as_str(), label)
+                                    .clicked()
+                                {
+                                    app.dashboard_agent_id = Some(id.clone());
+                                }
+                            }
+                        });
+                });
+                ui.add_space(spacing::SUBSECTION);
+            }
+
             dashboard::dashboard_two_columns(ui, |ui_left, ui_right| {
                 // Left column: skills list
                 {
                     egui::ScrollArea::vertical()
-                        .id_source("skills_list_scroll")
+                        .id_source(format!("skills_list_scroll_{}", selected_id))
                         .show(ui_left, |ui| {
                             // Enabled section
                             ui.label(egui::RichText::new("Enabled").strong());

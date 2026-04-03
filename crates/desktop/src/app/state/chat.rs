@@ -255,7 +255,7 @@ impl ChaiApp {
 
 /// Listen for session.message events from the gateway and forward them via an mpsc channel.
 fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String> {
-    let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -284,18 +284,18 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) = lib::device::load_device_token() {
+        let connect_params = if let Some(device_token) =
+            lib::device::load_device_token_from(&paths.device_token_path())
+        {
             serde_json::json!({ "auth": { "deviceToken": device_token } })
         } else {
-            let identity = lib::device::DeviceIdentity::load(
-                lib::device::default_device_path().as_path(),
-            )
-            .or_else(|| {
-                let id = lib::device::DeviceIdentity::generate().ok()?;
-                let _ = id.save(&lib::device::default_device_path());
-                Some(id)
-            })
-            .ok_or("failed to load or create device identity")?;
+            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
+                .or_else(|| {
+                    let id = lib::device::DeviceIdentity::generate().ok()?;
+                    let _ = id.save(&paths.device_json());
+                    Some(id)
+                })
+                .ok_or("failed to load or create device identity")?;
             let signed_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -372,7 +372,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
             .and_then(|p| p.get("auth"))
         {
             if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                let _ = lib::device::save_device_token(dt);
+                let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
             }
         }
 

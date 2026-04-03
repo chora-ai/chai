@@ -2,7 +2,7 @@
 
 **Goal:** Confirm the gateway is logged into a Matrix homeserver, messages in a **joined** room are received (including **encrypted** rooms when keys are available), and the agent’s reply is sent back as `m.room.message` (`m.text`).
 
-The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys (default directory **`~/.chai/matrix`**; override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys (default directory **`<active-profile>/matrix`** under **`~/.chai/profiles/`**; override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
 
 **Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [.agents/ref/MATRIX.md](../.agents/ref/MATRIX.md).
 
@@ -21,7 +21,7 @@ The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-s
 
 ## Steps
 
-1. **Configure** `~/.chai/config.json` with `channels.matrix` as above, **or** export the `MATRIX_*` variables for a one-off test.
+1. **Configure** **`~/.chai/profiles/<active>/config.json`** with **`channels.matrix`** as above, **or** export the **`MATRIX_*`** variables for a one-off test.
 
 2. **Start the gateway**
    - From repo root: `cargo run -p cli -- gateway`

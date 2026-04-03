@@ -1,9 +1,13 @@
 //! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `.agents/epic/ORCHESTRATION.md`).
 
 use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
-use crate::config::{canonical_provider, provider_discovery_enabled, AgentsConfig};
+use crate::config::{canonical_provider, provider_discovery_enabled, AgentsConfig, SkillContextMode};
 use crate::providers::{ChatMessage, ToolCall, ToolDefinition, ToolFunctionDefinition};
 use crate::session::SessionStore;
+use crate::skills::Skill;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use super::choice::provider_choice_from_canonical;
 use super::dispatch::ProviderClients;
 use super::model::resolve_model;
@@ -92,16 +96,57 @@ fn optional_worker_id_from_args(args: &serde_json::Value) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Prepend today's date and capability hints to static system context (same as gateway main turn).
+///
+/// **`WORKERS_ENABLED`** — only when **`workers_enabled`** is **`Some`**: orchestrator may delegate (`delegate_task`).
+/// Omitted entirely for worker turns (**`None`**) so worker prompts never mention delegation.
+/// **`SKILLS_ENABLED`** — this agent has at least one loaded skill package for tools / context.
+pub fn system_context_with_today(
+    static_ctx: &str,
+    workers_enabled: Option<bool>,
+    skills_enabled: bool,
+) -> String {
+    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
+    let s = if skills_enabled { "true" } else { "false" };
+    let mut header = format!("TODAYS_DATE={}", today);
+    if let Some(w) = workers_enabled {
+        header.push_str(&format!(
+            "\nWORKERS_ENABLED={}",
+            if w { "true" } else { "false" }
+        ));
+    }
+    header.push_str(&format!("\nSKILLS_ENABLED={}", s));
+    if static_ctx.trim().is_empty() {
+        header
+    } else {
+        format!("{}\n\n{}", header, static_ctx)
+    }
+}
+
+/// Per-worker skill bundle for `delegate_task` when `workerId` is set (built at gateway startup).
+pub struct WorkerDelegateRuntime {
+    /// Static system context without date (no orchestrator roster block).
+    pub system_context_static: String,
+    /// **`AGENTS.md`** directory for this worker (`<profile>/agents/<id>/`), if resolved.
+    pub context_directory: Option<PathBuf>,
+    pub skills: Arc<Vec<Skill>>,
+    pub tools_list: Option<Vec<ToolDefinition>>,
+    pub tool_executor: Option<Arc<dyn ToolExecutor>>,
+    pub context_mode: SkillContextMode,
+}
+
 /// References needed to run a worker turn from the main agent loop.
 #[derive(Clone)]
 pub struct DelegateContext<'a> {
     pub clients: ProviderClients<'a>,
     pub agents: &'a AgentsConfig,
-    /// Same system preamble as the orchestrator (AGENTS.md, skills, etc.), when non-empty.
-    pub system_context: Option<&'a str>,
-    /// Skill tools for the worker (no `delegate_task`); cloned when building from the session list.
-    pub worker_tools: Option<Vec<ToolDefinition>>,
-    pub tool_executor: Option<&'a dyn ToolExecutor>,
+    /// Full orchestrator system message (with date) for `delegate_task` without `workerId`.
+    pub orchestrator_system_context: Option<&'a str>,
+    /// Skill tools for the orchestrator path (no `delegate_task`); used when `workerId` is absent.
+    pub orchestrator_worker_tools: Option<Vec<ToolDefinition>>,
+    pub orchestrator_tool_executor: Option<&'a dyn ToolExecutor>,
+    /// When `workerId` is set, the worker turn uses this bundle instead of the orchestrator copies above.
+    pub worker_runtimes: Option<&'a HashMap<String, WorkerDelegateRuntime>>,
     /// When set, emits gateway WebSocket events for delegate lifecycle (see [`DelegateObservability`]).
     pub observability: Option<DelegateObservability>,
     /// When set with [`DelegateContext::session_id`], session policy caps and [`SessionStore::record_delegation`] apply.
@@ -158,8 +203,14 @@ pub fn delegate_task_tool_definition() -> ToolDefinition {
     }
 }
 
-/// Prepend the delegate tool unless the list already contains `delegate_task`.
-pub fn merge_delegate_task(tools: Option<Vec<ToolDefinition>>) -> Option<Vec<ToolDefinition>> {
+/// Prepend the delegate tool when at least one worker is configured, unless the list already contains `delegate_task`.
+pub fn merge_delegate_task(
+    tools: Option<Vec<ToolDefinition>>,
+    has_workers: bool,
+) -> Option<Vec<ToolDefinition>> {
+    if !has_workers {
+        return tools;
+    }
     let def = delegate_task_tool_definition();
     match tools {
         None => Some(vec![def]),
@@ -416,17 +467,44 @@ pub async fn execute_delegate_task(
     }
 
     let mut messages: Vec<ChatMessage> = Vec::new();
-    if let Some(sys) = ctx.system_context {
-        let s = sys.trim();
-        if !s.is_empty() {
-            messages.push(ChatMessage {
-                role: "system".to_string(),
-                content: s.to_string(),
-                tool_calls: None,
-                tool_name: None,
-            });
-        }
-    }
+    let (worker_tools, tool_exec): (Option<Vec<ToolDefinition>>, Option<&dyn ToolExecutor>) =
+        if let Some(wid) = worker_id {
+            let rt = ctx
+                .worker_runtimes
+                .and_then(|m| m.get(wid))
+                .ok_or_else(|| format!("no worker runtime for workerId: {}", wid))?;
+            let worker_skills_enabled = !rt.skills.is_empty();
+            let sys = system_context_with_today(&rt.system_context_static, None, worker_skills_enabled);
+            let s = sys.trim();
+            if !s.is_empty() {
+                messages.push(ChatMessage {
+                    role: "system".to_string(),
+                    content: s.to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                });
+            }
+            (
+                worker_tool_list(rt.tools_list.as_ref()),
+                rt.tool_executor.as_deref(),
+            )
+        } else {
+            if let Some(sys) = ctx.orchestrator_system_context {
+                let s = sys.trim();
+                if !s.is_empty() {
+                    messages.push(ChatMessage {
+                        role: "system".to_string(),
+                        content: s.to_string(),
+                        tool_calls: None,
+                        tool_name: None,
+                    });
+                }
+            }
+            (
+                ctx.orchestrator_worker_tools.clone(),
+                ctx.orchestrator_tool_executor,
+            )
+        };
     messages.push(ChatMessage {
         role: "user".to_string(),
         content: instruction.to_string(),
@@ -438,8 +516,8 @@ pub async fn execute_delegate_task(
         provider,
         &model,
         messages,
-        ctx.worker_tools.clone(),
-        ctx.tool_executor,
+        worker_tools,
+        tool_exec,
     )
     .await
     {
@@ -496,6 +574,51 @@ mod tests {
     use crate::providers::ToolCallFunction;
     use crate::config::{AllowedModelEntry, WorkerConfig};
     use serde_json::json;
+
+    #[test]
+    fn system_context_with_today_includes_flags() {
+        let s = system_context_with_today("hello", Some(true), false);
+        assert!(s.contains("TODAYS_DATE="));
+        assert!(s.contains("WORKERS_ENABLED=true"));
+        assert!(s.contains("SKILLS_ENABLED=false"));
+        assert!(s.contains("hello"));
+        let empty = system_context_with_today("", Some(false), false);
+        assert!(empty.contains("WORKERS_ENABLED=false"));
+        assert!(empty.contains("SKILLS_ENABLED=false"));
+        assert!(!empty.contains("\n\n\n"));
+    }
+
+    #[test]
+    fn system_context_with_today_worker_omits_workers_line() {
+        let s = system_context_with_today("body", None, true);
+        assert!(s.contains("TODAYS_DATE="));
+        assert!(!s.contains("WORKERS_ENABLED"));
+        assert!(s.contains("SKILLS_ENABLED=true"));
+        assert!(s.contains("body"));
+    }
+
+    #[test]
+    fn merge_delegate_task_skipped_without_workers() {
+        assert!(merge_delegate_task(None, false).is_none());
+        let t = ToolDefinition {
+            typ: "function".to_string(),
+            function: ToolFunctionDefinition {
+                name: "x".to_string(),
+                description: None,
+                parameters: serde_json::json!({"type": "object"}),
+            },
+        };
+        let out = merge_delegate_task(Some(vec![t.clone()]), false).expect("some");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].function.name, "x");
+    }
+
+    #[test]
+    fn merge_delegate_task_prepends_when_workers() {
+        let out = merge_delegate_task(None, true).expect("some");
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].function.name, DELEGATE_TASK_TOOL_NAME);
+    }
 
     #[test]
     fn worker_tool_list_strips_delegate_task() {
@@ -597,6 +720,8 @@ mod tests {
                 default_provider: Some("lms".to_string()),
                 default_model: Some("worker-model".to_string()),
                 enabled_providers: None,
+                skills_enabled: None,
+                context_mode: None,
                 delegate_allowed_models: None,
             }]),
             ..AgentsConfig::default()
@@ -667,6 +792,8 @@ mod tests {
                 default_provider: Some("lms".to_string()),
                 default_model: Some("worker-model".to_string()),
                 enabled_providers: Some(vec!["lms".to_string()]),
+                skills_enabled: None,
+                context_mode: None,
                 delegate_allowed_models: None,
             }]),
             ..AgentsConfig::default()

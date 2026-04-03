@@ -16,6 +16,10 @@ pub trait ChannelHandle: Send + Sync {
     async fn send_message(&self, _conversation_id: &str, _text: &str) -> Result<(), String> {
         Err("send not implemented".to_string())
     }
+    /// Runtime detail merged into `status.channels.<id>` (no secrets). Default empty object.
+    async fn status_detail(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
 }
 
 /// Registry of channel ids to handles. Shared across gateway.
@@ -51,5 +55,16 @@ impl ChannelRegistry {
     pub async fn ids(&self) -> Vec<String> {
         let g = self.inner.read().await;
         g.keys().cloned().collect()
+    }
+
+    /// Per registered channel id: sanitized runtime fields for gateway `status`.
+    pub async fn channel_status_details(&self) -> std::collections::HashMap<String, serde_json::Value> {
+        let g = self.inner.read().await;
+        let mut out = std::collections::HashMap::new();
+        for (id, handle) in g.iter() {
+            let detail = handle.status_detail().await;
+            out.insert(id.clone(), detail);
+        }
+        out
     }
 }

@@ -30,7 +30,7 @@
 
 5. **Status over WebSocket**
    - Send: `{"type":"req","id":"3","method":"status","params":{}}`
-   - **Expect:** `"ok":true`, payload with `"runtime":"running"`, `"port"`, `"bind"`, `"auth":"none"` (or `"token"` if configured).
+   - **Expect:** `"ok":true`, payload with top-level keys in order **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`runtime`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
 
 6. **Stop the gateway**
    - In the gateway terminal: Ctrl+C.
@@ -39,4 +39,4 @@
 ## Notes
 
 - If you use token auth (set `gateway.auth.mode` to `"token"` and set the token), include in connect: `"params":{"auth":{"token":"YOUR_TOKEN"}}`.
-- Config: `~/.chai/config.json` or `CHAI_CONFIG_PATH`; port in config is used unless overridden by `--port`.
+- Config: **`~/.chai/profiles/<active>/config.json`** (see **`~/.chai/active`**, **`CHAI_PROFILE`**, or **`chai gateway --profile`**). Port in config is used unless overridden by **`--port`**.

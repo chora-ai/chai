@@ -29,6 +29,7 @@ Model each **`skills/<name>/`** tree as a **skill package** with reproducible re
 - Gateway startup resolution against pins/lock, with configurable strictness (refuse or warn on dirty tree)
 - Generation-level rollback — restoring the entire previous lockfile, not a single package’s revision
 - Derivation metadata in `SKILL.md` frontmatter recording what produced each skill revision
+- **Startup validation** of **`capability_tier`** and **`model_variant_of`** composition against the active profile’s effective model (warn first; see **Capability-Tier Validation (Startup)** under **Design**)
 - CLI commands (`chai skills lock`, `update`, `rollback`) for managing pins without hand-editing JSON
 
 ### Out of Scope
@@ -76,6 +77,15 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 
 **Context budget implications**: The capability tier also informs how much **context** a skill contributes to a session. A `minimal`-tier skill should default to **`readOnDemand`** context mode (load `SKILL.md` only when invoked) to preserve the limited context window of small models. A `full`-tier skill can use **`full`** context mode because the target model has the context budget for persistent instructions.
 
+### Capability-Tier Validation (Startup)
+
+Once **`capability_tier`** and optional **`model_variant_of`** are **stable in package metadata** and the **active profile** supplies an **effective default model** (and provider), the gateway can **validate composition** at startup:
+
+- **Tier vs model** — Warn (initially) when an **enabled** skill’s **`capability_tier`** **assumes** more capability than the profile’s effective model is likely to provide (e.g. **`full`** skill with a small local model). Exact mapping (catalog, heuristic, or operator override) is TBD; start with **informational** warnings and optional **strict** mode later.
+- **Variant overlap** — Warn when **`model_variant_of`** links two skills that are **both** enabled in the same profile, creating redundant or overlapping tool surfaces (e.g. **`notesmd`** and **`notesmd-daily`**).
+
+**Why this epic:** Validation concerns **skill package declarations** and how they **compose** with **config**, not **profile layout**. Track it here alongside **derivation metadata**, **locks**, and **promotion**. **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** only determines **which** **`config.json`** is active—not the validation rules.
+
 ### Relationship to Runtime Profiles
 
 | Concern | [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) | This epic (skill packages) |
@@ -102,11 +112,12 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 - [ ] **Generation tracking** — Each lockfile state is a generation. Lockfile history (git commits or internal `generations/` log) makes each generation addressable.
 - [ ] **Rollback** — Restore the entire previous lockfile (generation-level, not per-package). Developer profile simulation testing can validate a new generation before it becomes the assistant profile's active state.
 - [ ] **Derivation metadata** — `SKILL.md` frontmatter records what produced each skill revision: CLI source, CLI version, spec version, generator model, capability tier.
+- [ ] **Capability-tier validation** — At gateway startup, using the **active profile**’s effective default model/provider and each agent’s **`skillsEnabled`**: warn when an enabled skill’s **`capability_tier`** is a poor match for that model (informational first; optional strict mode later); warn when two enabled skills linked by **`model_variant_of`** overlap in tool surface. **Depends on** stable frontmatter fields and profile **`agents`** defaults (**[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** provides **which** profile is live, not this epic’s validation logic).
 - [ ] **CLI** — `chai skills lock`, `update`, `rollback` commands to manage pins without hand-editing JSON. `rollback` operates on generations (whole lockfile).
 
 ## Phases (Tentative)
 
-1. **Inventory** — How **`lib`** loads skills today (`skills.directory`, **`extraDirs`**, discovery of **`SKILL.md`** / **`tools.json`**); where a **rev** would be **read** and **validated**.
+1. **Inventory** — How **`lib`** loads skills today (**`~/.chai/skills`**, discovery of **`SKILL.md`** / **`tools.json`**); where a **rev** would be **read** and **validated**; how **`capability_tier`** / **`model_variant_of`** would feed **startup validation** (this epic).
 2. **Pin model** — Minimal schema: **skill name** → **rev** (+ optional **hash**); **profile-local** lockfile path in **`config.json`**.
 3. **Resolver MVP** — Given lock + **`skills/<name>/`**, resolve **working tree** to **pinned** content (git **checkout** or **read snapshot path**); integrate with **gateway** startup.
 4. **UX** — Document **dirty** vs **pinned** behavior; optional CLI to **bump** and **rollback** locks.
@@ -122,8 +133,8 @@ This connects **package revisions** to **reproducibility**: the lockfile records
 
 When implementing **runtime profiles**, **agent isolation**, and **skill packages** together, use this sequence:
 
-1. **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — **First.** Active profile and **`profileRoot`**; lockfile path is profile-scoped (see **Open Questions** / **Decisions** in that epic).
-2. **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — **Second.** Per-agent **`skillsEnabled`** and skill policy in config; shared **`~/.chai/skills/`** with composition per agent.
+1. **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — **First.** Active profile and **`profileRoot`**; lockfile path is profile-scoped (see **Decisions** and **Example layout** in that epic).
+2. **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — **Second.** Per-agent **`skillsEnabled`** and skill configuration in config; shared **`~/.chai/skills/`** with composition per agent.
 3. **This epic** — **Third.** Immutable pins and **`skills.lock`** (or equivalent) on top of the shared store; **rollback** and CLI **without** re-negotiating profile or agent layout.
 
 **Note:** Implementing this epic **before** profiles forces awkward lockfile placement; implementing **before** agent isolation complicates which skill names are in scope per agent. See **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** for the full ordering rationale.
@@ -133,4 +144,4 @@ When implementing **runtime profiles**, **agent isolation**, and **skill package
 - [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — **Active profile** selects **which** lock/pin set applies after restart; implement **before** this epic (see **Implementation order** above).
 - [AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent skill enablement; implement **before** this epic so locks pin revisions for skills **actually loaded** per agent.
 - [SIMULATIONS.md](SIMULATIONS.md) — Repeatable runs may **fix** a lockfile for **determinism**.
-- [README.md](../../README.md) — Current **skills** layout and **`skills.directory`**.
+- [README.md](../../README.md) — Current **skills** layout under **`~/.chai/skills`**.

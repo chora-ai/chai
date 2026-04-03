@@ -7,7 +7,7 @@ The implementation supports two modes: **long-poll** (gateway pulls updates from
 ## Prerequisites
 
 - **`chai init`** has been run.
-- **Config** has the Telegram bot token: in `~/.chai/config.json` set `channels.telegram.botToken` to your bot token, or set the `TELEGRAM_BOT_TOKEN` environment variable.
+- **Config** has the Telegram bot token: in **`~/.chai/profiles/<active>/config.json`** set **`channels.telegram.botToken`** to your bot token, or set the **`TELEGRAM_BOT_TOKEN`** environment variable.
 - **Ollama** is running locally with the default model (e.g. `llama3.2:latest`). The gateway runs one agent turn per inbound message and sends the model’s reply back to Telegram; if Ollama is unavailable or the model is missing, the message is received but no reply is sent (see verification below).
 - **Long-poll only:** No webhook is currently set for your bot. If a webhook is set, Telegram sends updates only to that URL and getUpdates returns nothing. Remove the webhook first (e.g. via Bot API `deleteWebhook`, or by pointing the webhook at this gateway in webhook mode).
 

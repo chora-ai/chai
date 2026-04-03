@@ -1,26 +1,36 @@
-//! Initialize the configuration directory: create ~/.chai, default config, workspace, and bundled skills.
-//!
-//! Layout mirrors `crates/lib/config/`: `config/skills/` → `~/.chai/skills/`, `config/workspace/AGENTS.md` → `~/.chai/workspace/AGENTS.md`.
+//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config and `agents/<orchestratorId>/AGENTS.md`.
+//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENTS.md`**.
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir};
 use std::path::{Path, PathBuf};
 
 use crate::config;
+use crate::profile;
 
 static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/skills");
-static DEFAULT_AGENT_CTX: &str = include_str!("../config/workspace/AGENTS.md");
 
-/// Ensure the configuration directory has been initialized (config file and skills directory exist).
-/// Uses the primary skill root from config (or default) and checks that it exists.
-pub fn require_initialized(config_path: &Path, config: &config::Config) -> Result<()> {
-    if !config_path.exists() {
+fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
+    match profile_name {
+        "assistant" => Ok(include_str!(
+            "../config/profiles/assistant/agents/orchestrator/AGENTS.md"
+        )),
+        "developer" => Ok(include_str!(
+            "../config/profiles/developer/agents/orchestrator/AGENTS.md"
+        )),
+        _ => anyhow::bail!("no bundled AGENTS.md template for profile {:?}", profile_name),
+    }
+}
+
+/// Ensure the active profile has config and shared skills exist.
+pub fn require_initialized(paths: &profile::ChaiPaths) -> Result<()> {
+    if !paths.config_path.exists() {
         anyhow::bail!(
             "configuration not initialized; run `chai init` first (config file not found: {})",
-            config_path.display()
+            paths.config_path.display()
         );
     }
-    let skills_dir = config::resolve_skills_dir(config, config_path);
+    let skills_dir = config::default_skills_dir(&paths.chai_home);
     if !skills_dir.exists() {
         anyhow::bail!(
             "configuration not initialized; run `chai init` first (skills directory not found: {})",
@@ -30,41 +40,57 @@ pub fn require_initialized(config_path: &Path, config: &config::Config) -> Resul
     Ok(())
 }
 
-/// Create the config directory and default files if they do not exist.
-/// - Creates the config directory (parent of config file path).
-/// - Writes `config.json` with `{}` if missing.
-/// - Creates the `workspace` subdirectory and seeds `AGENTS.md` from the default template if missing.
-/// - Extracts bundled skills from the template into `skills` subdirectory if it does not exist.
-pub fn init_config_dir(config_path: &Path) -> Result<PathBuf> {
-    let config_dir = config_path
-        .parent()
-        .filter(|p| !p.as_os_str().is_empty())
-        .unwrap_or_else(|| Path::new("."));
-    std::fs::create_dir_all(config_dir)
-        .with_context(|| format!("creating config directory {}", config_dir.display()))?;
+fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
+    std::fs::create_dir_all(profile_dir)
+        .with_context(|| format!("creating profile directory {}", profile_dir.display()))?;
 
+    let config_path = profile_dir.join("config.json");
     if !config_path.exists() {
-        let default_config = b"{}";
-        std::fs::write(config_path, default_config)
+        std::fs::write(&config_path, b"{}")
             .with_context(|| format!("writing default config to {}", config_path.display()))?;
         log::info!("created default config at {}", config_path.display());
     }
 
-    let workspace = config_dir.join("workspace");
-    if !workspace.exists() {
-        std::fs::create_dir_all(&workspace)
-            .with_context(|| format!("creating workspace directory {}", workspace.display()))?;
-        log::info!("created workspace directory at {}", workspace.display());
-    }
-    // Seed a default AGENTS.md in the workspace if one does not exist yet.
-    let workspace_agents = workspace.join("AGENTS.md");
-    if !workspace_agents.exists() {
-        std::fs::write(&workspace_agents, DEFAULT_AGENT_CTX)
-            .with_context(|| format!("writing default AGENTS.md to {}", workspace_agents.display()))?;
-        log::info!("wrote default AGENTS.md to {}", workspace_agents.display());
+    let default_agents_md = bundled_default_agents_md(profile_name)?;
+    let orchestrator_dir = profile_dir.join("agents").join("orchestrator");
+    std::fs::create_dir_all(&orchestrator_dir).with_context(|| {
+        format!(
+            "creating orchestrator agent directory {}",
+            orchestrator_dir.display()
+        )
+    })?;
+    let orchestrator_agents = orchestrator_dir.join("AGENTS.md");
+    if !orchestrator_agents.exists() {
+        std::fs::write(&orchestrator_agents, default_agents_md).with_context(|| {
+            format!(
+                "writing default AGENTS.md to {}",
+                orchestrator_agents.display()
+            )
+        })?;
+        log::info!(
+            "wrote default AGENTS.md to {}",
+            orchestrator_agents.display()
+        );
     }
 
-    let skills_dir = config_dir.join("skills");
+    Ok(())
+}
+
+/// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant, shared `skills/`.
+pub fn init_chai_home() -> Result<PathBuf> {
+    let chai_home = profile::chai_home()?;
+    std::fs::create_dir_all(&chai_home)
+        .with_context(|| format!("creating {}", chai_home.display()))?;
+
+    let profiles_base = chai_home.join("profiles");
+    std::fs::create_dir_all(&profiles_base)
+        .with_context(|| format!("creating {}", profiles_base.display()))?;
+
+    for name in ["assistant", "developer"] {
+        seed_profile(&profiles_base.join(name), name)?;
+    }
+
+    let skills_dir = chai_home.join("skills");
     if !skills_dir.exists() {
         std::fs::create_dir_all(&skills_dir)
             .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
@@ -77,8 +103,13 @@ pub fn init_config_dir(config_path: &Path) -> Result<PathBuf> {
         }
         log::info!("extracted bundled skills to {}", skills_dir.display());
     } else {
-        log::debug!("skills directory already exists at {}, skipping", skills_dir.display());
+        log::debug!(
+            "skills directory already exists at {}, skipping",
+            skills_dir.display()
+        );
     }
 
-    Ok(config_dir.to_path_buf())
+    profile::switch_active_profile(&chai_home, "assistant")?;
+
+    Ok(chai_home)
 }

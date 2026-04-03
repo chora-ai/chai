@@ -65,7 +65,7 @@ pub async fn matrix_verification_pending(
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     authorize_matrix_http(&state, &headers)?;
     let m = matrix_or_404(&state)?;
-    let list = m.pending_verifications().lock().await.clone();
+    let list = m.pending_verifications().lock().unwrap().clone();
     Ok(Json(json!({ "pending": list })))
 }
 
@@ -192,8 +192,7 @@ pub async fn matrix_verification_confirm(
         log::warn!("matrix verification confirm failed: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    m.remove_pending_verification(user_id.as_str(), body.flow_id.trim())
-        .await;
+    m.remove_pending_verification(user_id.as_str(), body.flow_id.trim());
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -221,8 +220,7 @@ pub async fn matrix_verification_mismatch(
         log::warn!("matrix verification mismatch failed: {}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
-    m.remove_pending_verification(user_id.as_str(), body.flow_id.trim())
-        .await;
+    m.remove_pending_verification(user_id.as_str(), body.flow_id.trim());
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -248,7 +246,7 @@ pub async fn matrix_verification_cancel(
             log::warn!("matrix verification cancel (request) failed: {}", e);
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
-        m.remove_pending_verification(uid_str, fid).await;
+        m.remove_pending_verification(uid_str, fid);
         return Ok(Json(json!({ "ok": true, "phase": "request" })));
     }
 
@@ -258,7 +256,7 @@ pub async fn matrix_verification_cancel(
                 log::warn!("matrix verification cancel (sas) failed: {}", e);
                 StatusCode::INTERNAL_SERVER_ERROR
             })?;
-            m.remove_pending_verification(uid_str, fid).await;
+            m.remove_pending_verification(uid_str, fid);
             return Ok(Json(json!({ "ok": true, "phase": "sas" })));
         }
     }

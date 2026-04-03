@@ -1,186 +1,186 @@
 ---
-status: proposed
+status: complete
 ---
 
-# Epic: Agent Isolation (Per-Agent Workspace and Skills)
+# Epic: Agent Isolation (Per-Agent Context Directories and Skills)
 
-**Summary** — Give each logical agent (orchestrator and each worker) its **own workspace directory** under a **profile-local** **`agents/<agentId>/`** tree (see **Profiles and agent directories** under **Design**), **distinct system context** (no shared orchestrator prompt on workers), and **per-agent skill policy** (**`skillsEnabled`**, **`contextMode`**, and related fields on each agent entry). Remove **global** skill enablement from config in favor of agent-scoped configuration. **Backwards compatibility is not a goal** for this proof-of-concept: prefer a clean schema and implementation over preserving the previous top-level **`skills`** shape.
+**Summary** — Give each logical agent (orchestrator and each worker) its **own agent context directory** under **`~/.chai/profiles/<profile>/agents/<agentId>/`** ( **`profileRoot`** = active profile directory per **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** ), **distinct system context** (no shared orchestrator preamble on workers), and **per-agent skill configuration** (**`skillsEnabled`**, **`contextMode`** on each agent entry). Remove **global** skill enablement and global skill context mode from config in favor of agent-scoped fields. Chai has **no** compatibility contract: **no** shims, **no** fallback paths, **no** migration from **`workspace/AGENTS.md`**—only **`agents/<id>/AGENTS.md`** at that fixed path holds on-disk agent context (**no** per-entry directory override). **Implemented:** config, gateway, delegation, **`chai init`**, **README**, desktop **Config** / **Context** / **Skills**, and internal specs aligned with this behavior.
 
-**Status** — **Proposed.** Implements the isolation phases that follow **[ORCHESTRATION.md](ORCHESTRATION.md)** delegation work; see **Relationship to Orchestration** below.
+**Status** — **Complete** for planned phases. Runtime behavior, **README**, **`status.agents.entries`**, and internal specs match **Decisions (Shipped)**. **Follow-ups (Non-Blocking)** below are **fully shipped** (entries kept as a record); further **`status`** shape work stays in **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**.
 
 ## Problem Statement
 
-Today the gateway builds **one** static system context and **one** skill tool set at startup: shared **`AGENTS.md`**, a single **`skills.enabled`** list, and one **`skills.contextMode`**. **Worker** turns reuse that same preamble—including copy that describes the **orchestrator** role—and the same tools, minus **`delegate_task`**. There is no first-class place on disk for per-agent instructions, and no way to give a small worker model only the skills it needs without giving it the full set.
+**Previously**, the gateway built **one** static system context and **one** skill tool set at startup: shared **`AGENTS.md`**, a single **`skills.enabled`** list, and one **`skills.contextMode`**. **Worker** turns reused that same preamble—including copy that describes the **orchestrator** role—and the same tools, minus **`delegate_task`**. There was no first-class place on disk for per-agent instructions, and no way to give a small worker model only the skills it needs without giving it the full set.
 
 ## Goal
 
-- Each **agent id** has a **default workspace root** at **`<profileRoot>/agents/<agentId>/`**, where **`profileRoot`** is the active runtime profile directory when profiles are used (see **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**), or **`~/.chai`** for a single implicit layout (predictable layout including **`AGENTS.md`**).
-- Each agent entry in the top-level **`agents`** array declares **its own** skill policy (**which** skills are enabled, **how** they appear in context, etc.).
+- Each **agent id** uses **`<profileRoot>/agents/<agentId>/`** for **`AGENTS.md`**, where **`profileRoot`** is always the active runtime profile directory (**`~/.chai/profiles/<name>/`** resolved via **`~/.chai/active`**, **`CHAI_PROFILE`**, or CLI — see **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**).
+- Each agent entry in the top-level **`agents`** array declares **its own** skill configuration (**which** skills are enabled, **`contextMode`** for skill text).
 - **Orchestrator** and **worker** turns each receive **correct role-specific** system text (workers are not told they are the orchestrator).
-- **No** accumulating legacy config: dropping the old top-level **`skills`** block for enablement/context mode is acceptable; update **`spec/CONTEXT.md`**, **`spec/ORCHESTRATION.md`**, and user-facing docs when implementation lands.
+- **No** accumulating legacy config: drop top-level **`skills.enabled`** and **`skills.contextMode`**. Skill packages are discovered only from **`~/.chai/skills`** (no top-level **`skills`** config block).
 
 ## Current State
 
-- Static context is built in **`gateway/server.rs`** into **`GatewayState.system_context_static`**; workers receive that full string in **`DelegateContext`** ([`delegate.rs`](../../crates/lib/src/orchestration/delegate.rs)).
-- **`build_workers_context`** injects orchestrator-only instructions into the **same** string every agent sees ([`workers_context.rs`](../../crates/lib/src/orchestration/workers_context.rs)).
-- Skill loading and tools are driven by top-level **`skills`** in config ([`config.rs`](../../crates/lib/src/config.rs), gateway startup).
-- **`ORCHESTRATION.md`** treats shared worker/orchestrator context as **shipped** behavior; this epic **supersedes** that assumption for context and skills (delegation mechanics remain).
-
-## Relationship to Orchestration
-
-**[ORCHESTRATION.md](ORCHESTRATION.md)** delivered **`delegate_task`**, provider dispatch, policy, events, and the **`agents`** array with **`role: orchestrator` \| `worker`**. This epic **does not** redo that work; it **extends** the same config entry shape with workspace and skill fields, and changes **how** the gateway composes context and tools **per role**. When this epic is **in progress**, treat orchestration as **continued** for isolation concerns; the orchestration spec should be updated so **`spec/ORCHESTRATION.md`** “Worker Turn Behavior” matches the new design.
+- **Config** ([`config.rs`](../../crates/lib/src/config.rs)): JSON **`agents`** array entries (orchestrator + workers) support **`skillsEnabled`**, **`contextMode`**. There is **no** top-level **`skills`** object; discovery uses **`~/.chai/skills`** only. **`orchestrator_context_dir`** / **`worker_context_dir`** resolve **`<profileRoot>/agents/<id>/`** (fixed rule).
+- **Gateway** ([`gateway/server.rs`](../../crates/lib/src/gateway/server.rs)): loads skill packages from disk; **filters** by orchestrator **`skillsEnabled`** for the main turn and builds orchestrator tools/executor; builds **`WorkerDelegateRuntime`** **per worker** (worker **`AGENTS.md`**, worker skills, tools, executor—**no** **`## Workers`** block). **`GatewayState.system_context_static`** is **orchestrator-only** (orchestrator **`AGENTS.md`** + **`build_workers_context`** + orchestrator skill text).
+- **`build_workers_context`** ([`workers_context.rs`](../../crates/lib/src/orchestration/workers_context.rs)): included **only** in the orchestrator static string, **not** in worker delegate bundles.
+- **Delegation** ([`delegate.rs`](../../crates/lib/src/orchestration/delegate.rs)): **`DelegateContext`** supplies orchestrator fields plus **`worker_runtimes`**; **`execute_delegate_task`** uses the **worker** bundle when **`workerId`** is set, otherwise orchestrator skill tools for **delegate** without **`workerId`**.
+- **`chai init`** ([`init.rs`](../../crates/lib/src/init.rs)): writes **`profiles/<name>/agents/orchestrator/AGENTS.md`**; does **not** create **`workspace/AGENTS.md`**.
+- **Desktop** (**`crates/desktop/`**): **Config** shows the orchestrator **agent context directory** (**`orchestrator_context_dir`**); **Context** / **Skills** use orchestrator fields and **`status.agents.entries`** for per-agent previews.
+- **Docs**: **README** and internal **specs** describe per-agent **`AGENTS.md`** paths, skills, and **`status`** fields.
 
 ## Scope
 
 ### In Scope
 
-- Filesystem layout: **`<profileRoot>/agents/<agentId>/`** as the **default** workspace for each agent ( **`profileRoot`** = active profile subtree when **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** is in effect; otherwise **`~/.chai`** ); **`chai init`** scaffolds **`agents/<defaultOrchestratorId>/`** under that root with a starter **`AGENTS.md`**.
-- **Optional** per-agent **`workspace`** override (absolute or root-relative path). When omitted, resolve to **`<profileRoot>/agents/<id>/`**.
-- **Per-agent** fields (names illustrative; finalize in implementation): e.g. **`skillsEnabled`**, **`skillContextMode`** (or reuse existing enum names: **`full`** \| **`readOnDemand`**).
-- **Remove** top-level skill **policy** (**enablement**, **context mode**) from config; **skill package discovery paths** may remain in a **minimal** top-level key (e.g. **`skillPaths`** with **`directory`** / **`extraDirs`**) that does **not** duplicate per-agent policy, or default to **`~/.chai/skills`** in code with optional extra dirs—see **Design**.
+- Filesystem layout: **`<profileRoot>/agents/<agentId>/`** for each agent’s **`AGENTS.md`**; **`chai init`** scaffolds **`agents/orchestrator/AGENTS.md`** (default orchestrator id **`orchestrator`**) under **each** default profile; operators add **`agents/<workerId>/AGENTS.md`** when they define worker entries in config.
+- **Per-agent** fields: **`skillsEnabled`** (array of skill names), **`contextMode`**: **`full`** \| **`readOnDemand`** (same semantics as the former global skill context mode, but per agent).
+- **Skill root**: fixed **`~/.chai/skills`**; **remove** any top-level **`skills`** JSON block (**`directory`**, **`extraDirs`**, **`enabled`**, **`contextMode`**).
 - Gateway: build **per-agent** static context and **per-agent** tool lists (and executor scope) at startup; **`execute_delegate_task`** selects the **worker** agent’s bundle by **`workerId`**.
-- Prompt split: orchestrator system text includes **delegation** + worker roster; worker system text is **worker-specific** (identity, allowed tools, optional short roster if needed) and **excludes** nested **`delegate_task`**.
+- Prompt split: orchestrator system text includes **delegation** + worker roster + orchestrator skills; worker system text is **worker-specific** and **excludes** nested **`delegate_task`** and orchestrator identity copy.
 - Update internal specs listed under **Related Epics and Docs** when behavior changes.
 
 ### Out of Scope
 
 - **OS-level** sandboxing (containers, VMs); see orchestration epic **Scope**.
-- **Hot reload** of per-agent context or skill lists without gateway restart (restart remains the simple contract).
+- **Hot reload** of per-agent context or skill lists without gateway restart (restart remains the contract).
 - **Skill package revisions, lockfiles, pins** — **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**; this epic assumes packages on disk under shared roots, filtered per agent.
-- **Implementing named runtime profiles** end-to-end — tracked in **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**; this epic **defines** default **`agents/<id>/`** paths **relative to the profile root** so the two designs compose without a global **`~/.chai/agents/`** tree when profiles are active.
+- **Flat `~/.chai/config.json`** or **`~/.chai/agents/`** without a profile parent — **not supported**; same rule as **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** (**`profileRoot`** is always a profile directory).
+- **Legacy orchestrator paths** — **No** fallback to **`workspace/AGENTS.md`**, **no** dual locations, **no** “warn and load old path.” Operators who still have content only under **`workspace/`** move it manually to **`agents/<orchestratorId>/AGENTS.md`**.
 
 ## Dependencies
 
-- Delegation **primitive** and **`agents`** array (**[ORCHESTRATION.md](ORCHESTRATION.md)**) — already implemented.
+- Delegation **primitive** and **`agents`** array (**[ORCHESTRATION.md](ORCHESTRATION.md)**) — implemented.
+- **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — **`profileRoot`**, **`ChaiPaths`**, init layout — **complete**; this epic layers on **`agents/<id>/`** under each profile.
 - Skill directory layout and **`tools.json`** — **[spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md)**, **[spec/TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)**.
 
 ## Design
 
 ### Profiles and agent directories
 
-**[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** puts **trust-sensitive** state (config, pairing, **`workspace/`**, secrets) **inside** **`~/.chai/profiles/<name>/`**. Per-agent **`AGENTS.md`** files are **natural-language policy** for that profile’s orchestrator and workers, so they belong **in the same trust boundary**, not under a single global **`~/.chai/agents/`** that every profile would share.
+**[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** keeps **trust-sensitive** state inside **`~/.chai/profiles/<name>/`**. Per-agent **`AGENTS.md`** files supply **on-disk agent context** for that profile’s orchestrator and workers, so they live **inside** the profile: **`~/.chai/profiles/<name>/agents/<agentId>/`**.
 
-| Layout | Where default **`agents/<agentId>/`** resolves |
-|--------|-----------------------------------------------|
-| **Runtime profiles active** | **`~/.chai/profiles/<activeProfile>/agents/<agentId>/`** (sibling to **`workspace/`**, **`matrix/`**, etc.). |
-| **Single config / no profile indirection** | **`~/.chai/agents/<agentId>/`** ( **`profileRoot` = `~/.chai`** ). |
+| Topic | Resolution |
+|-------|------------|
+| **Default `agents/<agentId>/`** | **`~/.chai/profiles/<activeProfile>/agents/<agentId>/`** (under the profile tree alongside **`config.json`**, **`matrix/`**, pairing/device state, etc.). |
+| **Skill packages on disk** | Shared **`~/.chai/skills/`** only; per-agent **`skillsEnabled`** chooses subsets. |
 
-**Skill packages** stay **shared** at **`~/.chai/skills/`** (plus **`extraDirs`**): same rule as the profiles epic—profiles differ by **composition** (per-agent **`skillsEnabled`** in config), not by copying skill trees into each profile.
+### Decisions (Shipped)
 
-**Relationship to legacy `workspace/AGENTS.md`:** The profiles epic already used **`profiles/<name>/workspace/AGENTS.md`** as a single orchestrator scratch context. After agent isolation, **orchestrator** instructions should live under **`agents/<orchestratorId>/AGENTS.md`** (or the optional **`workspace`** override on that entry). Whether **`workspace/AGENTS.md`** remains as an alias, a symlink, or is removed is an implementation detail; the **authoritative** model is **per-agent dirs under the profile**.
+| Question | Decision |
+|----------|----------|
+| **Orchestrator context on disk** | **Only** **`agents/<orchestratorId>/AGENTS.md`**. **`workspace/AGENTS.md`** is **not** read by the gateway for any agent; **`chai init`** does **not** create it. Optional: keep an empty profile **`workspace/`** (or omit it) for user misc files—out of scope for gateway behavior. |
+| **Skill discovery shape** | Single root **`~/.chai/skills`**; **no** configurable discovery paths in JSON. |
+| **`status.agents.entries` and Desktop Context** | Each row includes **`systemContext`** for that agent. Desktop **Context** builds the agent dropdown from **`entries`**: orchestrator two-column (**read-on-demand**) vs worker single column (see **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**). |
+| **Empty or missing `skillsEnabled`** | **Explicit:** missing or empty **`skillsEnabled`** ⇒ **no** skill tools and **no** skill-derived inlined context for that agent. **No** implicit “inherit from old global list.” Operators must set lists per agent. |
 
-### Layout Under `~/.chai`
+### Layout Under `~/.chai` (profiles only)
 
-Illustrative with **named profiles** (exact names may follow **`chai init`** conventions):
+Illustration convention: **subdirectories first** (alphabetically), then **files** (alphabetically). Other profile paths (**`matrix/`**, pairing files, an optional user **`workspace/`** folder, etc.) are omitted here—they are not part of the agent-isolation contract.
 
 ```text
 ~/.chai/
 ├── profiles/
-│   └── assistant/                    # example active profile
+│   ├── assistant/                    # default profile; `active`
+│   │   ├── agents/
+│   │   │   ├── orchestrator/         # example orchestrator id
+│   │   │   │   └── AGENTS.md
+│   │   │   └── worker/               # example worker id
+│   │   │       └── AGENTS.md
+│   │   ├── .env
+│   │   ├── config.json
+│   │   ├── device.json
+│   │   ├── device_token
+│   │   └── paired.json
+│   └── developer/                    # default profile
+│       ├── agents/
+│       │   ├── orchestrator/         # example orchestrator id
+│       │   │   └── AGENTS.md
+│       │   └── worker/               # example worker id
+│       │       └── AGENTS.md
+│       ├── .env
 │       ├── config.json
-│       ├── workspace/              # optional; see note above
-│       │   └── AGENTS.md
-│       └── agents/
-│           ├── orchestrator/       # default id or configured orchestrator id
-│           │   └── AGENTS.md
-│           └── fast-worker/
-│               └── AGENTS.md
-├── skills/                         # shared across profiles
+│       ├── device.json
+│       ├── device_token
+│       └── paired.json
+├── skills/                           # shared skill packages
 │   └── <skill-name>/
-└── active -> profiles/assistant/   # when using profiles
+└── active -> profiles/assistant/
 ```
 
-**Without** profiles, the same structure may appear flatter:
-
-```text
-~/.chai/
-├── config.json
-├── agents/
-│   ├── orchestrator/
-│   │   └── AGENTS.md
-│   └── fast-worker/
-│       └── AGENTS.md
-└── skills/
-    └── <skill-name>/
-```
-
-- **Agent workspaces** live under **`<profileRoot>/agents/<agentId>/`**.
-- **Skill packages** remain a **shared store** under **`~/.chai/skills/`** (plus optional **extraDirs** from config); **per-agent** config selects **which** packages apply and **how** they are surfaced.
+- **Agent context directories** live under **`<profileRoot>/agents/<agentId>/`**.
+- **Skill discovery** uses **`~/.chai/skills`** only; **enablement** is **only** per-agent **`skillsEnabled`** in **`config.json`**.
 
 ### Config Schema Direction
 
-- **Top-level `agents`**: array of objects; each object includes **`id`**, **`role`**, provider/model defaults, delegation policy fields as today, plus:
-  - **`workspace`**: optional path; default **`<profileRoot>/agents/<id>/`** (see **Profiles and agent directories**).
-  - **`skillsEnabled`**: list of skill names (required for explicit policy; empty list = no skills for that agent).
-  - **`skillContextMode`** (or **`contextMode`**): **`full`** \| **`readOnDemand`** for that agent’s skill inlined vs compact + **`read_skill`** behavior.
-- **Remove** the old top-level **`skills.enabled`** and **`skills.contextMode`**.
-- **Skill discovery paths**: avoid duplicating “which skills exist on disk” per agent unless needed later. Prefer one small top-level **`skillPaths`** (or env-only defaults) for **`directory`** + **`extraDirs`**, with **no** enablement there; **only** agent entries choose subsets. If the PoC hardcodes **`~/.chai/skills`**, document that and add **`skillPaths`** when a second root is needed.
+- **Top-level `agents`**: each object includes **`id`**, **`role`**, provider/model and delegation fields as today, plus:
+  - **`skillsEnabled`**: string array; empty or omitted ⇒ no skills for that agent.
+  - **`contextMode`**: **`full`** \| **`readOnDemand`** for that agent’s skill presentation.
+- **Top-level `skills`**: **omitted** — not part of config; packages load from **`~/.chai/skills`** only.
 
 ### Tooling and Executor
 
 - Build **per-agent** **`ToolDefinition`** lists from enabled skills for **that** agent only.
-- **`read_skill`** (when used) resolves against the **same** agent’s enabled set and skill roots.
-- **`delegate_task`** remains on the **orchestrator** tool list only; worker lists **omit** it (unchanged rule).
+- **`read_skill`** resolves against the **same** agent’s enabled set and packages under **`~/.chai/skills`**.
+- **`delegate_task`** remains on the **orchestrator** tool list only; worker lists **omit** it.
 
 ### Gateway Status and Desktop
 
-- **`status.systemContext`** (and Desktop **Context**) today assume a **single** orchestrator string; decide whether to expose **orchestrator-only**, **per-agent** map, or **document** that worker context is not shown until UX is defined (**Open Questions**).
+**`status.agents.entries`** lists orchestrator + workers; each **`systemContext`** matches what **`WorkerDelegateRuntime`** / orchestrator state would send on a turn. The desktop **Context** screen selects an agent when multiple entries exist; worker rows omit the orchestrator **`## Workers`** block.
 
 ## Requirements
 
-- [ ] **Directory layout** — Document and implement **`<profileRoot>/agents/<agentId>/`** as the default workspace (**`profileRoot`** = active profile dir or **`~/.chai`**); **`chai init`** creates the default orchestrator subdirectory and **`AGENTS.md`** stub in the right tree.
-- [ ] **Per-agent workspace resolution** — Optional **`workspace`** on each agent entry; default path rule as above; resolver must know **profile root** when **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** is implemented.
-- [ ] **Per-agent skill policy** — Each agent entry declares **`skillsEnabled`** and skill **context mode**; remove global enablement/context mode from the old **`skills`** block.
-- [ ] **Skill discovery paths** — Define minimal top-level or hardcoded **`~/.chai/skills`** (+ optional **`extraDirs`**) without per-agent duplication in the first slice.
-- [ ] **Static context** — Build and cache **per-agent** system preamble (orchestrator vs each worker) at startup; include **date line** per turn as today.
-- [ ] **Worker prompt** — Workers **do not** receive orchestrator-only **`## Agents`** copy; worker identity and constraints are explicit.
-- [ ] **Tools** — Register **per-agent** skill tools and scoped executor; orchestrator merges **`delegate_task`**; workers do not.
-- [ ] **Delegation path** — **`DelegateContext`** (or successor) passes the **resolved worker agent id** bundle into **`run_turn_with_messages_dyn`**.
-- [ ] **Specs** — Update **[spec/CONTEXT.md](../spec/CONTEXT.md)** and **[spec/ORCHESTRATION.md](../spec/ORCHESTRATION.md)**; align **[spec/CONFIGURATION.md](../spec/CONFIGURATION.md)** if present.
+- [x] **Directory layout** — **`<profileRoot>/agents/<agentId>/`**; **`chai init`** creates **`agents/orchestrator/AGENTS.md`** for each default profile.
+- [x] **Orchestrator `AGENTS.md` only under agent dirs** — Gateway reads **`agents/<orchestratorId>/AGENTS.md`**; **`workspace/AGENTS.md`** is not loaded; **`chai init`** does not create it.
+- [x] **Per-agent context directory** — Fixed **`<profileRoot>/agents/<id>/`**; **`ChaiPaths.profile_dir`** as **`profileRoot`**.
+- [x] **Per-agent skill configuration** — **`skillsEnabled`** and **`contextMode`** on agent entries; top-level **`skills.enabled`** / **`skills.contextMode`** removed from schema.
+- [x] **Skill discovery paths** — **`~/.chai/skills`** only; no config overrides.
+- [x] **Static context** — Per-agent static preamble at startup (orchestrator + per-worker bundles); per-turn header lines (**`TODAYS_DATE=`**, **`WORKERS_ENABLED=`** / **`SKILLS_ENABLED=`**) unchanged in behavior (see **[spec/CONTEXT.md](../spec/CONTEXT.md)**).
+- [x] **Worker prompt** — Worker bundles exclude **`## Workers`** / orchestrator identity; **`build_workers_context`** is orchestrator-only.
+- [x] **Tools** — Per-agent skill tools and executor; orchestrator merges **`delegate_task`**; workers do not.
+- [x] **Delegation path** — **`DelegateContext.worker_runtimes`**; **`execute_delegate_task`** uses the worker bundle when **`workerId`** is set.
+- [x] **Status API** — **`status.agents.entries`** carries per-agent **`systemContext`** (see **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**).
+- [x] **Specs** — **[spec/CONTEXT.md](../spec/CONTEXT.md)**, **[spec/ORCHESTRATION.md](../spec/ORCHESTRATION.md)**, **[spec/CONFIGURATION.md](../spec/CONFIGURATION.md)** aligned; **[spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md)** and **[spec/GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)** updated for per-agent enablement and status shape notes.
 
 ## Technical Reference
 
 | Topic | Code / doc area |
-|--------|------------------|
+|--------|----------------|
 | Delegation worker turn | [`crates/lib/src/orchestration/delegate.rs`](../../crates/lib/src/orchestration/delegate.rs) |
 | Worker roster text (orchestrator-only after split) | [`crates/lib/src/orchestration/workers_context.rs`](../../crates/lib/src/orchestration/workers_context.rs) |
 | Gateway state, static context | [`crates/lib/src/gateway/server.rs`](../../crates/lib/src/gateway/server.rs) |
-| Config parsing | [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
+| Config parsing; **`orchestrator_context_dir`** / **`worker_context_dir`** (path join in private **`agent_context_dir`**) | [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | Agent turn / tools | [`crates/lib/src/agent.rs`](../../crates/lib/src/agent.rs) |
+| Profile roots | [`crates/lib/src/profile.rs`](../../crates/lib/src/profile.rs) |
+| **`AGENTS.md` loader** | [`crates/lib/src/agent_ctx.rs`](../../crates/lib/src/agent_ctx.rs) |
+| Init scaffolding | [`crates/lib/src/init.rs`](../../crates/lib/src/init.rs) |
+| Desktop (orchestrator summary) | [`crates/desktop/src/app/screens/config.rs`](../../crates/desktop/src/app/screens/config.rs), [`context.rs`](../../crates/desktop/src/app/screens/context.rs), [`skills.rs`](../../crates/desktop/src/app/screens/skills.rs) |
 
 ## Phases
 
 | Phase | Focus | Status |
 |-------|--------|--------|
-| **1** | **Layout + init** — **`<profileRoot>/agents/<id>/`** convention ( **`profileRoot`** from active profile or **`~/.chai`** ); default orchestrator folder on init; optional **`workspace`** override in schema. Load **`AGENTS.md`** from the **orchestrator** agent dir for the main session turn; align with profile **`workspace/`** story (see **Profiles and agent directories**). | Pending |
-| **2** | **Prompt split** — Orchestrator static text = workspace context + **`## Agents`** roster + orchestrator skill block; worker static text = worker workspace **`AGENTS.md`** + worker skill block + **no** delegation/orchestrator identity copy. | Pending |
-| **3** | **Per-agent skills** — Config: per-agent **`skillsEnabled`** + **`skillContextMode`**; remove top-level skill policy; build per-agent skill context + tool lists + scoped **`read_skill`** at startup; wire **`execute_delegate_task`** to the correct worker bundle. | Pending |
-| **4** | **Cleanup + docs** — Remove dead code paths from the old global skill wiring; update specs and README; gateway **`status`** / Desktop decisions from **Open Questions**. | Pending |
+| **1** | **Layout + init** — **`agents/<id>/`** under each profile; init scaffolds **`agents/orchestrator/AGENTS.md`**; orchestrator loads from **`agents/<orchId>/AGENTS.md`**; no **`workspace/AGENTS.md`**. | Done |
+| **2** | **Prompt split** — Orchestrator static text = orchestrator **`AGENTS.md`** dir + **`## Workers`** roster + orchestrator skills; worker static text = worker **`AGENTS.md`** + worker skills + **no** **`delegate_task`** / orchestrator copy. | Done |
+| **3** | **Per-agent skills** — Config: per-agent **`skillsEnabled`** + **`contextMode`**; **no** top-level **`skills`** block; per-agent tool lists + **`read_skill`**; **`execute_delegate_task`** uses worker bundle. | Done |
+| **4** | **Cleanup + docs** — Dead global skill paths removed; **README** and **`status.agents.entries`** documented; **internal specs** aligned (**`spec/CONTEXT.md`**, **`ORCHESTRATION.md`**, **`CONFIGURATION.md`**, **`SKILL_FORMAT.md`**, **`GATEWAY_STATUS.md`**). | Done |
 
-## Open Questions
+## Follow-ups (Non-Blocking)
 
-- **`workspace/AGENTS.md` vs `agents/<orchestratorId>/AGENTS.md`** — Deprecation, migration, or merge strategy when both exist under a profile.
-- **`skillPaths` vs hardcoded roots** — Whether the first implementation uses only **`~/.chai/skills`** in code or introduces **`skillPaths`** immediately.
-- **`status.systemContext`** — Single orchestrator string vs structured **per-agent** preview for debugging.
-- **Empty `skillsEnabled`** — Treat as **no skills** (explicit); avoid implicit “inherit all” to keep behavior predictable for a PoC.
+*Completed during this epic; nothing open here.*
 
-## Implementation order (with related epics)
-
-When implementing **profiles**, **agent isolation**, and **skill packages** together, use this sequence (same as **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**):
-
-1. **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — **First.** **`profileRoot`** and active profile so default **`agents/<agentId>/`** resolves under **`~/.chai/profiles/<name>/`**.
-2. **This epic** — **Second.** Per-agent workspaces, per-agent skill policy, prompts, and delegation wiring.
-3. **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** — **Third.** Revisions, lockfiles, and pins; depends on profile-aware config and stable per-agent skill naming.
-
-**Note:** A PoC may set **`profileRoot = ~/.chai`** until profiles exist; expect a one-time move of **`agents/`** into the profile tree when **[RUNTIME_PROFILES](RUNTIME_PROFILES.md)** lands.
+- [x] **Desktop Context — per worker** — **`status.agents.entries`**, desktop agent selector on **Context**, worker preview from gateway (see **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**).
+- [x] **Structured `status` / gateway** — Per-agent rows live under **`agents.entries`** (see **GATEWAY_STATUS**).
 
 ## Related Epics and Docs
 
+**Implementation order** (with **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**): runtime profiles **(complete)** → **this epic** → **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** (lockfiles / pins).
+
 | Topic | Where |
 |--------|--------|
-| Delegation **`delegate_task`**, policy, phases 1–4 | [ORCHESTRATION.md](ORCHESTRATION.md) |
-| Runtime profiles ( **`profileRoot`**, trust boundaries) | [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — **`agents/<id>/`** is **inside** each profile; **`skills/`** stays at **`~/.chai`** root. |
-| Skill pins and lockfiles (future) | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) |
-| Context assembly (update after implementation) | [spec/CONTEXT.md](../spec/CONTEXT.md) |
-| Worker turn behavior (update after implementation) | [spec/ORCHESTRATION.md](../spec/ORCHESTRATION.md) |
+| Delegation **`delegate_task`**, delegation policy | [ORCHESTRATION.md](ORCHESTRATION.md) |
+| Runtime profiles (**`profileRoot`**) | [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) |
+| Skill pins (future) | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) |
+| Context assembly | [spec/CONTEXT.md](../spec/CONTEXT.md) |
+| Worker turn behavior | [spec/ORCHESTRATION.md](../spec/ORCHESTRATION.md) |
 | Skill format | [spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md) |

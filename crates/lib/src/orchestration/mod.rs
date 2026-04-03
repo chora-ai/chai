@@ -6,8 +6,8 @@
 //! centralize “which client” + default model resolution for the gateway and future orchestrator code.
 //!
 //! **Orchestrator loop (phase 3, done)** — [`DELEGATE_TASK_TOOL_NAME`], [`merge_delegate_task`], [`execute_delegate_task`]:
-//! the orchestrator may delegate via `delegate_task`; the worker uses the same system context and skill tools (nested
-//! `delegate_task` disabled). Gateway inbound and WebSocket `agent` both pass [`DelegateContext`].
+//! when workers are configured, the orchestrator may delegate via `delegate_task`; the worker uses a per-worker system context and skill tools when
+//! `workerId` is set (nested `delegate_task` disabled). Gateway inbound and WebSocket `agent` both pass [`DelegateContext`].
 
 mod catalog;
 mod choice;
@@ -20,9 +20,9 @@ mod workers_context;
 pub use choice::{provider_choice_from_canonical, provider_id, resolve_provider_choice, ProviderChoice};
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task, worker_tool_list,
-    parse_delegate_tool_calls, parse_delegate_tool_results, DelegateContext, DelegateObservability,
-    DELEGATE_TASK_TOOL_NAME, EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED,
-    EVENT_DELEGATE_START,
+    parse_delegate_tool_calls, parse_delegate_tool_results, system_context_with_today,
+    DelegateContext, DelegateObservability, WorkerDelegateRuntime, DELEGATE_TASK_TOOL_NAME,
+    EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 pub use dispatch::ProviderClients;
 pub use model::{

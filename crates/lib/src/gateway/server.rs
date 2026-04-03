@@ -3,21 +3,23 @@
 use crate::agent;
 use crate::channels::{
     resolve_signal_daemon_config, ChannelHandle, ChannelRegistry, InboundMessage, SignalChannel,
-    TelegramChannel, TelegramUpdate,
+    TelegramChannel, TelegramTransport, TelegramUpdate,
 };
 #[cfg(feature = "matrix")]
 use crate::channels::{connect_matrix_client, MatrixChannel};
 use crate::config::{
-    self, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url, resolve_nim_api_key,
-    resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url, resolve_vllm_api_key,
-    resolve_vllm_base_url, Config, SkillContextMode,
+    self, orchestrator_context_mode, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url,
+    resolve_nim_api_key, resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url,
+    resolve_vllm_api_key, resolve_vllm_base_url, worker_context_mode, Config, SkillContextMode,
 };
 use crate::agent_ctx;
 use crate::init;
+use crate::profile::{self, ChaiPaths};
 use crate::orchestration::{
     build_orchestration_catalog, build_workers_context, effective_worker_defaults, merge_delegate_task,
     provider_choice_from_canonical, provider_id, resolve_model, resolve_provider_choice,
-    worker_tool_list, DelegateContext, DelegateObservability, ProviderChoice, ProviderClients,
+    system_context_with_today, worker_tool_list, DelegateContext, DelegateObservability,
+    ProviderChoice, ProviderClients, WorkerDelegateRuntime,
 };
 use crate::skills::{load_skills, Skill, SkillEntry};
 use crate::tools::GenericToolExecutor;
@@ -46,6 +48,7 @@ use axum::{
     Json, Router,
 };
 use serde_json::json;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -146,9 +149,7 @@ fn require_connect_token(config: &Config) -> Option<String> {
 #[derive(Clone)]
 pub struct GatewayState {
     pub config: Arc<Config>,
-    /// Optional agent-level context (e.g. AGENTS.md from workspace).
-    pub agent_ctx: Option<String>,
-    /// Static portion of the system context built from agent_ctx and skills (no date prefix).
+    /// Static portion of the system context built from orchestrator **`AGENTS.md`**, roster, and skills (no date prefix).
     /// The current date is prepended on each turn so the model sees "today" without
     /// rebuilding the rest of the context.
     pub system_context_static: String,
@@ -181,7 +182,7 @@ pub struct GatewayState {
     pub hf_models: Arc<tokio::sync::RwLock<Vec<HfModel>>>,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
-    /// Combined tool definitions for the orchestrator: skill tools from tools.json, plus read_skill when context mode is ReadOnDemand, plus delegate_task (same list sent to the model).
+    /// Combined tool definitions for the orchestrator: skill tools from tools.json, plus read_skill when context mode is ReadOnDemand, plus delegate_task when at least one worker is configured (same list sent to the model).
     pub tools_list: Option<Vec<ToolDefinition>>,
     /// Generic executor built from skills' tools.json. None when no tools.
     pub tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
@@ -190,6 +191,14 @@ pub struct GatewayState {
     /// Matrix channel handle when Matrix is configured (HTTP verification + allowlist).
     #[cfg(feature = "matrix")]
     pub matrix_channel: Option<Arc<MatrixChannel>>,
+    /// Per-worker bundles for `delegate_task` when `workerId` is set.
+    pub worker_delegate_runtimes: Arc<HashMap<String, WorkerDelegateRuntime>>,
+    /// Skill package root scanned at startup (`~/.chai/skills`); surfaced on `status` only.
+    pub skills_discovery_root: PathBuf,
+    /// Count of skill packages found on disk before orchestrator filtering.
+    pub skill_packages_discovered: usize,
+    /// Orchestrator **`AGENTS.md`** directory (`<profile>/agents/<orchestratorId>/`).
+    pub orchestrator_context_dir: PathBuf,
 }
 
 /// Executor that handles read_skill (lookup by name, return SKILL.md content) and delegates all other tools to the generic executor. Used when context mode is ReadOnDemand.
@@ -239,7 +248,7 @@ impl GatewayState {
         self.channel_tasks.write().await.push(handle);
     }
 
-    /// Combined tool list and executor (built at startup; list matches status/tools panel, including delegate_task).
+    /// Combined tool list and executor (built at startup; list matches status/tools panel, including delegate_task when workers are configured).
     pub fn tools_and_executor(
         &self,
     ) -> (Option<Vec<ToolDefinition>>, Option<&dyn agent::ToolExecutor>) {
@@ -273,8 +282,7 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     let mut out = String::new();
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` when you need to use a skill\n");
-    out.push_str("- share available skills and ask the user to choose\n\n");
+    out.push_str("- call `read_skill` when you need to use a skill\n\n");
     for s in skills {
         out.push_str("### ");
         out.push_str(&s.name);
@@ -310,8 +318,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     let mut out = String::new();
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` when you need to use a skill\n");
-    out.push_str("- share available skills and ask the user to choose\n\n");
+    out.push_str("- call `read_skill` when you need to use a skill\n\n");
     out.push_str("Available skills (name — description):\n\n");
     for s in skills {
         out.push_str("- `");
@@ -325,6 +332,35 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
         out.push_str("\n\n");
     }
     out
+}
+
+/// Per-agent skill runtime object embedded in **`status.agents.entries[].skills`**.
+fn skill_runtime_json(skills: &[Skill], mode: SkillContextMode) -> serde_json::Value {
+    let skills_context = match mode {
+        SkillContextMode::Full => build_skill_context_full(skills),
+        SkillContextMode::ReadOnDemand => build_skill_context_compact(skills),
+    };
+    let skills_context_full = build_skill_context_full(skills);
+    let skills_context_bodies = match mode {
+        SkillContextMode::ReadOnDemand => build_skill_bodies_only(skills),
+        SkillContextMode::Full => String::new(),
+    };
+    let enabled_skills: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
+    let context_mode_wire = match mode {
+        SkillContextMode::Full => "full",
+        SkillContextMode::ReadOnDemand => "readOnDemand",
+    };
+    json!({
+        "enabledSkills": enabled_skills,
+        "contextMode": context_mode_wire,
+        "skillsContext": skills_context,
+        "skillsContextFull": skills_context_full,
+        "skillsContextBodies": if skills_context_bodies.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(skills_context_bodies)
+        },
+    })
 }
 
 /// Build static system context from agent-ctx (AGENTS.md), worker roster, and skills, without a date prefix.
@@ -359,14 +395,98 @@ fn build_system_context_static(
     out
 }
 
-/// Build full system context for a turn by prepending today's date to the cached static context.
-fn build_system_context_for_today(static_ctx: &str) -> String {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    if static_ctx.trim().is_empty() {
-        format!("TODAY'S DATE: {}", today)
-    } else {
-        format!("TODAY'S DATE: {}\n\n{}", today, static_ctx)
+/// Worker static context: **`agents/<workerId>/AGENTS.md`** and skills only (no orchestrator roster).
+fn build_worker_system_context_static(
+    agent_ctx: Option<&str>,
+    skills: &[Skill],
+    context_mode: SkillContextMode,
+) -> String {
+    let mut out = String::new();
+    if let Some(ctx) = agent_ctx {
+        let trimmed = ctx.trim();
+        if !trimmed.is_empty() {
+            out.push_str(trimmed);
+            out.push_str("\n\n");
+        }
     }
+    let skills_ctx = match context_mode {
+        SkillContextMode::Full => build_skill_context_full(skills),
+        SkillContextMode::ReadOnDemand => build_skill_context_compact(skills),
+    };
+    if !skills_ctx.trim().is_empty() {
+        out.push_str(&skills_ctx);
+    }
+    out
+}
+
+struct BuiltSkillRuntime {
+    skills: Vec<Skill>,
+    tools_list: Option<Vec<ToolDefinition>>,
+    tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
+}
+
+fn build_skill_runtime_for_entries(
+    skill_entries: Vec<SkillEntry>,
+    context_mode: SkillContextMode,
+) -> BuiltSkillRuntime {
+    let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
+    let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
+        .iter()
+        .filter_map(|e| {
+            e.tool_descriptor
+                .as_ref()
+                .map(|d| (e.name.clone(), d.clone()))
+        })
+        .collect();
+    let skill_dirs: Vec<(String, std::path::PathBuf)> = skill_entries
+        .iter()
+        .filter_map(|e| {
+            e.tool_descriptor
+                .as_ref()
+                .map(|_| (e.name.clone(), e.path.clone()))
+        })
+        .collect();
+    let generic_executor = GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs);
+    let mut skill_layer_tools: Vec<ToolDefinition> = Vec::new();
+    if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
+        skill_layer_tools.push(read_skill_tool_definition());
+    }
+    for (_, desc) in &descriptors {
+        skill_layer_tools.extend(desc.to_tool_definitions());
+    }
+    let has_skill_tools = !skill_layer_tools.is_empty();
+    let tool_executor: Option<Arc<dyn agent::ToolExecutor>> = if has_skill_tools {
+        if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
+            Some(Arc::new(ReadOnDemandExecutor {
+                skills: Arc::new(skills.clone()),
+                inner: generic_executor,
+            }))
+        } else {
+            Some(Arc::new(generic_executor))
+        }
+    } else {
+        None
+    };
+    let tools_list = if skill_layer_tools.is_empty() {
+        None
+    } else {
+        Some(skill_layer_tools)
+    };
+    BuiltSkillRuntime {
+        skills,
+        tools_list,
+        tool_executor,
+    }
+}
+
+/// Build full system context for a turn: date line, capability hints, then cached static context.
+/// Pass **`workers_enabled: None`** for worker agent strings so **`WORKERS_ENABLED`** is omitted.
+fn build_system_context_for_today(
+    static_ctx: &str,
+    workers_enabled: Option<bool>,
+    skills_enabled: bool,
+) -> String {
+    system_context_with_today(static_ctx, workers_enabled, skills_enabled)
 }
 
 /// Tool definition for read_skill (used only when context mode is ReadOnDemand).
@@ -514,20 +634,27 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         None,
         provider_choice,
     );
-    let system_context = build_system_context_for_today(&state.system_context_static);
+    let has_workers = !state.worker_delegate_runtimes.is_empty();
+    let orch_skills_enabled = !state.skills.is_empty();
+    let system_context = build_system_context_for_today(
+        &state.system_context_static,
+        Some(has_workers),
+        orch_skills_enabled,
+    );
     let (tools, tool_executor) = state.tools_and_executor();
-    let tools = merge_delegate_task(tools);
+    let tools = merge_delegate_task(tools, has_workers);
     let worker_tools = worker_tool_list(tools.as_ref());
     let delegate = Some(DelegateContext {
         clients: state.provider_clients(),
         agents: &state.config.agents,
-        system_context: if system_context.trim().is_empty() {
+        orchestrator_system_context: if system_context.trim().is_empty() {
             None
         } else {
             Some(system_context.as_str())
         },
-        worker_tools,
-        tool_executor,
+        orchestrator_worker_tools: worker_tools,
+        orchestrator_tool_executor: tool_executor,
+        worker_runtimes: Some(state.worker_delegate_runtimes.as_ref()),
         observability: Some(DelegateObservability {
             event_tx: state.event_tx.clone(),
             session_id: Some(session_id.clone()),
@@ -589,10 +716,9 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
 /// Run the gateway server; binds to config.gateway.bind:config.gateway.port.
 /// When bind is not loopback, a gateway token must be configured or startup fails.
 /// Blocks until shutdown (e.g. Ctrl+C).
-/// `config_path` is the path to the config file (used to resolve the config directory for skills).
-/// Requires the configuration directory to be initialized (`chai init`) so the skills directory exists.
-pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
-    init::require_initialized(&config_path, &config)?;
+/// Requires `chai init` so the profile config and shared `~/.chai/skills` exist.
+pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
+    init::require_initialized(&paths)?;
     let bind = config.gateway.bind.trim();
     if !config::is_loopback_bind(bind) {
         let token = config::resolve_gateway_token(&config);
@@ -605,9 +731,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     }
 
     let required_token = require_connect_token(&config);
-    let paired_path = dirs::home_dir()
-        .map(|h| h.join(".chai").join("paired.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("paired.json"));
+    let paired_path = paths.paired_json();
     let pairing_store = Arc::new(PairingStore::load(paired_path).await);
     let (event_tx, _) = broadcast::channel(64);
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
@@ -632,87 +756,88 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let hf_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
-    let workspace_dir = config::resolve_workspace_dir(&config);
-    let skills_dir = config::resolve_skills_dir(&config, &config_path);
-    let mut skill_entries: Vec<SkillEntry> = match load_skills(
-        Some(skills_dir.as_path()),
-        &config.skills.extra_dirs,
-    ) {
+    let orch_context_dir = config::orchestrator_context_dir(&config, &paths.profile_dir);
+    let skills_dir = config::default_skills_dir(&paths.chai_home);
+    let all_entries: Vec<SkillEntry> = match load_skills(skills_dir.as_path()) {
         Ok(entries) => entries,
         Err(e) => {
             log::warn!("loading skills failed: {}", e);
             Vec::new()
         }
     };
-    // Only skills listed in config.skills.enabled are loaded; empty list (default) means no skills (opt-in by design).
-    skill_entries.retain(|e| config.skills.enabled.iter().any(|n| n == &e.name));
-    log::info!("loaded {} skill(s) for agent context", skill_entries.len());
-    if config.skills.context_mode == SkillContextMode::ReadOnDemand {
-        log::info!("skill context mode: readOnDemand (compact list + read_skill tool)");
+    log::info!(
+        "discovered {} skill package(s) on disk",
+        all_entries.len()
+    );
+    let orch_names = config::orchestrator_skills_enabled_list(&config.agents);
+    let orchestrator_entries: Vec<SkillEntry> = all_entries
+        .iter()
+        .filter(|e| orch_names.iter().any(|n| n == &e.name))
+        .cloned()
+        .collect();
+    log::info!(
+        "orchestrator: {} skill package(s) enabled",
+        orchestrator_entries.len()
+    );
+    let orch_ctx_mode = orchestrator_context_mode(&config.agents);
+    if orch_ctx_mode == SkillContextMode::ReadOnDemand {
+        log::info!("orchestrator skill context mode: readOnDemand (compact list + read_skill tool)");
     }
-    let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
-    let agent_ctx = agent_ctx::load_agent_ctx(workspace_dir.as_deref());
+    let orch_built = build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode);
+    let skills = orch_built.skills.clone();
+    let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
     let system_context_static = build_system_context_static(
         agent_ctx.as_deref(),
         &skills,
-        config.skills.context_mode,
+        orch_ctx_mode,
         &config.agents,
     );
 
-    // Descriptor-based: skills with tools.json
-    let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
-        .iter()
-        .filter_map(|e| {
-            e.tool_descriptor
-                .as_ref()
-                .map(|d| (e.name.clone(), d.clone()))
-        })
-        .collect();
-    let skill_dirs: Vec<(String, std::path::PathBuf)> = skill_entries
-        .iter()
-        .filter_map(|e| {
-            e.tool_descriptor
-                .as_ref()
-                .map(|_| (e.name.clone(), e.path.clone()))
-        })
-        .collect();
-    let generic_executor = GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs);
-    let context_mode = config.skills.context_mode;
+    let has_workers = config
+        .agents
+        .workers
+        .as_ref()
+        .map_or(false, |w| !w.is_empty());
+    let tools_list = merge_delegate_task(orch_built.tools_list.clone(), has_workers);
 
-    // Skill-layer tool list: descriptor tools; when ReadOnDemand, prepend read_skill
-    let mut skill_layer_tools: Vec<ToolDefinition> = Vec::new();
-    if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
-        skill_layer_tools.push(read_skill_tool_definition());
-    }
-    for (_, desc) in &descriptors {
-        skill_layer_tools.extend(desc.to_tool_definitions());
-    }
-    let has_skill_tools = !skill_layer_tools.is_empty();
-    // Orchestrator always gets delegate_task prepended (merge_delegate_task); include it in state so status/UI match the model.
-    let tools_list = merge_delegate_task(if skill_layer_tools.is_empty() {
-        None
-    } else {
-        Some(skill_layer_tools)
-    });
+    let tool_executor = orch_built.tool_executor.clone();
 
-    // Executor: when ReadOnDemand and we have any skill tools, wrap generic in ReadOnDemandExecutor; otherwise generic only (or none)
-    let tool_executor: Option<Arc<dyn agent::ToolExecutor>> = if has_skill_tools {
-        if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
-            Some(Arc::new(ReadOnDemandExecutor {
-                skills: Arc::new(skills.clone()),
-                inner: generic_executor,
-            }))
-        } else {
-            Some(Arc::new(generic_executor))
+    let mut worker_map: HashMap<String, WorkerDelegateRuntime> = HashMap::new();
+    if let Some(workers) = &config.agents.workers {
+        for w in workers {
+            let w_dir = config::worker_context_dir(w, &paths.profile_dir);
+            let w_agent_ctx = agent_ctx::load_agent_ctx(w_dir.as_deref());
+            let w_names = config::worker_skills_enabled_list(w);
+            let w_entries: Vec<SkillEntry> = all_entries
+                .iter()
+                .filter(|e| w_names.iter().any(|n| n == &e.name))
+                .cloned()
+                .collect();
+            let w_ctx_mode = worker_context_mode(w);
+            let w_built = build_skill_runtime_for_entries(w_entries, w_ctx_mode);
+            let w_static = build_worker_system_context_static(
+                w_agent_ctx.as_deref(),
+                &w_built.skills,
+                w_ctx_mode,
+            );
+            worker_map.insert(
+                w.id.clone(),
+                WorkerDelegateRuntime {
+                    system_context_static: w_static,
+                    context_directory: w_dir.clone(),
+                    skills: Arc::new(w_built.skills),
+                    tools_list: w_built.tools_list,
+                    tool_executor: w_built.tool_executor,
+                    context_mode: w_ctx_mode,
+                },
+            );
         }
-    } else {
-        None
-    };
+    }
+    let worker_delegate_runtimes = Arc::new(worker_map);
 
     #[cfg_attr(not(feature = "matrix"), allow(unused_mut))]
     let mut state = GatewayState {
         config: Arc::new(config.clone()),
-        agent_ctx,
         system_context_static,
         required_token,
         event_tx: event_tx.clone(),
@@ -739,6 +864,10 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
         pairing_store,
         #[cfg(feature = "matrix")]
         matrix_channel: None,
+        worker_delegate_runtimes,
+        skills_discovery_root: skills_dir,
+        skill_packages_discovered: all_entries.len(),
+        orchestrator_context_dir: orch_context_dir,
     };
 
     if config::provider_discovery_enabled(&config.agents, "ollama") {
@@ -873,7 +1002,14 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let webhook_url = config.channels.telegram.webhook_url.clone();
     let telegram_webhook_for_shutdown: Option<Arc<TelegramChannel>> =
         if let Some(token) = telegram_token {
-            let telegram = Arc::new(TelegramChannel::new(Some(token)));
+            let telegram = Arc::new(TelegramChannel::new(
+                Some(token),
+                if webhook_url.is_some() {
+                    TelegramTransport::Webhook
+                } else {
+                    TelegramTransport::LongPoll
+                },
+            ));
             if let Some(ref url) = webhook_url {
                 let secret = config.channels.telegram.webhook_secret.as_deref();
                 if let Err(e) = telegram.set_webhook(url, secret).await {
@@ -902,7 +1038,7 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
 
     #[cfg(feature = "matrix")]
     {
-        if let Some(matrix) = connect_matrix_client(&config).await {
+        if let Some(matrix) = connect_matrix_client(&config, paths.profile_dir.as_path()).await {
             let matrix = Arc::new(matrix);
             state.matrix_channel = Some(matrix.clone());
             let handle = matrix.clone().start_inbound(inbound_tx.clone());
@@ -964,20 +1100,23 @@ pub async fn run_gateway(config: Config, config_path: PathBuf) -> Result<()> {
     let app = app.with_state(state);
 
     let bind_addr = format!("{}:{}", bind, config.gateway.port);
+    let _gateway_lock = profile::acquire_gateway_lock(&paths.chai_home, &paths.profile_name)
+        .context("acquire gateway lock")?;
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("binding to {}", bind_addr))?;
     log::info!("gateway listening on {}", bind_addr);
 
-    axum::serve(listener, app)
+    let serve_result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(
             event_tx,
             channel_registry,
             channel_tasks,
             telegram_webhook_for_shutdown,
         ))
-        .await
-        .context("gateway server exited")?;
+        .await;
+    drop(_gateway_lock);
+    serve_result.context("gateway server exited")?;
     log::info!("gateway stopped");
     Ok(())
 }
@@ -1080,6 +1219,81 @@ async fn health_http(State(state): State<GatewayState>) -> Json<serde_json::Valu
         "protocol": PROTOCOL_VERSION,
         "port": state.config.gateway.port,
     }))
+}
+
+fn non_empty_cfg_opt(s: &Option<String>) -> bool {
+    s.as_ref().map(|x| !x.trim().is_empty()).unwrap_or(false)
+}
+
+/// True when Matrix homeserver and credentials are present (env or file); does not imply the client connected.
+fn matrix_channel_configured(cfg: &Config) -> bool {
+    let homeserver = std::env::var("MATRIX_HOMESERVER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            cfg.channels
+                .matrix
+                .homeserver
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        });
+    if homeserver.is_none() {
+        return false;
+    }
+    let token = std::env::var("MATRIX_ACCESS_TOKEN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            cfg.channels
+                .matrix
+                .access_token
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        });
+    if token.is_some() {
+        return true;
+    }
+    let user = std::env::var("MATRIX_USER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            cfg.channels
+                .matrix
+                .user
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        });
+    let password = std::env::var("MATRIX_PASSWORD")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            cfg.channels
+                .matrix
+                .password
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        });
+    user.is_some() && password.is_some()
+}
+
+fn merge_channel_runtime_detail(
+    obj: &mut serde_json::Map<String, serde_json::Value>,
+    details: &std::collections::HashMap<String, serde_json::Value>,
+    channel_id: &str,
+) {
+    let Some(v) = details.get(channel_id) else {
+        return;
+    };
+    let Some(sub) = v.as_object() else {
+        return;
+    };
+    for (k, val) in sub {
+        obj.insert(k.clone(), val.clone());
+    }
 }
 
 /// GET /ws upgrades to WebSocket. First frame must be connect; we reply with hello-ok.
@@ -1265,16 +1479,14 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 nim_models.sort_by(|a, b| a.name.cmp(&b.name));
                 openai_models.sort_by(|a, b| a.name.cmp(&b.name));
                 hf_models.sort_by(|a, b| a.name.cmp(&b.name));
-                let system_context = build_system_context_for_today(&state.system_context_static);
-                let skills_context = match state.config.skills.context_mode {
-                    SkillContextMode::Full => build_skill_context_full(&state.skills),
-                    SkillContextMode::ReadOnDemand => build_skill_context_compact(&state.skills),
-                };
-                let skills_context_full = build_skill_context_full(&state.skills);
-                let skills_context_bodies = match state.config.skills.context_mode {
-                    SkillContextMode::ReadOnDemand => build_skill_bodies_only(&state.skills),
-                    SkillContextMode::Full => String::new(),
-                };
+                let has_workers_status = !state.worker_delegate_runtimes.is_empty();
+                let orch_skills_enabled = !state.skills.is_empty();
+                let system_context = build_system_context_for_today(
+                    &state.system_context_static,
+                    Some(has_workers_status),
+                    orch_skills_enabled,
+                );
+                let orch_mode = orchestrator_context_mode(&state.config.agents);
                 let tools_string = state
                     .tools_list
                     .as_ref()
@@ -1303,7 +1515,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .unwrap_or("orchestrator");
-                let workers_status: Vec<serde_json::Value> = state
+                let worker_defaults: HashMap<String, (String, String)> = state
                     .config
                     .agents
                     .workers
@@ -1315,110 +1527,182 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 if id.is_empty() {
                                     return None;
                                 }
-                                let (prov, model) =
-                                    effective_worker_defaults(&state.config.agents, w);
-                                Some(json!({
-                                    "id": id,
-                                    "defaultProvider": prov,
-                                    "defaultModel": model,
-                                }))
+                                let pair = effective_worker_defaults(&state.config.agents, w);
+                                Some((id.to_string(), pair))
                             })
                             .collect()
                     })
                     .unwrap_or_default();
                 let discovery_ids = config::discovery_enabled_provider_ids(&state.config.agents);
+                let reg_ids = state.channel_registry.ids().await;
+                let active: HashSet<&str> = reg_ids.iter().map(|s| s.as_str()).collect();
+                let cfg_ref = state.config.as_ref();
+                let telegram_configured = config::resolve_telegram_token(cfg_ref).is_some()
+                    || non_empty_cfg_opt(&cfg_ref.channels.telegram.webhook_url);
+                #[cfg(feature = "matrix")]
+                let matrix_active = active.contains("matrix");
+                #[cfg(not(feature = "matrix"))]
+                let matrix_active = false;
+                let matrix_configured = matrix_channel_configured(cfg_ref);
+                let signal_configured = resolve_signal_daemon_config(cfg_ref).is_some();
+                let channel_runtime = state.channel_registry.channel_status_details().await;
+                let mut telegram_ch = serde_json::Map::new();
+                telegram_ch.insert("active".into(), json!(active.contains("telegram")));
+                telegram_ch.insert("configured".into(), json!(telegram_configured));
+                merge_channel_runtime_detail(&mut telegram_ch, &channel_runtime, "telegram");
+                let mut matrix_ch = serde_json::Map::new();
+                matrix_ch.insert("active".into(), json!(matrix_active));
+                matrix_ch.insert("configured".into(), json!(matrix_configured));
+                merge_channel_runtime_detail(&mut matrix_ch, &channel_runtime, "matrix");
+                let mut signal_ch = serde_json::Map::new();
+                signal_ch.insert("active".into(), json!(active.contains("signal")));
+                signal_ch.insert("configured".into(), json!(signal_configured));
+                merge_channel_runtime_detail(&mut signal_ch, &channel_runtime, "signal");
+                let channels_block = json!({
+                    "telegram": serde_json::Value::Object(telegram_ch),
+                    "matrix": serde_json::Value::Object(matrix_ch),
+                    "signal": serde_json::Value::Object(signal_ch),
+                });
+                let agents_cfg = &state.config.agents;
+                let provider_entry =
+                    |id: &str, models: &serde_json::Value| -> serde_json::Value {
+                        let on = config::provider_discovery_enabled(agents_cfg, id);
+                        json!({
+                            "discovery": on,
+                            "models": if on { models.clone() } else { json!([]) },
+                        })
+                    };
+                let mut providers_map = serde_json::Map::new();
+                providers_map.insert(
+                    "ollama".into(),
+                    provider_entry(
+                        "ollama",
+                        &serde_json::to_value(&ollama_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                providers_map.insert(
+                    "lms".into(),
+                    provider_entry(
+                        "lms",
+                        &serde_json::to_value(&lms_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                providers_map.insert(
+                    "vllm".into(),
+                    provider_entry(
+                        "vllm",
+                        &serde_json::to_value(&vllm_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                providers_map.insert(
+                    "nim".into(),
+                    provider_entry(
+                        "nim",
+                        &serde_json::to_value(&nim_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                providers_map.insert(
+                    "openai".into(),
+                    provider_entry(
+                        "openai",
+                        &serde_json::to_value(&openai_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                providers_map.insert(
+                    "hf".into(),
+                    provider_entry(
+                        "hf",
+                        &serde_json::to_value(&hf_models).unwrap_or_else(|_| json!([])),
+                    ),
+                );
+                let mut worker_ids: Vec<String> =
+                    state.worker_delegate_runtimes.keys().cloned().collect();
+                worker_ids.sort();
+
+                let orch_entry = json!({
+                    "id": orchestrator_id,
+                    "role": "orchestrator",
+                    "contextDirectory": state.orchestrator_context_dir.display().to_string(),
+                    "defaultProvider": provider_id(provider_choice),
+                    "defaultModel": default_model,
+                    "enabledProviders": serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
+                    "systemContext": serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
+                    "tools": serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
+                    "skills": skill_runtime_json(state.skills.as_ref(), orch_mode),
+                });
+
+                let mut entries: Vec<serde_json::Value> = vec![orch_entry];
+                for wid in &worker_ids {
+                    if let Some(rt) = state.worker_delegate_runtimes.get(wid) {
+                        let w_skills_enabled = !rt.skills.is_empty();
+                        let w_system_context = build_system_context_for_today(
+                            &rt.system_context_static,
+                            None,
+                            w_skills_enabled,
+                        );
+                        let w_tools_string = rt.tools_list.as_ref().and_then(|tools| {
+                            if tools.is_empty() {
+                                None
+                            } else {
+                                serde_json::to_string_pretty(tools).ok()
+                            }
+                        });
+                        let (w_prov, w_model) = worker_defaults
+                            .get(wid)
+                            .cloned()
+                            .unwrap_or_default();
+                        let ctx_dir = rt
+                            .context_directory
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_default();
+                        entries.push(json!({
+                            "id": wid,
+                            "role": "worker",
+                            "contextDirectory": ctx_dir,
+                            "defaultProvider": w_prov,
+                            "defaultModel": w_model,
+                            "enabledProviders": serde_json::Value::Null,
+                            "systemContext": serde_json::to_value(&w_system_context).unwrap_or_else(|_| json!("")),
+                            "tools": w_tools_string
+                                .as_ref()
+                                .map(|s| serde_json::Value::String(s.clone()))
+                                .unwrap_or(serde_json::Value::Null),
+                            "skills": skill_runtime_json(rt.skills.as_ref(), rt.context_mode),
+                        }));
+                    }
+                }
+
+                let agents_block = json!({
+                    "orchestrationCatalog": serde_json::to_value(&orchestration_catalog).unwrap_or_else(|_| json!([])),
+                    "entries": entries,
+                });
+                let clock_block = json!({
+                    "date": today,
+                });
+                let skill_packages_block = json!({
+                    "discoveryRoot": state.skills_discovery_root.display().to_string(),
+                    "packagesDiscovered": state.skill_packages_discovered,
+                });
+                let gateway_block = json!({
+                    "runtime": "running",
+                    "protocol": PROTOCOL_VERSION,
+                    "port": state.config.gateway.port,
+                    "bind": state.config.gateway.bind,
+                    "auth": auth_mode,
+                });
+                // Key order matches `.agents/spec/GATEWAY_STATUS.md` and config cross-check:
+                // clock (extra), then gateway → channels → providers → agents like config, then skillPackages (extra).
                 let mut pl = serde_json::Map::new();
-                pl.insert("runtime".into(), json!("running"));
-                pl.insert("protocol".into(), json!(PROTOCOL_VERSION));
-                pl.insert("port".into(), json!(state.config.gateway.port));
-                pl.insert("bind".into(), json!(state.config.gateway.bind));
-                pl.insert("auth".into(), json!(auth_mode));
-                pl.insert("orchestratorId".into(), json!(orchestrator_id));
+                pl.insert("clock".into(), clock_block);
+                pl.insert("gateway".into(), gateway_block);
+                pl.insert("channels".into(), channels_block);
                 pl.insert(
-                    "workers".into(),
-                    serde_json::to_value(&workers_status).unwrap_or_else(|_| json!([])),
+                    "providers".into(),
+                    serde_json::Value::Object(providers_map),
                 );
-                pl.insert("defaultProvider".into(), json!(provider_id(provider_choice)));
-                pl.insert("defaultModel".into(), json!(default_model));
-                pl.insert(
-                    "enabledProviders".into(),
-                    serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
-                );
-                let agents = &state.config.agents;
-                if config::provider_discovery_enabled(agents, "ollama") {
-                    pl.insert(
-                        "ollamaModels".into(),
-                        serde_json::to_value(&ollama_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                if config::provider_discovery_enabled(agents, "lms") {
-                    pl.insert(
-                        "lmsModels".into(),
-                        serde_json::to_value(&lms_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                if config::provider_discovery_enabled(agents, "vllm") {
-                    pl.insert(
-                        "vllmModels".into(),
-                        serde_json::to_value(&vllm_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                if config::provider_discovery_enabled(agents, "nim") {
-                    pl.insert(
-                        "nimModels".into(),
-                        serde_json::to_value(&nim_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                if config::provider_discovery_enabled(agents, "openai") {
-                    pl.insert(
-                        "openaiModels".into(),
-                        serde_json::to_value(&openai_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                if config::provider_discovery_enabled(agents, "hf") {
-                    pl.insert(
-                        "hfModels".into(),
-                        serde_json::to_value(&hf_models).unwrap_or_else(|_| json!([])),
-                    );
-                }
-                pl.insert(
-                    "orchestrationCatalog".into(),
-                    serde_json::to_value(&orchestration_catalog).unwrap_or_else(|_| json!([])),
-                );
-                pl.insert(
-                    "agentContext".into(),
-                    serde_json::to_value(&state.agent_ctx).unwrap_or_else(|_| serde_json::Value::Null),
-                );
-                pl.insert(
-                    "systemContext".into(),
-                    serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
-                );
-                pl.insert("date".into(), json!(today));
-                pl.insert(
-                    "skillsContext".into(),
-                    serde_json::to_value(&skills_context).unwrap_or_else(|_| json!("")),
-                );
-                pl.insert(
-                    "skillsContextFull".into(),
-                    serde_json::to_value(&skills_context_full).unwrap_or_else(|_| json!("")),
-                );
-                pl.insert(
-                    "skillsContextBodies".into(),
-                    if skills_context_bodies.is_empty() {
-                        serde_json::Value::Null
-                    } else {
-                        serde_json::Value::String(skills_context_bodies)
-                    },
-                );
-                pl.insert(
-                    "contextMode".into(),
-                    serde_json::to_value(&state.config.skills.context_mode)
-                        .unwrap_or_else(|_| json!("full")),
-                );
-                pl.insert(
-                    "tools".into(),
-                    serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
-                );
+                pl.insert("agents".into(), agents_block);
+                pl.insert("skillPackages".into(), skill_packages_block);
                 let payload = serde_json::Value::Object(pl);
                 let res = WsResponse::ok(&req.id, payload);
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
@@ -1498,20 +1782,27 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     params.model.as_deref(),
                     provider_choice,
                 );
-                let system_context = build_system_context_for_today(&state.system_context_static);
+                let has_workers = !state.worker_delegate_runtimes.is_empty();
+                let orch_skills_enabled = !state.skills.is_empty();
+                let system_context = build_system_context_for_today(
+                    &state.system_context_static,
+                    Some(has_workers),
+                    orch_skills_enabled,
+                );
                 let (tools, tool_executor) = state.tools_and_executor();
-                let tools = merge_delegate_task(tools);
+                let tools = merge_delegate_task(tools, has_workers);
                 let worker_tools = worker_tool_list(tools.as_ref());
                 let delegate = Some(DelegateContext {
                     clients: state.provider_clients(),
                     agents: &state.config.agents,
-                    system_context: if system_context.trim().is_empty() {
+                    orchestrator_system_context: if system_context.trim().is_empty() {
                         None
                     } else {
                         Some(system_context.as_str())
                     },
-                    worker_tools,
-                    tool_executor,
+                    orchestrator_worker_tools: worker_tools,
+                    orchestrator_tool_executor: tool_executor,
+                    worker_runtimes: Some(state.worker_delegate_runtimes.as_ref()),
                     observability: Some(DelegateObservability {
                         event_tx: state.event_tx.clone(),
                         session_id: Some(session_id.clone()),

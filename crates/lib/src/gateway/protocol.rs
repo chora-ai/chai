@@ -3,10 +3,17 @@
 //! **Orchestration events** (broadcast JSON frames, same shape as other `type: "event"` messages) use the `event` field
 //! values defined on [`crate::orchestration::EVENT_DELEGATE_START`] and related constants in `crate::orchestration`.
 //!
-//! The **`status`** response payload may include **`orchestrationCatalog`**: a merged list of `(provider, model)` rows
-//! from discovery plus allowlist-only entries; see [`crate::orchestration::build_orchestration_catalog`].
-//! It may include **`workers`**: an array of `{ "id", "defaultProvider", "defaultModel" }` per configured worker
-//! (effective defaults for delegation; see [`crate::orchestration::effective_worker_defaults`]).
+//! The **`status`** response **`payload`** top-level keys are emitted in this order (aligned with config cross-check):
+//! **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**.
+//! **`payload.clock.date`**: calendar date (**`YYYY-MM-DD`**) injected into system context (not skill-specific).
+//! **`payload.skillPackages`**: shared skill store metadata (**`discoveryRoot`**, **`packagesDiscovered`** on disk before per-agent filtering).
+//! **`payload.agents.entries`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
+//! Each object includes **`id`**, **`role`**, **`contextDirectory`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**
+//! (orchestrator array; **`null`** for workers), **`systemContext`** (full static string with date for that role), **`tools`**, and **`skills`**
+//! (**`enabledSkills`**, **`contextMode`**, **`skillsContext`**, **`skillsContextFull`**, **`skillsContextBodies`**).
+//! **`payload.agents.orchestrationCatalog`**: merged `(provider, model)` rows from discovery plus allowlist-only entries;
+//! see [`crate::orchestration::build_orchestration_catalog`].
+//! Per-provider model lists live under **`payload.providers.<id>.models`** (each `{ "name", … }`); **`discovery`** is whether polling ran for that id.
 
 use serde::{Deserialize, Serialize};
 

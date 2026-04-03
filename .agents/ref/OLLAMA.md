@@ -32,7 +32,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 | Endpoint | Method | Use |
 |----------|--------|-------------|
-| **`/api/tags`** | GET | `list_models()` — Discover available models at gateway startup; result stored in gateway state and exposed in WebSocket `status` as `ollamaModels`. |
+| **`/api/tags`** | GET | `list_models()` — Discover available models at gateway startup; result stored in gateway state and exposed in WebSocket `status` at `payload.providers.ollama.models`. |
 | **`/api/chat`** | POST | `chat()` (non-streaming) and `chat_stream()` — Agent turn: messages (system + history), optional `tools`, `stream: true/false`. No `options`, `keep_alive`, `format`, or `think` sent. |
 
 ### Request/Response Shapes (What We Send)

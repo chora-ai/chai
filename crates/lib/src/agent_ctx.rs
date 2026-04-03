@@ -1,4 +1,4 @@
-//! Agent context loader: load AGENTS.md (and similar files) from the workspace.
+//! Agent context loader: load **`AGENTS.md`** from the **agent context directory** (**`<profileRoot>/agents/<agentId>/`**).
 //!
 //! This is separate from skills. Skills describe tools; agent-ctx describes
 //! overall behavior and when to use tools vs normal chat.
@@ -6,7 +6,7 @@
 use std::fs;
 use std::path::Path;
 
-/// Load agent context from the workspace (e.g. AGENTS.md).
+/// Load agent context from **`AGENTS.md`** under the given directory.
 ///
 /// Returns the file contents when AGENTS.md exists and is non-empty; otherwise None.
 pub fn load_agent_ctx(workspace_dir: Option<&Path>) -> Option<String> {

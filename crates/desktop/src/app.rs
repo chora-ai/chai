@@ -104,12 +104,22 @@ pub struct ChaiApp {
     cached_enabled_providers: Option<Vec<String>>,
     /// Status screen: show parsed fields or the raw `status` response JSON.
     status_view_mode: StatusViewMode,
-    /// Stable buffer for **Tools** screen `TextEdit` (updated only when `gateway_status.tools` changes).
+    /// Stable buffer for **Tools** screen `TextEdit` (updated when the effective tools JSON changes).
     tools_display_buffer: String,
+    /// **Context**, **Tools**, and **Skills**: which agent id is selected (orchestrator or worker).
+    dashboard_agent_id: Option<String>,
     /// Config screen: dashboard vs raw file.
     config_view_mode: ConfigViewMode,
     /// **Config** raw view: file text (synced when content changes; avoids `TextEdit` flicker).
     config_raw_display_buffer: String,
+    /// Profile names under `~/.chai/profiles` (from disk).
+    profile_names: Vec<String>,
+    /// Persistent active profile from `~/.chai/active`.
+    profile_active: String,
+    /// Profile switch or symlink read error (shown in header).
+    profile_switch_error: Option<String>,
+    /// When true, next frame reloads profile list and active name from disk.
+    profiles_need_refresh: bool,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
@@ -176,8 +186,13 @@ impl Default for ChaiApp {
             cached_enabled_providers: None,
             status_view_mode: StatusViewMode::default(),
             tools_display_buffer: String::new(),
+            dashboard_agent_id: None,
             config_view_mode: ConfigViewMode::default(),
             config_raw_display_buffer: String::new(),
+            profile_names: Vec::new(),
+            profile_active: String::new(),
+            profile_switch_error: None,
+            profiles_need_refresh: true,
         }
     }
 }
@@ -193,8 +208,9 @@ impl ChaiApp {
         if let Some(ref list) = self.cached_enabled_providers {
             return list.clone();
         }
-        let (config, _) = lib::config::load_config(None)
-            .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+        let config = lib::config::load_config(None)
+            .map(|(c, _)| c)
+            .unwrap_or_default();
         // Start from enabledProviders when set; otherwise fall back to the effective default provider.
         let mut list: Vec<String> =
             if config
@@ -242,6 +258,63 @@ impl ChaiApp {
     /// Invalidates the enabled-providers cache (call when showing Config so next Chat use reloads).
     pub fn invalidate_enabled_providers_cache(&mut self) {
         self.cached_enabled_providers = None;
+    }
+
+    /// After **`status`** refresh, keep **Context** / **Tools** / **Skills** agent selection valid.
+    pub(crate) fn reconcile_dashboard_agent_selection(&mut self) {
+        let Some(details) = self.gateway_status.as_ref() else {
+            self.dashboard_agent_id = None;
+            return;
+        };
+        if details.agent_system_contexts.is_empty() {
+            self.dashboard_agent_id = None;
+            return;
+        }
+        let orch = details.orchestrator_id.as_deref().unwrap_or("orchestrator");
+        let valid = self
+            .dashboard_agent_id
+            .as_ref()
+            .map(|id| details.agent_system_contexts.contains_key(id))
+            .unwrap_or(false);
+        if !valid {
+            self.dashboard_agent_id = Some(orch.to_string());
+        }
+    }
+
+    fn refresh_profiles_from_disk(&mut self) {
+        let Ok(chai_home) = lib::profile::chai_home() else {
+            self.profiles_need_refresh = false;
+            return;
+        };
+        match lib::profile::list_profile_names(&chai_home) {
+            Ok(names) => self.profile_names = names,
+            Err(_) => self.profile_names = Vec::new(),
+        }
+        if let Ok(n) = lib::profile::read_persistent_profile_name(&chai_home) {
+            self.profile_active = n;
+        }
+        self.profiles_need_refresh = false;
+    }
+
+    fn switch_profile_to(&mut self, name: String) {
+        self.profile_switch_error = None;
+        let Ok(chai_home) = lib::profile::chai_home() else {
+            self.profile_switch_error = Some("could not resolve ~/.chai".to_string());
+            return;
+        };
+        if lib::profile::gateway_is_running(&chai_home) {
+            self.profile_switch_error = Some(
+                "gateway is running; stop it before switching profile".to_string(),
+            );
+            return;
+        }
+        if let Err(e) = lib::profile::switch_active_profile(&chai_home, &name) {
+            self.profile_switch_error = Some(e.to_string());
+            return;
+        }
+        self.profile_active = name;
+        self.invalidate_enabled_providers_cache();
+        self.profiles_need_refresh = true;
     }
 
     fn start_new_session(&mut self) {
@@ -455,8 +528,11 @@ impl ChaiApp {
     fn stop_gateway(&mut self) {
         if let Some(mut child) = self.gateway_process.take() {
             let _ = child.kill();
+            // Reap the child to avoid zombies; the gateway releases `gateway.lock` on exit (advisory lock).
+            let _ = child.wait();
         }
         self.gateway_error = None;
+        self.profiles_need_refresh = true;
     }
 
     /// Append the same text as the **`/help`** command to the active chat session.
@@ -552,8 +628,19 @@ impl eframe::App for ChaiApp {
         let running = owned || self.gateway_responds;
         if self.was_gateway_running && !running {
             self.clear_session_and_messages();
+            self.profile_switch_error = None;
+            self.profiles_need_refresh = true;
         }
         self.was_gateway_running = running;
+
+        if self.profiles_need_refresh {
+            self.refresh_profiles_from_disk();
+        }
+
+        let profile_switch_locked = lib::profile::chai_home()
+            .map(|h| lib::profile::gateway_is_running(&h))
+            .unwrap_or(true);
+        let profile_dropdown_enabled = !profile_switch_locked;
         self.ensure_session_events_listener(running);
         self.poll_session_events();
         self.poll_chat_turn();
@@ -561,11 +648,21 @@ impl eframe::App for ChaiApp {
         // Layout-level UI components
         let mut start_gateway = false;
         let mut stop_gateway = false;
+        let profile_names = self.profile_names.clone();
+        let profile_active = self.profile_active.clone();
+        let profile_error = self.profile_switch_error.clone();
         ui::header::header(
             ctx,
             running,
             owned,
             self.gateway_probe_completed,
+            &profile_names,
+            profile_active.as_str(),
+            profile_dropdown_enabled,
+            profile_error.as_deref(),
+            |name| {
+                self.switch_profile_to(name);
+            },
             || {
                 start_gateway = true;
             },

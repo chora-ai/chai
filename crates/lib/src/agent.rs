@@ -4,8 +4,8 @@
 //! For orchestration, see [`run_turn_with_messages`] — in-memory turns without session persistence (worker / delegation).
 //! Gateway dispatch uses [`run_turn_dyn`] with [`crate::orchestration::ProviderClients::as_dyn`].
 //! When the gateway passes [`crate::orchestration::DelegateContext`], the built-in tool **`delegate_task`** runs a worker
-//! via [`crate::orchestration::execute_delegate_task`] on another enabled provider: same system context and tool loop as
-//! [`run_turn_with_messages_dyn`] with nested `delegate_task` disabled (see epic).
+//! via [`crate::orchestration::execute_delegate_task`] on another enabled provider: per-worker system context and tools
+//! when **`workerId`** is set, otherwise the orchestrator’s skill bundle; nested **`delegate_task`** is disabled (see epic).
 
 use crate::orchestration::{
     execute_delegate_task, parse_delegate_tool_calls, parse_delegate_tool_results,

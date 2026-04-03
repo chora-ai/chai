@@ -6,7 +6,7 @@
 
 - Built project: `cargo build`
 - Desktop runnable: `cargo run -p desktop` or installed `chai-desktop`
-- Config (optional): `~/.chai/config.json` with desired gateway port (default 15151). If missing, defaults are used.
+- Config (optional): **`~/.chai/profiles/<active>/config.json`** for the profile pointed at by **`~/.chai/active`** (default **assistant** after **`chai init`**). Set **`gateway.port`** there if you want a non-default port (**15151**). If the file is missing, defaults are used.
 
 ## Steps
 

@@ -49,7 +49,7 @@ Resolution: **`config::resolve_telegram_token()`** in **`crates/lib/src/config.r
 
 When **`resolve_telegram_token`** returns **`Some`**:
 
-1. **`TelegramChannel::new(Some(token))`** — **`Arc`** wrapped.
+1. **`TelegramChannel::new(Some(token), TelegramTransport::Webhook)`** or **`…::LongPoll`** — **`Arc`** wrapped (transport matches webhook vs long-poll branch).
 2. **Webhook** — If **`channels.telegram.webhookUrl`** is set: **`set_webhook(url, secret)`**; **`channel_registry.register("telegram", …)`**; **`telegram_webhook_for_shutdown`** kept for **`delete_webhook`**. No **`start_inbound`** task.
 3. **Long-poll** — Else: **`start_inbound(inbound_tx)`** returns a **`JoinHandle`** stored in **`channel_tasks`**; **`channel_registry.register`**.
 

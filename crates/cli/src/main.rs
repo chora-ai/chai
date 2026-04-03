@@ -15,33 +15,48 @@ enum Commands {
     /// Show version
     Version,
 
-    /// Create the configuration directory and default files (config, workspace, bundled skills). Skills need a tools.json in their directory to expose tools to the agent.
-    Init {
-        /// Config file path (default: CHAI_CONFIG_PATH or ~/.chai/config.json)
-        #[arg(long, short, value_name = "PATH")]
-        config: Option<std::path::PathBuf>,
-    },
+    /// Create ~/.chai with profiles (assistant, developer), active symlink, and shared skills
+    Init,
 
-    /// Run the gateway (HTTP + WebSocket control plane). Loads skills from the config skill root (or skills.directory); only skills with a tools.json have callable tools.
+    /// Run the gateway (HTTP + WebSocket control plane). Uses CHAI_PROFILE or ~/.chai/active unless --profile is set.
     Gateway {
-        /// Config file path (default: CHAI_CONFIG_PATH or ~/.chai/config.json)
-        #[arg(long, short, value_name = "PATH")]
-        config: Option<std::path::PathBuf>,
+        /// Profile name (overrides CHAI_PROFILE and ~/.chai/active for this process)
+        #[arg(long, value_name = "NAME")]
+        profile: Option<String>,
 
         /// WebSocket and HTTP port (default from config or 15151)
         #[arg(long, short)]
         port: Option<u16>,
     },
 
-    /// Chat with the default agent via the gateway (interactive).
+    /// Chat with the default agent via the gateway (interactive)
     Chat {
-        /// Config file path (default: CHAI_CONFIG_PATH or ~/.chai/config.json)
-        #[arg(long, short, value_name = "PATH")]
-        config: Option<std::path::PathBuf>,
+        /// Profile name for config resolution (must match the running gateway's profile)
+        #[arg(long, value_name = "NAME")]
+        profile: Option<String>,
 
         /// Optional existing session id to continue.
         #[arg(long, value_name = "ID")]
         session: Option<String>,
+    },
+
+    /// List profiles, switch the active symlink, or show current profile
+    Profile {
+        #[command(subcommand)]
+        sub: ProfileCmd,
+    },
+}
+
+#[derive(Subcommand)]
+enum ProfileCmd {
+    /// List profile names under ~/.chai/profiles
+    List,
+    /// Show persistent profile (~/.chai/active) and effective profile if CHAI_PROFILE differs
+    Current,
+    /// Set ~/.chai/active to profiles/<name> (gateway must not be running)
+    Switch {
+        /// Profile name
+        name: String,
     },
 }
 
@@ -55,21 +70,27 @@ async fn main() {
         Some(Commands::Version) => {
             println!("chai {}", env!("CARGO_PKG_VERSION"));
         }
-        Some(Commands::Init { config }) => {
-            if let Err(e) = run_init(config) {
+        Some(Commands::Init) => {
+            if let Err(e) = run_init() {
                 log::error!("init failed: {}", e);
                 std::process::exit(1);
             }
         }
-        Some(Commands::Gateway { config, port }) => {
-            if let Err(e) = run_gateway(config, port).await {
+        Some(Commands::Gateway { profile, port }) => {
+            if let Err(e) = run_gateway(profile.as_deref(), port).await {
                 log::error!("gateway failed: {}", e);
                 std::process::exit(1);
             }
         }
-        Some(Commands::Chat { config, session }) => {
-            if let Err(e) = run_chat(config, session).await {
+        Some(Commands::Chat { profile, session }) => {
+            if let Err(e) = run_chat(profile.as_deref(), session).await {
                 log::error!("chat failed: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Profile { sub }) => {
+            if let Err(e) = run_profile(sub) {
+                log::error!("profile: {}", e);
                 std::process::exit(1);
             }
         }
@@ -79,23 +100,58 @@ async fn main() {
     }
 }
 
-fn run_init(config_path: Option<std::path::PathBuf>) -> anyhow::Result<()> {
-    let path = config_path.unwrap_or_else(lib::config::default_config_path);
-    let _dir = lib::init::init_config_dir(&path)?;
-    println!("initialized configuration at {}", path.parent().unwrap_or(std::path::Path::new(".")).display());
+fn run_init() -> anyhow::Result<()> {
+    let chai_home = lib::init::init_chai_home()?;
+    println!("initialized ~/.chai at {}", chai_home.display());
     Ok(())
 }
 
-async fn run_gateway(
-    config_path: Option<std::path::PathBuf>,
-    port: Option<u16>,
-) -> anyhow::Result<()> {
-    let (mut config, path) = lib::config::load_config(config_path)?;
+fn run_profile(cmd: ProfileCmd) -> anyhow::Result<()> {
+    let chai_home = lib::profile::chai_home()?;
+    match cmd {
+        ProfileCmd::List => {
+            let names = lib::profile::list_profile_names(&chai_home)?;
+            for n in names {
+                println!("{}", n);
+            }
+        }
+        ProfileCmd::Current => {
+            let persistent = lib::profile::read_persistent_profile_name(&chai_home)?;
+            if let Ok(env_name) = std::env::var("CHAI_PROFILE") {
+                let env_trim = env_name.trim();
+                if !env_trim.is_empty() && env_trim != persistent {
+                    println!("persistent: {}", persistent);
+                    println!("effective: {} (CHAI_PROFILE)", env_trim);
+                } else {
+                    println!("{}", persistent);
+                }
+            } else {
+                println!("{}", persistent);
+            }
+        }
+        ProfileCmd::Switch { name } => {
+            if lib::profile::gateway_is_running(&chai_home) {
+                anyhow::bail!("gateway is running; stop it before switching profile");
+            }
+            lib::profile::switch_active_profile(&chai_home, name.trim())?;
+            println!("active profile is now {}", name.trim());
+        }
+    }
+    Ok(())
+}
+
+async fn run_gateway(profile: Option<&str>, port: Option<u16>) -> anyhow::Result<()> {
+    let (mut config, paths) = lib::config::load_config(profile)?;
     if let Some(p) = port {
         config.gateway.port = p;
     }
-    log::info!("starting gateway on {}:{}", config.gateway.bind, config.gateway.port);
-    lib::gateway::run_gateway(config, path).await
+    log::info!(
+        "starting gateway profile={} on {}:{}",
+        paths.profile_name,
+        config.gateway.bind,
+        config.gateway.port
+    );
+    lib::gateway::run_gateway(config, paths).await
 }
 
 #[derive(Debug)]
@@ -104,10 +160,7 @@ struct AgentReply {
     reply: String,
 }
 
-async fn run_chat(
-    config_path: Option<std::path::PathBuf>,
-    session: Option<String>,
-) -> anyhow::Result<()> {
+async fn run_chat(profile: Option<&str>, session: Option<String>) -> anyhow::Result<()> {
     use std::io::{self, Write};
 
     let mut current_session = session;
@@ -129,7 +182,7 @@ async fn run_chat(
             break;
         }
 
-        match agent_turn_via_gateway(config_path.clone(), current_session.clone(), input.to_string()).await {
+        match agent_turn_via_gateway(profile, current_session.clone(), input.to_string()).await {
             Ok(reply) => {
                 current_session = Some(reply.session_id);
                 println!("< {}", reply.reply.trim());
@@ -144,11 +197,11 @@ async fn run_chat(
 }
 
 async fn agent_turn_via_gateway(
-    config_path: Option<std::path::PathBuf>,
+    profile: Option<&str>,
     session_id: Option<String>,
     message: String,
 ) -> Result<AgentReply, String> {
-    let (config, _) = lib::config::load_config(config_path).map_err(|e| e.to_string())?;
+    let (config, paths) = lib::config::load_config(profile).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -174,17 +227,21 @@ async fn agent_turn_via_gateway(
         .ok_or("expected connect.challenge event with nonce")?
         .to_string();
 
-    let connect_params = if let Some(device_token) = lib::device::load_device_token() {
+    let device_token_path = paths.device_token_path();
+    let device_json_path = paths.device_json();
+
+    let connect_params = if let Some(device_token) =
+        lib::device::load_device_token_from(&device_token_path)
+    {
         serde_json::json!({ "auth": { "deviceToken": device_token } })
     } else {
         let identity =
-            lib::device::DeviceIdentity::load(lib::device::default_device_path().as_path())
-                .or_else(|| {
-                    let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&lib::device::default_device_path());
-                    Some(id)
-                })
-                .ok_or("failed to load or create device identity")?;
+            lib::device::DeviceIdentity::load(device_json_path.as_path()).or_else(|| {
+                let id = lib::device::DeviceIdentity::generate().ok()?;
+                let _ = id.save(&device_json_path);
+                Some(id)
+            })
+            .ok_or("failed to load or create device identity")?;
         let signed_at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_millis() as u64)
@@ -250,7 +307,7 @@ async fn agent_turn_via_gateway(
             }
             if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
                 if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                    let _ = lib::device::save_device_token(dt);
+                    let _ = lib::device::save_device_token_to(&device_token_path, dt);
                 }
             }
             break;

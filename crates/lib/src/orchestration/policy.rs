@@ -244,6 +244,8 @@ mod tests {
             default_provider: None,
             default_model: None,
             enabled_providers: None,
+            skills_enabled: None,
+            context_mode: None,
             delegate_allowed_models: Some(vec![entry("lms", "granite")]),
         }]);
         assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
@@ -259,6 +261,8 @@ mod tests {
             default_provider: Some("lms".to_string()),
             default_model: Some("granite".to_string()),
             enabled_providers: None,
+            skills_enabled: None,
+            context_mode: None,
             delegate_allowed_models: Some(vec![]),
         }]);
         assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());

@@ -10,10 +10,10 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 ### CLI
 
-- **Command**: `chai gateway [--config PATH] [--port PORT]`.
-- **Config**: From `--config`, or `CHAI_CONFIG_PATH`, or `~/.chai/config.json` (defaults if missing). `--port` overrides port.
+- **Command**: `chai gateway [--profile NAME] [--port PORT]` (and **`chai profile`**, **`chai chat`**, **`chai init`**).
+- **Config**: Resolved profile directory via **`chai gateway --profile`**, then **`CHAI_PROFILE`**, then **`~/.chai/active`** → **`~/.chai/profiles/<name>/config.json`**. **`--port`** overrides **`gateway.port`**.
 - **Logging**: `RUST_LOG=info` for logs.
-- **Execution**: Runs gateway in-process via `lib::gateway::run_gateway(config, config_path)`.
+- **Execution**: Runs gateway in-process via `lib::gateway::run_gateway(config, paths)` (**`ChaiPaths`** includes profile root and **`config_path`**).
 
 ### Desktop
 
@@ -24,8 +24,8 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 ### Config
 
-- **Structure**: `Config` (gateway, channels, agents, skills). Load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`.
-- **Skills**: `skills.directory` (optional override for primary skill root), `skills.extraDirs`, **`skills.enabled`** (list of skill names to load; default empty), **`skills.contextMode`** (`"full"` | `"readOnDemand"`; default `full`).
+- **Structure**: `Config` (gateway, channels, providers, agents). Load from **`<profile>/config.json`** under **`~/.chai/profiles/`** (see runtime profiles / `CHAI_PROFILE`). No top-level **`skills`** block.
+- **Skills**: Packages load from **`~/.chai/skills`** only. Per-agent **`skillsEnabled`** and **`contextMode`** live on **`agents`** entries (see [AGENT_ISOLATION.md](../epic/AGENT_ISOLATION.md)).
 - **Defaults**: Port 15151, bind 127.0.0.1.
 - **Auth**: Required when binding beyond loopback (startup fails otherwise).
 
@@ -52,12 +52,12 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 ### Model discovery (Ollama example)
 
-- At startup, tasks call each enabled provider’s `list_models()` where applicable; lists are stored in state and exposed in WS `status` (e.g. `ollamaModels` as array of `{ name, size? }`; other keys for other providers).
+- At startup, tasks call each enabled provider’s `list_models()` where applicable; lists are stored in state and exposed in WS `status` under `payload.providers.<id>.models` (e.g. Ollama: `{ name, size? }`; other providers similar).
 - If a backend is unreachable, its list is empty (debug log).
 
 ### Channels
 
-- **Types**: `ChannelHandle` (id, stop, async `send_message(conversation_id, text)`), `ChannelRegistry` (register, get, ids). `InboundMessage`: channel_id, conversation_id, text over mpsc.
+- **Types**: `ChannelHandle` (id, stop, async `send_message`, async `status_detail` for gateway `status.channels`), `ChannelRegistry` (register, get, ids, `channel_status_details`). `InboundMessage`: channel_id, conversation_id, text over mpsc.
 - **Telegram**: Bot token from config or `TELEGRAM_BOT_TOKEN`; when set, gateway starts the channel.
   - If `channels.telegram.webhookUrl` is set: `setWebhook(url, secret_token?)`, register channel, no getUpdates loop; Telegram POSTs to gateway.
   - If not set: long-poll getUpdates (30 s timeout); stops on `stop()`.
@@ -68,10 +68,10 @@ The following subsections are a reference for developers: CLI and desktop behavi
 
 ### Skills (loader and bundled skills)
 
-- **Loader**: `load_skills(skills_dir, extra_dirs)`: discovers `*/SKILL.md` under the primary skill root and each extra dir; parses YAML frontmatter (name, description); if a skill dir contains `tools.json`, parses it and attaches `SkillEntry.tool_descriptor`. Merge by name: primary root first, then extra (extra overwrites by name).
-- **Skill root**: Primary root = config dir’s `skills` subdirectory, or **`skills.directory`** in config (relative to config file parent). **`skills.extraDirs`** add more roots. Only skills listed in **`skills.enabled`** are loaded (default: none).
+- **Loader**: `load_skills(skills_root)`: discovers `*/SKILL.md` under **`~/.chai/skills`**; parses YAML frontmatter (name, description); if a skill dir contains `tools.json`, parses it and attaches `SkillEntry.tool_descriptor`.
+- **Enablement**: Orchestrator and worker entries use **`skillsEnabled`** to select which discovered packages apply to that agent.
 - **Gating**: `metadata.requires.bins` — skill is loaded only when all listed binaries are on PATH.
-- **Tools**: Tool list and executor come only from skills that have a `tools.json` descriptor. Generic executor builds argv from execution spec and runs via descriptor allowlist; param resolution can use scripts from a skill’s `scripts/` dir via `resolveCommand.script` (see [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). When **`skills.contextMode`** is **`readOnDemand`**, gateway prepends a **`read_skill`** tool and a wrapper executor that returns a skill’s SKILL.md content.
+- **Tools**: Tool list and executor come only from skills that have a `tools.json` descriptor. Generic executor builds argv from execution spec and runs via descriptor allowlist; param resolution can use scripts from a skill’s `scripts/` dir via `resolveCommand.script` (see [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). When an agent’s **`contextMode`** is **`readOnDemand`**, gateway prepends a **`read_skill`** tool and a wrapper executor that returns a skill’s SKILL.md content.
 - **Bundled skills**: The skills that ship with the app (notesmd, notesmd-daily, obsidian, obsidian-daily) live in `crates/lib/config/skills/` with SKILL.md and tools.json; `chai init` extracts them to the user’s skill root.
 - **Safe exec** (`lib/exec`): Allowlisted binary and subcommands only (no shell). Allowlist is defined per skill in `tools.json`. Session stores assistant and tool messages for history.
 
@@ -140,7 +140,7 @@ Pairing is how the gateway trusts a **device** (laptop, phone, another machine) 
 
 ### Skills and the LLM
 
-Skills are loaded at gateway startup from the primary skill root (default `~/.chai/skills`, or **`skills.directory`** in config) and any **skills.extraDirs**. Each skill is a directory with **`SKILL.md`** (YAML frontmatter: name, description) and optionally **`tools.json`** (see [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` contribute callable tools; skills without it are still loaded for context.
+Skills are loaded at gateway startup from **`~/.chai/skills`** only. Each skill is a directory with **`SKILL.md`** (YAML frontmatter: name, description) and optionally **`tools.json`** (see [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` contribute callable tools; skills without it are still loaded for context when enabled for that agent.
 
 **Skill context mode** (`skills.contextMode` in config):
 

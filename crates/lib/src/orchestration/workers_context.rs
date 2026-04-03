@@ -43,7 +43,7 @@ pub fn build_workers_context(agents: &AgentsConfig) -> String {
         .unwrap_or("orchestrator");
 
     let mut out = String::new();
-    out.push_str("## Agents\n\n");
+    out.push_str("## Workers\n\n");
     out.push_str("You are `");
     out.push_str(oid);
     out.push_str("` — the orchestrator agent. You can:\n\n");
@@ -85,6 +85,8 @@ mod tests {
             default_provider: Some("ollama".to_string()),
             default_model: Some("llama3.2:latest".to_string()),
             enabled_providers: None,
+            skills_enabled: None,
+            context_mode: None,
             delegate_allowed_models: None,
         }]);
         a
@@ -122,6 +124,8 @@ mod tests {
             default_provider: None,
             default_model: None,
             enabled_providers: None,
+            skills_enabled: None,
+            context_mode: None,
             delegate_allowed_models: None,
         }]);
         let s = build_workers_context(&a);

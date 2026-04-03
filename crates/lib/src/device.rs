@@ -9,7 +9,7 @@ use ed25519_dalek::Signer;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-/// Persisted device identity (deviceId, public key, private key). Stored at e.g. ~/.chai/device.json.
+/// Persisted device identity (deviceId, public key, private key). Stored per profile (e.g. `<profile>/device.json`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceIdentity {
@@ -85,24 +85,9 @@ impl DeviceIdentity {
     }
 }
 
-/// Default path for device identity file.
-pub fn default_device_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".chai").join("device.json"))
-        .unwrap_or_else(|| std::path::PathBuf::from("device.json"))
-}
-
-/// Default path for stored device token (after pairing).
-pub fn default_device_token_path() -> std::path::PathBuf {
-    dirs::home_dir()
-        .map(|h| h.join(".chai").join("device_token"))
-        .unwrap_or_else(|| std::path::PathBuf::from("device_token"))
-}
-
-/// Load stored device token if present.
-pub fn load_device_token() -> Option<String> {
-    let path = default_device_token_path();
-    let s = std::fs::read_to_string(&path).ok()?;
+/// Load stored device token if present (`<profile>/device_token`).
+pub fn load_device_token_from(path: &Path) -> Option<String> {
+    let s = std::fs::read_to_string(path).ok()?;
     let t = s.trim().to_string();
     if t.is_empty() {
         None
@@ -112,11 +97,10 @@ pub fn load_device_token() -> Option<String> {
 }
 
 /// Persist device token (e.g. after hello-ok.auth.deviceToken).
-pub fn save_device_token(token: &str) -> Result<()> {
-    let path = default_device_token_path();
+pub fn save_device_token_to(path: &Path, token: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    std::fs::write(&path, token)?;
+    std::fs::write(path, token)?;
     Ok(())
 }

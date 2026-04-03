@@ -2,11 +2,13 @@
 
 This document is the **changelog** of the proof-of-concept implementation.
 
+**Layout note:** Chai now uses **runtime profiles** — **`~/.chai/profiles/<name>/config.json`**, **`~/.chai/active`**, shared **`~/.chai/skills/`**. The original POC used a flat **`~/.chai/config.json`** and **`CHAI_CONFIG_PATH`**; those paths are **removed**. Entries below remain as a **historical** record of what shipped in the POC phase.
+
 ## Features
 
 - **Gateway (CLI + lib)** — Added `chai gateway` with HTTP and WebSocket on one port; connect handshake with optional auth (token or device); `connect.challenge`, device signing, pairing store, deviceToken in hello-ok; graceful shutdown with broadcast and channel await; WS methods `health`, `status`, `send`, `agent`.
 - **Desktop** — Added Start/Stop gateway (spawns `chai gateway`); TCP probe for gateway detection; WebSocket `status` for live details; device identity for connect when fetching status.
-- **Config** — Added `Config` (gateway, channels, agents, skills); load from `~/.chai/config.json` or `CHAI_CONFIG_PATH`; auth required when binding beyond loopback.
+- **Config** — Added **`Config`** (gateway, channels, agents, skills); originally loaded from flat **`~/.chai/config.json`** or **`CHAI_CONFIG_PATH`**; **now** profile-local **`config.json`** only (see **[RUNTIME_PROFILES.md](../epic/RUNTIME_PROFILES.md)**). Auth required when binding beyond loopback.
 - **Session and routing** — Added in-memory `SessionStore` and `SessionBindingStore`; single-turn agent flow; WS `send` and `agent` with optional channel delivery.
 - **LLM** — Added Ollama client (`list_models`, `chat`, `chat_stream`), tool-call parsing, model discovery at startup; agent loop with non-streaming chat and tool execution (up to 5 iterations).
 - **Channels** — Added Telegram channel (long-poll or webhook); `setWebhook`, `POST /telegram/webhook`, `deleteWebhook` on shutdown; inbound → session → agent → reply; `send_message` for agent replies.

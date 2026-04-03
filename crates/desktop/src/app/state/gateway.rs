@@ -28,8 +28,10 @@ impl ChaiApp {
             self.frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
             std::thread::spawn(move || {
-                let (config, _) = lib::config::load_config(None)
-                    .unwrap_or((lib::config::Config::default(), PathBuf::new()));
+                let Ok((config, _paths)) = lib::config::load_config(None) else {
+                    let _ = tx.send(false);
+                    return;
+                };
                 let addr_str = format!(
                     "{}:{}",
                     config.gateway.bind.trim(),
@@ -106,6 +108,7 @@ impl ChaiApp {
         if let Some(rx) = &self.status_receiver {
             if let Ok(result) = rx.try_recv() {
                 self.gateway_status = result.ok();
+                self.reconcile_dashboard_agent_selection();
                 self.reconcile_model_with_status();
                 self.status_receiver = None;
             }
@@ -127,9 +130,22 @@ impl ChaiApp {
     }
 }
 
+fn provider_model_names(providers: Option<&serde_json::Value>, key: &str) -> Vec<String> {
+    providers
+        .and_then(|p| p.get(key))
+        .and_then(|o| o.get("models"))
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
 pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
-    let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -157,13 +173,15 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) = lib::device::load_device_token() {
+        let connect_params = if let Some(device_token) =
+            lib::device::load_device_token_from(&paths.device_token_path())
+        {
             serde_json::json!({ "auth": { "deviceToken": device_token } })
         } else {
-            let identity = lib::device::DeviceIdentity::load(lib::device::default_device_path().as_path())
+            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
                 .or_else(|| {
                     let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&lib::device::default_device_path());
+                    let _ = id.save(&paths.device_json());
                     Some(id)
                 })
                 .ok_or("failed to load or create device identity")?;
@@ -232,7 +250,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
                     if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                        let _ = lib::device::save_device_token(dt);
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
                     }
                 }
                 break;
@@ -266,91 +284,162 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 }
                 details.status_response_json = serde_json::to_string_pretty(&res).ok();
                 let payload = res.get("payload").ok_or("missing payload")?;
-                details.protocol = payload.get("protocol").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
-                details.port = payload.get("port").and_then(|v| v.as_u64()).unwrap_or(0) as u16;
-                details.bind = payload
-                    .get("bind")
+                let gateway = payload.get("gateway");
+                let agents_pl = payload.get("agents");
+                let clock_pl = payload.get("clock");
+                let providers_pl = payload.get("providers");
+                details.channels_block = payload.get("channels").cloned();
+                details.providers_block = payload.get("providers").cloned();
+                if let Some(sp) = payload.get("skillPackages") {
+                    details.skill_packages_discovery_root = sp
+                        .get("discoveryRoot")
+                        .and_then(|v| v.as_str())
+                        .map(String::from);
+                    details.skill_packages_discovered =
+                        sp.get("packagesDiscovered").and_then(|v| v.as_u64());
+                }
+                details.protocol = gateway
+                    .and_then(|g| g.get("protocol"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u32;
+                details.port = gateway
+                    .and_then(|g| g.get("port"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as u16;
+                details.bind = gateway
+                    .and_then(|g| g.get("bind"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                details.auth = payload
-                    .get("auth")
+                details.auth = gateway
+                    .and_then(|g| g.get("auth"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("none")
                     .to_string();
-                details.orchestrator_id = payload.get("orchestratorId").and_then(|v| v.as_str()).map(String::from);
-                details.default_provider = payload.get("defaultProvider").and_then(|v| v.as_str()).map(String::from);
-                details.default_model = payload.get("defaultModel").and_then(|v| v.as_str()).map(String::from);
-                details.enabled_providers = payload.get("enabledProviders").and_then(|v| v.as_array()).map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(|s| s.trim().to_string()))
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                });
-                details.ollama_models = payload
-                    .get("ollamaModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.lms_models = payload
-                    .get("lmsModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.vllm_models = payload
-                    .get("vllmModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.nim_models = payload
-                    .get("nimModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.openai_models = payload
-                    .get("openaiModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.hf_models = payload
-                    .get("hfModels")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.agent_context = payload.get("agentContext").and_then(|v| v.as_str()).map(String::from);
-                details.system_context = payload.get("systemContext").and_then(|v| v.as_str()).map(String::from);
-                details.date = payload.get("date").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context = payload.get("skillsContext").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context_full = payload.get("skillsContextFull").and_then(|v| v.as_str()).map(String::from);
-                details.skills_context_bodies = payload.get("skillsContextBodies").and_then(|v| v.as_str()).map(String::from);
-                details.context_mode = payload.get("contextMode").and_then(|v| v.as_str()).map(String::from);
-                details.tools = payload.get("tools").and_then(|v| v.as_str()).map(String::from);
-                details.orchestration_catalog = payload
-                    .get("orchestrationCatalog")
+                if let Some(entries) =
+                    agents_pl.and_then(|a| a.get("entries")).and_then(|e| e.as_array())
+                {
+                    for entry in entries {
+                        let Some(id) = entry
+                            .get("id")
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                        else {
+                            continue;
+                        };
+                        let id = id.to_string();
+                        let role = entry.get("role").and_then(|v| v.as_str()).unwrap_or("");
+
+                        if let Some(s) = entry.get("systemContext").and_then(|v| v.as_str()) {
+                            details
+                                .agent_system_contexts
+                                .insert(id.clone(), s.to_string());
+                        }
+
+                        if let Some(t) = entry
+                            .get("tools")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                        {
+                            details.agent_tools.insert(id.clone(), t.to_string());
+                        }
+
+                        if let Some(mode) = entry
+                            .get("skills")
+                            .and_then(|sk| sk.get("contextMode"))
+                            .and_then(|v| v.as_str())
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                        {
+                            details
+                                .agent_context_modes
+                                .insert(id.clone(), mode.to_string());
+                        }
+
+                        match role {
+                            "orchestrator" => {
+                                details.orchestrator_id = Some(id.clone());
+                                details.orchestrator_context_dir = entry
+                                    .get("contextDirectory")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.default_provider = entry
+                                    .get("defaultProvider")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.default_model = entry
+                                    .get("defaultModel")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.enabled_providers = entry
+                                    .get("enabledProviders")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| {
+                                                v.as_str().map(|s| s.trim().to_string())
+                                            })
+                                            .filter(|s| !s.is_empty())
+                                            .collect()
+                                    });
+                                details.system_context = entry
+                                    .get("systemContext")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                let sk = entry.get("skills");
+                                details.skills_context = sk
+                                    .and_then(|s| s.get("skillsContext"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.skills_context_full = sk
+                                    .and_then(|s| s.get("skillsContextFull"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.skills_context_bodies = sk
+                                    .and_then(|s| s.get("skillsContextBodies"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.context_mode = sk
+                                    .and_then(|s| s.get("contextMode"))
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                                details.tools = entry
+                                    .get("tools")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
+                            }
+                            "worker" => {
+                                details.workers.push(crate::app::types::StatusWorkerRow {
+                                    id: id.clone(),
+                                    default_provider: entry
+                                        .get("defaultProvider")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    default_model: entry
+                                        .get("defaultModel")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                details.ollama_models = provider_model_names(providers_pl, "ollama");
+                details.lms_models = provider_model_names(providers_pl, "lms");
+                details.vllm_models = provider_model_names(providers_pl, "vllm");
+                details.nim_models = provider_model_names(providers_pl, "nim");
+                details.openai_models = provider_model_names(providers_pl, "openai");
+                details.hf_models = provider_model_names(providers_pl, "hf");
+                details.date = clock_pl
+                    .and_then(|c| c.get("date"))
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                details.orchestration_catalog = agents_pl
+                    .and_then(|a| a.get("orchestrationCatalog"))
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
@@ -384,33 +473,6 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                             .collect()
                     })
                     .unwrap_or_default();
-                details.workers = payload
-                    .get("workers")
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| {
-                                let id = o.get("id").and_then(|v| v.as_str())?.trim();
-                                if id.is_empty() {
-                                    return None;
-                                }
-                                Some(crate::app::types::StatusWorkerRow {
-                                    id: id.to_string(),
-                                    default_provider: o
-                                        .get("defaultProvider")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                    default_model: o
-                                        .get("defaultModel")
-                                        .and_then(|v| v.as_str())
-                                        .unwrap_or("")
-                                        .to_string(),
-                                })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
                 return Ok(details);
             }
         }
@@ -438,7 +500,7 @@ pub(crate) fn run_agent_turn(
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<AgentReply, String> {
-    let (config, _) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -466,18 +528,18 @@ pub(crate) fn run_agent_turn(
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) = lib::device::load_device_token() {
+        let connect_params = if let Some(device_token) =
+            lib::device::load_device_token_from(&paths.device_token_path())
+        {
             serde_json::json!({ "auth": { "deviceToken": device_token } })
         } else {
-            let identity = lib::device::DeviceIdentity::load(
-                lib::device::default_device_path().as_path(),
-            )
-            .or_else(|| {
-                let id = lib::device::DeviceIdentity::generate().ok()?;
-                let _ = id.save(&lib::device::default_device_path());
-                Some(id)
-            })
-            .ok_or("failed to load or create device identity")?;
+            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
+                .or_else(|| {
+                    let id = lib::device::DeviceIdentity::generate().ok()?;
+                    let _ = id.save(&paths.device_json());
+                    Some(id)
+                })
+                .ok_or("failed to load or create device identity")?;
             let signed_at = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
@@ -543,7 +605,7 @@ pub(crate) fn run_agent_turn(
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
                     if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
-                        let _ = lib::device::save_device_token(dt);
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
                     }
                 }
                 break;

@@ -7,7 +7,7 @@ use serde::Serialize;
 use crate::config::{canonical_provider, AgentsConfig, AllowedModelEntry};
 use crate::providers::{HfModel, LmsModel, NimModel, OllamaModel, OpenAiModel, VllmModel};
 
-/// One row in the merged orchestration catalog (WebSocket **`status`** payload **`orchestrationCatalog`**).
+/// One row in the merged orchestration catalog (WebSocket **`status`** payload **`agents.orchestrationCatalog`**).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct OrchestrationCatalogEntry {
@@ -198,6 +198,8 @@ mod tests {
                 default_provider: None,
                 default_model: None,
                 enabled_providers: None,
+                skills_enabled: None,
+                context_mode: None,
                 delegate_allowed_models: Some(vec![AllowedModelEntry {
                     provider: "ollama".to_string(),
                     model: "m".to_string(),

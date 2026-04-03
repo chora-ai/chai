@@ -4,6 +4,7 @@
 pub mod agent;
 pub mod channels;
 pub mod config;
+pub mod profile;
 pub mod agent_ctx;
 pub mod device;
 pub mod exec;

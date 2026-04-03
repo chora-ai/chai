@@ -8,25 +8,16 @@ use std::path::{Path, PathBuf};
 
 use super::descriptor::ToolDescriptor;
 
-/// A loaded skill (name, description, source, path, optional tool descriptor).
+/// A loaded skill (name, description, path, optional tool descriptor).
 #[derive(Debug, Clone)]
 pub struct SkillEntry {
     pub name: String,
     pub description: String,
-    pub source: SkillSource,
     pub path: PathBuf,
     /// Raw SKILL.md content (for agent context).
     pub content: String,
     /// When the skill dir contains tools.json, parsed descriptor (tools, allowlist, execution mapping).
     pub tool_descriptor: Option<ToolDescriptor>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SkillSource {
-    /// From the config directory's skills subdirectory (e.g. ~/.chai/skills).
-    Skills,
-    /// From config.skills.extraDirs.
-    Extra,
 }
 
 /// Flattened skill for agent use (name + description + content).
@@ -58,27 +49,12 @@ struct Requires {
     bins: Option<Vec<String>>,
 }
 
-/// Load all skills from the config directory's skills and any extra dirs from config.
-/// Each dir should contain subdirs, each with a SKILL.md file.
-/// Precedence: config dir first, then extra (later overwrites earlier by name).
-pub fn load_skills(skills_dir: Option<&Path>, extra_dirs: &[PathBuf]) -> Result<Vec<SkillEntry>> {
-    let mut merged: std::collections::HashMap<String, SkillEntry> = std::collections::HashMap::new();
-
-    if let Some(d) = skills_dir {
-        for e in load_skills_from_dir(d, SkillSource::Skills)? {
-            merged.insert(e.name.clone(), e);
-        }
-    }
-    for dir in extra_dirs {
-        for e in load_skills_from_dir(dir, SkillSource::Extra)? {
-            merged.insert(e.name.clone(), e);
-        }
-    }
-
-    Ok(merged.into_values().collect())
+/// Load all skill packages under `skills_root` (e.g. `~/.chai/skills`): each immediate subdirectory with a `SKILL.md` file.
+pub fn load_skills(skills_root: &Path) -> Result<Vec<SkillEntry>> {
+    load_skills_from_root(skills_root)
 }
 
-fn load_skills_from_dir(dir: &Path, source: SkillSource) -> Result<Vec<SkillEntry>> {
+fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
     let mut out = Vec::new();
     let read_dir = match std::fs::read_dir(dir) {
         Ok(d) => d,
@@ -112,7 +88,6 @@ fn load_skills_from_dir(dir: &Path, source: SkillSource) -> Result<Vec<SkillEntr
         out.push(SkillEntry {
             name,
             description,
-            source,
             path: path.to_path_buf(),
             content,
             tool_descriptor,
@@ -241,7 +216,7 @@ mod tests {
                 skills_dir.join("SKILL.md").display()
             );
         }
-        let skills = load_skills(Some(skills_dir.parent().unwrap()), &[]).unwrap();
+        let skills = load_skills(skills_dir.parent().unwrap()).unwrap();
         let entry = skills
             .iter()
             .find(|s| s.name == "loader_tool_test")

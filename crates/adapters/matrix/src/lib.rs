@@ -22,7 +22,7 @@ use std::collections::HashSet;
 use std::convert::TryInto;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -233,13 +233,30 @@ pub async fn fetch_whoami(base: &str, access_token: &str) -> Option<Whoami> {
     Some(Whoami { user_id, device_id })
 }
 
-async fn matrix_sync_loop(client: Client, running: Arc<AtomicBool>) {
+fn truncate_sync_status_msg(s: &str) -> String {
+    let t = s.trim();
+    const MAX: usize = 512;
+    if t.len() > MAX {
+        format!("{}…", &t[..MAX])
+    } else {
+        t.to_string()
+    }
+}
+
+async fn matrix_sync_loop(client: Client, running: Arc<AtomicBool>, last_error: Arc<Mutex<Option<String>>>) {
     let settings = SyncSettings::new().timeout(Duration::from_secs(30));
     while running.load(Ordering::SeqCst) {
         match client.sync_once(settings.clone()).await {
-            Ok(_) => {}
+            Ok(_) => {
+                if let Ok(mut g) = last_error.lock() {
+                    *g = None;
+                }
+            }
             Err(e) => {
                 log::debug!("matrix sync error: {}", e);
+                if let Ok(mut g) = last_error.lock() {
+                    *g = Some(truncate_sync_status_msg(&e.to_string()));
+                }
                 tokio::time::sleep(Duration::from_secs(2)).await;
             }
         }
@@ -253,7 +270,8 @@ pub struct MatrixInner {
     running: Arc<AtomicBool>,
     client: Client,
     room_allowlist: Option<Arc<HashSet<String>>>,
-    pending_verifications: Arc<tokio::sync::Mutex<Vec<PendingMatrixVerification>>>,
+    pending_verifications: Arc<Mutex<Vec<PendingMatrixVerification>>>,
+    last_sync_error: Arc<Mutex<Option<String>>>,
 }
 
 impl MatrixInner {
@@ -271,7 +289,8 @@ impl MatrixInner {
             running: Arc::new(AtomicBool::new(false)),
             client,
             room_allowlist: room_allowlist.map(Arc::new),
-            pending_verifications: Arc::new(tokio::sync::Mutex::new(Vec::new())),
+            pending_verifications: Arc::new(Mutex::new(Vec::new())),
+            last_sync_error: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -279,13 +298,48 @@ impl MatrixInner {
         &self.client
     }
 
-    pub fn pending_verifications(&self) -> Arc<tokio::sync::Mutex<Vec<PendingMatrixVerification>>> {
+    pub fn pending_verifications(&self) -> Arc<Mutex<Vec<PendingMatrixVerification>>> {
         Arc::clone(&self.pending_verifications)
     }
 
-    pub async fn remove_pending_verification(&self, user_id: &str, flow_id: &str) {
-        let mut g = self.pending_verifications.lock().await;
+    pub fn remove_pending_verification(&self, user_id: &str, flow_id: &str) {
+        let mut g = self.pending_verifications.lock().unwrap();
         g.retain(|p| !(p.user_id == user_id && p.flow_id == flow_id));
+    }
+
+    /// Sanitized snapshot for gateway `status.channels.matrix` (no secrets).
+    pub fn status_detail(&self) -> Value {
+        let session_active = self.client.session_meta().is_some();
+        let sync_running = self.running.load(Ordering::SeqCst);
+        let last_sync_error = self
+            .last_sync_error
+            .lock()
+            .ok()
+            .and_then(|g| g.clone())
+            .flatten();
+        let pending = self
+            .pending_verifications
+            .lock()
+            .map(|g| g.clone())
+            .unwrap_or_default();
+        let pending_verifications: Vec<Value> = pending
+            .iter()
+            .map(|p| {
+                json!({
+                    "userId": p.user_id,
+                    "flowId": p.flow_id,
+                    "fromDevice": p.from_device,
+                })
+            })
+            .collect();
+        json!({
+            "sessionActive": session_active,
+            "syncRunning": sync_running,
+            "lastSyncError": last_sync_error,
+            "pendingVerificationCount": pending.len(),
+            "pendingVerifications": pending_verifications,
+            "roomAllowlistActive": self.room_allowlist.is_some(),
+        })
     }
 
     pub fn start_inbound(self: Arc<Self>, inbound_tx: mpsc::Sender<RawInbound>) -> JoinHandle<()> {
@@ -315,7 +369,7 @@ impl MatrixInner {
                             flow_id: flow_id.clone(),
                             from_device,
                         };
-                        let mut g = pending.lock().await;
+                        let mut g = pending.lock().unwrap();
                         g.retain(|p| !(p.user_id == rec.user_id && p.flow_id == rec.flow_id));
                         g.push(rec);
                         log::info!(
@@ -365,7 +419,8 @@ impl MatrixInner {
             );
 
             let running = Arc::clone(&self.running);
-            matrix_sync_loop(client, running).await;
+            let last_err = Arc::clone(&self.last_sync_error);
+            matrix_sync_loop(client, running, last_err).await;
             log::info!("matrix channel: sync loop stopped");
         })
     }

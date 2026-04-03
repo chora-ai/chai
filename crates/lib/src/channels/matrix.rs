@@ -5,6 +5,7 @@ use crate::channels::registry::ChannelHandle;
 use crate::config::Config;
 use async_trait::async_trait;
 use matrix_channel::MatrixInner;
+use std::path::Path;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::mpsc;
@@ -13,16 +14,9 @@ use tokio::task::JoinHandle;
 /// Re-export for gateway routes and docs.
 pub use matrix_channel::PendingMatrixVerification;
 
-fn default_matrix_store_dir() -> std::path::PathBuf {
-    dirs::home_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join(".chai")
-        .join("matrix")
-}
-
 /// Resolve path for the matrix-sdk SQLite store (state + E2EE keys). Override with **`CHAI_MATRIX_STORE`**
-/// or **`channels.matrix.storePath`**.
-pub fn resolve_matrix_store_path(config: &Config) -> std::path::PathBuf {
+/// or **`channels.matrix.storePath`**. Relative `storePath` is resolved against `profile_dir`.
+pub fn resolve_matrix_store_path(config: &Config, profile_dir: &Path) -> std::path::PathBuf {
     std::env::var("CHAI_MATRIX_STORE")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -35,8 +29,15 @@ pub fn resolve_matrix_store_path(config: &Config) -> std::path::PathBuf {
                 .as_ref()
                 .map(|s| std::path::PathBuf::from(s.trim()))
                 .filter(|p| !p.as_os_str().is_empty())
+                .map(|p| {
+                    if p.is_absolute() {
+                        p
+                    } else {
+                        profile_dir.join(p)
+                    }
+                })
         })
-        .unwrap_or_else(default_matrix_store_dir)
+        .unwrap_or_else(|| profile_dir.join("matrix"))
 }
 
 fn resolve_device_id_for_token(
@@ -73,7 +74,7 @@ impl Deref for MatrixChannel {
 }
 
 /// Connect and build a [`MatrixChannel`], or [`None`] if Matrix is not configured.
-pub async fn connect_matrix_client(config: &Config) -> Option<MatrixChannel> {
+pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Option<MatrixChannel> {
     let homeserver = std::env::var("MATRIX_HOMESERVER")
         .ok()
         .filter(|s| !s.trim().is_empty())
@@ -87,7 +88,7 @@ pub async fn connect_matrix_client(config: &Config) -> Option<MatrixChannel> {
                 .filter(|s| !s.is_empty())
         })?;
     let base = homeserver.trim_end_matches('/').to_string();
-    let store_path = resolve_matrix_store_path(config);
+    let store_path = resolve_matrix_store_path(config, profile_dir);
 
     let token = std::env::var("MATRIX_ACCESS_TOKEN")
         .ok()
@@ -217,5 +218,9 @@ impl ChannelHandle for MatrixChannel {
 
     async fn send_message(&self, conversation_id: &str, text: &str) -> Result<(), String> {
         self.0.send_message(conversation_id, text).await
+    }
+
+    async fn status_detail(&self) -> serde_json::Value {
+        self.0.status_detail()
     }
 }

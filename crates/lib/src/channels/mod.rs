@@ -17,4 +17,4 @@ pub use inbound::InboundMessage;
 pub use matrix::{connect_matrix_client, MatrixChannel, PendingMatrixVerification};
 pub use registry::{ChannelHandle, ChannelRegistry};
 pub use signal::{resolve_signal_daemon_config, SignalChannel, SignalDaemonConfig};
-pub use telegram::{TelegramChannel, TelegramUpdate};
+pub use telegram::{TelegramChannel, TelegramTransport, TelegramUpdate};

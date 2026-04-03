@@ -33,7 +33,7 @@ Chai launched with Telegram as its only messaging surface, which limits operator
 - **Matrix** — gateway integration via matrix-sdk with E2EE, room allowlist, and SAS verification (shipped); ongoing hardening
 - **Signal** — BYO signal-cli HTTP daemon integration (shipped); ongoing hardening
 - Config, documentation, and operational polish for all shipped channels
-- Operational hardening: gateway status channel list, structured logging, secrets rotation notes
+- Operational hardening: structured logging, secrets rotation notes (**`status.channels`** already lists integrations — see [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md))
 
 ### Out of Scope
 
@@ -83,7 +83,7 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 - [ ] Signal hardening — reconnect tuning, richer `receive` payloads (attachments, edits)
 - [ ] Matrix hardening — rate limits / backoff, sync reconnect tuning
 - [ ] Config and docs polish — channel-agnostic quickstart
-- [ ] Operational hardening — gateway `status` channel list, structured logging, secrets rotation notes
+- [ ] Operational hardening — structured logging, secrets rotation notes (**`status.channels`** already surfaces Telegram / Matrix / Signal — see [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md))
 
 ## Phases
 
@@ -94,7 +94,7 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 | 3. Signal gateway integration | **Done** | **`SignalChannel`**: SSE + JSON-RPC **`send`** — [SIGNAL.md](../ref/SIGNAL.md). |
 | 4. Matrix hardening | **Partial / ongoing** | Allowlist + verification HTTP: **done**. **Remaining:** rate limits / backoff, reconnect tuning, richer timeline events (optional) — see **Technical Direction** above. |
 | 5. Config and docs polish | **Ongoing** | **`channels.signal`** documented; Matrix **ref + journey** updated; channel-agnostic quickstart. |
-| 6. Operational hardening | **Not started** | Gateway **`status`** channel list; structured logging; secrets rotation notes. |
+| 6. Operational hardening | **Partial** | **`status.channels`** (per integration) **shipped**; remaining: structured logging, secrets rotation notes. |
 
 ## Open Questions
 

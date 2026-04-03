@@ -8,7 +8,7 @@ use crate::config::Config;
 use async_trait::async_trait;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -16,6 +16,20 @@ use tokio::task::JoinHandle;
 use futures_util::StreamExt;
 
 const CHANNEL_ID: &str = "signal";
+
+const STATUS_ERR_MAX: usize = 512;
+
+fn set_signal_status_error(slot: &Mutex<Option<String>>, msg: &str) {
+    let t = msg.trim();
+    let s = if t.len() > STATUS_ERR_MAX {
+        format!("{}…", &t[..STATUS_ERR_MAX])
+    } else {
+        t.to_string()
+    };
+    if let Ok(mut g) = slot.lock() {
+        *g = Some(s);
+    }
+}
 
 /// Base URL of signal-cli HTTP daemon, e.g. `http://127.0.0.1:7583`.
 #[derive(Clone)]
@@ -66,6 +80,8 @@ pub struct SignalChannel {
     http_base: String,
     account: Option<String>,
     rpc_id: AtomicU64,
+    last_error: Mutex<Option<String>>,
+    daemon_check_ok: AtomicBool,
 }
 
 impl SignalChannel {
@@ -77,6 +93,8 @@ impl SignalChannel {
             http_base: cfg.http_base,
             account: cfg.account,
             rpc_id: AtomicU64::new(1),
+            last_error: Mutex::new(None),
+            daemon_check_ok: AtomicBool::new(false),
         }
     }
 
@@ -97,12 +115,23 @@ impl SignalChannel {
             let check_url = format!("{}/api/v1/check", c.http_base.trim_end_matches('/'));
             match c.client.get(&check_url).send().await {
                 Ok(r) if r.status().is_success() => {
+                    c.daemon_check_ok.store(true, Ordering::SeqCst);
+                    if let Ok(mut g) = c.last_error.lock() {
+                        *g = None;
+                    }
                     log::info!("signal: daemon check ok at {}", check_url);
                 }
                 Ok(r) => {
+                    c.daemon_check_ok.store(false, Ordering::SeqCst);
+                    set_signal_status_error(
+                        &c.last_error,
+                        &format!("daemon check: {} from {}", r.status(), check_url),
+                    );
                     log::warn!("signal: daemon check: {} from {}", r.status(), check_url);
                 }
                 Err(e) => {
+                    c.daemon_check_ok.store(false, Ordering::SeqCst);
+                    set_signal_status_error(&c.last_error, &format!("daemon check failed: {}", e));
                     log::warn!("signal: daemon check failed: {}", e);
                 }
             }
@@ -175,12 +204,17 @@ async fn run_events_loop(channel: Arc<SignalChannel>, inbound_tx: mpsc::Sender<I
             Ok(r) => r,
             Err(e) => {
                 log::debug!("signal events connect error: {}", e);
+                set_signal_status_error(&channel.last_error, &format!("events connect: {}", e));
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 continue;
             }
         };
         if !res.status().is_success() {
             log::debug!("signal events: bad status {}", res.status());
+            set_signal_status_error(
+                &channel.last_error,
+                &format!("events stream: {}", res.status()),
+            );
             tokio::time::sleep(Duration::from_secs(2)).await;
             continue;
         }
@@ -287,5 +321,13 @@ impl ChannelHandle for SignalChannel {
 
     async fn send_message(&self, conversation_id: &str, text: &str) -> Result<(), String> {
         SignalChannel::send_message(self, conversation_id, text).await
+    }
+
+    async fn status_detail(&self) -> serde_json::Value {
+        json!({
+            "transport": "sse",
+            "daemonCheckOk": self.daemon_check_ok.load(Ordering::SeqCst),
+            "lastError": self.last_error.lock().ok().and_then(|g| g.clone()),
+        })
     }
 }

@@ -32,6 +32,9 @@ Defined in **`crates/lib/src/channels/registry.rs`** (`async_trait`):
 | **`id()`** | Returns **`channel_id`** for this connector. Inbound messages for this channel must use the same string. |
 | **`stop()`** | Called on shutdown for every registered channel; should end long-poll loops or disconnect. Safe to call idempotently. |
 | **`send_message(conversation_id, text)`** | Delivers **`text`** to **`conversation_id`**. Used for normal replies, **`/new`** confirmation, WebSocket **`send`**, and agent turns that echo to a bound channel. Errors are logged or returned to the WebSocket client; there is no automatic retry. |
+| **`status_detail()`** | Returns a JSON object (no secrets) merged into **`status.channels.<id>`** for operators and desktop; default empty object. See [GATEWAY_STATUS.md](GATEWAY_STATUS.md). |
+
+**`ChannelRegistry::channel_status_details`** collects **`status_detail().await`** for each registered id.
 
 ### Session binding
 

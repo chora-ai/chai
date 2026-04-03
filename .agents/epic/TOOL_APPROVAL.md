@@ -4,9 +4,9 @@ status: draft
 
 # Epic: Tool Call Approval (Draft Proposal)
 
-**Summary** — Optional **human-in-the-loop** approval before executing tool calls from the assistant, so operators can prevent unintended or harmful actions. Approval would be **configurable** (default: current behavior — execute tools immediately). This document is a **draft proposal**: requirements, implications, performance concerns, and open decisions. It does **not** commit the project to implementation.
+**Summary** — This epic tracks **optional human-in-the-loop approval** before executing model-requested tool calls. That behavior is **not implemented**; the sections below describe **today’s baseline** (immediate execution, skill allowlists, runtime profiles) and a **draft** design for approval when/if it is prioritized. Default after any future implementation should remain **auto-execute** unless the operator opts into a gate.
 
-**Status** — **Draft.** Not scheduled. Review against [VISION.md](../../VISION.md) (long-term security goals) and [ORCHESTRATION.md](ORCHESTRATION.md).
+**Status** — **Human-in-the-loop approval:** not scheduled; spec remains draft. **Baseline tool execution and layout:** matches shipped code as of [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) (per-profile `config.json` under `~/.chai/profiles/<name>/`). Review against [VISION.md](../../VISION.md) (long-term security goals) and [ORCHESTRATION.md](ORCHESTRATION.md).
 
 ## Problem Statement
 
@@ -20,15 +20,26 @@ Today, tool calls are executed immediately after the model returns them — ther
 
 ## Current State (Baseline)
 
+### Runtime and configuration
+
+- **Profiles** — The gateway loads **`config.json`** from the **active runtime profile** (`~/.chai/profiles/<name>/`, resolved via `~/.chai/active`, **`CHAI_PROFILE`**, or CLI override; see [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)). Code: [`profile.rs`](../../crates/lib/src/profile.rs) (**`ChaiPaths`**), [`config.rs`](../../crates/lib/src/config.rs).
+- **Future approval config** — When human-in-the-loop approval exists, its policy fields should live in **that profile’s** `config.json` (and optionally per-agent entries), not in a separate global file—so an **assistant** profile can stay strict and a **developer** profile more permissive without sharing state. No schema or fields exist for this yet.
+
+### Tool execution (no human gate)
+
 - **Execution model** — In **`crates/lib/src/agent.rs`**, after the model returns **`tool_calls`**, the runtime invokes **`ToolExecutor::execute`** for each call **immediately** (synchronous `execute`), appends **`tool`** role messages, and continues the tool loop (up to **`MAX_TOOL_LOOP`**) without user input.
-- **Gateway** — **`GenericToolExecutor`** is built from skills; **`ReadOnDemandExecutor`** wraps file reads ([`gateway/server.rs`](../../crates/lib/src/gateway/server.rs)). Channels (**Telegram**, **Matrix**, **Signal**) funnel **`InboundMessage`** into the same session/agent path; there is **no** pending-approval state today.
-- **Delegation** — **`delegate_task`** can run worker turns with their own tool loop; approval policy would need an explicit story (inherit orchestrator policy, or separate rules).
+- **Gateway** — **`GenericToolExecutor`** is built from skills; **`ReadOnDemandExecutor`** wraps file reads ([`gateway/server.rs`](../../crates/lib/src/gateway/server.rs)). Channels (**Telegram**, **Matrix**, **Signal**) funnel **`InboundMessage`** into the same session/agent path; there is **no** pending-approval state.
+- **Skill allowlists (not operator approval)** — Declarative skills use **`tools.json`** allowlists (**binary → allowed subcommands**) enforced by [`exec.rs`](../../crates/lib/src/exec.rs) / [`tools/generic.rs`](../../crates/lib/src/tools/generic.rs). That limits **which** commands a skill may run; it does **not** pause for a human before each invocation.
+
+### Delegation
+
+- **`delegate_task`** runs worker turns with their own tool loop; any future approval policy needs an explicit story (inherit orchestrator policy, or separate rules).
 
 ## Scope
 
 ### In Scope
 
-- Global or per-agent approval policy configuration (`auto` vs `approve_before_execute`).
+- Approval policy configuration: **`auto`** (default) vs **`approve_before_execute`** (names TBD), scoped to the **active profile’s** `config.json` and optionally per-agent entries—aligned with [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md).
 - Pending approval state: durable storage, resume on approve, denial semantics, timeouts.
 - Desktop-first approval UI (Phase 3); channel parity is a later optional phase.
 - Delegation behavior: defining approval policy for `delegate_task` and nested worker tool calls.
@@ -134,7 +145,7 @@ Chai's approval mechanism would need to generalize across its gateway/session mo
 
 ### Functional
 
-1. **Configuration** — Global or per-agent policy: **`auto`** (default) vs **`approve_before_execute`** (names TBD). Optional future: per-tool or per-risk-tier rules.
+1. **Configuration** — Per-profile (and optionally per-agent) policy in the active profile’s **`config.json`**: **`auto`** (default) vs **`approve_before_execute`** (names TBD). Optional future: per-tool or per-risk-tier rules.
 2. **Pending state** — Durable or recoverable enough for restarts: session/conversation identity, pending **`tool_calls`**, snapshot of messages required to resume (or opaque checkpoint), expiry time.
 3. **User experience** — Show **what** will execute (tool name + JSON args; redaction for secrets). **Approve**, **deny**, optional **approve all in this batch** for power users.
 4. **Denial semantics** — Deterministic outcome for denied tools; model receives coherent **`tool`** outcomes so the next step is valid.
@@ -168,8 +179,9 @@ Chai's approval mechanism would need to generalize across its gateway/session mo
 
 ## Related Epics and Docs
 
+- [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — Where **`config.json`** and trust boundaries live; approval policy should follow the same per-profile model when implemented.
 - [VISION.md](../../VISION.md) — Long-term security and privacy direction.
-- [ORCHESTRATION.md](ORCHESTRATION.md) — Delegation and agent policy.
+- [ORCHESTRATION.md](ORCHESTRATION.md) — Delegation and agent configuration.
 - [MSG_CHANNELS.md](MSG_CHANNELS.md) — Channel surfaces and shared inbound path.
 - [AGENTS.md](../../AGENTS.md) — Repository guidelines (logging style, architecture).
-- Implementation touchpoints (when/if built): **`crates/lib/src/agent.rs`** (`ToolExecutor`, tool loop), **`crates/lib/src/gateway/server.rs`**, channel **`InboundMessage`** handling, **`crates/desktop`** for UI.
+- Implementation touchpoints (when/if built): **`crates/lib/src/agent.rs`** (`ToolExecutor`, tool loop), **`crates/lib/src/gateway/server.rs`**, **`crates/lib/src/config.rs`**, channel **`InboundMessage`** handling, **`crates/desktop`** for UI.

@@ -20,7 +20,7 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 
 - **Backends implemented:** **Ollama** (native API), **LM Studio** (`lms`, OpenAI-compat), **vLLM** (`vllm`, OpenAI-compat), **NVIDIA NIM** (`nim`, hosted OpenAI-compat), **OpenAI** (`openai`, OpenAI API or compatible base URL), **Hugging Face** (`hf`, OpenAI-compat Inference Endpoints / TGI / similar). The agent uses a common **`Provider`** trait; **`agents.defaultProvider`** and **`agents.defaultModel`** select which client and model are used.
 - **Shared HTTP layer:** LM Studio, vLLM, OpenAI, Hugging Face, and NIM chat paths use the shared **`openai_compat`** module (`OpenAiCompatClient` or equivalent) for `/v1/chat/completions` and `/v1/models` where applicable. **`openai.rs`** / **`hf.rs`** are thin wrappers with provider defaults and error types; they are not merged into **`openai_compat`** (see [OPENAI.md](../ref/OPENAI.md)).
-- **Model discovery:** Gateway discovers models from configured backends at startup (per **`agents.enabledProviders`** rules) and exposes **`ollamaModels`**, **`lmsModels`**, **`vllmModels`**, **`nimModels`**, **`openaiModels`**, and **`hfModels`** in WebSocket **`status`**.
+- **Model discovery:** Gateway discovers models from configured backends at startup (per **`agents.enabledProviders`** rules) and exposes them under WebSocket **`status.payload.providers`** (per-provider **`models`** arrays).
 - **Single backend per run:** One default backend and model for the entire agent loop; no per-request or per-step backend selection (orchestration delegation is separate; see [ORCHESTRATION.md](ORCHESTRATION.md)).
 
 ## Scope
@@ -45,8 +45,8 @@ These stacks are **tracked** here so expectations stay clear: Chai does **not** 
 ## Phase 1 Requirements
 
 - [x] Ollama integrated (native API: `/api/tags`, `/api/chat`).
-- [x] LM Studio integrated (OpenAI-compat: `/v1/*`).
-- [x] LocalAI: **Ollama mode** — use **`agents.defaultProvider`**: **`"ollama"`** and optional **`providers.ollama.baseUrl`** (no code change). **OpenAI-compat mode** — use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at LocalAI’s `/v1` base (same shared adapter as vLLM); see [README.md](../../README.md) and [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
+- [x] LM Studio integrated (OpenAI-compat chat: `/v1/chat/completions`; model list: native **`GET …/api/v1/models`** — see [LM_STUDIO.md](../ref/LM_STUDIO.md)).
+- [x] LocalAI: **Ollama mode** — use **`agents.defaultProvider`**: **`"ollama"`** and optional **`providers.ollama.baseUrl`** (no code change). **OpenAI-compat mode** — use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at LocalAI’s `/v1` base (same shared adapter as vLLM); see [README.md](../../README.md) and [VLLM.md](../ref/VLLM.md).
 - [x] vLLM: **`VllmClient`** + shared **`openai_compat`**; see [VLLM.md](../ref/VLLM.md).
 - [x] Hugging Face (TGI / Inference Endpoints / OpenAI-compat): **`HfClient`** + **`openai_compat`**; **`providers.hf.baseUrl`**, **`HF_API_KEY`**; see [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
 - [x] OpenAI: **`OpenAiClient`** + **`openai_compat`**; **`OPENAI_API_KEY`**, optional **`providers.openai.baseUrl`**; see [OPENAI.md](../ref/OPENAI.md).

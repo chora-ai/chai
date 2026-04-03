@@ -5,8 +5,13 @@ use crate::app::{ChaiApp, ConfigViewMode};
 
 pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     app.invalidate_enabled_providers_cache();
-    let (config, config_path) = lib::config::load_config(None)
-        .unwrap_or((lib::config::Config::default(), std::path::PathBuf::new()));
+    let Ok((config, paths)) = lib::config::load_config(None) else {
+        crate::app::ui_screen(ui, "Config", None, |ui| {
+            ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+        });
+        return;
+    };
+    let config_path = paths.config_path.clone();
     if app.default_model.is_none() {
         let (_, model) = lib::config::resolve_effective_provider_and_model(&config.agents);
         app.default_model = Some(model);
@@ -68,18 +73,22 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                     return;
                 }
 
-                config_summary_dashboard(ui, &config);
+                config_summary_dashboard(ui, &config, paths.profile_dir.as_path());
             });
     });
 }
 
-fn config_summary_dashboard(ui: &mut egui::Ui, config: &lib::config::Config) {
+fn config_summary_dashboard(
+    ui: &mut egui::Ui,
+    config: &lib::config::Config,
+    profile_dir: &std::path::Path,
+) {
     dashboard::dashboard_two_columns(ui, |left, right| {
         left.vertical(|ui| {
             config_summary_left_column(ui, config);
         });
         right.vertical(|ui| {
-            config_summary_right_column(ui, config);
+            config_summary_right_column(ui, config, profile_dir);
         });
     });
 }
@@ -288,88 +297,76 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
     });
 }
 
-fn config_summary_right_column(ui: &mut egui::Ui, config: &lib::config::Config) {
+fn enabled_providers_display(opt: &Option<Vec<String>>) -> String {
+    let v: Vec<String> = opt
+        .as_ref()
+        .map(|list| {
+            list.iter()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(String::from)
+                .collect()
+        })
+        .unwrap_or_default();
+    if v.is_empty() {
+        "(none)".to_string()
+    } else {
+        v.join(", ")
+    }
+}
+
+fn config_summary_right_column(
+    ui: &mut egui::Ui,
+    config: &lib::config::Config,
+    profile_dir: &std::path::Path,
+) {
     let (default_provider, default_model) =
         lib::config::resolve_effective_provider_and_model(&config.agents);
 
+    let orch_id = config
+        .agents
+        .orchestrator_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("orchestrator");
+
     dashboard::section_group(ui, "Agents", |ui| {
+        ui.label(
+            egui::RichText::new(format!("Orchestrator: {}", orch_id))
+                .strong(),
+        );
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
         dashboard::kv(ui, "Default provider", default_provider.as_str());
         dashboard::kv(ui, "Default model", default_model.as_str());
-        if let Some(ref oid) = config.agents.orchestrator_id {
-            dashboard::kv(ui, "Orchestrator id", oid.as_str());
-        }
-
-        let mut enabled: Vec<String> = config
-            .agents
-            .enabled_providers
-            .as_ref()
-            .map(|v| {
-                v.iter()
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .map(String::from)
-                    .collect()
-            })
-            .unwrap_or_default();
-        if enabled.is_empty() {
-            enabled.push(default_provider.to_string());
-        }
-        let enabled_csv = enabled.join(", ");
-        dashboard::kv(ui, "Enabled providers", &enabled_csv);
-
-        match lib::config::resolve_workspace_dir(config) {
-            Some(ref path) => {
-                dashboard::kv(ui, "Workspace (effective)", &path.display().to_string());
-                if config.agents.workspace.is_none() {
-                    ui.label(
-                        egui::RichText::new("(config default — agents.workspace not set)").weak(),
-                    );
-                    ui.add_space(spacing::LINE);
-                }
-            }
-            None => {
-                dashboard::kv(ui, "Workspace (effective)", "(not resolved)");
-            }
-        }
-
-        if let Some(ref workers) = config.agents.workers {
-            if !workers.is_empty() {
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new("Workers").strong());
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                egui::Grid::new("config_workers_grid")
-                    .num_columns(3)
-                    .striped(true)
-                    .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                    .show(ui, |ui| {
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Worker"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Default provider"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Default model"));
-                        });
-                        ui.end_row();
-                        for w in workers {
-                            let (wp, wm) =
-                                lib::orchestration::effective_worker_defaults(&config.agents, w);
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(w.id.trim())));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(wp)));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(wm)));
-                            });
-                            ui.end_row();
-                        }
-                    });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            }
-        }
+        let orch_ep = enabled_providers_display(&config.agents.enabled_providers);
+        dashboard::kv(ui, "enabledProviders", orch_ep.as_str());
+        let orch_dir = lib::config::orchestrator_context_dir(config, profile_dir);
+        dashboard::kv(
+            ui,
+            "Context directory",
+            &orch_dir.display().to_string(),
+        );
+        let orch_skills = lib::config::orchestrator_skills_enabled_list(&config.agents);
+        let orch_skills_csv = orch_skills.join(", ");
+        dashboard::kv(
+            ui,
+            "skillsEnabled",
+            if orch_skills.is_empty() {
+                "(none)"
+            } else {
+                orch_skills_csv.as_str()
+            },
+        );
+        let orch_mode = lib::config::orchestrator_context_mode(&config.agents);
+        dashboard::kv(
+            ui,
+            "contextMode",
+            match orch_mode {
+                lib::config::SkillContextMode::Full => "full",
+                lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
+            },
+        );
 
         let mut any_limit = false;
         if let Some(n) = config.agents.max_session_messages {
@@ -414,6 +411,44 @@ fn config_summary_right_column(ui: &mut egui::Ui, config: &lib::config::Config) 
                             egui::Label::new(egui::RichText::new(p)),
                         );
                     }
+                });
+                ui.add_space(spacing::TABLE_BLOCK_AFTER);
+            }
+        }
+
+        if let Some(ref allowed) = config.agents.delegate_allowed_models {
+            if !allowed.is_empty() {
+                ui.add_space(spacing::COLLAPSING_HEADER_BEFORE);
+                egui::CollapsingHeader::new(format!(
+                    "Delegate allowed models ({} models)",
+                    allowed.len()
+                ))
+                .default_open(false)
+                .show(ui, |ui| {
+                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
+                    egui::Grid::new("config_allowed_models_grid")
+                        .num_columns(2)
+                        .striped(true)
+                        .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
+                        .show(ui, |ui| {
+                            dashboard::grid_cell(ui, |ui| {
+                                ui.label(dashboard::grid_header_rich(ui, "Provider"));
+                            });
+                            dashboard::grid_cell(ui, |ui| {
+                                ui.label(dashboard::grid_header_rich(ui, "Model"));
+                            });
+                            ui.end_row();
+                            for e in allowed {
+                                dashboard::grid_cell(ui, |ui| {
+                                    ui.add(egui::Label::new(egui::RichText::new(&e.provider)));
+                                });
+                                dashboard::grid_cell(ui, |ui| {
+                                    ui.add(egui::Label::new(egui::RichText::new(&e.model)));
+                                });
+                                ui.end_row();
+                            }
+                        });
+                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
                 });
                 ui.add_space(spacing::TABLE_BLOCK_AFTER);
             }
@@ -492,74 +527,51 @@ fn config_summary_right_column(ui: &mut egui::Ui, config: &lib::config::Config) 
             }
         }
 
-        if let Some(ref allowed) = config.agents.delegate_allowed_models {
-            if !allowed.is_empty() {
+        if let Some(ref workers) = config.agents.workers {
+            for w in workers {
+                let wid = w.id.trim();
+                if wid.is_empty() {
+                    continue;
+                }
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(
-                    egui::RichText::new("Delegate allowed models (orchestrator)").strong(),
+                ui.label(egui::RichText::new(format!("Worker: {}", wid)).strong());
+                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                let (wp, wm) =
+                    lib::orchestration::effective_worker_defaults(&config.agents, w);
+                dashboard::kv(ui, "Default provider", wp.as_str());
+                dashboard::kv(ui, "Default model", wm.as_str());
+                let w_ep = enabled_providers_display(&w.enabled_providers);
+                dashboard::kv(ui, "enabledProviders", w_ep.as_str());
+                let w_dir = lib::config::worker_context_dir(w, profile_dir);
+                dashboard::kv(
+                    ui,
+                    "Context directory",
+                    &w_dir
+                        .as_ref()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "(unknown)".to_string()),
                 );
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                egui::Grid::new("config_allowed_models_grid")
-                    .num_columns(2)
-                    .striped(true)
-                    .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                    .show(ui, |ui| {
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Provider"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Model"));
-                        });
-                        ui.end_row();
-                        for e in allowed {
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(&e.provider)));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(&e.model)));
-                            });
-                            ui.end_row();
-                        }
-                    });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
+                let w_skills = lib::config::worker_skills_enabled_list(w);
+                let w_skills_csv = w_skills.join(", ");
+                dashboard::kv(
+                    ui,
+                    "skillsEnabled",
+                    if w_skills.is_empty() {
+                        "(none)"
+                    } else {
+                        w_skills_csv.as_str()
+                    },
+                );
+                let w_mode = lib::config::worker_context_mode(w);
+                dashboard::kv(
+                    ui,
+                    "contextMode",
+                    match w_mode {
+                        lib::config::SkillContextMode::Full => "full",
+                        lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
+                    },
+                );
             }
-        }
-    });
-    ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
-
-    dashboard::section_group(ui, "Skills", |ui| {
-        let skills_configured = config.skills.directory.is_some()
-            || !config.skills.extra_dirs.is_empty()
-            || !config.skills.enabled.is_empty()
-            || config.skills.context_mode != lib::config::SkillContextMode::Full;
-        if skills_configured {
-            if let Some(ref d) = config.skills.directory {
-                dashboard::kv(ui, "Directory", &d.display().to_string());
-            }
-            if !config.skills.extra_dirs.is_empty() {
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new("Extra dirs"));
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.horizontal_wrapped(|ui| {
-                    for p in &config.skills.extra_dirs {
-                        ui.add(egui::Label::new(egui::RichText::new(
-                            p.display().to_string(),
-                        )));
-                    }
-                });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            }
-            if !config.skills.enabled.is_empty() {
-                let enabled_csv = config.skills.enabled.join(", ");
-                dashboard::kv(ui, "Enabled", &enabled_csv);
-            }
-            let context_mode_str = match config.skills.context_mode {
-                lib::config::SkillContextMode::Full => "full",
-                lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
-            };
-            dashboard::kv(ui, "Context mode", context_mode_str);
-        } else {
-            ui.label(egui::RichText::new("Not configured.").weak());
         }
     });
 }

@@ -1,42 +1,45 @@
 ---
-status: draft
+status: complete
 ---
 
 # Epic: Runtime Profiles and Isolated Environments
 
-**Summary** — Introduce a **NixOS-like switching model** for Chai: multiple **named runtime profiles** under **`~/.chai/profiles/`**, with **one active profile** at a time. **Switching profiles** means **restarting the gateway** (and optionally desktop attach) so the stack—models, **which skills are loaded**, tool allowlists, channel bindings, workspace—comes from that profile’s **`config.json`** and profile-local state. **Skills themselves** live in a **shared store at the `~/.chai` root** (e.g. **`skills/`**); **profiles do not nest duplicate skill trees**—they differ by **`skills.directory`**, **`skills.extraDirs`**, and (when implemented) **enablement** and **pins** defined by **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**. **Preferred posture:** **full isolation** for **identity, workspace, and channel state**; **one canonical skill store** with **per-profile composition** of what loads.
+**Summary** — Chai uses a **NixOS-like switching model**: multiple **named runtime profiles** under **`~/.chai/profiles/`**, with **one active profile** at a time. The **persistent** choice is **`~/.chai/active`** → **`profiles/<name>/`**, overridable per process by **`CHAI_PROFILE`** and **`chai gateway --profile`** (ephemeral). **Changing** the persistent profile requires **stopping the gateway**, **`chai profile switch`**, and **restart** — **no** switch while the gateway is running (CLI error; desktop disables the profile control). **Switching the live stack** means **restarting the gateway** (and optionally desktop attach) so models, **per-agent skill configuration** (**`skillsEnabled`**, **`contextMode`** in that profile’s **`config.json`**; see **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**), delegation policy, channel bindings, and **on-disk agent context** (**`agents/<id>/`**) come from that profile. **Skill packages** live in a **shared store** at **`~/.chai/skills/`**; profiles do **not** duplicate package trees—they differ by **per-agent** enablement lists and (when **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** lands) **pins / lockfile**. **Preferred posture:** **full isolation** for **identity, pairing, device, channel stores**, and **profile-local files**; **one canonical skill store** with **per-profile, per-agent composition** of what loads. Default profile names (**`assistant`**, **`developer`**) are **labels** for two **equivalent** scaffolds; **motivations** for using a second profile appear in **Problem statement** and **Goal** but are **not** enforced by different defaults or developer-only runtime features.
 
-**Status** — **Draft.** No implementation commitment; complements **[SIMULATIONS.md](SIMULATIONS.md)** and **[`.testing/`](../../.testing/)** playbooks.
+**Status** — **Complete.** Layout, **`chai profile`** CLI, **`gateway.lock`** with **advisory exclusive lock** (**`fs2`**, portable **`flock` / `LockFileEx`** semantics), shared **`skills/`**, **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** paths, and **desktop** header profile switcher (same lock rule as CLI) are **shipped**. **Historical** references in **`.journey/`**, **`.agents/ref/CLAW_ECOSYSTEM.md`**, **[DESKTOP_APP.md](DESKTOP_APP.md)**, and **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** under **`.agents`** were updated to the profile layout (or labeled historical). Optional **persistent vs effective** profile hint in the desktop UI remains in **[DESKTOP_APP.md](DESKTOP_APP.md)**.
+
+## Shipped Model
+
+The shipped layout **replaces** the flat **`~/.chai/config.json`** model; there is **no** backwards compatibility. **Removed:** **`CHAI_CONFIG_PATH`** and flat config resolution. **Wired:** all durable runtime state (except the shared skill store) under **profile roots** — **no** shims, **no** migration mode, and **no** “deprecated” callouts in code or user-facing docs.
 
 ## Problem Statement
 
-Users need **different trust and capability boundaries** for different tasks:
+**Motivation:** operators often want **different trust and capability boundaries** for different tasks. These are **reasons people reach for multiple profiles**, not requirements the product imposes on any named profile:
 
-- **Assistant mode** — Personal or work assistant with access to **sensitive files and context**, **local or self-hosted** models, and stable skills. Privacy-sensitive users configure this path deliberately.
-- **Developer / maintenance mode** — **Skill generation**, **editing**, and **testing** (including scripts and tools) against **dummy or synthetic data**, with permission to use **more capable hosted models** (e.g. Claude Opus, Composer) **without** sending personal workspace content or credentials to those providers.
+- **Assistant-style use** — Personal or work assistant with access to **sensitive files and context**, **local or self-hosted** models, and stable skills. Privacy-sensitive users may want this **isolated** from experimental configuration.
+- **Skill work and experimentation** — **Skill generation**, **editing**, and **testing** (including scripts and tools), sometimes against **dummy or synthetic data**, and sometimes with **more capable hosted models** (e.g. Claude Opus, Composer) **without** mixing that with **personal** context or credentials kept in another profile.
 
-Today, a single **`~/.chai/config.json`** and default paths (**`skills.directory`**, workspace, pairing store) do not encode this split; users must manually swap configs or maintain separate machines. **Runtime profiles** make the boundary **first-class**, **auditable**, and **switchable** with a clear operational step (gateway restart).
+Before profiles, a single flat config and undifferentiated paths did not encode this split; users had to manually swap configs or maintain separate machines. **Runtime profiles** make **path isolation** **first-class**, **auditable**, and **switchable** with a clear operational step (gateway restart). **What** each profile is *for* stays **user-defined** (config, **`AGENTS.md`**, enabled skills)—the runtime does **not** ship stricter rules for one default name than the other.
 
 ## Goal
 
-Multiple **named runtime profiles** under **`~/.chai/profiles/`** with **one active profile** per gateway process. Switching profiles means restarting the gateway into a different trust and capability environment. Skills live in a **shared store** at the `~/.chai` root; profiles differ by **which skills load**, **which model and provider** are configured, and **which workspace and channel state** are in scope. The design enables:
+Multiple **named runtime profiles** under **`~/.chai/profiles/`** with **one active profile** per gateway process. Switching profiles means restarting the gateway so **a different profile subtree** (config, agent dirs, pairing, channels) is live. Skill **packages** live in a **shared store** at **`~/.chai/skills`**; profiles differ by per-agent **skillsEnabled** and **contextMode** (see **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**), **which model and provider** are configured, **delegation policy**, and **which profile-local paths** (**`agents/<id>/`**, pairing, Matrix store) are in scope. The design enables:
 
-- **Named profiles** — At least **assistant** and **developer** (names user-defined); users may add **personal**, **work**, or other profiles as needed.
-- **Deterministic activation** — One active profile per gateway process; switching = select profile + restart gateway (CLI and eventually desktop).
-- **Isolation** — Separate per profile: config, workspace, pairing, channel stores, secrets (`.env`). Shared at `~/.chai` root: the skill store; which skills load and which revisions apply stay in each profile’s config (and lockfile, when [SKILL_PACKAGES.md](SKILL_PACKAGES.md) lands).
-- **Developer profile as skill generation home** — The developer profile is the natural home for the skill generation workflow: discover CLI interface → design tool surface → generate `tools.json` → validate schema → simulate against target models → promote to assistant profile. Frontier models are used only in this profile for generation and testing — the assistant profile runs the produced artifacts on local/self-hosted models.
-- **Capability-tier alignment** — Each skill declares a `capability_tier` in its `SKILL.md` frontmatter (`minimal`, `moderate`, `full`) indicating the minimum model capability it assumes. Profiles that specify a model or provider should be able to validate that enabled skills match the profile’s model capability. A `minimal`-tier skill (designed for 7B models) is safe in any profile; a `full`-tier skill enabled in a profile running a 7B model is a configuration error that can be surfaced at startup. This validation is informational in early phases (warn) and may become strict later. Related: skills may declare `model_variant_of` to link variant skills (e.g. `notesmd-daily` is a `minimal`-tier variant of `notesmd`); enabling both variants in the same profile creates tool overlap that should be warned about.
-- **Pre-lock promotion** — Until the skill packages epic lands, promotion from developer to assistant is a manual operation: copy the validated `tools.json` (and any scripts) from the skill directory, update the assistant profile’s `config.json` if skill enablement changed, and restart the gateway. This is intentionally low-ceremony — the value of profiles in early phases is the data boundary (developer workspace never touches assistant workspace), not automated promotion. Document this path explicitly in Phase 2 so users aren’t left guessing.
+- **Named profiles** — **Initialization** creates default profiles **`assistant`** and **`developer`** with the **same** scaffold (empty-equivalent defaults); users may **rename them**, add more (`personal`, `work`, …), or adjust layout after init. The **`~/.chai/active`** symlink initially points at **`profiles/assistant/`**. The names are **mnemonics** for the motivations above, **not** different built-in policies.
+- **Deterministic activation** — One active profile per gateway process. **Changing the persistent active profile** requires **stopping the gateway**, running **`chai profile switch`**, then restarting. **No switching** (CLI or desktop) **while the gateway is running** — attempts fail with a **clear error**; desktop **disables** profile switching when the gateway is up.
+- **Isolation** — Separate per profile: **config**, **`agents/<id>/`** (on-disk agent context), pairing, channel stores, secrets (`.env`). Shared at **`~/.chai` root**: the skill **package** store; **which packages each agent uses** and **how** skill text is presented are set in that profile’s **`config.json`** (and lockfile, when [SKILL_PACKAGES.md](SKILL_PACKAGES.md) lands).
+- **Illustrative second-profile workflow (motivation, not enforcement)** — Many teams will use **one profile** for day-to-day assistant use (local models, sensitive **`AGENTS.md`**) and **another** for skill iteration: discover CLI → design tool surface → generate **`tools.json`** → validate → run simulations → later adjust pins or enablement on the first profile. **Where** frontier vs local models run is **configuration and discipline**, not a rule tied to the string **`developer`**. A **modular** way to capture that workflow is **skills** (e.g. a skill-authoring package—name illustrative) enabled only on the profile where you want that guidance, instead of developer-specific runtime options or templates.
+- **Promotion across profiles (motivation)** — When skill packages and lockfiles land, updating **one** profile after validating work in **another** is expected to be a **pin / lock / enablement** change (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**), not a second skill tree under **`profiles/`**. Until then, operators may still **manually** copy artifacts and edit **`config.json`**—the **value** is **data isolation** between profiles, not a commitment to automate promotion in this epic. User-facing docs may describe the pattern; it is **not** a separate product requirement for a special **developer** template.
 
 ## Scope
 
 ### In Scope
 
-- Per-profile config, workspace, pairing, device identity, channel stores, and secrets
-- Shared root-level skill store with per-profile composition (enablement, skill paths, `extraDirs`)
+- Per-profile **config**, **`agents/<id>/`**, pairing, device identity, channel stores, and secrets
+- Shared root-level skill store at **`~/.chai/skills`** and **per-agent** skill configuration in each profile’s **`config.json`** (**[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**)
 - CLI for profile management (`chai profile list | switch <name> | current`)
-- Developer profile with restricted workspace and frontier provider use
-- Desktop parity for profile switching
+- **Second default profile** — **`chai init`** creates **`developer`** alongside **`assistant`** with **parity** (same scaffold and defaults). **No** distinct developer template, synthetic-context bundles, frontier-only config, or runtime rules keyed on profile name.
+- Desktop **core** profile switching (active name + switch when gateway stopped) — **shipped**; optional **persistent vs effective** hint in **[DESKTOP_APP.md](DESKTOP_APP.md)**
 
 ### Out of Scope
 
@@ -51,99 +54,121 @@ Multiple **named runtime profiles** under **`~/.chai/profiles/`** with **one act
 | Aspect | This epic (runtime profiles) | [SIMULATIONS.md](SIMULATIONS.md) / [`.testing/`](../../.testing/) |
 |--------|------------------------------|------------------------------------------------------------------------|
 | **What it bounds** | **Who sees what data** and **which profile subtree** is live | **Repeatable scenarios**, fixtures, optional CI for gateway behavior |
-| **Overlap** | A **developer profile** is the natural **home** for automated or scripted model/skill tests | Harness runs assume a **known config**—profiles supply that **without** contaminating the **assistant** profile |
-| **Composition** | User switches to **developer** → runs playbooks or harness → promotes skill revisions for **assistant** (pins / locks; see **skill packages** epic) | Playbooks remain the **expectation** source; profiles define **safe** provider and path defaults |
+| **Overlap** | *Motivation:* a **second profile** (e.g. the one named **`developer`**) is a common place to run automated or scripted model/skill tests **without** touching another profile’s state | Harness runs assume a **known config**—profiles let you keep that config **isolated** from a profile you use for something else |
+| **Composition** | *Illustrative:* switch to a **non-production** profile → run playbooks or harness → later update pins or enablement elsewhere (see **skill packages** epic) | Playbooks remain the **expectation** source; **you** choose providers and paths per profile—the epic does **not** mandate “safe defaults” per profile name |
 
-**View:** Runtime profiles address **trust and layout**; simulations address **repeatability**. Both are needed for **safe iteration** on skills with frontier models.
+**View:** Runtime profiles address **trust and layout**; simulations address **repeatability**. Together they support **safe iteration** when **you** separate experimental runs from sensitive profiles by configuration and habit, not by enforced profile personas.
 
-### Design Axes (To Decide)
+### Design Axes
 
-1. **Layout** — Per-profile subtrees under **`~/.chai/profiles/<name>/`** for **config + state + workspace** (see **Example layout**). **Skills** stay under **`~/.chai/`** root paths, not under **`profiles/<name>/`**.
-2. **Shared vs. split** — **Default: split** for **pairing**, **device tokens**, **channel stores**, **workspace**, **profile `.env`**. **Default: shared** for **skill package trees** under **`~/.chai/skills/`** (and paths listed in **`skills.extraDirs`**). **Usually shared:** host **binaries** on **`PATH`**.
-3. **Promotion** — Updating the **assistant** profile after testing in **developer** is a **pin / lock / enablement** change (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**), not a second on-disk skill tree under **`profiles/`**.
-4. **CLI/UX** — `chai profile list | switch <name> | current`; gateway resolves **`CHAI_CONFIG_PATH`** via **active profile** (e.g. **`~/.chai/active`** → **`profiles/<name>`**), or **`CHAI_PROFILE`** + resolver. **`skills.*`** paths in config are typically **absolute or `~/.chai`-relative**, not relative to the profile dir—unless we standardize “profile-relative only for workspace/pairing/channels.”
+1. **Layout** — **Everything except skill packages** lives under **`~/.chai/profiles/<name>/`**: **config**, **`agents/<id>/`** (on-disk agent context), **pairing**, **device identity**, **channel stores**, **`.env`**, and any other durable runtime state (see **Example layout**). **Only** the **shared skill store** **`~/.chai/skills/`** sits **outside** profile trees (fixed path under **`~/.chai`**).
+2. **Host** — **Binaries** on **`PATH`** remain host-global; they are not profile data.
+3. **Promotion** — *When using two profiles for isolation,* updating one profile after testing in another is a **pin / lock / enablement** change (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**), not a second on-disk skill tree under **`profiles/`**.
+4. **CLI/UX** — `chai profile list | switch <name> | current`; gateway loads **`config.json`** from the **resolved profile root** (see **Active profile resolution**). Non-skill paths in config default **profile-relative** (matrix store, device files, etc.). **Skill discovery** is **`~/.chai/skills`** only. **Which packages each agent uses** is **`skillsEnabled`** / **`contextMode`** on **`agents`** entries (**[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**)—not top-level **`skills.enabled`**.
 
-### Decisions (PoC)
+### Active Profile Resolution
+
+**Persistent default** — Symlink **`~/.chai/active`** → **`profiles/<name>/`** (target is the profile directory). The name **`active`** is fixed; it means “which profile is selected by default,” not a user profile name.
+
+**Precedence (this process)** — **Highest first:**
+
+1. **CLI** profile override for the running command (**`chai gateway --profile`**, **`chai chat --profile`**) — does **not** update **`active`**.
+2. **`CHAI_PROFILE`** — profile **name** (e.g. `assistant`); does **not** update **`active`**.
+3. **`~/.chai/active`** — read symlink; must yield a **valid** **`profiles/<name>/`** directory.
+
+**Errors (clear messages, same class of failure)** — When resolution **falls through to the symlink** (no CLI override and no **`CHAI_PROFILE`**): if **`active`** is **missing**, **broken**, or points at a **non-existent or invalid** profile path, **fail** — **do not** assume **`assistant`**. When the profile name comes from **CLI** or **`CHAI_PROFILE`**, validate that **`~/.chai/profiles/<name>/`** exists (or equivalent); invalid name → same style of error. **One-shot** invocations that **fully specify** the profile via CLI or **`CHAI_PROFILE`** need not read **`active`**; they still require a valid **`profiles/<name>/`** on disk.
+
+**Updating the persistent default** — **`chai profile switch <name>`** rewrites **`~/.chai/active`** **only when the gateway is not running**; if the gateway **is** running, **fail** with a **clear error**. **Desktop:** profile switching is **disabled** while the gateway is running; same rule.
+
+**Implementation note** — “Gateway running” uses **`~/.chai/gateway.lock`**: the file holds profile name + PID for humans; **`gateway_is_running`** and a second **`chai gateway`** take a **non-blocking advisory exclusive lock** on that file (**`fs2`**) so concurrent starts do not race a check-then-write pattern. The lock releases when the gateway process exits (including **`kill -9`** on Unix once the fd closes).
+
+**`chai profile current`** — Show the **persistent** profile: the **name** implied by **`~/.chai/active`** (the thing **`chai profile switch`** updates). If **`CHAI_PROFILE`** is set in the **current environment** and selects a **different** profile than the symlink, print **both** **persistent** and **effective**, and label **effective** as coming from **`CHAI_PROFILE`** (same pattern if this subcommand ever accepts an ephemeral **`--profile`**). When they match, **one line** is enough. That matches common CLI practice (default vs override) and avoids hiding a mismatch between “what I last switched to” and “what a gateway would use from this shell.”
+
+### Decisions (Shipped)
 
 | Topic | Decision |
 |-------|----------|
 | **Pairing and device identity** | **Per profile** — **`paired.json`**, **device signing keys**, and **device token** material live **inside** each profile’s subtree. **Security over convenience:** switching profile switches **trust domain**, not only LLM config. |
 | **Orchestration** | **Per profile** — Orchestrator settings (delegation, limits, whatever is config-driven) are read from **that profile’s** `config.json` (and profile-local state), not from a single global policy. |
-| **Tool approval** | **Per profile** — Allowlists, approval modes, and related policy are **profile-scoped** so the **assistant** profile can stay strict while **developer** allows broader experimentation. See [TOOL_APPROVAL.md](TOOL_APPROVAL.md). |
-| **Skill storage vs. profile** | **Root-level store** — Installed skills live under **`~/.chai/`** (e.g. **`skills/`**). Each profile’s **`config.json`** chooses **`skills.directory`**, **`skills.extraDirs`**, and (with the **skill packages** epic) **enablement** and **pins** / lockfile path. **No** per-profile **`profiles/<name>/skills/`** copy for the same package. |
-| **Migration from single `~/.chai/config.json`** | **Out of scope for PoC** — No commitment to seamless upgrade paths; early adopters can **manually** adopt the profile layout or re-run **`chai init`**-style scaffolding per profile as needed. |
+| **Skill storage vs. profile** | **Only skill packages outside profiles** — Packages live under **`~/.chai/skills/`**. **No** per-profile duplicate skill tree for the same package. Per-agent **skillsEnabled** in that profile’s **`config.json`** selects subsets (**[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**). |
+| **Active profile** | **`~/.chai/active`** symlink → **`profiles/<name>/`**. Override order: **CLI** (ephemeral) → **`CHAI_PROFILE`** → **symlink**. Init creates **`assistant`** and **`developer`** and sets **`active` → `profiles/assistant/`**. User may rename profiles after init. |
+| **Switching while gateway runs** | **Not allowed** — **`chai profile switch`** errors if the gateway is running; desktop **disables** the profile control in that state. User **stops** the gateway, **switches**, **restarts**. |
+| **Legacy layout** | **Not supported** — Flat **`~/.chai/config.json`** and **`CHAI_CONFIG_PATH`** are removed; no compatibility layer. **`chai init`** creates the profile layout. |
 
 ### Example `~/.chai` Layout (Illustrative)
 
-The tree below shows **shared root-level skill storage** and **per-profile** config, workspace, pairing, and channel store layout. Exact filenames may evolve with implementation; the point is **skills are not nested under `profiles/<name>/`**.
+The tree below shows **shared root-level skill storage** and **per-profile** config, **agent context dirs**, pairing, and channel store layout. Exact filenames may evolve; the point is **skill packages are not nested under `profiles/<name>/`**, and **orchestrator `AGENTS.md`** lives under **`agents/<orchestratorId>/`**.
 
 ```text
 ~/.chai/
 ├── profiles/
-│   ├── assistant/
-│   │   ├── matrix/
-│   │   ├── workspace/
-│   │   │   └── AGENTS.md            # assistant context — sensitive
+│   ├── assistant/                   # default assistant profile directory
+│   │   ├── agents/
+│   │   │   └── orchestrator/
+│   │   │       └── AGENTS.md
 │   │   ├── .env
-│   │   ├── config.json              # assistant configuration — sensitive
+│   │   ├── config.json
 │   │   ├── device.json
 │   │   ├── device_token
 │   │   └── paired.json
-│   └── developer/
-│       ├── matrix/
-│       ├── workspace/
-│       │   └── AGENTS.md            # developer context — not sensitive
+│   └── developer/                   # default developer profile directory
+│       ├── agents/
+│       │   └── orchestrator/
+│       │       └── AGENTS.md
 │       ├── .env
-│       ├── config.json              # developer configuration — not sensitive
+│       ├── config.json
 │       ├── device.json
 │       ├── device_token
 │       └── paired.json
 ├── skills/
 │   └── <skill-name>/
-└── active -> profiles/assistant/    # symlink to active profile
+└── active -> profiles/assistant/    # symlink to active profile (default assistant)
 ```
 
 **Reading the layout**
 
-- **`active`** — Points at **`profiles/<name>`**; gateway loads **`config.json`** from there. **Workspace**, **pairing**, **device** material, **channel stores** resolve **under that profile subtree** (or as set in that config).
-- **Skills** — **`~/.chai/skills/`** is the **default package store** for all profiles. **`profiles/assistant/config.json`** and **`profiles/developer/config.json`** differ by **which dirs** are on the skill path (**`directory`** + **`extraDirs`**), by **subset / enablement** (when implemented), and by **pins / lockfile** (when implemented)—not by duplicating **`skills/`** inside each profile.
-- **Privacy** — Frontier-backed **developer** runs still **load skill definitions** from disk (shared store); they do **not** receive the **assistant** profile’s **workspace** or **channel history** if those paths stay profile-local. Skill **content** is not assumed to contain user secrets—**workspace** is where sensitive context lives.
-- **Promotion** — After validating a skill revision in **developer**, update the **assistant** profile’s **pins or lock** (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**); revisions live **inside** each **`skills/<name>/`** tree, not in a separate drafts directory.
+- **`active`** — Symlink at **`~/.chai/active`** points at **`profiles/<name>/`**; see **Active profile resolution** for overrides (**`CHAI_PROFILE`**, CLI) and error rules. Gateway loads **`config.json`** from the resolved profile root. **Agent context dirs** (**`agents/<id>/`**), **pairing**, **device** material, and **channel stores** resolve **under that profile subtree** (or as set in config).
+- **Skills** — **`~/.chai/skills/`** is the **only** package store. Profiles differ by per-agent **skillsEnabled** / **`contextMode`** in **`config.json`**; **pins / lockfile** when **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** ships—not by duplicating **`skills/`** under **`profiles/`**.
+- **Privacy** — *Motivation:* if you point **one** profile at frontier providers and keep **another** for sensitive use, skill **definitions** still load from the shared store; **profile-local** **`agents/`**, **channel history**, and pairing **do not** cross profiles. Put sensitive **orchestrator instructions** in **`agents/<orchestratorId>/AGENTS.md`** for the profile that should see them.
+- **Promotion** — *Illustrative workflow:* after validating a skill revision in **profile A**, update **profile B**’s **pins or lock** (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**); revisions live **inside** each **`skills/<name>/`** tree, not in a separate drafts directory.
 
-## Requirements
+## Requirements (Shipped)
 
-- [ ] **Profile layout** — Per-profile subtrees under `~/.chai/profiles/<name>/` for config, workspace, pairing, device identity, channel stores, and secrets (`.env`).
-- [ ] **Shared skill store** — Skills live under `~/.chai/skills/`; profiles differ by `skills.directory`, `skills.extraDirs`, and enablement — not by duplicating skill trees per profile.
-- [ ] **Active profile resolution** — Gateway resolves config from the active profile (e.g. `~/.chai/active` symlink → `profiles/<name>`), via `CHAI_PROFILE` env var, or CLI argument.
-- [ ] **Profile switching** — CLI commands for profile management (`chai profile list | switch <name> | current`); switching requires gateway restart.
-- [ ] **Per-profile pairing and device identity** — `paired.json`, device signing keys, and device token material live inside each profile's subtree.
-- [ ] **Per-profile tool approval** — Allowlists, approval modes, and related policy are profile-scoped. See [TOOL_APPROVAL.md](TOOL_APPROVAL.md).
-- [ ] **Developer profile template** — Scaffold developer profile with restricted workspace, optional dummy data location, and documentation for frontier provider use only in that profile.
-- [ ] **Capability-tier validation** — Warn at startup when enabled skills have a `capability_tier` that exceeds the profile's configured model capability. Warn when variant skills (`model_variant_of`) are both enabled in the same profile.
-- [ ] **Desktop parity** — Surface active profile and restart-to-switch in the desktop application.
+- [x] **Profile layout** — Per-profile subtrees under `~/.chai/profiles/<name>/` for `config.json`, **`agents/<id>/`**, `paired.json`, device identity, Matrix store default, etc. Users may add a profile-local **`.env`**; the runtime does **not** auto-create or load it yet.
+- [x] **Shared skill store** — Skills under `~/.chai/skills/` only; each profile’s `config.json` selects subsets per agent via **`skillsEnabled`** on orchestrator/worker entries (see **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**).
+- [x] **Active profile resolution** — Symlink `~/.chai/active` → `profiles/<name>/`; overrides: **`chai gateway --profile` / `chai chat --profile`**, then **`CHAI_PROFILE`**, then symlink. Clear errors when the symlink is missing, broken, or invalid (no silent default to `assistant` when the symlink is required); invalid override targets fail similarly.
+- [x] **Initialization defaults** — **`chai init`** creates **`assistant`** and **`developer`**, writes default **`config.json`**, **`agents/orchestrator/AGENTS.md`**, extracts shared **`skills/`**, sets **`active` → `profiles/assistant/`**.
+- [x] **Profile switching (CLI)** — **`chai profile list`**, **`current`** (persistent + effective when **`CHAI_PROFILE`** differs), **`switch`** (refuses when the advisory lock on **`gateway.lock`** indicates a live gateway). Live stack still **stop → switch → restart**.
+- [x] **Gateway lock** — **`~/.chai/gateway.lock`**: profile name + PID for humans; **`gateway_is_running`** and second **`chai gateway`** use a **non-blocking advisory exclusive lock** (**`fs2`**) so concurrent starts do not race.
+- [x] **Per-profile pairing and device identity** — `paired.json`, **`device.json`**, **`device_token`** under each profile directory; gateway uses profile-local paths.
+- [x] **Desktop profile switching (core)** — Header shows **persistent** active profile name; **ComboBox** switches **`~/.chai/active`** when the gateway is **not** running (same lock rule as CLI). Optional **persistent vs effective** hint when env overrides exist — **[DESKTOP_APP.md](DESKTOP_APP.md)**.
+- [x] **Historical doc alignment** — **`.journey/`**, **`.agents/ref/CLAW_ECOSYSTEM.md`**, **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** (where still useful as history), and stray **`CHAI_CONFIG_PATH`** / flat **`config.json`** references brought in line with the profile layout.
 
-## Phases (Tentative)
+## Delivery Phases (Retrospective)
 
-1. **Inventory** — Map every path and env var today (`CHAI_CONFIG_PATH`, `skills.directory`, workspace, `paired.json`, channel stores) to **profile-relative resolution** vs. **host-global**; document **privacy footguns** if anything still resolves outside the active profile subtree.
-2. **Profile layout MVP** — **Per-profile** config + workspace + pairing + channels; **one** root **`skills/`**; profile configs differ by **skill paths and load rules**; **no** skill package lockfile yet—just **switch + restart**.
-3. **Default + developer templates** — Scaffold **developer** profile with **restricted workspace**, optional **dummy data** location, and docs for **frontier** provider use **only** in that profile.
-4. **Desktop** — Surface **active profile** and **restart to switch** (parity with CLI).
+| Phase | Outcome |
+|-------|---------|
+| **Inventory** | Paths mapped; **`CHAI_CONFIG_PATH`** and flat config removed from code and user docs. |
+| **Profile layout** | Per-profile config, **`agents/<id>/`**, pairing, channels, shared **`skills/`**, switch + restart. |
+| **Second default profile** | **`developer`** scaffold has **parity** with **`assistant`**. |
+| **Desktop** | Header profile switcher + lock rule (**`crates/desktop`**). |
+| **Lock + docs** | Advisory **`gateway.lock`**; journey, **`.agents`** implementation archive, and ecosystem docs updated. |
 
-## Implementation order (with related epics)
+## Implementation Order (with Related Epics)
 
-When implementing **runtime profiles**, **agent isolation**, and **skill packages** together, use this sequence:
+When adding **agent isolation**, **skill packages**, or adjacent work on top of profiles, use this sequence:
 
-1. **This epic** — **First.** Establishes **`profileRoot`**, active profile resolution, and trust boundaries (config, workspace, pairing, channels). Lets **`agents/<agentId>/`** live under each profile without a later path migration.
-2. **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — **Second.** Per-agent workspaces under the profile, per-agent skill policy in **`config.json`**, and orchestrator vs worker prompts.
-3. **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** — **Third.** Package revisions, **`skills.lock`** / pins, and rollback on top of the shared **`~/.chai/skills/`** store and profile-local config.
+1. **This epic** — **First.** Establishes **`profileRoot`**, active profile resolution, and trust boundaries (config, **`agents/<agentId>/`**, pairing, channels).
+2. **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — **Second.** Per-agent context directories under the profile, per-agent skill configuration in **`config.json`**, and orchestrator vs worker prompts.
+3. **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** — **Third.** Package revisions, **`skills.lock`** / pins, rollback, and **skill-package concerns** such as **capability-tier / variant validation** at startup (see that epic)—on top of the shared **`~/.chai/skills/`** store and profile-local config.
 
-**Note:** Agent isolation can be prototyped with **`profileRoot = ~/.chai`** before profiles land, at the cost of moving **`agents/`** under **`profiles/<name>/`** when profiles ship. The order above avoids that extra migration.
+**Note:** **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** assumes **`profileRoot`** is always a profile directory (shipped layout); there is no flat **`~/.chai/agents/`** tree.
 
 ## Related Epics and Docs
 
 - [AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent **`agents/<id>/`** under the profile; **Implementation order** aligns with this epic **first**.
-- [SKILL_PACKAGES.md](SKILL_PACKAGES.md) — **Lockfiles**, **pins**, **rollback**, flake-style metaphor; **consumes** profile context for **which** lock is active; implement **after** agent isolation (see **Implementation order** above).
+- [SKILL_PACKAGES.md](SKILL_PACKAGES.md) — **Lockfiles**, **pins**, **rollback**, flake-style metaphor, and **startup validation** of **`capability_tier`** / **`model_variant_of`** against the active profile’s effective model (not a requirement of this epic); **consumes** profile context for **which** lock is active; implement **after** agent isolation (see **Implementation order** above).
+- [DESKTOP_APP.md](DESKTOP_APP.md) — Desktop **profile** UX beyond this epic’s core switcher (optional **persistent vs effective** hint).
 - [SIMULATIONS.md](SIMULATIONS.md) — Harness and repeatable runs; complementary to profile-bound trust.
-- [TOOL_APPROVAL.md](TOOL_APPROVAL.md) — Tool approval is **per profile** (see **Decisions**).
-- [README.md](../../README.md) — Current **`~/.chai`** layout and `CHAI_CONFIG_PATH`.
-- [.testing/README.md](../../.testing/README.md) — Model-comparison playbooks; natural fit for **developer** profile.
+- [README.md](../../README.md) — Describes profile layout, **`CHAI_PROFILE`**, and **`chai profile`** commands (keep in sync with code).
+- [.testing/README.md](../../.testing/README.md) — Model-comparison playbooks; natural fit for a **second** or **non-production** profile when you want isolation from daily assistant state.

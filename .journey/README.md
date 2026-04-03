@@ -2,6 +2,8 @@
 
 This directory contains step-by-step user journeys for understanding the system and manually testing it. Run through them to test behavior after significant changes or before a release.
 
+**Config location:** Gateway and channel settings live in **`~/.chai/profiles/<name>/config.json`** for the **active** profile (`~/.chai/active` symlink, **`CHAI_PROFILE`**, or **`chai gateway --profile`**). There is **no** flat **`~/.chai/config.json`**.
+
 ## Writing Guidelines
 
 Each file is a single journey: prerequisites, steps, and expected outcomes. Keep steps minimal but enough to complete the flow.

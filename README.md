@@ -6,7 +6,7 @@ A multi-agent management system.
 
 - **`crates/cli`** — A command-line interface for running the gateway and a workspace
 - **`crates/desktop`** — A graphical user-interface for running the gateway and a workspace
-- **`crates/lib`** — All shared business logic for the multi-agent managements system
+- **`crates/lib`** — All shared business logic for the multi-agent management system
 
 ## Commands
 
@@ -23,7 +23,11 @@ cargo build -p lib
 cargo run -p cli -- --help
 cargo run -p cli -- version
 cargo run -p cli -- init
-cargo run -p cli -- gateway
+cargo run -p cli -- profile list
+cargo run -p cli -- profile current
+cargo run -p cli -- profile switch <name>
+cargo run -p cli -- gateway   # optional: --profile <name>, --port <port>
+cargo run -p cli -- chat      # optional: --profile <name>, --session <id>
 
 # Run the desktop application
 cargo run -p desktop
@@ -50,7 +54,11 @@ Run the installed CLI:
 chai --help
 chai version
 chai init
-chai gateway
+chai profile list
+chai profile current
+chai profile switch <name>
+chai gateway   # optional: --profile <name>, --port <port>
+chai chat      # optional: --profile <name>, --session <id>
 ```
 
 ## Desktop Application
@@ -75,12 +83,11 @@ The command-line interface and desktop application use the same configuration.
 
 ### Initialization
 
-After installing, run **`chai init`** to create the configuration directory (`~/.chai/`).
+After installing, run **`chai init`** to create **`~/.chai/`**: default profiles **`assistant`** and **`developer`**, a symlink **`active`** → **`profiles/assistant/`**, and a shared **`skills/`** tree.
 
 ### Configuration File (`config.json`)
 
-The main configuration is loaded from a JSON file. The default path is `~/.chai/config.json`. The 
-default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration file is created at initialization.
+Each **profile** has its own **`config.json`** at **`~/.chai/profiles/<name>/config.json`**. The active profile is **`~/.chai/active`** (symlink). Override for one process with **`CHAI_PROFILE`** or **`chai gateway --profile <name>`**. Use **`chai profile list`**, **`chai profile current`**, and **`chai profile switch <name>`** (gateway must be stopped) to inspect or change the persistent active profile. An empty **`config.json`** is created per profile at initialization.
 
 **Minimal example** — a valid configuration file (built-in defaults are used at runtime).
 
@@ -104,12 +111,10 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "id": "orchestrator",
       "role": "orchestrator",
       "defaultProvider": "ollama",
-      "defaultModel": "llama3.2:3b"
+      "defaultModel": "llama3.2:3b",
+      "contextMode": "full"
     }
-  ],
-  "skills": {
-    "contextMode": "full"
-  }
+  ]
 }
 ```
 
@@ -138,7 +143,8 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "password": null,
       "userId": null,
       "storePath": null,
-      "deviceId": null
+      "deviceId": null,
+      "roomIds": null
     },
     "signal": {
       "httpBase": null,
@@ -161,7 +167,8 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "baseUrl": null
     },
     "nim": {
-      "apiKey": null
+      "apiKey": null,
+      "extraModels": null
     },
     "openai": {
       "apiKey": null,
@@ -175,7 +182,6 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
       "enabledProviders": [],
-      "workspace": null,
       "maxSessionMessages": null,
       "maxDelegationsPerTurn": null,
       "maxDelegationsPerSession": null,
@@ -213,13 +219,7 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
         }
       ]
     }
-  ],
-  "skills": {
-    "contextMode": "full",
-    "directory": null,
-    "extraDirs": [],
-    "enabled": []
-  }
+  ]
 }
 ```
 
@@ -251,9 +251,10 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
 - **`channels.matrix`**
   - **`homeserver`** — Required HTTPS base URL (e.g. **`https://matrix.example.org`**)
   - Either **`accessToken`** (optional **`userId`**) or **`user`** + **`password`**
-  - Optional **`storePath`** (defaults to **`~/.chai/matrix`** when not set)
+  - Optional **`storePath`** (defaults to **`<active-profile>/matrix`** when not set; relative paths are under the profile directory)
   - Optional **`deviceId`** (used with **`accessToken`** when server does not return device id)
-  - **`MATRIX_HOMESERVER`**, **`MATRIX_ACCESS_TOKEN`**, **`MATRIX_USER_ID`**, **`MATRIX_USER`**, **`MATRIX_PASSWORD`**, **`CHAI_MATRIX_STORE`**, and **`MATRIX_DEVICE_ID`** override config fields (see **Environment variables**)
+  - Optional **`roomIds`** — when non-empty, only these room ids (`!room:server`) get agent turns; **`MATRIX_ROOM_ALLOWLIST`** (comma-separated) overrides when set and non-empty
+  - **`MATRIX_HOMESERVER`**, **`MATRIX_ACCESS_TOKEN`**, **`MATRIX_USER_ID`**, **`MATRIX_USER`**, **`MATRIX_PASSWORD`**, **`CHAI_MATRIX_STORE`**, **`MATRIX_DEVICE_ID`**, and **`MATRIX_ROOM_ALLOWLIST`** override config fields (see **Environment variables**)
 
 ### Providers
 
@@ -290,7 +291,8 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   - Optional **`defaultProvider`** (defaults to **`ollama`**)
   - Optional **`defaultModel`** (defaults to a provider-specific fallback, e.g. **`llama3.2:3b`** for **`ollama`**, **`llama-3.2-3B-instruct`** for **`lms`**, **`meta/llama-3.2-3b-instruct`** for **`nim`**)
   - Optional **`enabledProviders`**
-  - Optional **`workspace`**
+  - Optional **`skillsEnabled`** — skill package names for the orchestrator (packages under **`~/.chai/skills`**); omit or **`[]` ⇒ no skills
+  - Optional **`contextMode`** — **`full`** or **`readOnDemand`** for orchestrator skill text
   - Optional **`maxSessionMessages`**
   - Optional **`maxDelegationsPerTurn`**
   - Optional **`maxDelegationsPerSession`**
@@ -315,35 +317,28 @@ default path can be overridden with `CHAI_CONFIG_PATH`. An empty configuration f
   - Required **`id`** (referenced by **`delegate_task`** **`workerId`**)
   - Optional **`defaultProvider`** (defaults to orchestrator provider)
   - Optional **`defaultModel`** (defaults to orchestrator model)
-  - Optional **`enabledProviders`**
+  - Optional **`enabledProviders`** — when set for a worker, **`delegate_task`** with that **`workerId`** may only use those canonical provider ids (see orchestration spec); does not change gateway model discovery (still driven by the orchestrator entry)
+  - Optional **`skillsEnabled`** / **`contextMode`** — same semantics as the orchestrator, for worker turns only
   - Optional **`delegateAllowedModels`**
     - Same shape as on the orchestrator (array of objects with **`provider`**, **`model`**, optional **`local`**, optional **`toolCapable`**).
     - Omit or use an empty array to allow only that worker’s effective default **`provider`** / **`model`** for **`delegate_task`** when **`workerId`** matches.
 
 ### Skills
 
-**`skills`** — Skill loading and layout.
-
-| Field | In `config.json` |
-|-------|------------------|
-| `contextMode` | **`full`** or **`readOnDemand`** (default **`full`**). |
-| `directory` | Optional root directory for on-disk skills (default: `~/.chai/skills/`). |
-| `extraDirs` | Additional skill directory paths (array of strings). |
-| `enabled` | Skill names to load (array of strings; default **none**). |
+Skill **packages** are always loaded from **`~/.chai/skills/`** (shared across profiles). There is **no** config field for alternate discovery paths. **`contextMode`**, **`skillsEnabled`**, and which packages apply to each agent are set on **orchestrator and worker entries** in the **`agents`** array.
 
 ### Configuration Directory (`~/.chai/`)
 
-The configuration directory contains the following:
-
-- **`config.json`** — Main configuration file; see **Gateway** through **Skills** above for top-level keys.
-- **`skills`** — On-disk skills tree. After **`chai init`**, bundled skills are extracted here.
-- **`workspace`** — Default on-disk agent workspace (`AGENTS.md`, etc.); override with **`workspace`** on the orchestrator entry in **`config.json`**. See **Agents** → [Orchestrator workspace](#orchestrator-workspace).
+- **`profiles/<name>/`** — Per-profile **`config.json`**, **`agents/<agentId>/`** (**`AGENTS.md`** per agent), **`paired.json`**, device identity, Matrix store (defaults), and other profile-local state.
+- **`active`** — Symlink to **`profiles/<name>/`** (persistent active profile).
+- **`skills/`** — Shared on-disk skills tree. After **`chai init`**, bundled skills are extracted here.
+- **`gateway.lock`** — While a gateway runs, this file is held with an **advisory exclusive lock** and contains profile name + PID (for debugging). **`chai profile switch`** and the desktop profile control refuse while another process holds that lock.
 
 ### Environment variables
 
 | Variable | Overrides | Description |
 |----------|-----------|-------------|
-| `CHAI_CONFIG_PATH` | Config file path | Full path to the configuration file. The default path is `~/.chai/config.json`. |
+| `CHAI_PROFILE` | Active profile | Profile name; overrides **`~/.chai/active`** for config resolution for that process. |
 | `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret for WebSocket connect when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
 | `SIGNAL_CLI_HTTP` | `channels.signal.httpBase` | signal-cli HTTP daemon base URL (`http://127.0.0.1:7583`). |
@@ -354,7 +349,8 @@ The configuration directory contains the following:
 | `MATRIX_USER` | `channels.matrix.user` | Localpart or full MXID for password login. |
 | `MATRIX_PASSWORD` | `channels.matrix.password` | Password for **`m.login.password`**. |
 | `MATRIX_DEVICE_ID` | `channels.matrix.deviceId` | Device id for access-token session restore when whoami omits it. |
-| `CHAI_MATRIX_STORE` | `channels.matrix.storePath` | Directory for Matrix SDK SQLite + crypto store (default `~/.chai/matrix`). |
+| `CHAI_MATRIX_STORE` | `channels.matrix.storePath` | Directory for Matrix SDK SQLite + crypto store (default **`<active-profile>/matrix`**; relative **`storePath`** is under the profile directory). |
+| `MATRIX_ROOM_ALLOWLIST` | `channels.matrix.roomIds` | Comma-separated room ids; when set and non-empty, replaces the config allowlist. |
 | `VLLM_API_KEY` | `providers.vllm.apiKey` | Bearer token for vLLM when the server was started with `--api-key`. |
 | `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face OpenAI-compatible endpoints when required. |
 | `NVIDIA_API_KEY` | `providers.nim.apiKey` | API key for NVIDIA NIM hosted API at `https://integrate.api.nvidia.com`. When set, this is used for the NIM provider. |
@@ -364,7 +360,7 @@ The configuration directory contains the following:
 
 ### WebSocket
 
-Clients connect at `ws://<bind>:<port>/ws` (from **`gateway.bind`** and **`gateway.port`**), call `connect`, then `agent` (run model) and `send` (deliver message to a channel). Used by the desktop application and for scripting.
+Clients connect at `ws://<bind>:<port>/ws` (from **`gateway.bind`** and **`gateway.port`**), call **`connect`**, then **`agent`** (run a model turn), **`send`** (deliver text on a channel), **`status`** (runtime snapshot), or **`health`** (lightweight probe). Used by the desktop application and for scripting.
 
 When **`gateway.bind`** is not loopback, use **`gateway.auth`** with **`mode`** **`token`** and a secret (or **`CHAI_GATEWAY_TOKEN`**).
 
@@ -380,17 +376,17 @@ The gateway connects to a **BYO** signal-cli **`daemon --http`** instance: **`GE
 
 ### Matrix
 
-The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store under **`~/.chai/matrix`** by default (override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It syncs with the **Client-Server API**, decrypts **encrypted** rooms when the account has keys, and sends replies with **`m.room.message`** (**plain text**; encrypted in **encrypted** rooms). Configure **`channels.matrix`** (see **Configuration → Channels**) or the **`MATRIX_*`** environment variables. The bot user must already be a member of rooms you expect to use; invite the bot from Element (or another client) first. **`/new`** in a room starts a fresh session for that room, same as Telegram.
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store under **`<active-profile>/matrix`** by default (override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It syncs with the **Client-Server API**, decrypts **encrypted** rooms when the account has keys, and sends replies with **`m.room.message`** (**plain text**; encrypted in **encrypted** rooms). Configure **`channels.matrix`** (see **Configuration → Channels**) or the **`MATRIX_*`** environment variables. The bot user must already be a member of rooms you expect to use; invite the bot from Element (or another client) first. **`/new`** in a room starts a fresh session for that room, same as Telegram.
 
 ## Agents
 
-In Chai, **agents** are the **policy** for the assistant the gateway runs: they name the **orchestrator** that owns the conversation, optionally define **workers** for delegated subtasks, and set **defaults** for which **provider** and **model** to use, where **workspace** files such as **`AGENTS.md`** live, and how **model discovery** is scoped. An agent is not a separate service or binary—it is **configuration** that the gateway reads to route each turn and merge context. **Skills** supply instructions and optional tools; top-level **`providers`** supply URLs and API keys; the **`agents`** block ties those inputs to one orchestrator and any workers you define.
+In Chai, **agents** hold **configuration** for the assistant the gateway runs: they name the **orchestrator** that owns the conversation, optionally define **workers** for delegated subtasks, and set **defaults** for which **provider** and **model** to use, how **model discovery** is scoped, and per-role **skills** (**`skillsEnabled`**, **`contextMode`**). On disk, each agent’s **`AGENTS.md`** lives in that agent’s **context directory** at **`<active-profile>/agents/<agentId>/AGENTS.md`** (no path override in config). An agent is not a separate service or binary—the **`agents`** block is **configuration** the gateway reads to route each turn and assemble **context**. **Skills** supply instructions and optional tools; top-level **`providers`** supply URLs and API keys; the **`agents`** block ties those inputs to one orchestrator and any workers you define. **Delegation** allowlists, caps, and routes are **policy** on top of that configuration (see [.agents/spec/ORCHESTRATION.md](.agents/spec/ORCHESTRATION.md)).
 
 ### Agent Orchestration
 
-Each entry in **`agents`** has a unique **`id`**, a **`role`** (`orchestrator` or `worker`), and the optional fields listed under **Configuration → Agents** above. The gateway uses this to route turns to the right backend, pass model ids to each provider, decide which APIs to poll for model discovery, and load **`AGENTS.md`** from the orchestrator’s workspace. With multiple workers are configured, the orchestrator can delegate subtasks using the built-in **`delegate_task`** tool.
+Each entry in **`agents`** has a unique **`id`**, a **`role`** (`orchestrator` or `worker`), and the optional fields listed under **Configuration → Agents** above. The gateway uses this to route turns to the right backend, pass model ids to each provider, decide which APIs to poll for model discovery, and load **`AGENTS.md`** from **`<active-profile>/agents/<id>/`**. With workers configured, the orchestrator can delegate subtasks using the built-in **`delegate_task`** tool.
 
-The orchestrator entry may set **`workspace`** (directory for agent context such as **`AGENTS.md`**). Default is `~/.chai/workspace/` when not set. **`AGENTS.md`** is created by **`chai init`** when missing; the gateway loads it as agent-level context and prepends it to the skills context each turn. For how to edit **`AGENTS.md`** and what else lives in the workspace directory, see **Workspace** below.
+**`chai init`** creates **`agents/orchestrator/AGENTS.md`** for the default orchestrator id. Edit that file (or add **`agents/<workerId>/AGENTS.md`** for workers) to customize on-disk agent context; see **Agent Context On Disk** below.
 
 **Multi-agent example** — only the **`agents`** array; orchestration agent and worker agents:
 
@@ -441,7 +437,7 @@ Set **`defaultProvider`** on the orchestrator entry to **`ollama`**, **`lms`**, 
 Use the exact model id expected by the selected provider for **`defaultModel`**:
 
 - For `ollama`, use the name from `ollama list` (e.g. `llama3.2:3b`, `qwen3:8b`).
-- For `lms`, use the name from LM Studio or `GET /v1/models` (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`).
+- For `lms`, use the id from the LM Studio UI or **`GET …/api/v1/models`** on the LM Studio server (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`).
 - For `vllm`, use the same id you pass to `vllm serve` (e.g. `Qwen/Qwen2.5-7B-Instruct`).
 - For `hf`, use the model id your endpoint expects (e.g. `meta-llama/Llama-3.1-8B-Instruct`).
 - For `nim`, use a NIM catalog id (e.g. `meta/llama-3.2-3b-instruct`); see [LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis).
@@ -453,28 +449,30 @@ Skills are markdown-based instructions (one per directory with a `SKILL.md` file
 
 ### Context Mode
 
-`skills.contextMode`: how skill documentation is provided to the model.
+On the **orchestrator** entry in the **`agents`** array, **`contextMode`** controls how skill documentation is provided to the model.
 
-- **`full`** (default) — All loaded skills’ full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models (e.g. 7B–9B).
+- **`full`** (default) — All enabled skills’ full SKILL.md content is injected into the system message each turn. Best for few skills and smaller local models (e.g. 7B–9B).
 - **`readOnDemand`** — The system message contains only a compact list (name, description). The model uses the **`read_skill`** tool to load a skill’s full SKILL.md when it clearly applies. Keeps the prompt small and scales to many skills; requires the model to call the tool before using a skill.
+
+Worker entries use their own **`skillsEnabled`** / **`contextMode`** for delegated turns.
 
 ### Declaring Skills
 
-Only skills listed in **`skills.enabled`** are loaded; the default is none. Add the skill names you want (e.g. `["notesmd-daily"]` or `["notesmd", "notesmd-daily"]`). A skill is only loaded when enabled and its `metadata.requires.bins` are on the gateway's PATH.
+Packages are discovered only under **`~/.chai/skills`**. Which packages load for each agent is set per entry: on the orchestrator, **`skillsEnabled`** lists skill names (default none). A skill is only loaded when listed and its `metadata.requires.bins` are on the gateway's PATH.
 
 ### Bundled skills
 
-- **notesmd** — Create, read, search, update, and delete notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
-- **notesmd-daily** — Create, read, and update daily notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd-daily"` to `skills.enabled` and ensure `notesmd-cli` is on PATH.
-- **obsidian** — Create, read, search, update, and delete notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian"` to `skills.enabled` and ensure `obsidian` is on PATH.
-- **obsidian-daily** — Create, read, and update daily notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian-daily"` to `skills.enabled` and ensure `obsidian` is on PATH.
+- **notesmd** — Create, read, search, update, and delete notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd"` to the orchestrator’s **`skillsEnabled`** and ensure `notesmd-cli` is on PATH.
+- **notesmd-daily** — Create, read, and update daily notes. Uses [NotesMD CLI](https://github.com/yakitrak/notesmd-cli) (binary `notesmd-cli`). Add `"notesmd-daily"` to **`skillsEnabled`** and ensure `notesmd-cli` is on PATH.
+- **obsidian** — Create, read, search, update, and delete notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian"` to **`skillsEnabled`** and ensure `obsidian` is on PATH.
+- **obsidian-daily** — Create, read, and update daily notes. Uses [Obsidian CLI](https://help.obsidian.md/cli) (binary `obsidian`). Add `"obsidian-daily"` to **`skillsEnabled`** and ensure `obsidian` is on PATH.
 
 ### Custom skills
 
-Add skills to the config directory’s **`skills`** subdirectory (`~/.chai/skills`), or set **`skills.directory`** in config to another path (e.g. a repo’s `skills/` folder), or add paths in **`skills.extraDirs`**. One subdirectory per skill with a **`SKILL.md`** file; add **`tools.json`** in that directory to define the skill’s tools (without it, the skill has no callable tools). Use `name` and `description` in the frontmatter; use `metadata.requires.bins` so the skill loads only when those binaries are on PATH.
+Add skills under **`~/.chai/skills`** (one subdirectory per skill with a **`SKILL.md`** file). Add **`tools.json`** in that directory to define the skill’s tools (without it, the skill has no callable tools). Use `name` and `description` in the frontmatter; use `metadata.requires.bins` so the skill loads only when those binaries are on PATH.
 
-## Workspace
+## Agent Context On Disk
 
-The workspace directory includes **frontloaded context** for the agent (e.g. `AGENTS.md`).
+Each profile stores per-agent instructions under **`agents/<agentId>/`** (the **agent context directory** for that **`id`**). The file is always **`AGENTS.md`** in that directory. **`chai init`** creates **`agents/orchestrator/AGENTS.md`** for the default orchestrator id.
 
-- **`AGENTS.md`** — Created when you run `chai init` (and only recreated if the file is missing). Edit the file to customize your agent. The gateway loads it as **agent-level context** and prepends it to the skills context on every turn. Recommendations vary based on the size and capabilities of the model.
+- **`AGENTS.md`** — Agent-level context for that role; the gateway prepends it to the skills block on each turn.

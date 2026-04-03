@@ -4,9 +4,9 @@ Information and guidelines for working on code in this repository.
 
 ## Primary Resources
 
-This document and the `.agents` directory are the primary resources.
+This document and the `.agents/` directory are the primary resources.
 
-**Always read [.agents/README.md](.agents/README.md)** — the entry point for the `.agents` directory.
+**Always read [.agents/README.md](.agents/README.md)** — the entry point for the `.agents/` directory.
 
 ## Architecture Overview
 
