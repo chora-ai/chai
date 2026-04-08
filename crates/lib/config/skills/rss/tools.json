@@ -1,0 +1,72 @@
+{
+  "tools": [
+    {
+      "name": "rss_check_feed",
+      "description": "Fetch an RSS or Atom feed and return its XML content. Accepts a feed name (from configured feeds) or a direct URL.",
+      "parameters": {
+        "type": "object",
+        "required": ["feed"],
+        "properties": {
+          "feed": {
+            "type": "string",
+            "description": "Feed name from configured feeds (e.g. 'hackernews') or a direct feed URL"
+          }
+        }
+      }
+    },
+    {
+      "name": "rss_list_feeds",
+      "description": "List all configured feed names and their URLs.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Optional override path to feeds file; default is ~/.chai/feeds.txt (resolved by the skill)"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "curl": ["-sf --max-time 10"],
+    "cat": [""]
+  },
+  "execution": [
+    {
+      "tool": "rss_check_feed",
+      "binary": "curl",
+      "subcommand": "-sf --max-time 10",
+      "args": [
+        {
+          "param": "feed",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-feed-url",
+            "args": ["$param"]
+          }
+        }
+      ],
+      "postProcess": {
+        "script": "parse-rss"
+      }
+    },
+    {
+      "tool": "rss_list_feeds",
+      "binary": "cat",
+      "subcommand": "",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-feeds-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -55,12 +55,7 @@ fn render_chat_message(
             } else if is_delegation {
                 egui::Color32::from_rgb(90, 110, 140)
             } else {
-                ui.style()
-                    .visuals
-                    .widgets
-                    .noninteractive
-                    .bg_stroke
-                    .color
+                ui.style().visuals.widgets.noninteractive.bg_stroke.color
             },
         ))
         .rounding(egui::Rounding::same(12.0))
@@ -82,11 +77,7 @@ fn render_chat_message(
                     .color(accent),
             );
         } else if is_user {
-            ui.label(
-                egui::RichText::new(user_display)
-                    .small()
-                    .weak(),
-            );
+            ui.label(egui::RichText::new(user_display).small().weak());
             ui.add_space(4.0);
             ui.label(egui::RichText::new(&m.content).strong());
         } else if is_error {
@@ -124,13 +115,9 @@ fn render_chat_message(
                                     .get("function")
                                     .and_then(|f| f.get("arguments"))
                                     .unwrap_or(&serde_json::Value::Null);
-                                let tool_type = tc
-                                    .get("type")
-                                    .and_then(|t| t.as_str())
-                                    .unwrap_or("");
-                                ui.label(
-                                    egui::RichText::new(tool_name).strong(),
-                                );
+                                let tool_type =
+                                    tc.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                                ui.label(egui::RichText::new(tool_name).strong());
                                 if !tool_type.is_empty() {
                                     ui.label(format!("Type: {}", tool_type));
                                 }
@@ -168,12 +155,13 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
     let messages_height = (available - bottom_section_height).max(CHAT_MESSAGES_MIN_HEIGHT);
 
     let messages_width = ui.available_width();
-    let messages_rect = ui.allocate_exact_size(
-        egui::vec2(messages_width, messages_height),
-        egui::Sense::hover(),
-    ).0;
-    let mut messages_ui =
-        ui.child_ui(messages_rect, egui::Layout::top_down(egui::Align::Min));
+    let messages_rect = ui
+        .allocate_exact_size(
+            egui::vec2(messages_width, messages_height),
+            egui::Sense::hover(),
+        )
+        .0;
+    let mut messages_ui = ui.child_ui(messages_rect, egui::Layout::top_down(egui::Align::Min));
     // Always use session_messages for the selected session when present to avoid duplicates from chat_messages diverging.
     let messages_to_show: Vec<ChatMessage> = if let Some(ref id) = app.selected_session_id {
         app.session_messages.get(id).cloned().unwrap_or_default()
@@ -212,10 +200,8 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
     ui.add_space(8.0);
 
     let row_width = ui.available_width();
-    let (rect, _) =
-        ui.allocate_exact_size(egui::vec2(row_width, row_height), egui::Sense::hover());
-    let mut row_ui =
-        ui.child_ui(rect, egui::Layout::right_to_left(egui::Align::Center));
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(row_width, row_height), egui::Sense::hover());
+    let mut row_ui = ui.child_ui(rect, egui::Layout::right_to_left(egui::Align::Center));
     egui::Frame::none()
         .inner_margin(egui::Margin {
             left: 0.0,
@@ -228,32 +214,41 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             let effective_provider = app
                 .current_provider
                 .as_deref()
-                .or_else(|| app.gateway_status.as_ref().and_then(|s| s.default_provider.as_deref()))
+                .or_else(|| {
+                    app.gateway_status
+                        .as_ref()
+                        .and_then(|s| s.default_provider.as_deref())
+                })
                 .unwrap_or("ollama")
                 .to_string();
             // Only models for the selected provider.
-            let gateway_models: Vec<String> = app.gateway_status.as_ref().map(|s| {
-                if effective_provider == "lms" {
-                    s.lms_models.clone()
-                } else if effective_provider == "vllm" {
-                    s.vllm_models.clone()
-                } else if effective_provider == "nim" {
-                    s.nim_models.clone()
-                } else if effective_provider == "openai" {
-                    s.openai_models.clone()
-                } else if effective_provider == "hf" {
-                    s.hf_models.clone()
-                } else {
-                    s.ollama_models.clone()
-                }
-            }).unwrap_or_default();
-            let effective_default_model = app.gateway_status.as_ref().and_then(|s| s.default_model.clone()).or_else(|| app.default_model.clone());
+            let gateway_models: Vec<String> = app
+                .gateway_status
+                .as_ref()
+                .map(|s| {
+                    if effective_provider == "lms" {
+                        s.lms_models.clone()
+                    } else if effective_provider == "vllm" {
+                        s.vllm_models.clone()
+                    } else if effective_provider == "nim" {
+                        s.nim_models.clone()
+                    } else if effective_provider == "openai" {
+                        s.openai_models.clone()
+                    } else if effective_provider == "hf" {
+                        s.hf_models.clone()
+                    } else {
+                        s.ollama_models.clone()
+                    }
+                })
+                .unwrap_or_default();
+            let effective_default_model = app
+                .gateway_status
+                .as_ref()
+                .and_then(|s| s.default_model.clone())
+                .or_else(|| app.default_model.clone());
 
             // Model dropdown: only models for the selected provider. For hosted API providers, use default when list empty.
-            let is_hosted_api = matches!(
-                effective_provider.as_str(),
-                "nim" | "openai" | "hf"
-            );
+            let is_hosted_api = matches!(effective_provider.as_str(), "nim" | "openai" | "hf");
             let model_options: Vec<String> = if gateway_models.is_empty() && is_hosted_api {
                 effective_default_model
                     .clone()
@@ -305,14 +300,20 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 let selected = if enabled_providers_list.contains(&effective_provider) {
                     effective_provider.clone()
                 } else {
-                    enabled_providers_list.first().cloned().unwrap_or_else(|| "—".to_string())
+                    enabled_providers_list
+                        .first()
+                        .cloned()
+                        .unwrap_or_else(|| "—".to_string())
                 };
                 ui.add_enabled_ui(can_send_base, |ui| {
                     egui::ComboBox::from_id_source("provider_select")
                         .selected_text(selected)
                         .show_ui(ui, |ui| {
                             for b in &enabled_providers_list {
-                                if ui.selectable_label(effective_provider == b.as_str(), b).clicked() {
+                                if ui
+                                    .selectable_label(effective_provider == b.as_str(), b)
+                                    .clicked()
+                                {
                                     app.current_provider = Some(b.clone());
                                     app.current_model = None;
                                     app.request_status_refetch();
@@ -323,11 +324,17 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             }
 
             ui.add_space(8.0);
-            if ui.add_enabled(can_send_base, egui::Button::new("/help")).clicked() {
+            if ui
+                .add_enabled(can_send_base, egui::Button::new("/help"))
+                .clicked()
+            {
                 app.show_chat_help();
             }
             ui.add_space(8.0);
-            if ui.add_enabled(can_send_base, egui::Button::new("/new")).clicked() {
+            if ui
+                .add_enabled(can_send_base, egui::Button::new("/new"))
+                .clicked()
+            {
                 app.start_new_session();
             }
 
@@ -349,4 +356,3 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
 
     // chat_error is surfaced as an in-stream message; footer remains empty.
 }
-

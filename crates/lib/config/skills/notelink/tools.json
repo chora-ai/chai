@@ -1,0 +1,92 @@
+{
+  "tools": [
+    {
+      "name": "notelink_backlinks",
+      "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
+      "parameters": {
+        "type": "object",
+        "required": ["note_name", "path"],
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "Note name to search for backlinks to (e.g. 'Conventions', 'AI Assistant')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Vault root path to search (e.g. '/home/user/vault')"
+          }
+        }
+      }
+    },
+    {
+      "name": "notelink_by_tag",
+      "description": "Find notes that contain a given tag in their content or frontmatter.",
+      "parameters": {
+        "type": "object",
+        "required": ["tag", "path"],
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Tag to search for (e.g. 'agentic-systems', 'specification-engineering')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Vault root path to search"
+          }
+        }
+      }
+    },
+    {
+      "name": "notelink_outlinks",
+      "description": "Extract all wikilink targets from a note file. Returns one link target per line (note names only, without brackets).",
+      "parameters": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "description": "Absolute path to the note file"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"]
+  },
+  "execution": [
+    {
+      "tool": "notelink_backlinks",
+      "binary": "grep",
+      "subcommand": "-rn --include=*.md",
+      "args": [
+        {
+          "param": "note_name",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "build-backlink-pattern",
+            "args": ["$param"]
+          }
+        },
+        { "param": "path", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "notelink_by_tag",
+      "binary": "grep",
+      "subcommand": "-rn --include=*.md",
+      "args": [
+        { "param": "tag", "kind": "positional" },
+        { "param": "path", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "notelink_outlinks",
+      "binary": "grep",
+      "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
+      "args": [
+        { "param": "file", "kind": "positional" }
+      ]
+    }
+  ]
+}

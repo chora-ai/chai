@@ -41,9 +41,9 @@ Reference for how the Telegram Bot API is used in this codebase and how this cha
 | Source | Field / variable |
 |--------|------------------|
 | Config | **`channels.telegram.botToken`**, **`webhookUrl`**, **`webhookSecret`** (JSON **`camelCase`**) |
-| Environment | **`TELEGRAM_BOT_TOKEN`** overrides config token when set |
+| Environment | **`TELEGRAM_BOT_TOKEN`** overrides **`botToken`** when set; **`TELEGRAM_WEBHOOK_SECRET`** overrides **`webhookSecret`** when set |
 
-Resolution: **`config::resolve_telegram_token()`** in **`crates/lib/src/config.rs`**.
+Resolution: **`config::resolve_telegram_token()`**, **`config::resolve_telegram_webhook_secret()`** in **`crates/lib/src/config.rs`**.
 
 ### Startup (`run_gateway`)
 

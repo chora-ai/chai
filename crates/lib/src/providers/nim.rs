@@ -272,8 +272,12 @@ struct OpenAiChatRequest {
 #[derive(Debug, Serialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 enum OpenAiMessage {
-    System { content: String },
-    User { content: String },
+    System {
+        content: String,
+    },
+    User {
+        content: String,
+    },
     Assistant {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -435,9 +439,7 @@ struct OpenAiResponseToolCallFunction {
     arguments: Option<String>,
 }
 
-fn openai_response_to_chat_response(
-    data: OpenAiChatResponse,
-) -> Result<ChatResponse, NimError> {
+fn openai_response_to_chat_response(data: OpenAiChatResponse) -> Result<ChatResponse, NimError> {
     let message = data
         .choices
         .and_then(|c| c.into_iter().next())

@@ -62,11 +62,7 @@ impl SessionBindingStore {
     }
 
     /// Resolve session_id for a channel conversation (inbound).
-    pub async fn get_session_id(
-        &self,
-        channel_id: &str,
-        conversation_id: &str,
-    ) -> Option<String> {
+    pub async fn get_session_id(&self, channel_id: &str, conversation_id: &str) -> Option<String> {
         let key = ChannelConvKey {
             channel_id: channel_id.to_string(),
             conversation_id: conversation_id.to_string(),

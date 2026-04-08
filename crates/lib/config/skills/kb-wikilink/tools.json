@@ -1,0 +1,154 @@
+{
+  "tools": [
+    {
+      "name": "kb_wikilink_backlinks",
+      "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
+      "parameters": {
+        "type": "object",
+        "required": ["note_name"],
+        "properties": {
+          "note_name": {
+            "type": "string",
+            "description": "Note name to search for backlinks to (e.g. 'Conventions', 'AI Assistant')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory path relative to the knowledge base root to narrow the search. Omit to search all notes."
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_wikilink_outlinks",
+      "description": "Extract all wikilink targets from a note. Returns one link target per line (note names only, without brackets).",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_wikilink_by_tag",
+      "description": "Find notes that contain a given tag in their content or frontmatter.",
+      "parameters": {
+        "type": "object",
+        "required": ["tag"],
+        "properties": {
+          "tag": {
+            "type": "string",
+            "description": "Tag to search for (e.g. 'agentic-systems' or '#agentic-systems')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory path relative to the knowledge base root to narrow the search. Omit to search all notes."
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_wikilink_broken",
+      "description": "Check a note for broken wikilinks. Returns a list of link targets that do not resolve to existing notes.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"]
+  },
+  "execution": [
+    {
+      "tool": "kb_wikilink_backlinks",
+      "binary": "grep",
+      "subcommand": "-rn --include=*.md",
+      "args": [
+        {
+          "param": "note_name",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "build-backlink-pattern",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_wikilink_outlinks",
+      "binary": "grep",
+      "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_wikilink_by_tag",
+      "binary": "grep",
+      "subcommand": "-rn --include=*.md",
+      "args": [
+        {
+          "param": "tag",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "normalize-tag",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_wikilink_broken",
+      "binary": "grep",
+      "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ],
+      "postProcess": {
+        "script": "check-broken-links"
+      }
+    }
+  ]
+}

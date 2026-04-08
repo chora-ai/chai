@@ -8,8 +8,8 @@
 //! when **`workerId`** is set, otherwise the orchestrator’s skill bundle; nested **`delegate_task`** is disabled (see epic).
 
 use crate::orchestration::{
-    execute_delegate_task, parse_delegate_tool_calls, parse_delegate_tool_results,
-    DelegateContext, DELEGATE_TASK_TOOL_NAME,
+    execute_delegate_task, parse_delegate_tool_calls, parse_delegate_tool_results, DelegateContext,
+    DELEGATE_TASK_TOOL_NAME,
 };
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
@@ -139,7 +139,14 @@ pub async fn run_turn_with_messages<B: Provider>(
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
 ) -> Result<AgentTurnResult, ProviderError> {
-    run_turn_with_messages_dyn(provider as &dyn Provider, model, messages, tools, tool_executor).await
+    run_turn_with_messages_dyn(
+        provider as &dyn Provider,
+        model,
+        messages,
+        tools,
+        tool_executor,
+    )
+    .await
 }
 
 /// Same as [`run_turn_with_messages`] but accepts a [`Provider`] trait object.
@@ -194,7 +201,12 @@ async fn execute_turn_worker(
             let cb = on_chunk.as_mut().unwrap();
             let mut delta_cb = |s: &str| cb(s);
             provider
-                .chat_stream(model_name, messages.clone(), tools_ref.cloned(), &mut delta_cb)
+                .chat_stream(
+                    model_name,
+                    messages.clone(),
+                    tools_ref.cloned(),
+                    &mut delta_cb,
+                )
                 .await?
         } else {
             provider
@@ -329,7 +341,12 @@ async fn execute_turn_main(
             let cb = on_chunk.as_mut().unwrap();
             let mut delta_cb = |s: &str| cb(s);
             provider
-                .chat_stream(model_name, messages.clone(), tools_ref.cloned(), &mut delta_cb)
+                .chat_stream(
+                    model_name,
+                    messages.clone(),
+                    tools_ref.cloned(),
+                    &mut delta_cb,
+                )
                 .await?
         } else {
             provider

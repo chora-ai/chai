@@ -32,20 +32,12 @@ impl ChaiApp {
                     let _ = tx.send(false);
                     return;
                 };
-                let addr_str = format!(
-                    "{}:{}",
-                    config.gateway.bind.trim(),
-                    config.gateway.port
-                );
+                let addr_str = format!("{}:{}", config.gateway.bind.trim(), config.gateway.port);
                 let ok = addr_str
                     .parse::<SocketAddr>()
                     .ok()
                     .and_then(|addr| {
-                        std::net::TcpStream::connect_timeout(
-                            &addr,
-                            Duration::from_millis(800),
-                        )
-                        .ok()
+                        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()
                     })
                     .is_some();
                 let _ = tx.send(ok);
@@ -274,7 +266,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
                 continue;
             }
-                if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
                     let err = res
                         .get("error")
@@ -316,8 +308,14 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                     .and_then(|v| v.as_str())
                     .unwrap_or("none")
                     .to_string();
-                if let Some(entries) =
-                    agents_pl.and_then(|a| a.get("entries")).and_then(|e| e.as_array())
+                details.status = gateway
+                    .and_then(|g| g.get("status"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                if let Some(entries) = agents_pl
+                    .and_then(|a| a.get("entries"))
+                    .and_then(|e| e.as_array())
                 {
                     for entry in entries {
                         let Some(id) = entry
@@ -590,8 +588,7 @@ pub(crate) fn run_agent_turn(
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
                 continue;
             }
@@ -638,8 +635,7 @@ pub(crate) fn run_agent_turn(
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
-            let res: serde_json::Value =
-                serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
                 continue;
             }
@@ -687,4 +683,3 @@ pub(crate) fn run_agent_turn(
         Err("no agent response".to_string())
     })
 }
-

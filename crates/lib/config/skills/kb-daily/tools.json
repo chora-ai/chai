@@ -1,0 +1,124 @@
+{
+  "tools": [
+    {
+      "name": "kb_daily_read",
+      "description": "Read a daily note by date. Defaults to today if no date is provided.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_daily_write",
+      "description": "Create or overwrite a daily note by date. Defaults to today if no date is provided.",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
+          },
+          "content": {
+            "type": "string",
+            "description": "Full note content in markdown format including YAML frontmatter"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_daily_append",
+      "description": "Append content to a daily note by date. Creates the file if it does not exist. Defaults to today if no date is provided.",
+      "parameters": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to append to the daily note"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "cat": [""],
+    "chai": ["file write", "file append"]
+  },
+  "execution": [
+    {
+      "tool": "kb_daily_read",
+      "binary": "cat",
+      "subcommand": "",
+      "args": [
+        {
+          "param": "date",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_daily_write",
+      "binary": "chai",
+      "subcommand": "file write",
+      "args": [
+        {
+          "param": "date",
+          "kind": "flag",
+          "flag": "path",
+          "optional": true,
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        }
+      ]
+    },
+    {
+      "tool": "kb_daily_append",
+      "binary": "chai",
+      "subcommand": "file append",
+      "args": [
+        {
+          "param": "date",
+          "kind": "flag",
+          "flag": "path",
+          "optional": true,
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-daily-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        }
+      ]
+    }
+  ]
+}

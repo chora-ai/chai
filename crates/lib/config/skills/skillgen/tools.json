@@ -1,0 +1,183 @@
+{
+  "tools": [
+    {
+      "name": "skillgen_discover",
+      "description": "Run a CLI binary's help output to discover its interface. Call without subcommand first to see all subcommands, then with subcommand to get detailed flags and parameters.",
+      "parameters": {
+        "type": "object",
+        "required": ["binary"],
+        "properties": {
+          "binary": {
+            "type": "string",
+            "description": "CLI binary name to discover (e.g. 'notesmd-cli', 'git', 'rg')"
+          },
+          "subcommand": {
+            "type": "string",
+            "description": "Specific subcommand to get detailed help for (e.g. 'search', 'create')"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillgen_read",
+      "description": "Read a skill's SKILL.md or tools.json file content for use as reference.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name", "file"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name (e.g. 'notesmd-daily', 'obsidian')"
+          },
+          "file": {
+            "type": "string",
+            "description": "File to read: 'skill_md' for SKILL.md, 'tools_json' for tools.json"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillgen_init",
+      "description": "Initialize a new skill directory with template SKILL.md and empty tools.json. Fails if the skill already exists.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Name for the new skill directory"
+          },
+          "description": {
+            "type": "string",
+            "description": "Short description for the skill's SKILL.md frontmatter"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillgen_write_skill_md",
+      "description": "Write or overwrite SKILL.md for a skill. Content must be complete markdown with YAML frontmatter.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name", "content"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name"
+          },
+          "content": {
+            "type": "string",
+            "description": "Complete SKILL.md content including --- frontmatter delimiters"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillgen_write_tools_json",
+      "description": "Write or overwrite tools.json for a skill. Validates JSON syntax before writing. Content must conform to the tools schema.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name", "content"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name"
+          },
+          "content": {
+            "type": "string",
+            "description": "Complete tools.json content as a valid JSON string"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillgen_write_script",
+      "description": "Write a script to a skill's scripts/ directory. Creates the directory if needed. Scripts are referenced by resolveCommand in tools.json.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name", "script_name", "content"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name"
+          },
+          "script_name": {
+            "type": "string",
+            "description": "Script filename without extension (e.g. 'resolve-daily-path'). The .sh extension is added automatically."
+          },
+          "content": {
+            "type": "string",
+            "description": "Complete script content including #!/bin/sh shebang line"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "chai": [
+      "skill discover",
+      "skill read",
+      "skill init",
+      "skill write-skill-md",
+      "skill write-tools-json",
+      "skill write-script"
+    ]
+  },
+  "execution": [
+    {
+      "tool": "skillgen_discover",
+      "binary": "chai",
+      "subcommand": "skill discover",
+      "args": [
+        { "param": "binary", "kind": "positional" },
+        { "param": "subcommand", "kind": "flag", "flag": "subcommand" }
+      ]
+    },
+    {
+      "tool": "skillgen_read",
+      "binary": "chai",
+      "subcommand": "skill read",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "file", "kind": "flag", "flag": "file" }
+      ]
+    },
+    {
+      "tool": "skillgen_init",
+      "binary": "chai",
+      "subcommand": "skill init",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "description", "kind": "flag", "flag": "description" }
+      ]
+    },
+    {
+      "tool": "skillgen_write_skill_md",
+      "binary": "chai",
+      "subcommand": "skill write-skill-md",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+      ]
+    },
+    {
+      "tool": "skillgen_write_tools_json",
+      "binary": "chai",
+      "subcommand": "skill write-tools-json",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+      ]
+    },
+    {
+      "tool": "skillgen_write_script",
+      "binary": "chai",
+      "subcommand": "skill write-script",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "script_name", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+      ]
+    }
+  ]
+}

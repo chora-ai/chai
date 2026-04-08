@@ -15,13 +15,12 @@ Files are grouped by deployment category, then provider, then model family.
 | 07 | third-party | nim | llama | [07-third-party-nim-llama.md](07-third-party-nim-llama.md) |
 | 08 | third-party | nim | qwen | [08-third-party-nim-qwen.md](08-third-party-nim-qwen.md) |
 | 09 | third-party | nim | deepseek | [09-third-party-nim-deepseek.md](09-third-party-nim-deepseek.md) |
-| 10 | third-party | openai | gpt | [10-third-party-openai-gpt.md](10-third-party-openai-gpt.md) |
 
 ## Shared Message Sequence
 
 Use this exact sequence in every playbook run.
 
-1. Geeting
+1. Greeting
 
 ```
 Hello. What's your name?

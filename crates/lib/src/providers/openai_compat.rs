@@ -23,7 +23,11 @@ pub struct OpenAiCompatClient {
 }
 
 impl OpenAiCompatClient {
-    pub fn new(base_url: Option<String>, default_base: &'static str, api_key: Option<String>) -> Self {
+    pub fn new(
+        base_url: Option<String>,
+        default_base: &'static str,
+        api_key: Option<String>,
+    ) -> Self {
         let base_url = base_url
             .map(|u| u.trim_end_matches('/').to_string())
             .filter(|s| !s.is_empty())
@@ -244,8 +248,12 @@ struct OpenAiChatRequest {
 #[derive(Debug, Serialize)]
 #[serde(tag = "role", rename_all = "snake_case")]
 enum OpenAiMessage {
-    System { content: String },
-    User { content: String },
+    System {
+        content: String,
+    },
+    User {
+        content: String,
+    },
     Assistant {
         content: String,
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -410,7 +418,9 @@ struct OpenAiResponseToolCallFunction {
     arguments: Option<String>,
 }
 
-fn openai_response_to_chat_response(data: OpenAiChatResponse) -> Result<ChatResponse, OpenAiCompatError> {
+fn openai_response_to_chat_response(
+    data: OpenAiChatResponse,
+) -> Result<ChatResponse, OpenAiCompatError> {
     let message = data
         .choices
         .and_then(|c| c.into_iter().next())

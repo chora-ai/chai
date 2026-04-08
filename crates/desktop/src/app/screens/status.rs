@@ -5,8 +5,7 @@ use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, GatewayStatusDetails, StatusViewMode};
 
 /// Order matches gateway **`status`** payload **`providers`** object (see **`server.rs`**).
-const STATUS_PROVIDER_IDS: &[&str] =
-    &["ollama", "lms", "vllm", "nim", "openai", "hf"];
+const STATUS_PROVIDER_IDS: &[&str] = &["ollama", "lms", "vllm", "nim", "openai", "hf"];
 
 const PROVIDER_DISPLAY: &[(&str, &str)] = &[
     ("ollama", "Ollama"),
@@ -136,14 +135,23 @@ fn status_clock_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 }
 
-fn status_gateway_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>, gateway_error: Option<&str>) {
+fn status_gateway_section(
+    ui: &mut egui::Ui,
+    status: Option<&GatewayStatusDetails>,
+    gateway_error: Option<&str>,
+) {
     dashboard::section_group(ui, "Gateway", |ui| {
         if let Some(s) = status {
-            dashboard::kv(ui, "Status", "running");
-            dashboard::kv(ui, "Bind", s.bind.trim());
-            dashboard::kv(ui, "Port", &s.port.to_string());
-            dashboard::kv(ui, "Protocol", &s.protocol.to_string());
-            dashboard::kv(ui, "Auth", s.auth.trim());
+            let st = s.status.trim();
+            dashboard::kv(
+                ui,
+                "status",
+                if st.is_empty() { "(not reported)" } else { st },
+            );
+            dashboard::kv(ui, "protocol", &s.protocol.to_string());
+            dashboard::kv(ui, "port", &s.port.to_string());
+            dashboard::kv(ui, "bind", s.bind.trim());
+            dashboard::kv(ui, "auth", s.auth.trim());
         } else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
         }
@@ -240,11 +248,7 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
                     ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                     ui.label(egui::RichText::new(title).strong());
                     ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                    dashboard::kv(
-                        ui,
-                        "Discovery",
-                        if discovery { "on" } else { "off" },
-                    );
+                    dashboard::kv(ui, "discovery", if discovery { "on" } else { "off" });
 
                     if models.is_empty() {
                         let empty_label = if *id == "nim" {
@@ -255,21 +259,15 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
                         ui.label(egui::RichText::new(empty_label).weak());
                     } else {
                         egui::Grid::new(format!("status_providers_models_{id}"))
-                            .num_columns(2)
+                            .num_columns(1)
                             .striped(true)
                             .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
                             .show(ui, |ui| {
                                 dashboard::grid_cell(ui, |ui| {
-                                    ui.label(dashboard::grid_header_rich(ui, "Provider"));
-                                });
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.label(dashboard::grid_header_rich(ui, "Model"));
+                                    ui.label(dashboard::grid_header_rich(ui, "model"));
                                 });
                                 ui.end_row();
                                 for m in &models {
-                                    dashboard::grid_cell(ui, |ui| {
-                                        ui.add(egui::Label::new(egui::RichText::new(title)));
-                                    });
                                     dashboard::grid_cell(ui, |ui| {
                                         ui.add(egui::Label::new(egui::RichText::new(m)));
                                     });
@@ -282,35 +280,12 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
                 return;
             }
         }
-
-        // Fallback when **`providers`** block missing (older gateway).
-        for (id, title, models, empty_label) in [
-            ("ollama", "Ollama", &s.ollama_models[..], "(no models discovered)"),
-            ("lms", "LM Studio", &s.lms_models[..], "(no models discovered)"),
-            ("vllm", "vLLM", &s.vllm_models[..], "(no models discovered)"),
-            ("nim", "NIM", &s.nim_models[..], "(static catalog not loaded)"),
-            ("openai", "OpenAI", &s.openai_models[..], "(no models discovered)"),
-            ("hf", "Hugging Face", &s.hf_models[..], "(no models discovered)"),
-        ] {
-            if s.enabled_providers
-                .as_ref()
-                .map(|ids| ids.iter().any(|x| x == id))
-                .unwrap_or(true)
-            {
-                backend_models_wrapped(ui, title, models, empty_label);
-            }
-        }
-        if s.enabled_providers.as_ref().map(|v| v.is_empty()).unwrap_or(false) {
-            ui.label(
-                egui::RichText::new("no backends enabled for provider discovery").weak(),
-            );
-        }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 }
 
 fn status_skill_packages_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
-    dashboard::section_group(ui, "Skill packages", |ui| {
+    dashboard::section_group(ui, "Skill Packages", |ui| {
         let Some(s) = status else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
             return;
@@ -320,11 +295,11 @@ fn status_skill_packages_section(ui: &mut egui::Ui, status: Option<&GatewayStatu
             s.skill_packages_discovered,
         ) {
             (Some(root), Some(n)) if !root.trim().is_empty() => {
-                dashboard::kv(ui, "Discovery root", root.trim());
-                dashboard::kv(ui, "Packages discovered", &n.to_string());
+                dashboard::kv(ui, "discovery root", root.trim());
+                dashboard::kv(ui, "packages discovered", &n.to_string());
             }
             (Some(root), _) if !root.trim().is_empty() => {
-                dashboard::kv(ui, "Discovery root", root.trim());
+                dashboard::kv(ui, "discovery root", root.trim());
                 ui.label(egui::RichText::new("(package count not reported)").weak());
             }
             _ => {
@@ -387,11 +362,7 @@ fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
             let dm = s.default_model.as_deref().unwrap_or("—");
             dashboard::kv(ui, "default provider", dp);
             dashboard::kv(ui, "default model", dm);
-            dashboard::kv(
-                ui,
-                "context mode",
-                context_mode_for_agent(s, oid).as_str(),
-            );
+            dashboard::kv(ui, "context mode", context_mode_for_agent(s, oid).as_str());
 
             let cat_rows: Vec<_> = s.orchestration_catalog.iter().collect();
             let n_cat = cat_rows.len();
@@ -412,16 +383,16 @@ fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
                     .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
                     .show(ui, |ui| {
                         dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Worker"));
+                            ui.label(dashboard::grid_header_rich(ui, "worker"));
                         });
                         dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Default provider"));
+                            ui.label(dashboard::grid_header_rich(ui, "default provider"));
                         });
                         dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Default model"));
+                            ui.label(dashboard::grid_header_rich(ui, "default model"));
                         });
                         dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "Context mode"));
+                            ui.label(dashboard::grid_header_rich(ui, "context mode"));
                         });
                         ui.end_row();
                         for w in &s.workers {
@@ -470,13 +441,13 @@ fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
                         .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
                         .show(ui, |ui| {
                             dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Provider"));
+                                ui.label(dashboard::grid_header_rich(ui, "provider"));
                             });
                             dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Model"));
+                                ui.label(dashboard::grid_header_rich(ui, "model"));
                             });
                             dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Flags"));
+                                ui.label(dashboard::grid_header_rich(ui, "flags"));
                             });
                             ui.end_row();
                             for row in &cat_rows {
@@ -512,46 +483,4 @@ fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
         }
     });
-}
-
-fn backend_models_wrapped(
-    ui: &mut egui::Ui,
-    title: &str,
-    models: &[String],
-    empty_label: &str,
-) {
-    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-    ui.label(egui::RichText::new(title).strong());
-    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-
-    if models.is_empty() {
-        ui.label(egui::RichText::new(empty_label).weak());
-        ui.add_space(spacing::TABLE_BLOCK_AFTER);
-        return;
-    }
-
-    egui::Grid::new(format!("status_models_grid_{title}"))
-        .num_columns(2)
-        .striped(true)
-        .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-        .show(ui, |ui| {
-            dashboard::grid_cell(ui, |ui| {
-                ui.label(dashboard::grid_header_rich(ui, "Provider"));
-            });
-            dashboard::grid_cell(ui, |ui| {
-                ui.label(dashboard::grid_header_rich(ui, "Model"));
-            });
-            ui.end_row();
-            for m in models {
-                dashboard::grid_cell(ui, |ui| {
-                    ui.add(egui::Label::new(egui::RichText::new(title)));
-                });
-                dashboard::grid_cell(ui, |ui| {
-                    ui.add(egui::Label::new(egui::RichText::new(m)));
-                });
-                ui.end_row();
-            }
-        });
-
-    ui.add_space(spacing::TABLE_BLOCK_AFTER);
 }

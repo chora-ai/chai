@@ -53,8 +53,10 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                         {
                             let is_selected =
                                 app.selected_session_id.as_deref() == Some(session_id.as_str());
-                            let display =
-                                session_label_display(&session_id, app.session_meta.get(&session_id));
+                            let display = session_label_display(
+                                &session_id,
+                                app.session_meta.get(&session_id),
+                            );
                             if ui.selectable_label(is_selected, display).clicked() {
                                 app.selected_session_id = Some(session_id);
                             }
@@ -67,4 +69,3 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                 });
         });
 }
-

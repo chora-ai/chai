@@ -11,5 +11,4 @@ default-members = [
     "crates/cli",
     "crates/desktop",
     "crates/lib",
-    "crates/spike",
 ]

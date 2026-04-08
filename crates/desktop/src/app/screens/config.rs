@@ -113,7 +113,11 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
                 dashboard::kv(
                     ui,
                     "Telegram bot token",
-                    if t.trim().is_empty() { "(empty)" } else { "set" },
+                    if t.trim().is_empty() {
+                        "(empty)"
+                    } else {
+                        "set"
+                    },
                 );
             }
             if let Some(ref w) = config.channels.telegram.webhook_url {
@@ -203,13 +207,23 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
         let mut any = false;
 
         if let Some(ref o) = b.ollama {
-            if let Some(url) = o.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(url) = o
+                .base_url
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 dashboard::kv(ui, "Ollama base URL", url);
                 any = true;
             }
         }
         if let Some(ref l) = b.lms {
-            if let Some(url) = l.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(url) = l
+                .base_url
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 dashboard::kv(ui, "LM Studio base URL", url);
                 any = true;
             }
@@ -220,11 +234,7 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
                 .as_ref()
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false);
-            dashboard::kv(
-                ui,
-                "NIM API key",
-                if key_set { "set" } else { "(not set)" },
-            );
+            dashboard::kv(ui, "NIM API key", if key_set { "set" } else { "(not set)" });
             any = true;
             if let Some(ref extra) = n.extra_models {
                 if !extra.is_empty() {
@@ -233,9 +243,7 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
                     ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                     ui.horizontal_wrapped(|ui| {
                         for m in extra {
-                            ui.add(
-                                egui::Label::new(egui::RichText::new(m)),
-                            );
+                            ui.add(egui::Label::new(egui::RichText::new(m)));
                         }
                     });
                     ui.add_space(spacing::TABLE_BLOCK_AFTER);
@@ -243,7 +251,12 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             }
         }
         if let Some(ref v) = b.vllm {
-            if let Some(url) = v.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(url) = v
+                .base_url
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 dashboard::kv(ui, "vLLM base URL", url);
             }
             let key_set = v
@@ -259,7 +272,12 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             any = true;
         }
         if let Some(ref o) = b.openai {
-            if let Some(url) = o.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(url) = o
+                .base_url
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 dashboard::kv(ui, "OpenAI base URL", url);
             }
             let key_set = o
@@ -275,7 +293,12 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             any = true;
         }
         if let Some(ref h) = b.hf {
-            if let Some(url) = h.base_url.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(url) = h
+                .base_url
+                .as_ref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+            {
                 dashboard::kv(ui, "Hugging Face base URL", url);
             }
             let key_set = h
@@ -332,21 +355,14 @@ fn config_summary_right_column(
         .unwrap_or("orchestrator");
 
     dashboard::section_group(ui, "Agents", |ui| {
-        ui.label(
-            egui::RichText::new(format!("Orchestrator: {}", orch_id))
-                .strong(),
-        );
+        ui.label(egui::RichText::new(format!("Orchestrator: {}", orch_id)).strong());
         ui.add_space(spacing::SUBSECTION_HEADING_GAP);
         dashboard::kv(ui, "Default provider", default_provider.as_str());
         dashboard::kv(ui, "Default model", default_model.as_str());
         let orch_ep = enabled_providers_display(&config.agents.enabled_providers);
         dashboard::kv(ui, "enabledProviders", orch_ep.as_str());
         let orch_dir = lib::config::orchestrator_context_dir(config, profile_dir);
-        dashboard::kv(
-            ui,
-            "Context directory",
-            &orch_dir.display().to_string(),
-        );
+        dashboard::kv(ui, "Context directory", &orch_dir.display().to_string());
         let orch_skills = lib::config::orchestrator_skills_enabled_list(&config.agents);
         let orch_skills_csv = orch_skills.join(", ");
         dashboard::kv(
@@ -384,7 +400,9 @@ fn config_summary_right_column(
         if let Some(ref m) = config.agents.max_delegations_per_provider {
             if !m.is_empty() {
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new("Max delegations per provider (session)"));
+                ui.label(egui::RichText::new(
+                    "Max delegations per provider (session)",
+                ));
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 for (k, v) in m {
                     ui.horizontal(|ui| {
@@ -407,9 +425,7 @@ fn config_summary_right_column(
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 ui.horizontal_wrapped(|ui| {
                     for p in v {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(p)),
-                        );
+                        ui.add(egui::Label::new(egui::RichText::new(p)));
                     }
                 });
                 ui.add_space(spacing::TABLE_BLOCK_AFTER);
@@ -484,9 +500,9 @@ fn config_summary_right_column(
                             ui.end_row();
                             for r in routes {
                                 dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(
-                                        egui::RichText::new(r.instruction_prefix.trim()),
-                                    ));
+                                    ui.add(egui::Label::new(egui::RichText::new(
+                                        r.instruction_prefix.trim(),
+                                    )));
                                 });
 
                                 let worker_id = r
@@ -536,8 +552,7 @@ fn config_summary_right_column(
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 ui.label(egui::RichText::new(format!("Worker: {}", wid)).strong());
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                let (wp, wm) =
-                    lib::orchestration::effective_worker_defaults(&config.agents, w);
+                let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.agents, w);
                 dashboard::kv(ui, "Default provider", wp.as_str());
                 dashboard::kv(ui, "Default model", wm.as_str());
                 let w_ep = enabled_providers_display(&w.enabled_providers);

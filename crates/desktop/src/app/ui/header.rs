@@ -76,13 +76,14 @@ pub fn header<FProfile, FStart, FStop>(
                 });
                 if let Some(err) = profile_error {
                     ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(err).small().color(egui::Color32::from_rgb(
-                            200, 64, 64,
-                        )));
+                        ui.label(
+                            egui::RichText::new(err)
+                                .small()
+                                .color(egui::Color32::from_rgb(200, 64, 64)),
+                        );
                     });
                 }
                 ui.add_space(16.0);
             });
     });
 }
-

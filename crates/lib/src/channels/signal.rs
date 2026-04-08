@@ -107,7 +107,10 @@ impl SignalChannel {
     }
 
     /// Start SSE loop; forwards `receive` notifications with `dataMessage.message` text.
-    pub fn start_inbound(self: Arc<Self>, inbound_tx: mpsc::Sender<InboundMessage>) -> JoinHandle<()> {
+    pub fn start_inbound(
+        self: Arc<Self>,
+        inbound_tx: mpsc::Sender<InboundMessage>,
+    ) -> JoinHandle<()> {
         self.running.store(true, Ordering::SeqCst);
         log::info!("signal channel: starting SSE events loop");
         let c = self.clone();
@@ -290,7 +293,11 @@ fn notification_to_inbound(v: &Value) -> Option<InboundMessage> {
     if trimmed.is_empty() {
         return None;
     }
-    if data.get("isStory").and_then(|x| x.as_bool()).unwrap_or(false) {
+    if data
+        .get("isStory")
+        .and_then(|x| x.as_bool())
+        .unwrap_or(false)
+    {
         return None;
     }
     let conversation_id = if let Some(gid) = data.get("groupId").and_then(|x| x.as_str()) {

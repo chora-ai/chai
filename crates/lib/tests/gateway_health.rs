@@ -13,10 +13,7 @@ fn free_port() -> u16 {
 #[tokio::test]
 async fn gateway_health_http_responds_with_running() {
     let port = free_port();
-    let home = std::env::temp_dir().join(format!(
-        "chai-gateway-test-{}",
-        uuid::Uuid::new_v4()
-    ));
+    let home = std::env::temp_dir().join(format!("chai-gateway-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&home).expect("create temp home");
 
     let old_home = std::env::var("HOME").ok();
@@ -38,7 +35,7 @@ async fn gateway_health_http_responds_with_running() {
             match client.get(&url).send().await {
                 Ok(resp) if resp.status().is_success() => {
                     let json: serde_json::Value = resp.json().await.expect("parse JSON");
-                    assert_eq!(json.get("runtime").and_then(|v| v.as_str()), Some("running"));
+                    assert_eq!(json.get("status").and_then(|v| v.as_str()), Some("running"));
                     assert_eq!(json.get("protocol").and_then(|v| v.as_u64()), Some(1));
                     assert_eq!(json.get("port").and_then(|v| v.as_u64()), Some(port as u64));
                     gateway_handle.abort();

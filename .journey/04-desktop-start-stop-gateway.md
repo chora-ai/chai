@@ -20,7 +20,7 @@
 
 3. **Verify gateway is actually running**
    - In a terminal: `curl http://127.0.0.1:15151/` (or your config port).
-   - **Expect:** JSON with `"runtime":"running"`.
+   - **Expect:** JSON with `"status":"running"`.
 
 4. **Stop gateway from desktop**
    - Click “Stop gateway”.

@@ -36,11 +36,11 @@ fn normalize_mxid(user: &str, server: &str) -> String {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let homeserver =
-        std::env::var("MATRIX_HOMESERVER").context("set MATRIX_HOMESERVER (e.g. https://matrix.org)")?;
-    let user = std::env::var("MATRIX_USER").context("set MATRIX_USER (localpart or @user:server)")?;
-    let password =
-        std::env::var("MATRIX_PASSWORD").context("set MATRIX_PASSWORD")?;
+    let homeserver = std::env::var("MATRIX_HOMESERVER")
+        .context("set MATRIX_HOMESERVER (e.g. https://matrix.org)")?;
+    let user =
+        std::env::var("MATRIX_USER").context("set MATRIX_USER (localpart or @user:server)")?;
+    let password = std::env::var("MATRIX_PASSWORD").context("set MATRIX_PASSWORD")?;
 
     let server_name = server_name_from_homeserver(&homeserver)?;
     let mxid = normalize_mxid(&user, &server_name);
@@ -72,10 +72,7 @@ async fn main() -> Result<()> {
         .get("access_token")
         .and_then(|v| v.as_str())
         .ok_or_else(|| anyhow!("no access_token in login response"))?;
-    let user_id = login
-        .get("user_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("?");
+    let user_id = login.get("user_id").and_then(|v| v.as_str()).unwrap_or("?");
 
     eprintln!("logged in as {}", user_id);
 

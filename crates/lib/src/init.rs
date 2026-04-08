@@ -2,11 +2,12 @@
 //! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENTS.md`**.
 
 use anyhow::{Context, Result};
-use include_dir::{include_dir, Dir};
+use include_dir::{include_dir, Dir, DirEntry};
 use std::path::{Path, PathBuf};
 
 use crate::config;
 use crate::profile;
+use crate::skills::versioning;
 
 static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/skills");
 
@@ -18,7 +19,10 @@ fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
         "developer" => Ok(include_str!(
             "../config/profiles/developer/agents/orchestrator/AGENTS.md"
         )),
-        _ => anyhow::bail!("no bundled AGENTS.md template for profile {:?}", profile_name),
+        _ => anyhow::bail!(
+            "no bundled AGENTS.md template for profile {:?}",
+            profile_name
+        ),
     }
 }
 
@@ -94,13 +98,7 @@ pub fn init_chai_home() -> Result<PathBuf> {
     if !skills_dir.exists() {
         std::fs::create_dir_all(&skills_dir)
             .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
-        if let Err(e) = BUNDLED_SKILLS.extract(&skills_dir) {
-            anyhow::bail!(
-                "extracting bundled skills to {}: {}",
-                skills_dir.display(),
-                e
-            );
-        }
+        extract_bundled_skills_versioned(&skills_dir)?;
         log::info!("extracted bundled skills to {}", skills_dir.display());
     } else {
         log::debug!(
@@ -112,4 +110,87 @@ pub fn init_chai_home() -> Result<PathBuf> {
     profile::switch_active_profile(&chai_home, "assistant")?;
 
     Ok(chai_home)
+}
+
+/// Extract bundled skills into content-addressed versioned layout.
+///
+/// For each skill directory in BUNDLED_SKILLS:
+/// 1. Collect all files as (relative_path, contents) pairs
+/// 2. Compute the content hash
+/// 3. Write files into `skills/<name>/versions/<hash>/`
+/// 4. Create `active` symlink pointing to the version
+fn extract_bundled_skills_versioned(skills_dir: &Path) -> Result<()> {
+    for skill_dir in BUNDLED_SKILLS.dirs() {
+        // Only process top-level skill directories (not nested subdirs like scripts/)
+        let skill_name = skill_dir.path().to_str().unwrap_or("unknown");
+        if skill_name.contains('/') || skill_name.contains('\\') {
+            continue;
+        }
+
+        // Collect all files in this skill as (relative_path, contents) pairs
+        let mut file_entries = Vec::new();
+        collect_bundled_files(skill_dir, skill_dir.path(), &mut file_entries);
+
+        if file_entries.is_empty() {
+            continue;
+        }
+
+        // Compute content hash from the bundled content
+        let hash_entries: Vec<(&str, &[u8])> = file_entries
+            .iter()
+            .map(|(path, contents)| (path.as_str(), contents.as_slice()))
+            .collect();
+        let hash = versioning::compute_hash_from_entries(&hash_entries);
+
+        // Create version snapshot directory
+        let skill_root = skills_dir.join(skill_name);
+        let snapshot_dir = skill_root.join("versions").join(&hash);
+        std::fs::create_dir_all(&snapshot_dir)
+            .with_context(|| format!("creating version dir {}", snapshot_dir.display()))?;
+
+        // Write files into the snapshot
+        for (rel_path, contents) in &file_entries {
+            let dest = snapshot_dir.join(rel_path);
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&dest, contents)
+                .with_context(|| format!("writing {}", dest.display()))?;
+
+            // Set executable permission for scripts
+            #[cfg(unix)]
+            if rel_path.starts_with("scripts/") {
+                use std::os::unix::fs::PermissionsExt;
+                let mut perms = std::fs::metadata(&dest)?.permissions();
+                perms.set_mode(0o755);
+                std::fs::set_permissions(&dest, perms)?;
+            }
+        }
+
+        // Create active symlink
+        versioning::set_active_version(&skill_root, &hash)?;
+
+        log::debug!("skill '{}' → version {}", skill_name, hash);
+    }
+    Ok(())
+}
+
+/// Recursively collect files from a bundled Dir as (relative_path, contents) pairs.
+fn collect_bundled_files(dir: &Dir<'_>, root_path: &Path, out: &mut Vec<(String, Vec<u8>)>) {
+    for entry in dir.entries() {
+        match entry {
+            DirEntry::Dir(d) => {
+                collect_bundled_files(d, root_path, out);
+            }
+            DirEntry::File(f) => {
+                let rel = f
+                    .path()
+                    .strip_prefix(root_path)
+                    .unwrap_or(f.path())
+                    .to_string_lossy()
+                    .replace('\\', "/");
+                out.push((rel, f.contents().to_vec()));
+            }
+        }
+    }
 }

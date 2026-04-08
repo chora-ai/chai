@@ -105,7 +105,6 @@ Servers that expose **OpenAI-compatible** HTTP for Claude or Gemini (if hosted t
 - [ ] **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload keys (e.g. **`anthropicModels`**, **`geminiModels`**)
 - [ ] **`crates/desktop/`** — Provider allowlist, model reconciliation, info screen
 - [ ] User docs — [README.md](../../README.md), ref docs under [`.agents/ref/`](../ref/), [spec/PROVIDERS.md](../spec/PROVIDERS.md), [spec/MODELS.md](../spec/MODELS.md)
-- [ ] Tests — [10-third-party-openai-gpt.md](../../.testing/10-third-party-openai-gpt.md) and the index at [.testing/README.md](../../.testing/README.md) when applicable
 
 Until Phase 2 ships, [spec/PROVIDERS.md](../spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
 

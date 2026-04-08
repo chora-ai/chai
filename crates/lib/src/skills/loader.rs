@@ -18,6 +18,10 @@ pub struct SkillEntry {
     pub content: String,
     /// When the skill dir contains tools.json, parsed descriptor (tools, allowlist, execution mapping).
     pub tool_descriptor: Option<ToolDescriptor>,
+    /// Capability tier from SKILL.md frontmatter (`minimal`, `moderate`, `full`).
+    pub capability_tier: Option<String>,
+    /// Parent skill this is a variant of (e.g. `git-read` is a variant of `git`).
+    pub model_variant_of: Option<String>,
 }
 
 /// Flattened skill for agent use (name + description + content).
@@ -35,6 +39,12 @@ struct SkillFrontmatter {
     description: Option<String>,
     #[serde(default)]
     metadata: Option<SkillMetadata>,
+    /// Derivation metadata recording what produced this skill revision.
+    #[serde(default)]
+    generated_from: Option<GeneratedFrom>,
+    /// Parent skill this is a model-tier variant of (e.g. `git-read` → `git`).
+    #[serde(default)]
+    model_variant_of: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -47,6 +57,12 @@ struct SkillMetadata {
 struct Requires {
     #[serde(default)]
     bins: Option<Vec<String>>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GeneratedFrom {
+    #[serde(default)]
+    capability_tier: Option<String>,
 }
 
 /// Load all skill packages under `skills_root` (e.g. `~/.chai/skills`): each immediate subdirectory with a `SKILL.md` file.
@@ -65,7 +81,9 @@ fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
         if !path.is_dir() {
             continue;
         }
-        let skill_md = path.join("SKILL.md");
+        // Resolve versioned layout: if `active` symlink exists, read from its target
+        let content_dir = super::versioning::resolve_active_dir(&path);
+        let skill_md = content_dir.join("SKILL.md");
         if !skill_md.exists() {
             continue;
         }
@@ -73,24 +91,26 @@ fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
             Ok(c) => c,
             Err(_) => continue,
         };
-        let (name, description, required_bins) = parse_skill_frontmatter(&content, &path);
-        if let Some(bins) = &required_bins {
+        let parsed = parse_skill_frontmatter(&content, &path);
+        if let Some(bins) = &parsed.required_bins {
             if !bins.is_empty() && !bins.iter().all(|b| bin_on_path(b)) {
                 log::debug!(
                     "skipping skill {}: required bins {:?} not all on PATH",
-                    name,
+                    parsed.name,
                     bins
                 );
                 continue;
             }
         }
-        let tool_descriptor = load_tool_descriptor(&path);
+        let tool_descriptor = load_tool_descriptor(&content_dir);
         out.push(SkillEntry {
-            name,
-            description,
-            path: path.to_path_buf(),
+            name: parsed.name,
+            description: parsed.description,
+            path: content_dir.clone(),
             content,
             tool_descriptor,
+            capability_tier: parsed.capability_tier,
+            model_variant_of: parsed.model_variant_of,
         });
     }
     Ok(out)
@@ -103,11 +123,7 @@ fn load_tool_descriptor(skill_dir: &Path) -> Option<ToolDescriptor> {
     match serde_json::from_str::<ToolDescriptor>(&content) {
         Ok(d) => Some(d),
         Err(e) => {
-            log::warn!(
-                "failed to parse {}: {}",
-                path.display(),
-                e
-            );
+            log::warn!("failed to parse {}: {}", path.display(), e);
             None
         }
     }
@@ -144,39 +160,53 @@ fn bin_on_path(bin: &str) -> bool {
     false
 }
 
-fn parse_skill_frontmatter(
-    content: &str,
-    fallback_path: &Path,
-) -> (String, String, Option<Vec<String>>) {
+/// Parsed skill frontmatter fields.
+struct ParsedFrontmatter {
+    name: String,
+    description: String,
+    required_bins: Option<Vec<String>>,
+    capability_tier: Option<String>,
+    model_variant_of: Option<String>,
+}
+
+fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontmatter {
     let name_from_path = fallback_path
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
-    let mut name = name_from_path.clone();
-    let mut description = String::new();
-    let mut required_bins: Option<Vec<String>> = None;
+    let mut parsed = ParsedFrontmatter {
+        name: name_from_path,
+        description: String::new(),
+        required_bins: None,
+        capability_tier: None,
+        model_variant_of: None,
+    };
 
     if content.starts_with("---") {
         if let Some(end) = content[3..].find("---") {
             let yaml = content[3..3 + end].trim();
             if let Ok(fm) = serde_yaml::from_str::<SkillFrontmatter>(yaml) {
                 if let Some(n) = fm.name {
-                    name = n;
+                    parsed.name = n;
                 }
                 if let Some(d) = fm.description {
-                    description = d;
+                    parsed.description = d;
                 }
                 if let Some(ref meta) = fm.metadata {
                     if let Some(ref req) = meta.requires {
-                        required_bins = req.bins.clone();
+                        parsed.required_bins = req.bins.clone();
                     }
                 }
+                if let Some(ref gen) = fm.generated_from {
+                    parsed.capability_tier = gen.capability_tier.clone();
+                }
+                parsed.model_variant_of = fm.model_variant_of;
             }
         }
     }
 
-    (name, description, required_bins)
+    parsed
 }
 
 impl From<SkillEntry> for Skill {

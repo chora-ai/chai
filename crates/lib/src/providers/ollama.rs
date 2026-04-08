@@ -61,12 +61,7 @@ impl OllamaClient {
             stream,
             tools,
         };
-        let res = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let res = self.client.post(&url).json(&body).send().await?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();
@@ -92,12 +87,7 @@ impl OllamaClient {
             stream: true,
             tools,
         };
-        let res = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await?;
+        let res = self.client.post(&url).json(&body).send().await?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();

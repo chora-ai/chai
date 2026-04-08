@@ -1,0 +1,63 @@
+{
+  "tools": [
+    {
+      "name": "kb_wikilink_rename",
+      "description": "Rename a knowledge base note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes in the knowledge base.",
+      "parameters": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Current note path relative to the knowledge base root (e.g. '00-inbox/Old Note.md')"
+          },
+          "to": {
+            "type": "string",
+            "description": "New note path relative to the knowledge base root (e.g. '01-admin/New Note.md')"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "chai": ["file rename-note"]
+  },
+  "execution": [
+    {
+      "tool": "kb_wikilink_rename",
+      "binary": "chai",
+      "subcommand": "file rename-note",
+      "args": [
+        {
+          "param": "from",
+          "kind": "flag",
+          "flag": "from",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "to",
+          "kind": "flag",
+          "flag": "to",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "from",
+          "kind": "flag",
+          "flag": "root",
+          "resolveCommand": {
+            "script": "resolve-kb-root",
+            "args": []
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -28,6 +28,11 @@ pub struct Config {
     /// Agent definitions: JSON array of `id` + `role` (`orchestrator` \| `worker`). Omit for defaults (one orchestrator, id `orchestrator`).
     #[serde(default = "default_agents_config", with = "agents_config_de")]
     pub agents: AgentsConfig,
+
+    /// How the gateway handles mismatches between the lockfile and active skill versions.
+    /// `"strict"` (default): refuse to start. `"warn"`: log a warning and continue.
+    #[serde(default)]
+    pub skill_lock_mode: SkillLockMode,
 }
 
 /// Gateway bind, port, and auth settings.
@@ -134,6 +139,29 @@ pub fn resolve_telegram_token(config: &Config) -> Option<String> {
         })
 }
 
+/// Resolve the Telegram webhook secret: env `TELEGRAM_WEBHOOK_SECRET` overrides config when set and non-empty.
+pub fn resolve_telegram_webhook_secret(config: &Config) -> Option<String> {
+    std::env::var("TELEGRAM_WEBHOOK_SECRET")
+        .ok()
+        .and_then(|s| {
+            let t = s.trim();
+            if t.is_empty() {
+                None
+            } else {
+                Some(t.to_string())
+            }
+        })
+        .or_else(|| {
+            config
+                .channels
+                .telegram
+                .webhook_secret
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
 /// When [`Some`], only inbound Matrix messages in these rooms are processed. When [`None`], all joined rooms are allowed.
 /// `MATRIX_ROOM_ALLOWLIST` (comma-separated) overrides `channels.matrix.roomIds` when set and non-empty.
 pub fn resolve_matrix_room_allowlist(config: &Config) -> Option<HashSet<String>> {
@@ -204,8 +232,6 @@ pub struct MatrixChannelConfig {
     pub password: Option<String>,
     /// `@user:server` for echo filtering when using `access_token` without a login response. Overridden by `MATRIX_USER_ID`.
     pub user_id: Option<String>,
-    /// Directory for matrix-sdk SQLite state and E2EE keys (default `<profile>/matrix`). Overridden by `CHAI_MATRIX_STORE`.
-    pub store_path: Option<String>,
     /// Device id for access-token restore when `/account/whoami` does not return one. Overridden by `MATRIX_DEVICE_ID`.
     pub device_id: Option<String>,
     /// When non-empty, only these room ids (`!room:server`) receive agent turns. Overridden by `MATRIX_ROOM_ALLOWLIST` (comma-separated).
@@ -220,8 +246,19 @@ pub struct TelegramChannelConfig {
     pub bot_token: Option<String>,
     /// When set, use webhook mode: Telegram POSTs updates to this URL. If unset, long-poll getUpdates is used.
     pub webhook_url: Option<String>,
-    /// Optional secret for webhook verification (X-Telegram-Bot-Api-Secret-Token). Used only when webhook_url is set.
+    /// Optional secret for webhook verification (X-Telegram-Bot-Api-Secret-Token). Overridden by `TELEGRAM_WEBHOOK_SECRET` when set. Used only when webhook_url is set.
     pub webhook_secret: Option<String>,
+}
+
+/// How the gateway handles mismatches between the lockfile and active skill versions at startup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SkillLockMode {
+    /// Refuse to start the gateway when any enabled skill's active version does not match its locked hash.
+    #[default]
+    Strict,
+    /// Log a warning when the active version does not match the locked hash, but continue loading.
+    Warn,
 }
 
 /// How skill documentation is provided to the agent: full (all SKILL.md in system message) or read-on-demand (compact list + read_skill tool).
@@ -918,10 +955,7 @@ pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile:
     let paths = crate::profile::resolve_profile_dir(cli_profile)?;
     let path = &paths.config_path;
     let config = if !path.exists() {
-        log::debug!(
-            "config file not found, using defaults: {}",
-            path.display()
-        );
+        log::debug!("config file not found, using defaults: {}", path.display());
         Config::default()
     } else {
         let s = std::fs::read_to_string(path)
@@ -981,6 +1015,47 @@ mod tests {
         );
     }
 
+    /// Restores `TELEGRAM_WEBHOOK_SECRET` after the test so parallel runs do not leak env.
+    struct TelegramWebhookSecretEnvGuard {
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl TelegramWebhookSecretEnvGuard {
+        fn set(value: Option<&str>) -> Self {
+            const KEY: &str = "TELEGRAM_WEBHOOK_SECRET";
+            let previous = std::env::var_os(KEY);
+            match value {
+                Some(v) => std::env::set_var(KEY, v),
+                None => std::env::remove_var(KEY),
+            }
+            Self { previous }
+        }
+    }
+
+    impl Drop for TelegramWebhookSecretEnvGuard {
+        fn drop(&mut self) {
+            const KEY: &str = "TELEGRAM_WEBHOOK_SECRET";
+            match &self.previous {
+                Some(v) => std::env::set_var(KEY, v),
+                None => std::env::remove_var(KEY),
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_telegram_webhook_secret_from_config_trims() {
+        let _g = TelegramWebhookSecretEnvGuard::set(None);
+        let mut c = Config::default();
+        c.channels.telegram.webhook_secret = Some("  sec  ".to_string());
+        assert_eq!(resolve_telegram_webhook_secret(&c).as_deref(), Some("sec"));
+    }
+
+    #[test]
+    fn resolve_telegram_webhook_secret_none_when_unset() {
+        let _g = TelegramWebhookSecretEnvGuard::set(None);
+        assert!(resolve_telegram_webhook_secret(&Config::default()).is_none());
+    }
+
     #[test]
     fn agents_missing_key_uses_default_orchestrator() {
         let c: Config = serde_json::from_str("{}").expect("parse");
@@ -1012,7 +1087,11 @@ mod tests {
              "delegateAllowedModels":[{"provider":"lms","model":"ibm/granite-4-micro"}]}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        let orch = c.agents.delegate_allowed_models.as_ref().expect("orch catalog");
+        let orch = c
+            .agents
+            .delegate_allowed_models
+            .as_ref()
+            .expect("orch catalog");
         assert_eq!(orch.len(), 1);
         assert_eq!(orch[0].provider, "ollama");
         assert_eq!(orch[0].model, "llama3.2:latest");
@@ -1066,10 +1145,7 @@ mod tests {
         let c: Config = serde_json::from_str(j).expect("parse");
         let p = c.providers.as_ref().expect("providers");
         let lm = p.lms.as_ref().expect("lms");
-        assert_eq!(
-            lm.base_url.as_deref(),
-            Some("http://127.0.0.1:9999/v1")
-        );
+        assert_eq!(lm.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
         let out = serde_json::to_string(&c).expect("serialize");
         assert!(
             out.contains("\"lms\""),

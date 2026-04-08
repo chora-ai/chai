@@ -33,10 +33,7 @@ fn insert_allowlist(map: &mut HashMap<(String, String), Hint>, e: &AllowedModelE
         return;
     }
     let key = (p.to_string(), model);
-    map.insert(
-        key,
-        (Some(e.local), e.tool_capable),
-    );
+    map.insert(key, (Some(e.local), e.tool_capable));
 }
 
 /// Collect hints: worker allowlist entries override orchestrator for the same `(provider, model)`.
@@ -159,14 +156,12 @@ mod tests {
     #[test]
     fn merges_discovery_and_allowlist_only() {
         let agents = AgentsConfig {
-            delegate_allowed_models: Some(vec![
-                AllowedModelEntry {
-                    provider: "ollama".to_string(),
-                    model: "offline-only".to_string(),
-                    local: true,
-                    tool_capable: Some(false),
-                },
-            ]),
+            delegate_allowed_models: Some(vec![AllowedModelEntry {
+                provider: "ollama".to_string(),
+                model: "offline-only".to_string(),
+                local: true,
+                tool_capable: Some(false),
+            }]),
             ..AgentsConfig::default()
         };
         let ollama = vec![OllamaModel {
@@ -174,7 +169,9 @@ mod tests {
             size: None,
         }];
         let cat = build_orchestration_catalog(&agents, &ollama, &[], &[], &[], &[], &[]);
-        assert!(cat.iter().any(|r| r.model == "llama3.2:latest" && r.discovered));
+        assert!(cat
+            .iter()
+            .any(|r| r.model == "llama3.2:latest" && r.discovered));
         let off = cat
             .iter()
             .find(|r| r.model == "offline-only")

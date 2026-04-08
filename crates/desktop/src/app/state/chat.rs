@@ -35,10 +35,7 @@ fn format_delegation_line(event_name: &str, data: &serde_json::Value) -> String 
         .and_then(|v| v.as_str())
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
-    let provider = data
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .unwrap_or("");
+    let provider = data.get("provider").and_then(|v| v.as_str()).unwrap_or("");
     let model = data.get("model").and_then(|v| v.as_str()).unwrap_or("");
     let pm = if provider.is_empty() && model.is_empty() {
         String::new()
@@ -181,7 +178,11 @@ impl ChaiApp {
                                 && m.content == ev.content
                                 && m.tool_calls == ev.tool_calls
                         }) {
-                            let fill_results = existing.tool_results.as_ref().map(|v| v.is_empty()).unwrap_or(true);
+                            let fill_results = existing
+                                .tool_results
+                                .as_ref()
+                                .map(|v| v.is_empty())
+                                .unwrap_or(true);
                             if fill_results {
                                 if let Some(ref tr) = ev.tool_results {
                                     if !tr.is_empty() {
@@ -367,10 +368,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
         }
         // Persist device token from hello-ok, if provided, so future connects can
         // reuse it instead of regenerating device identity every time.
-        if let Some(auth) = hello_val
-            .get("payload")
-            .and_then(|p| p.get("auth"))
-        {
+        if let Some(auth) = hello_val.get("payload").and_then(|p| p.get("auth")) {
             if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
                 let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
             }
@@ -393,9 +391,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
                             // Session fields are in payload; support optional nested `data` for
                             // compatibility with older formats.
                             let data = payload.get("data").unwrap_or(payload);
-                            let session_id_opt = data
-                                .get("sessionId")
-                                .and_then(|v| v.as_str());
+                            let session_id_opt = data.get("sessionId").and_then(|v| v.as_str());
                             let role_opt = data.get("role").and_then(|v| v.as_str());
                             let content_opt = data.get("content").and_then(|v| v.as_str());
 
@@ -410,7 +406,11 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
                                     {
                                         continue;
                                     }
-                                    (session_id.to_string(), role.to_string(), content.to_string())
+                                    (
+                                        session_id.to_string(),
+                                        role.to_string(),
+                                        content.to_string(),
+                                    )
                                 } else {
                                     continue;
                                 };
@@ -486,4 +486,3 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
         Ok(())
     })
 }
-

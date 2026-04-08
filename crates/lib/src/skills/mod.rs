@@ -5,6 +5,10 @@
 
 mod descriptor;
 mod loader;
+pub mod lockfile;
+mod validation;
+pub mod versioning;
 
-pub use descriptor::{ArgKind, ArgMapping, ExecutionSpec, ToolDescriptor};
+pub use descriptor::{ArgKind, ArgMapping, ExecutionSpec, PostProcessSpec, ToolDescriptor};
 pub use loader::{load_skills, Skill, SkillEntry};
+pub use validation::validate_skill_composition;

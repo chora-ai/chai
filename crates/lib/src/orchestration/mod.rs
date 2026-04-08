@@ -17,12 +17,15 @@ mod model;
 mod policy;
 mod workers_context;
 
-pub use choice::{provider_choice_from_canonical, provider_id, resolve_provider_choice, ProviderChoice};
+pub use choice::{
+    provider_choice_from_canonical, provider_id, resolve_provider_choice, ProviderChoice,
+};
 pub use delegate::{
-    delegate_task_tool_definition, execute_delegate_task, merge_delegate_task, worker_tool_list,
+    delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
     parse_delegate_tool_calls, parse_delegate_tool_results, system_context_with_today,
-    DelegateContext, DelegateObservability, WorkerDelegateRuntime, DELEGATE_TASK_TOOL_NAME,
-    EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
+    worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
+    DELEGATE_TASK_TOOL_NAME, EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR,
+    EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 pub use dispatch::ProviderClients;
 pub use model::{
@@ -30,8 +33,8 @@ pub use model::{
     DEFAULT_MODEL_FALLBACK_VLLM,
 };
 pub use policy::{
-    apply_delegation_instruction_routes, assert_delegation_pair_allowed,
-    assert_delegate_provider_not_blocked, assert_session_delegation_limits,
+    apply_delegation_instruction_routes, assert_delegate_provider_not_blocked,
+    assert_delegation_pair_allowed, assert_session_delegation_limits,
 };
 
 pub use catalog::{build_orchestration_catalog, OrchestrationCatalogEntry};

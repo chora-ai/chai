@@ -2,7 +2,7 @@
 
 **Goal:** Confirm the gateway is logged into a Matrix homeserver, messages in a **joined** room are received (including **encrypted** rooms when keys are available), and the agent’s reply is sent back as `m.room.message` (`m.text`).
 
-The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys (default directory **`<active-profile>/matrix`** under **`~/.chai/profiles/`**; override **`CHAI_MATRIX_STORE`** or **`channels.matrix.storePath`**). It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
 
 **Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [.agents/ref/MATRIX.md](../.agents/ref/MATRIX.md).
 
@@ -14,7 +14,7 @@ The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-s
 - **Config** — one of:
   - **`channels.matrix.homeserver`** + **`channels.matrix.accessToken`**, and **`channels.matrix.userId`** if needed, plus **`channels.matrix.deviceId`** if **`GET /account/whoami`** does not return a device id for your token, **or**
   - **`channels.matrix.homeserver`** + **`channels.matrix.user`** + **`channels.matrix.password`** for password login at startup (the SDK creates a session and persists keys under the store path).
-- **Environment overrides** (optional): `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`, `MATRIX_USER_ID`, `MATRIX_USER`, `MATRIX_PASSWORD`, `MATRIX_DEVICE_ID`, `CHAI_MATRIX_STORE` — see [README.md](../README.md) **Environment variables**.
+- **Environment overrides** (optional): `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`, `MATRIX_USER_ID`, `MATRIX_USER`, `MATRIX_PASSWORD`, `MATRIX_DEVICE_ID` — see [README.md](../README.md) **Environment variables**.
 - **Ollama** (or your configured default provider) running with the default model. If the model is missing or the provider is down, the message may be received but no reply is sent (see verification below).
 - A **room** where the Chai Matrix user is **joined** (invite `@your-chai-user:server` from Element or another client). The room may be **encrypted** or not.
 - **Gateway URL** for optional HTTP checks — note **`gateway.bind`** and **`gateway.port`** in config (default port **15151**). Examples below use `http://127.0.0.1:15151`; substitute your bind/port.
@@ -115,7 +115,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 
 ## If something fails
 
-- **`matrix: restore_session failed`** — Token invalid, wrong **`device_id`**, or store out of sync with the server; try password login once or clear **`~/.chai/matrix`** (you will need to verify devices again).
+- **`matrix: restore_session failed`** — Token invalid, wrong **`device_id`**, or store out of sync with the server; try password login once or clear **`<active-profile>/matrix`** (you will need to verify devices again).
 - **`matrix: room not loaded yet`** — Wait for sync after joining; send again after the room appears in the client state.
 - **No reply** — Provider/model down; check `inbound: agent turn failed`.
 - **Allowlist** — If you configured **`roomIds`** / **`MATRIX_ROOM_ALLOWLIST`**, confirm the room id matches exactly (including `!` and server part). Logs may show `ignoring message from non-allowlisted room`.
@@ -129,7 +129,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 
 | Step | Action |
 |------|--------|
-| Store | Default `~/.chai/matrix` (or `CHAI_MATRIX_STORE`) |
+| Store | **`<active-profile>/matrix`** |
 | Config | `channels.matrix` + token or password |
 | Allowlist (optional) | `channels.matrix.roomIds` or `MATRIX_ROOM_ALLOWLIST` |
 | Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX.md](../.agents/ref/MATRIX.md)) |

@@ -48,10 +48,7 @@ fn authorize_matrix_http(state: &GatewayState, headers: &HeaderMap) -> Result<()
 }
 
 fn matrix_or_404(state: &GatewayState) -> Result<&Arc<MatrixChannel>, StatusCode> {
-    state
-        .matrix_channel
-        .as_ref()
-        .ok_or(StatusCode::NOT_FOUND)
+    state.matrix_channel.as_ref().ok_or(StatusCode::NOT_FOUND)
 }
 
 fn parse_user_id(s: &str) -> Result<OwnedUserId, StatusCode> {
@@ -115,7 +112,9 @@ pub async fn matrix_verification_start_sas(
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
     let Some(_) = sas else {
-        return Ok(Json(json!({ "ok": false, "reason": "SAS not available (wrong state?)" })));
+        return Ok(Json(
+            json!({ "ok": false, "reason": "SAS not available (wrong state?)" }),
+        ));
     };
     Ok(Json(json!({ "ok": true })))
 }
@@ -250,7 +249,12 @@ pub async fn matrix_verification_cancel(
         return Ok(Json(json!({ "ok": true, "phase": "request" })));
     }
 
-    if let Some(v) = m.client().encryption().get_verification(&user_id, fid).await {
+    if let Some(v) = m
+        .client()
+        .encryption()
+        .get_verification(&user_id, fid)
+        .await
+    {
         if let Some(sas) = v.sas() {
             sas.cancel().await.map_err(|e| {
                 log::warn!("matrix verification cancel (sas) failed: {}", e);

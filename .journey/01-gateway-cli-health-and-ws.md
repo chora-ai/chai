@@ -16,7 +16,7 @@
 
 2. **HTTP health**
    - In another terminal: `curl http://127.0.0.1:15151/`
-   - **Expect:** JSON with `"runtime": "running"`, `"protocol": 1`, `"port": 15151` (or your port).
+   - **Expect:** JSON with `"status": "running"`, `"protocol": 1`, `"port": 15151` (or your port).
 
 3. **WebSocket connect**
    - Use a WebSocket client (e.g. `websocat`, browser console, or script) to connect to `ws://127.0.0.1:15151/ws`.
@@ -26,11 +26,11 @@
 
 4. **Health over WebSocket**
    - Send: `{"type":"req","id":"2","method":"health","params":{}}`
-   - **Expect:** `"ok":true`, payload with `"runtime":"running"`, `"protocol":1`.
+   - **Expect:** `"ok":true`, payload with `"status":"running"`, `"protocol":1`.
 
 5. **Status over WebSocket**
    - Send: `{"type":"req","id":"3","method":"status","params":{}}`
-   - **Expect:** `"ok":true`, payload with top-level keys in order **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`runtime`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
+   - **Expect:** `"ok":true`, payload with top-level keys in order **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`status`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
 
 6. **Stop the gateway**
    - In the gateway terminal: Ctrl+C.

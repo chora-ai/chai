@@ -65,7 +65,7 @@ pub struct ConnectParams {
 #[serde(rename_all = "camelCase")]
 pub struct ConnectDevice {
     pub id: String,
-    pub public_key: String,  // wire: publicKey, base64-encoded Ed25519 public key
+    pub public_key: String, // wire: publicKey, base64-encoded Ed25519 public key
     pub signature: String,  // base64-encoded Ed25519 signature of the canonical payload
     pub signed_at: u64,     // wire: signedAt, Unix ms
     pub nonce: String,

@@ -1,0 +1,203 @@
+{
+  "tools": [
+    {
+      "name": "git_status",
+      "description": "Show working tree status: current branch, staged changes, unstaged changes, and untracked files.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    },
+    {
+      "name": "git_log",
+      "description": "Show recent commit history.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "count": {
+            "type": "string",
+            "description": "Number of commits to show (e.g. '10'). Defaults to 20 if omitted."
+          },
+          "oneline": {
+            "type": "boolean",
+            "description": "Use compact one-line format per commit"
+          },
+          "path": {
+            "type": "string",
+            "description": "Limit log to commits affecting this file or directory path"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_diff",
+      "description": "Show differences between working tree, index, or commits.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "staged": {
+            "type": "boolean",
+            "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Limit diff to a specific file or directory path"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_show",
+      "description": "Show the contents of a specific commit (message, author, diff).",
+      "parameters": {
+        "type": "object",
+        "required": ["ref"],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_branch",
+      "description": "List branches. Shows all local branches with the current branch marked.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "all": {
+            "type": "boolean",
+            "description": "Include remote-tracking branches"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_add",
+      "description": "Stage files for the next commit.",
+      "parameters": {
+        "type": "object",
+        "required": ["files"],
+        "properties": {
+          "files": {
+            "type": "string",
+            "description": "File path or pattern to stage (e.g. 'src/main.rs', '.')"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_commit",
+      "description": "Create a new commit with staged changes.",
+      "parameters": {
+        "type": "object",
+        "required": ["message"],
+        "properties": {
+          "message": {
+            "type": "string",
+            "description": "Commit message describing the changes"
+          }
+        }
+      }
+    },
+    {
+      "name": "git_branch_create",
+      "description": "Create a new branch and switch to it.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Name for the new branch (e.g. 'feature/add-search')"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "git": ["status", "log", "diff", "show", "branch", "add", "commit", "checkout -b"]
+  },
+  "execution": [
+    {
+      "tool": "git_status",
+      "binary": "git",
+      "subcommand": "status",
+      "args": []
+    },
+    {
+      "tool": "git_log",
+      "binary": "git",
+      "subcommand": "log",
+      "args": [
+        { "param": "count", "kind": "flag", "flag": "n" },
+        { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
+        { "param": "path", "kind": "positional", "optional": true }
+      ]
+    },
+    {
+      "tool": "git_diff",
+      "binary": "git",
+      "subcommand": "diff",
+      "args": [
+        { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--cached" },
+        { "param": "ref", "kind": "positional", "optional": true },
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "disambiguateAfterSkippedPositionals": true
+        }
+      ]
+    },
+    {
+      "tool": "git_show",
+      "binary": "git",
+      "subcommand": "show",
+      "args": [
+        { "param": "ref", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "git_branch",
+      "binary": "git",
+      "subcommand": "branch",
+      "args": [
+        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" }
+      ]
+    },
+    {
+      "tool": "git_add",
+      "binary": "git",
+      "subcommand": "add",
+      "args": [
+        { "param": "files", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "git_commit",
+      "binary": "git",
+      "subcommand": "commit",
+      "args": [
+        { "param": "message", "kind": "flag", "flag": "m" }
+      ]
+    },
+    {
+      "tool": "git_branch_create",
+      "binary": "git",
+      "subcommand": "checkout -b",
+      "args": [
+        { "param": "name", "kind": "positional" }
+      ]
+    }
+  ]
+}

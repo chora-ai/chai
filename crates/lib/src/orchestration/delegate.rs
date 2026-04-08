@@ -1,21 +1,23 @@
 //! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `.agents/epic/ORCHESTRATION.md`).
 
-use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
-use crate::config::{canonical_provider, provider_discovery_enabled, AgentsConfig, SkillContextMode};
-use crate::providers::{ChatMessage, ToolCall, ToolDefinition, ToolFunctionDefinition};
-use crate::session::SessionStore;
-use crate::skills::Skill;
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use super::choice::provider_choice_from_canonical;
 use super::dispatch::ProviderClients;
 use super::model::resolve_model;
 use super::policy::{
-    apply_delegation_instruction_routes, assert_delegation_pair_allowed,
-    assert_delegate_provider_not_blocked, assert_session_delegation_limits,
+    apply_delegation_instruction_routes, assert_delegate_provider_not_blocked,
+    assert_delegation_pair_allowed, assert_session_delegation_limits,
 };
+use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
+use crate::config::{
+    canonical_provider, provider_discovery_enabled, AgentsConfig, SkillContextMode,
+};
+use crate::providers::{ChatMessage, ToolCall, ToolDefinition, ToolFunctionDefinition};
+use crate::session::SessionStore;
+use crate::skills::Skill;
 use serde_json::json;
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::sync::broadcast;
 
 pub const DELEGATE_TASK_TOOL_NAME: &str = "delegate_task";
@@ -68,7 +70,12 @@ impl DelegateObservability {
     }
 
     /// Emits [`EVENT_DELEGATE_REJECTED`] (e.g. max delegations per turn).
-    pub fn emit_rejected(&self, args: &serde_json::Value, reason: &str, max_delegations: Option<usize>) {
+    pub fn emit_rejected(
+        &self,
+        args: &serde_json::Value,
+        reason: &str,
+        max_delegations: Option<usize>,
+    ) {
         let worker_id = args
             .as_object()
             .and_then(|o| o.get("workerId"))
@@ -173,10 +180,7 @@ pub fn delegate_task_tool_definition() -> ToolDefinition {
         typ: "function".to_string(),
         function: ToolFunctionDefinition {
             name: DELEGATE_TASK_TOOL_NAME.to_string(),
-            description: Some(
-                "delegate a task to a worker"
-                    .to_string(),
-            ),
+            description: Some("delegate a task to a worker".to_string()),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -274,7 +278,10 @@ struct DelegateTarget {
     model: String,
 }
 
-fn resolve_delegate_target(agents: &AgentsConfig, args: &serde_json::Value) -> Result<DelegateTarget, String> {
+fn resolve_delegate_target(
+    agents: &AgentsConfig,
+    args: &serde_json::Value,
+) -> Result<DelegateTarget, String> {
     let obj = args
         .as_object()
         .ok_or_else(|| "arguments must be an object".to_string())?;
@@ -344,7 +351,10 @@ fn resolve_delegate_target(agents: &AgentsConfig, args: &serde_json::Value) -> R
         }
 
         let provider_choice = provider_choice_from_canonical(provider_canonical);
-        let config_model = worker.default_model.as_deref().or(agents.default_model.as_deref());
+        let config_model = worker
+            .default_model
+            .as_deref()
+            .or(agents.default_model.as_deref());
         let model = resolve_model(config_model, model_param, provider_choice);
         (provider_canonical, model)
     } else {
@@ -361,18 +371,17 @@ fn resolve_delegate_target(agents: &AgentsConfig, args: &serde_json::Value) -> R
         }
 
         let provider_choice = provider_choice_from_canonical(provider_canonical);
-        let model = resolve_model(agents.default_model.as_deref(), model_param, provider_choice);
+        let model = resolve_model(
+            agents.default_model.as_deref(),
+            model_param,
+            provider_choice,
+        );
         (provider_canonical, model)
     };
 
     assert_delegate_provider_not_blocked(agents, provider_canonical)?;
 
-    assert_delegation_pair_allowed(
-        agents,
-        worker_id.as_deref(),
-        provider_canonical,
-        &model,
-    )?;
+    assert_delegation_pair_allowed(agents, worker_id.as_deref(), provider_canonical, &model)?;
 
     let provider_choice = provider_choice_from_canonical(provider_canonical);
     Ok(DelegateTarget {
@@ -474,7 +483,8 @@ pub async fn execute_delegate_task(
                 .and_then(|m| m.get(wid))
                 .ok_or_else(|| format!("no worker runtime for workerId: {}", wid))?;
             let worker_skills_enabled = !rt.skills.is_empty();
-            let sys = system_context_with_today(&rt.system_context_static, None, worker_skills_enabled);
+            let sys =
+                system_context_with_today(&rt.system_context_static, None, worker_skills_enabled);
             let s = sys.trim();
             if !s.is_empty() {
                 messages.push(ChatMessage {
@@ -512,32 +522,26 @@ pub async fn execute_delegate_task(
         tool_name: None,
     });
     let provider = ctx.clients.as_dyn(choice);
-    let result = match run_turn_with_messages_dyn(
-        provider,
-        &model,
-        messages,
-        worker_tools,
-        tool_exec,
-    )
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            let msg = e.to_string();
-            if let Some(ref obs) = ctx.observability {
-                let mut extra = json!({
-                    "error": msg,
-                    "provider": provider_canonical,
-                    "model": model,
-                });
-                if let Some(w) = optional_worker_id_from_args(&merged) {
-                    extra["workerId"] = json!(w);
+    let result =
+        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec).await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = e.to_string();
+                if let Some(ref obs) = ctx.observability {
+                    let mut extra = json!({
+                        "error": msg,
+                        "provider": provider_canonical,
+                        "model": model,
+                    });
+                    if let Some(w) = optional_worker_id_from_args(&merged) {
+                        extra["workerId"] = json!(w);
+                    }
+                    obs.send(EVENT_DELEGATE_ERROR, obs.merge_base(extra));
                 }
-                obs.send(EVENT_DELEGATE_ERROR, obs.merge_base(extra));
+                return Err(msg);
             }
-            return Err(msg);
-        }
-    };
+        };
 
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
         if let Err(e) = store.record_delegation(sid, provider_canonical).await {
@@ -570,9 +574,9 @@ pub async fn execute_delegate_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::ToolFunctionDefinition;
-    use crate::providers::ToolCallFunction;
     use crate::config::{AllowedModelEntry, WorkerConfig};
+    use crate::providers::ToolCallFunction;
+    use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
 
     #[test]
@@ -688,10 +692,7 @@ mod tests {
         let out = parse_delegate_tool_calls(&payload).expect("parsed");
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].function.name, "search");
-        assert_eq!(
-            out[0].function.arguments["query"],
-            serde_json::json!("hi")
-        );
+        assert_eq!(out[0].function.arguments["query"], serde_json::json!("hi"));
     }
 
     #[test]

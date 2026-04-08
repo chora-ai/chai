@@ -16,12 +16,12 @@ use async_trait::async_trait;
 pub use hf::{HfClient, HfError, HfModel};
 pub use lms::{LmsClient, LmsError, LmsModel};
 pub use nim::{NimClient, NimError, NimModel};
-pub use openai::{OpenAiClient, OpenAiError, OpenAiModel};
-pub use vllm::{VllmClient, VllmError, VllmModel};
 pub use ollama::{
     ChatMessage, ChatResponse, OllamaClient, OllamaError, OllamaModel, ToolCall, ToolCallFunction,
     ToolDefinition, ToolFunctionDefinition,
 };
+pub use openai::{OpenAiClient, OpenAiError, OpenAiModel};
+pub use vllm::{VllmClient, VllmError, VllmModel};
 
 /// Common error type for any provider and for agent/session errors.
 #[derive(Debug, thiserror::Error)]

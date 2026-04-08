@@ -1,0 +1,231 @@
+{
+  "tools": [
+    {
+      "name": "kb_read",
+      "description": "Read the contents of a knowledge base note.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_write",
+      "description": "Create or overwrite a knowledge base note. Parent directory must exist.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          },
+          "content": {
+            "type": "string",
+            "description": "Full note content in markdown format including YAML frontmatter"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_append",
+      "description": "Append content to an existing knowledge base note. Creates the file if it does not exist.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to append to the note"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_delete",
+      "description": "Delete a knowledge base note. Refuses to delete directories.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '00-inbox/old-note.md')"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_list",
+      "description": "List files and directories in the knowledge base.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path relative to the knowledge base root (e.g. '01-admin'). Omit to list the root."
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_search",
+      "description": "Search note contents for a pattern. Searches recursively from the knowledge base root by default.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (basic regex supported)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Directory or file path relative to the knowledge base root to narrow the search. Omit to search all notes."
+          },
+          "files_only": {
+            "type": "boolean",
+            "description": "Show only file names containing matches instead of matching lines"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "cat": [""],
+    "ls": [""],
+    "grep": ["--recursive --line-number"],
+    "chai": ["file write", "file append", "file delete"]
+  },
+  "execution": [
+    {
+      "tool": "kb_read",
+      "binary": "cat",
+      "subcommand": "",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_write",
+      "binary": "chai",
+      "subcommand": "file write",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        }
+      ]
+    },
+    {
+      "tool": "kb_append",
+      "binary": "chai",
+      "subcommand": "file append",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "content",
+          "kind": "flag",
+          "flag": "content",
+          "normalizeNewlines": true
+        }
+      ]
+    },
+    {
+      "tool": "kb_delete",
+      "binary": "chai",
+      "subcommand": "file delete",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_list",
+      "binary": "ls",
+      "subcommand": "",
+      "args": [
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_search",
+      "binary": "grep",
+      "subcommand": "--recursive --line-number",
+      "args": [
+        {
+          "param": "files_only",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--files-with-matches"
+        },
+        {
+          "param": "pattern",
+          "kind": "positional"
+        },
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    }
+  ]
+}

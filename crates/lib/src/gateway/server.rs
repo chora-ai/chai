@@ -1,40 +1,42 @@
 //! Gateway HTTP + WebSocket server (single port).
 
 use crate::agent;
+use crate::agent_ctx;
+#[cfg(feature = "matrix")]
+use crate::channels::{connect_matrix_client, MatrixChannel};
 use crate::channels::{
     resolve_signal_daemon_config, ChannelHandle, ChannelRegistry, InboundMessage, SignalChannel,
     TelegramChannel, TelegramTransport, TelegramUpdate,
 };
-#[cfg(feature = "matrix")]
-use crate::channels::{connect_matrix_client, MatrixChannel};
 use crate::config::{
     self, orchestrator_context_mode, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url,
     resolve_nim_api_key, resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url,
-    resolve_vllm_api_key, resolve_vllm_base_url, worker_context_mode, Config, SkillContextMode,
+    resolve_telegram_webhook_secret, resolve_vllm_api_key, resolve_vllm_base_url,
+    worker_context_mode, Config, SkillContextMode,
 };
-use crate::agent_ctx;
-use crate::init;
-use crate::profile::{self, ChaiPaths};
-use crate::orchestration::{
-    build_orchestration_catalog, build_workers_context, effective_worker_defaults, merge_delegate_task,
-    provider_choice_from_canonical, provider_id, resolve_model, resolve_provider_choice,
-    system_context_with_today, worker_tool_list, DelegateContext, DelegateObservability,
-    ProviderChoice, ProviderClients, WorkerDelegateRuntime,
-};
-use crate::skills::{load_skills, Skill, SkillEntry};
-use crate::tools::GenericToolExecutor;
 #[cfg(feature = "matrix")]
 use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
-    AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest, WsResponse,
+    AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest,
+    WsResponse,
 };
+use crate::init;
+use crate::orchestration::{
+    build_orchestration_catalog, build_workers_context, effective_worker_defaults,
+    merge_delegate_task, provider_choice_from_canonical, provider_id, resolve_model,
+    resolve_provider_choice, system_context_with_today, worker_tool_list, DelegateContext,
+    DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
+};
+use crate::profile::{self, ChaiPaths};
 use crate::providers::{
     HfClient, HfModel, LmsClient, LmsModel, NimClient, NimModel, OllamaClient, OllamaModel,
     OpenAiClient, OpenAiModel, ToolDefinition, VllmClient, VllmModel,
 };
 use crate::routing::SessionBindingStore;
 use crate::session::SessionStore;
+use crate::skills::{load_skills, validate_skill_composition, Skill, SkillEntry};
+use crate::tools::GenericToolExecutor;
 use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
@@ -81,14 +83,7 @@ fn device_signature_payload(
     let scopes_str = scopes.join(",");
     format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}",
-        device.id,
-        client_id,
-        client_mode,
-        role,
-        scopes_str,
-        device.signed_at,
-        token,
-        device.nonce
+        device.id, client_id, client_mode, role, scopes_str, device.signed_at, token, device.nonce
     )
 }
 
@@ -132,7 +127,8 @@ fn verify_device_signature(
             .try_into()
             .map_err(|_| "invalid device signature length")?,
     );
-    pk.verify_strict(payload.as_bytes(), &sig).map_err(|_| "device signature verification failed".to_string())?;
+    pk.verify_strict(payload.as_bytes(), &sig)
+        .map_err(|_| "device signature verification failed".to_string())?;
     Ok(())
 }
 
@@ -251,7 +247,10 @@ impl GatewayState {
     /// Combined tool list and executor (built at startup; list matches status/tools panel, including delegate_task when workers are configured).
     pub fn tools_and_executor(
         &self,
-    ) -> (Option<Vec<ToolDefinition>>, Option<&dyn agent::ToolExecutor>) {
+    ) -> (
+        Option<Vec<ToolDefinition>>,
+        Option<&dyn agent::ToolExecutor>,
+    ) {
         let exec = self.tool_executor.as_deref();
         (self.tools_list.clone(), exec)
     }
@@ -261,7 +260,10 @@ impl GatewayState {
 /// Removes consecutive frontmatter blocks (e.g. duplicated `---` blocks at the start of a SKILL.md).
 fn strip_skill_frontmatter(content: &str) -> &str {
     let rest = content.trim_start();
-    let rest = rest.strip_prefix("---").map(|s| s.trim_start()).unwrap_or(rest);
+    let rest = rest
+        .strip_prefix("---")
+        .map(|s| s.trim_start())
+        .unwrap_or(rest);
     if let Some(i) = rest.find("\n---") {
         let after = rest.get(i + 4..).unwrap_or(rest).trim_start();
         if after.starts_with("---") {
@@ -371,6 +373,7 @@ fn build_system_context_static(
     skills: &[Skill],
     context_mode: SkillContextMode,
     agents: &config::AgentsConfig,
+    skill_catalog: &[SkillEntry],
 ) -> String {
     let mut out = String::new();
     if let Some(ctx) = agent_ctx {
@@ -380,7 +383,7 @@ fn build_system_context_static(
             out.push_str("\n\n");
         }
     }
-    let workers_ctx = build_workers_context(agents);
+    let workers_ctx = build_workers_context(agents, skill_catalog);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
         out.push_str("\n");
@@ -428,6 +431,7 @@ struct BuiltSkillRuntime {
 fn build_skill_runtime_for_entries(
     skill_entries: Vec<SkillEntry>,
     context_mode: SkillContextMode,
+    sandbox: Option<crate::exec::WriteSandbox>,
 ) -> BuiltSkillRuntime {
     let skills: Vec<Skill> = skill_entries.iter().map(Skill::from).collect();
     let descriptors: Vec<(String, crate::skills::ToolDescriptor)> = skill_entries
@@ -446,7 +450,8 @@ fn build_skill_runtime_for_entries(
                 .map(|_| (e.name.clone(), e.path.clone()))
         })
         .collect();
-    let generic_executor = GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs);
+    let generic_executor =
+        GenericToolExecutor::from_descriptors(&descriptors, &skill_dirs, sandbox);
     let mut skill_layer_tools: Vec<ToolDefinition> = Vec::new();
     if context_mode == SkillContextMode::ReadOnDemand && !skills.is_empty() {
         skill_layer_tools.push(read_skill_tool_definition());
@@ -495,9 +500,7 @@ fn read_skill_tool_definition() -> ToolDefinition {
         typ: "function".to_string(),
         function: crate::providers::ToolFunctionDefinition {
             name: "read_skill".to_string(),
-            description: Some(
-                "read a skill by name".to_string(),
-            ),
+            description: Some("read a skill by name".to_string()),
             parameters: serde_json::json!({
                 "type": "object",
                 "required": ["skill_name"],
@@ -588,7 +591,10 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         }
         if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
             let _ = handle
-                .send_message(&msg.conversation_id, "session restarted. next message will start with a clean history.")
+                .send_message(
+                    &msg.conversation_id,
+                    "session restarted. next message will start with a clean history.",
+                )
                 .await;
         }
         return;
@@ -679,7 +685,10 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         Ok(r) => r,
         Err(e) => {
             log::warn!("inbound: agent turn failed: {}", e);
-            let fallback = format!("something went wrong: {}. check the gateway logs for details.", e);
+            let fallback = format!(
+                "something went wrong: {}. check the gateway logs for details.",
+                e
+            );
             if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
                 let _ = handle.send_message(&msg.conversation_id, &fallback).await;
             }
@@ -706,7 +715,11 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             Some(&msg.conversation_id),
         );
         if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
-            if handle.send_message(&msg.conversation_id, &reply).await.is_err() {
+            if handle
+                .send_message(&msg.conversation_id, &reply)
+                .await
+                .is_err()
+            {
                 log::warn!("inbound: send_message failed");
             }
         }
@@ -765,10 +778,31 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             Vec::new()
         }
     };
-    log::info!(
-        "discovered {} skill package(s) on disk",
-        all_entries.len()
-    );
+    log::info!("discovered {} skill package(s) on disk", all_entries.len());
+
+    // Verify skill versions against lockfile
+    {
+        let mut all_enabled: Vec<&str> = config::orchestrator_skills_enabled_list(&config.agents)
+            .iter()
+            .map(|s| s.as_str())
+            .collect();
+        if let Some(workers) = &config.agents.workers {
+            for w in workers {
+                for name in config::worker_skills_enabled_list(w) {
+                    if !all_enabled.contains(&name.as_str()) {
+                        all_enabled.push(name.as_str());
+                    }
+                }
+            }
+        }
+        crate::skills::lockfile::verify_at_startup(
+            &all_entries,
+            &all_enabled,
+            &paths.profile_dir,
+            config.skill_lock_mode,
+        )?;
+    }
+
     let orch_names = config::orchestrator_skills_enabled_list(&config.agents);
     let orchestrator_entries: Vec<SkillEntry> = all_entries
         .iter()
@@ -779,11 +813,34 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         "orchestrator: {} skill package(s) enabled",
         orchestrator_entries.len()
     );
+    validate_skill_composition(
+        "orchestrator",
+        &orchestrator_entries,
+        config.agents.default_model.as_deref(),
+    );
     let orch_ctx_mode = orchestrator_context_mode(&config.agents);
     if orch_ctx_mode == SkillContextMode::ReadOnDemand {
-        log::info!("orchestrator skill context mode: readOnDemand (compact list + read_skill tool)");
+        log::info!(
+            "orchestrator skill context mode: readOnDemand (compact list + read_skill tool)"
+        );
     }
-    let orch_built = build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode);
+    let sandbox = crate::exec::WriteSandbox::new(&paths.sandbox_dir());
+    let sandbox_opt = if sandbox.has_roots() {
+        log::info!(
+            "write sandbox: {} writable root(s) from {}",
+            sandbox.roots().len(),
+            paths.sandbox_dir().display()
+        );
+        Some(sandbox)
+    } else {
+        log::debug!(
+            "write sandbox: no sandbox directory at {}",
+            paths.sandbox_dir().display()
+        );
+        None
+    };
+    let orch_built =
+        build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
     let skills = orch_built.skills.clone();
     let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
     let system_context_static = build_system_context_static(
@@ -791,6 +848,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         &skills,
         orch_ctx_mode,
         &config.agents,
+        &all_entries,
     );
 
     let has_workers = config
@@ -813,8 +871,11 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                 .filter(|e| w_names.iter().any(|n| n == &e.name))
                 .cloned()
                 .collect();
+            let w_label = format!("worker:{}", w.id);
+            validate_skill_composition(&w_label, &w_entries, w.default_model.as_deref());
             let w_ctx_mode = worker_context_mode(w);
-            let w_built = build_skill_runtime_for_entries(w_entries, w_ctx_mode);
+            let w_built =
+                build_skill_runtime_for_entries(w_entries, w_ctx_mode, sandbox_opt.clone());
             let w_static = build_worker_system_context_static(
                 w_agent_ctx.as_deref(),
                 &w_built.skills,
@@ -975,7 +1036,11 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         log::warn!(
             "OpenAI API is enabled; requests and data are sent to OpenAI (not a local-first option)."
         );
-        if openai_api_key.is_none() || openai_api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true)
+        if openai_api_key.is_none()
+            || openai_api_key
+                .as_ref()
+                .map(|k| k.is_empty())
+                .unwrap_or(true)
         {
             log::warn!("openai provider selected but no API key set (providers.openai.apiKey or OPENAI_API_KEY). Requests will fail until a key is configured.");
         }
@@ -1011,7 +1076,8 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                 },
             ));
             if let Some(ref url) = webhook_url {
-                let secret = config.channels.telegram.webhook_secret.as_deref();
+                let webhook_secret = resolve_telegram_webhook_secret(&config);
+                let secret = webhook_secret.as_deref();
                 if let Err(e) = telegram.set_webhook(url, secret).await {
                     log::warn!("telegram set_webhook failed: {}", e);
                 } else {
@@ -1182,7 +1248,7 @@ async fn telegram_webhook(
     headers: HeaderMap,
     body: Bytes,
 ) -> StatusCode {
-    if let Some(ref expected) = state.config.channels.telegram.webhook_secret {
+    if let Some(ref expected) = config::resolve_telegram_webhook_secret(&state.config) {
         let provided = headers
             .get("X-Telegram-Bot-Api-Secret-Token")
             .and_then(|v| v.to_str().ok())
@@ -1215,7 +1281,7 @@ async fn telegram_webhook(
 /// GET / returns a simple health JSON (for probes).
 async fn health_http(State(state): State<GatewayState>) -> Json<serde_json::Value> {
     Json(json!({
-        "runtime": "running",
+        "status": "running",
         "protocol": PROTOCOL_VERSION,
         "port": state.config.gateway.port,
     }))
@@ -1297,10 +1363,7 @@ fn merge_channel_runtime_detail(
 }
 
 /// GET /ws upgrades to WebSocket. First frame must be connect; we reply with hello-ok.
-async fn ws_handler(
-    State(state): State<GatewayState>,
-    ws: WebSocketUpgrade,
-) -> Response {
+async fn ws_handler(State(state): State<GatewayState>, ws: WebSocketUpgrade) -> Response {
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -1449,7 +1512,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
             }
             "health" => {
                 let payload = json!({
-                    "runtime": "running",
+                    "status": "running",
                     "protocol": PROTOCOL_VERSION,
                 });
                 let res = WsResponse::ok(&req.id, payload);
@@ -1685,7 +1748,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "packagesDiscovered": state.skill_packages_discovered,
                 });
                 let gateway_block = json!({
-                    "runtime": "running",
+                    "status": "running",
                     "protocol": PROTOCOL_VERSION,
                     "port": state.config.gateway.port,
                     "bind": state.config.gateway.bind,

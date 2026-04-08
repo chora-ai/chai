@@ -1,6 +1,8 @@
 //! Hold references to configured provider clients and return [`Provider`] trait objects for dispatch.
 
-use crate::providers::{HfClient, LmsClient, NimClient, OllamaClient, OpenAiClient, Provider, VllmClient};
+use crate::providers::{
+    HfClient, LmsClient, NimClient, OllamaClient, OpenAiClient, Provider, VllmClient,
+};
 
 use super::choice::ProviderChoice;
 

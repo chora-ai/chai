@@ -8,8 +8,8 @@ use std::sync::mpsc;
 
 mod screens;
 mod state;
-mod ui;
 mod types;
+mod ui;
 
 pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, SessionEvent};
 
@@ -212,38 +212,36 @@ impl ChaiApp {
             .map(|(c, _)| c)
             .unwrap_or_default();
         // Start from enabledProviders when set; otherwise fall back to the effective default provider.
-        let mut list: Vec<String> =
-            if config
+        let mut list: Vec<String> = if config
+            .agents
+            .enabled_providers
+            .as_ref()
+            .map(|v| v.is_empty())
+            .unwrap_or(true)
+        {
+            let (default, _) = lib::config::resolve_effective_provider_and_model(&config.agents);
+            vec![default]
+        } else {
+            let mut seen = std::collections::HashSet::new();
+            config
                 .agents
                 .enabled_providers
                 .as_ref()
-                .map(|v| v.is_empty())
-                .unwrap_or(true)
-            {
-                let (default, _) =
-                    lib::config::resolve_effective_provider_and_model(&config.agents);
-                vec![default]
-            } else {
-                let mut seen = std::collections::HashSet::new();
-                config
-                    .agents
-                    .enabled_providers
-                    .as_ref()
-                    .unwrap()
-                    .iter()
-                    .map(|s| s.trim().to_lowercase())
-                    .filter(|s| !s.is_empty())
-                    .filter(|s| {
-                        *s == "ollama"
-                            || *s == "lms"
-                            || *s == "vllm"
-                            || *s == "nim"
-                            || *s == "openai"
-                            || *s == "hf"
-                    })
-                    .filter(|s| seen.insert(s.clone()))
-                    .collect()
-            };
+                .unwrap()
+                .iter()
+                .map(|s| s.trim().to_lowercase())
+                .filter(|s| !s.is_empty())
+                .filter(|s| {
+                    *s == "ollama"
+                        || *s == "lms"
+                        || *s == "vllm"
+                        || *s == "nim"
+                        || *s == "openai"
+                        || *s == "hf"
+                })
+                .filter(|s| seen.insert(s.clone()))
+                .collect()
+        };
         // Always include the effective default provider in the dropdown so the UI reflects
         // which provider the gateway will actually use when no override is provided.
         let (default_provider, _) =
@@ -303,9 +301,8 @@ impl ChaiApp {
             return;
         };
         if lib::profile::gateway_is_running(&chai_home) {
-            self.profile_switch_error = Some(
-                "gateway is running; stop it before switching profile".to_string(),
-            );
+            self.profile_switch_error =
+                Some("gateway is running; stop it before switching profile".to_string());
             return;
         }
         if let Err(e) = lib::profile::switch_active_profile(&chai_home, &name) {
@@ -368,9 +365,9 @@ impl ChaiApp {
                         // Deduplicate: broadcast session events may have already added these messages.
                         if was_new_session {
                             if let Some(ref user_content) = self.pending_user_message {
-                                let already = entry.iter().any(|m| {
-                                    m.role == "user" && m.content == *user_content
-                                });
+                                let already = entry
+                                    .iter()
+                                    .any(|m| m.role == "user" && m.content == *user_content);
                                 if !already {
                                     // Prepend so the user line stays before any delegation rows that arrived from the WebSocket while the turn was running (we skip the gateway echo of this user message).
                                     entry.insert(0, ChatMessage::user(user_content.clone()));
@@ -489,12 +486,15 @@ impl ChaiApp {
                 return;
             }
         };
-        let child = std::process::Command::new(&binary)
-            .args(["gateway", "--port", &port.to_string()])
+        let mut cmd = std::process::Command::new(&binary);
+        cmd.args(["gateway", "--port", &port.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn();
+            .stderr(Stdio::piped());
+        if std::env::var_os("RUST_LOG").is_none() {
+            cmd.env("RUST_LOG", "info");
+        }
+        let child = cmd.spawn();
         match child {
             Ok(mut c) => {
                 if let Some(stderr) = c.stderr.take() {
@@ -540,15 +540,14 @@ impl ChaiApp {
         const TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
         let msg = ChatMessage::assistant(TEXT.to_string(), None, None);
         if let Some(sid) = self.chat_session_id.clone() {
-            self.session_messages.entry(sid.clone()).or_default().push(msg);
+            self.session_messages
+                .entry(sid.clone())
+                .or_default()
+                .push(msg);
             self.move_session_to_front(&sid);
             // Keep the visible transcript in sync when the active session is also selected.
             if self.selected_session_id.as_deref() == Some(sid.as_str()) {
-                self.chat_messages = self
-                    .session_messages
-                    .get(&sid)
-                    .cloned()
-                    .unwrap_or_default();
+                self.chat_messages = self.session_messages.get(&sid).cloned().unwrap_or_default();
             }
         } else {
             self.chat_messages.push(msg);
@@ -590,9 +589,7 @@ impl ChaiApp {
                 .entry(sid.clone())
                 .or_insert_with(Vec::new);
             entry.push(ChatMessage::user(message.clone()));
-            self.session_meta
-                .entry(sid.clone())
-                .or_insert((None, None));
+            self.session_meta.entry(sid.clone()).or_insert((None, None));
             self.move_session_to_front(sid);
             // Switch view to the session we're sending to so the message is visible (ui_chat shows selected_session_id).
             self.selected_session_id = Some(sid.clone());
@@ -603,10 +600,11 @@ impl ChaiApp {
         }
         // Send provider only when we know it (from UI override or gateway status). Do not hardcode
         // a fallback (e.g. "ollama") when status is unavailable—let the gateway use its config.
-        let provider = self
-            .current_provider
-            .clone()
-            .or_else(|| self.gateway_status.as_ref().and_then(|s| s.default_provider.clone()));
+        let provider = self.current_provider.clone().or_else(|| {
+            self.gateway_status
+                .as_ref()
+                .and_then(|s| s.default_provider.clone())
+        });
         let model = self.current_model.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {

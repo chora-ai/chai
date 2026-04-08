@@ -49,6 +49,33 @@ pub struct ExecutionSpec {
     /// Order of arguments: how each JSON param becomes a CLI arg.
     #[serde(default)]
     pub args: Vec<ArgMapping>,
+    /// Optional: post-process the command's stdout through a script before
+    /// returning the result to the model. The script receives stdout on stdin
+    /// and its own stdout becomes the tool result. On failure, the original
+    /// stdout is returned unmodified.
+    #[serde(default)]
+    pub post_process: Option<PostProcessSpec>,
+}
+
+/// Spec for post-processing a tool's stdout: either a script in the skill's
+/// scripts/ dir or an allowlisted command. Receives the raw stdout on stdin;
+/// its own stdout becomes the tool result.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PostProcessSpec {
+    /// Name of script under the skill's scripts/ directory (e.g. "parse-rss").
+    /// No allowlist entry needed.
+    #[serde(default)]
+    pub script: Option<String>,
+    /// Binary name for allowlisted command post-processing.
+    #[serde(default)]
+    pub binary: Option<String>,
+    /// Subcommand for allowlisted command. Required when binary is set.
+    #[serde(default)]
+    pub subcommand: Option<String>,
+    /// Additional arguments passed to the script or command.
+    #[serde(default)]
+    pub args: Vec<String>,
 }
 
 /// Spec for resolving a string param: either a script in the skill's scripts/ dir or an allowlisted command; stdout (trimmed) becomes the value.
@@ -93,6 +120,20 @@ pub struct ArgMapping {
     /// Optional: run this allowlisted command with param value substituted for "$param" in args; use trimmed stdout as the value.
     #[serde(default)]
     pub resolve_command: Option<ResolveCommandSpec>,
+    /// When true, this parameter is a filesystem write target. The executor
+    /// validates the resolved value against the write sandbox before execution.
+    #[serde(default)]
+    pub write_path: Option<bool>,
+    /// When true, a missing or null JSON parameter is omitted from argv (unless
+    /// `resolveCommand` is set, in which case the resolver runs with an empty
+    /// string). Default: required (same as false).
+    #[serde(default)]
+    pub optional: Option<bool>,
+    /// For `positional` only: when true, insert `--` before this value if any
+    /// prior optional positional in this spec was skipped (disambiguates paths
+    /// from refs for commands like `git diff`).
+    #[serde(default, rename = "disambiguateAfterSkippedPositionals")]
+    pub disambiguate_after_skipped_positionals: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]

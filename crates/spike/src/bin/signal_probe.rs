@@ -16,8 +16,8 @@ use serde_json::json;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let base = std::env::var("SIGNAL_CLI_HTTP")
-        .unwrap_or_else(|_| "http://127.0.0.1:7583".to_string());
+    let base =
+        std::env::var("SIGNAL_CLI_HTTP").unwrap_or_else(|_| "http://127.0.0.1:7583".to_string());
     let base = base.trim_end_matches('/').to_string();
 
     let client = reqwest::Client::new();
@@ -54,12 +54,11 @@ async fn main() -> Result<()> {
     );
 
     let events_url = format!("{}/api/v1/events", base);
-    eprintln!("opening SSE {} (one line sample, 5s timeout)...", events_url);
-    let res = client
-        .get(&events_url)
-        .send()
-        .await
-        .context("GET events")?;
+    eprintln!(
+        "opening SSE {} (one line sample, 5s timeout)...",
+        events_url
+    );
+    let res = client.get(&events_url).send().await.context("GET events")?;
     if !res.status().is_success() {
         let text = res.text().await.unwrap_or_default();
         anyhow::bail!("events failed: {}", text);
@@ -90,8 +89,6 @@ async fn main() -> Result<()> {
         }
     }
 
-    eprintln!(
-        "spike: map JSON-RPC + SSE payloads to `conversation_id` + text (see SIGNAL.md)"
-    );
+    eprintln!("spike: map JSON-RPC + SSE payloads to `conversation_id` + text (see SIGNAL.md)");
     Ok(())
 }

@@ -58,7 +58,9 @@ impl ChannelRegistry {
     }
 
     /// Per registered channel id: sanitized runtime fields for gateway `status`.
-    pub async fn channel_status_details(&self) -> std::collections::HashMap<String, serde_json::Value> {
+    pub async fn channel_status_details(
+        &self,
+    ) -> std::collections::HashMap<String, serde_json::Value> {
         let g = self.inner.read().await;
         let mut out = std::collections::HashMap::new();
         for (id, handle) in g.iter() {

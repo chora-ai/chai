@@ -29,4 +29,5 @@ base64 = "0.22"
 ed25519-dalek = "2"
 getrandom = "0.2"
 include_dir = "0.7"
+sha2 = "0.10"
 matrix-channel = { path = "../adapters/matrix", optional = true }

@@ -55,7 +55,13 @@ impl LmsClient {
         let root = self.api_server_root();
         let url = format!("{}/api/v1/models/load", root);
         let body = serde_json::json!({ "model": model });
-        let res = self.inner.http_client().post(&url).json(&body).send().await?;
+        let res = self
+            .inner
+            .http_client()
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?;
         if !res.status().is_success() {
             let status = res.status();
             let body = res.text().await.unwrap_or_default();

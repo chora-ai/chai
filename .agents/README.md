@@ -41,14 +41,16 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[AGENT_ISOLATION.md](epic/AGENT_ISOLATION.md)** — (complete) Per-agent dirs and skill lists; shared packages under `~/.chai/skills`.
 - **[API_ALIGNMENT.md](epic/API_ALIGNMENT.md)** — (in-progress) Shipped local and OpenAI-compat stacks; Anthropic and Google next.
+- **[BUNDLED_SKILLS.md](epic/BUNDLED_SKILLS.md)** — (in-progress) Bundled skill inventory, skill generation and validation workflow.
 - **[DESKTOP_APP.md](epic/DESKTOP_APP.md)** — (in-progress) egui console for gateway, status, chat; editing and UX still in flight.
 - **[MSG_CHANNELS.md](epic/MSG_CHANNELS.md)** — (in-progress) Telegram, Matrix, Signal wired; logging and hardening remain.
 - **[ORCHESTRATION.md](epic/ORCHESTRATION.md)** — (complete) `delegate_task`, policy, merged `status` catalog, desktop events.
 - **[RAG_VECTOR.md](epic/RAG_VECTOR.md)** — (proposed) pgvector retrieval and embeddings; unbuilt; ties to future projects.
 - **[RUNTIME_PROFILES.md](epic/RUNTIME_PROFILES.md)** — (complete) Profile trees, active symlink, gateway lock, one shared skills root.
 - **[SIMULATIONS.md](epic/SIMULATIONS.md)** — (draft) Fixture harness someday; `spike` crates stay small live probes.
-- **[SKILL_PACKAGES.md](epic/SKILL_PACKAGES.md)** — (draft) Pins, locks, rollback metaphor; no resolver in tree yet.
+- **[SKILL_PACKAGES.md](epic/SKILL_PACKAGES.md)** — (complete) Pins, locks, rollback metaphor; no resolver in tree yet.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today’s default.
+- **[WRITE_SANDBOX.md](epic/WRITE_SANDBOX.md)** — (in-progress) Runtime `WriteSandbox` and `writePath` enforcement.
 
 ### `/meta`
 

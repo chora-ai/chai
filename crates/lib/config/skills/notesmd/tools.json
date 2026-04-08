@@ -1,7 +1,223 @@
 {
+  "tools": [
+    {
+      "name": "notesmd_search",
+      "description": "Search note content for a term and return matching notes.",
+      "parameters": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "Search term to find in note content"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_read",
+      "description": "Print the full contents of a note.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to vault root (e.g. '01-admin/AI Assistant.md')"
+          },
+          "mentions": {
+            "type": "boolean",
+            "description": "Include linked mentions at the end of output"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_create",
+      "description": "Create a new note or update an existing note with content.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to vault root (e.g. '00-inbox/New Note.md')"
+          },
+          "content": {
+            "type": "string",
+            "description": "Note content in markdown format including YAML frontmatter"
+          },
+          "replace": {
+            "type": "boolean",
+            "description": "true to overwrite existing content; false to append to existing content"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_list",
+      "description": "List files and folders in a vault directory.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path relative to vault root (lists vault root if omitted)"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_delete",
+      "description": "Delete a note from the vault.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to vault root (e.g. '00-inbox/Old Note.md')"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_frontmatter_read",
+      "description": "Print the YAML frontmatter of a note.",
+      "parameters": {
+        "type": "object",
+        "required": ["note"],
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "Note name or path (e.g. 'Conventions' or '00-meta/Conventions.md')"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    },
+    {
+      "name": "notesmd_frontmatter_edit",
+      "description": "Set or update a YAML frontmatter key in a note.",
+      "parameters": {
+        "type": "object",
+        "required": ["note", "key", "value"],
+        "properties": {
+          "note": {
+            "type": "string",
+            "description": "Note name or path (e.g. 'Conventions' or '00-meta/Conventions.md')"
+          },
+          "key": {
+            "type": "string",
+            "description": "Frontmatter key to set (e.g. 'status', 'tags')"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value to set for the key (e.g. 'done', 'draft')"
+          },
+          "vault": {
+            "type": "string",
+            "description": "Vault name (uses default vault if omitted)"
+          }
+        }
+      }
+    }
+  ],
   "allowlist": {
-    "notesmd-cli": []
+    "notesmd-cli": ["search-content", "print", "create", "list", "delete", "frontmatter --print", "frontmatter --edit"]
   },
-  "execution": [],
-  "tools": []
+  "execution": [
+    {
+      "tool": "notesmd_search",
+      "binary": "notesmd-cli",
+      "subcommand": "search-content",
+      "args": [
+        { "param": "query", "kind": "positional" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_read",
+      "binary": "notesmd-cli",
+      "subcommand": "print",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "mentions", "kind": "flagifboolean", "flagIfTrue": "--mentions" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_create",
+      "binary": "notesmd-cli",
+      "subcommand": "create",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true },
+        { "param": "replace", "kind": "flagifboolean", "flagIfTrue": "--overwrite", "flagIfFalse": "--append" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_list",
+      "binary": "notesmd-cli",
+      "subcommand": "list",
+      "args": [
+        { "param": "path", "kind": "positional", "optional": true },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_delete",
+      "binary": "notesmd-cli",
+      "subcommand": "delete",
+      "args": [
+        { "param": "path", "kind": "positional" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_frontmatter_read",
+      "binary": "notesmd-cli",
+      "subcommand": "frontmatter --print",
+      "args": [
+        { "param": "note", "kind": "positional" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    },
+    {
+      "tool": "notesmd_frontmatter_edit",
+      "binary": "notesmd-cli",
+      "subcommand": "frontmatter --edit",
+      "args": [
+        { "param": "note", "kind": "positional" },
+        { "param": "key", "kind": "flag", "flag": "key" },
+        { "param": "value", "kind": "flag", "flag": "value" },
+        { "param": "vault", "kind": "flag", "flag": "vault" }
+      ]
+    }
+  ]
 }

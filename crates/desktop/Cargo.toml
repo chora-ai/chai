@@ -16,6 +16,7 @@ matrix = ["lib/matrix"]
 [dependencies]
 lib = { path = "../lib" }
 log = "0.4"
+env_logger = "0.11"
 
 # Async runtime
 tokio = { version = "1", features = ["rt", "net", "time", "sync"] }

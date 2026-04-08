@@ -29,6 +29,11 @@ impl ChaiPaths {
     pub fn paired_json(&self) -> PathBuf {
         self.profile_dir.join("paired.json")
     }
+
+    /// Per-profile write sandbox directory.
+    pub fn sandbox_dir(&self) -> PathBuf {
+        self.profile_dir.join("sandbox")
+    }
 }
 
 /// `~/.chai` (or `$HOME/.chai`).
@@ -76,8 +81,12 @@ fn normalize_profile_target(chai_home: &Path, raw: PathBuf) -> Result<PathBuf> {
     } else {
         chai_home.join(raw)
     };
-    let dir = std::fs::canonicalize(&dir)
-        .with_context(|| format!("active symlink target is not a valid path: {}", dir.display()))?;
+    let dir = std::fs::canonicalize(&dir).with_context(|| {
+        format!(
+            "active symlink target is not a valid path: {}",
+            dir.display()
+        )
+    })?;
     let profiles_base = std::fs::canonicalize(profiles_dir(chai_home)).with_context(|| {
         format!(
             "profiles directory missing (run `chai init`): {}",
@@ -265,10 +274,8 @@ mod lock_tests {
 
     #[test]
     fn gateway_lock_second_acquire_fails_until_first_dropped() {
-        let dir = std::env::temp_dir().join(format!(
-            "chai-gateway-lock-test-{}",
-            std::process::id()
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("chai-gateway-lock-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
 

@@ -1,4 +1,3 @@
-pub mod logs;
-pub mod gateway;
 pub mod chat;
-
+pub mod gateway;
+pub mod logs;

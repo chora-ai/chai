@@ -40,10 +40,7 @@ impl VllmClient {
     /// List models from `GET /v1/models` (typically the model id(s) served by this process).
     pub async fn list_models(&self) -> Result<Vec<VllmModel>, VllmError> {
         let ids = self.inner.list_models_openai().await?;
-        Ok(ids
-            .into_iter()
-            .map(|name| VllmModel { name })
-            .collect())
+        Ok(ids.into_iter().map(|name| VllmModel { name }).collect())
     }
 
     pub async fn chat(

@@ -1,0 +1,112 @@
+{
+  "tools": [
+    {
+      "name": "devtools_read_file",
+      "description": "Read the contents of a file.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute or relative file path to read"
+          }
+        }
+      }
+    },
+    {
+      "name": "devtools_list_dir",
+      "description": "List files and directories at a given path.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path to list"
+          },
+          "long": {
+            "type": "boolean",
+            "description": "Show detailed format with permissions, size, and dates"
+          },
+          "all": {
+            "type": "boolean",
+            "description": "Include hidden files (dotfiles)"
+          }
+        }
+      }
+    },
+    {
+      "name": "devtools_search_content",
+      "description": "Search file contents for a pattern using grep. Returns matching lines with context.",
+      "parameters": {
+        "type": "object",
+        "required": ["pattern", "path"],
+        "properties": {
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (basic regex supported)"
+          },
+          "path": {
+            "type": "string",
+            "description": "File or directory path to search"
+          },
+          "recursive": {
+            "type": "boolean",
+            "description": "Search directories recursively"
+          },
+          "line_numbers": {
+            "type": "boolean",
+            "description": "Show line numbers in output"
+          },
+          "case_insensitive": {
+            "type": "boolean",
+            "description": "Ignore case when matching"
+          },
+          "files_only": {
+            "type": "boolean",
+            "description": "Show only file names that contain matches, not the matching lines"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "cat": [""],
+    "ls": [""],
+    "grep": [""]
+  },
+  "execution": [
+    {
+      "tool": "devtools_read_file",
+      "binary": "cat",
+      "subcommand": "",
+      "args": [
+        { "param": "path", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "devtools_list_dir",
+      "binary": "ls",
+      "subcommand": "",
+      "args": [
+        { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
+        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
+        { "param": "path", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "devtools_search_content",
+      "binary": "grep",
+      "subcommand": "",
+      "args": [
+        { "param": "recursive", "kind": "flagifboolean", "flagIfTrue": "--recursive" },
+        { "param": "line_numbers", "kind": "flagifboolean", "flagIfTrue": "--line-number" },
+        { "param": "case_insensitive", "kind": "flagifboolean", "flagIfTrue": "--ignore-case" },
+        { "param": "files_only", "kind": "flagifboolean", "flagIfTrue": "--files-with-matches" },
+        { "param": "pattern", "kind": "positional" },
+        { "param": "path", "kind": "positional" }
+      ]
+    }
+  ]
+}

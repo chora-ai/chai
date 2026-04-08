@@ -1,8 +1,8 @@
 use eframe::egui;
 
+use crate::app::types::GatewayStatusDetails;
 use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
-use crate::app::types::GatewayStatusDetails;
 
 pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
@@ -78,14 +78,12 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .ok()
                     .and_then(|(config, _)| {
                         config.agents.workers.as_ref().and_then(|ws| {
-                            ws.iter()
-                                .find(|w| w.id == selected_id)
-                                .map(|w| {
-                                    matches!(
-                                        lib::config::worker_context_mode(w),
-                                        lib::config::SkillContextMode::ReadOnDemand
-                                    )
-                                })
+                            ws.iter().find(|w| w.id == selected_id).map(|w| {
+                                matches!(
+                                    lib::config::worker_context_mode(w),
+                                    lib::config::SkillContextMode::ReadOnDemand
+                                )
+                            })
                         })
                     })
                     .unwrap_or(false)
@@ -140,9 +138,12 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                             ),
                                             "Skill bodies (orchestrator)",
                                         )
-                                    } else if let Some(w) = config.agents.workers.as_ref().and_then(
-                                        |ws| ws.iter().find(|w| w.id == selected_id),
-                                    ) {
+                                    } else if let Some(w) = config
+                                        .agents
+                                        .workers
+                                        .as_ref()
+                                        .and_then(|ws| ws.iter().find(|w| w.id == selected_id))
+                                    {
                                         (
                                             lib::config::worker_skills_enabled_list(w),
                                             "Skill bodies (worker)",
@@ -177,8 +178,9 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                                     .max_height(ui_right.available_height())
                                                     .show(ui_right, |ui| {
                                                         for entry in &entries {
-                                                            let body =
-                                                                strip_skill_frontmatter(&entry.content);
+                                                            let body = strip_skill_frontmatter(
+                                                                &entry.content,
+                                                            );
                                                             let has_body = !body.trim().is_empty();
 
                                                             ui.label(

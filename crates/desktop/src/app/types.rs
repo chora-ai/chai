@@ -96,6 +96,8 @@ pub struct GatewayStatusDetails {
     pub(crate) port: u16,
     pub(crate) bind: String,
     pub(crate) auth: String,
+    /// **`payload.gateway.status`** (e.g. **`running`**).
+    pub(crate) status: String,
     /// Resolved orchestrator agent id from config (same id used for the main agent turn).
     pub(crate) orchestrator_id: Option<String>,
     /// Orchestrator context directory from **`payload.agents.entries`** (**`role`** **`orchestrator`**, **`contextDirectory`**).
@@ -153,4 +155,3 @@ pub struct GatewayStatusDetails {
     /// Full **`payload.channels`** (active, configured, transport, errors, Matrix verification summary, …).
     pub(crate) channels_block: Option<serde_json::Value>,
 }
-

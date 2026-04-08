@@ -12,8 +12,8 @@ This document and the `.agents/` directory are the primary resources.
 
 | Category | Crate | Purpose |
 |----------|-------|---------|
-| User-facing runtime | `crates/cli` | Command-line interface for the gateway and a workspace. |
-| User-facing runtime | `crates/desktop` | Graphical user interface for the gateway and a workspace. |
+| User-facing runtime | `crates/cli` | Command-line interface for the multi-agent management system. |
+| User-facing runtime | `crates/desktop` | Graphical user interface for the multi-agent management system. |
 | Shared runtime library | `crates/lib` | Shared business logic for the multi-agent management system. |
 | Optional integration | `crates/adapters/matrix` | Optional Matrix **matrix-sdk** adapter (sync, E2EE, hooks). |
 | Optional research | `crates/spike` | Optional research binaries (e.g. Matrix/Signal wire probes). |
@@ -30,7 +30,7 @@ This document and the `.agents/` directory are the primary resources.
 
 ### New Crates
 
-- The crates in **Architecture Overview** are a starting point. If creating a new crate would improve modularity without adding unnecessary complexity, recommendations would be welcome.
+- The crates in **Architecture Overview** are a starting point. If creating a new crate would improve modularity without adding unnecessary complexity, create a new crate.
 
 ## Code Style Guidelines
 
@@ -52,4 +52,4 @@ This document and the `.agents/` directory are the primary resources.
 
 ### `VISION.md`
 
-- This document provides the state of the project and outlines short and long-term goals.
+- This document provides the state of the project and outlines short and long-term goals. Do not update this document without permission: always request permission before updating.

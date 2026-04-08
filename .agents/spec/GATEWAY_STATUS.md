@@ -42,7 +42,7 @@ There is **no** top-level **`skills`** object. Skill **packages** on disk are un
 
 | Field | Meaning |
 |-------|---------|
-| **`runtime`** | **`"running"`** while the gateway serves **`status`**. |
+| **`status`** | **`"running"`** while the gateway serves **`status`**. |
 | **`protocol`** | Wire protocol version (**`1`**). |
 | **`port`**, **`bind`** | Effective listen address. |
 | **`auth`** | **`"none"`** or **`"token"`**. |

@@ -155,7 +155,12 @@ pub async fn connect_with_params(params: MatrixConnectParams) -> Option<Client> 
             Some(client)
         }
         MatrixLogin::Password { mxid, password } => {
-            if let Err(e) = client.matrix_auth().login_username(&mxid, &password).send().await {
+            if let Err(e) = client
+                .matrix_auth()
+                .login_username(&mxid, &password)
+                .send()
+                .await
+            {
                 log::warn!("matrix: login failed: {}", e);
                 return None;
             }
@@ -200,7 +205,10 @@ pub struct Whoami {
 /// Used by `lib` when resolving access-token login. `base` is homeserver HTTPS base URL.
 pub async fn fetch_whoami(base: &str, access_token: &str) -> Option<Whoami> {
     let client = reqwest::Client::new();
-    let url = format!("{}/_matrix/client/v3/account/whoami", base.trim_end_matches('/'));
+    let url = format!(
+        "{}/_matrix/client/v3/account/whoami",
+        base.trim_end_matches('/')
+    );
     let res = match client.get(&url).bearer_auth(access_token).send().await {
         Ok(r) => r,
         Err(e) => {
@@ -243,7 +251,11 @@ fn truncate_sync_status_msg(s: &str) -> String {
     }
 }
 
-async fn matrix_sync_loop(client: Client, running: Arc<AtomicBool>, last_error: Arc<Mutex<Option<String>>>) {
+async fn matrix_sync_loop(
+    client: Client,
+    running: Arc<AtomicBool>,
+    last_error: Arc<Mutex<Option<String>>>,
+) {
     let settings = SyncSettings::new().timeout(Duration::from_secs(30));
     while running.load(Ordering::SeqCst) {
         match client.sync_once(settings.clone()).await {
@@ -382,41 +394,42 @@ impl MatrixInner {
             );
 
             let allowlist = self.room_allowlist.clone();
-            client.add_event_handler(
-                move |ev: OriginalSyncRoomMessageEvent, room: Room| {
-                    let inbound_tx = inbound_tx.clone();
-                    let my_user = my_user.clone();
-                    let allowlist = allowlist.clone();
-                    async move {
-                        if ev.sender == my_user {
+            client.add_event_handler(move |ev: OriginalSyncRoomMessageEvent, room: Room| {
+                let inbound_tx = inbound_tx.clone();
+                let my_user = my_user.clone();
+                let allowlist = allowlist.clone();
+                async move {
+                    if ev.sender == my_user {
+                        return;
+                    }
+                    let body = match &ev.content.msgtype {
+                        MessageType::Text(t) => t.body.as_str(),
+                        _ => return,
+                    };
+                    let trimmed = body.trim();
+                    if trimmed.is_empty() {
+                        return;
+                    }
+                    let room_id = room.room_id().to_string();
+                    if let Some(ref allow) = allowlist {
+                        if !allow.contains(&room_id) {
+                            log::debug!(
+                                "matrix: ignoring message from non-allowlisted room {}",
+                                room_id
+                            );
                             return;
-                        }
-                        let body = match &ev.content.msgtype {
-                            MessageType::Text(t) => t.body.as_str(),
-                            _ => return,
-                        };
-                        let trimmed = body.trim();
-                        if trimmed.is_empty() {
-                            return;
-                        }
-                        let room_id = room.room_id().to_string();
-                        if let Some(ref allow) = allowlist {
-                            if !allow.contains(&room_id) {
-                                log::debug!("matrix: ignoring message from non-allowlisted room {}", room_id);
-                                return;
-                            }
-                        }
-                        let inbound = RawInbound {
-                            channel_id: CHANNEL_ID.to_string(),
-                            conversation_id: room_id,
-                            text: trimmed.to_string(),
-                        };
-                        if inbound_tx.send(inbound).await.is_err() {
-                            log::debug!("matrix: inbound channel closed");
                         }
                     }
-                },
-            );
+                    let inbound = RawInbound {
+                        channel_id: CHANNEL_ID.to_string(),
+                        conversation_id: room_id,
+                        text: trimmed.to_string(),
+                    };
+                    if inbound_tx.send(inbound).await.is_err() {
+                        log::debug!("matrix: inbound channel closed");
+                    }
+                }
+            });
 
             let running = Arc::clone(&self.running);
             let last_err = Arc::clone(&self.last_sync_error);
@@ -430,8 +443,7 @@ impl MatrixInner {
         let Some(room) = self.client.get_room(&rid) else {
             return Err("matrix: room not loaded yet; wait for sync after join".to_string());
         };
-        room
-            .send(RoomMessageEventContent::text_plain(text))
+        room.send(RoomMessageEventContent::text_plain(text))
             .await
             .map_err(|e| e.to_string())?;
         Ok(())

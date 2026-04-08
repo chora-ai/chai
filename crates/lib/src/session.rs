@@ -128,7 +128,8 @@ impl SessionStore {
         role: impl Into<String>,
         content: impl Into<String>,
     ) -> Result<(), String> {
-        self.append_message_full(id, role, content, None, None).await
+        self.append_message_full(id, role, content, None, None)
+            .await
     }
 
     /// Append a message with optional tool_calls (assistant) or tool_name (tool result).
@@ -141,7 +142,9 @@ impl SessionStore {
         tool_name: Option<String>,
     ) -> Result<(), String> {
         let mut g = self.inner.write().await;
-        let session = g.get_mut(id).ok_or_else(|| "session not found".to_string())?;
+        let session = g
+            .get_mut(id)
+            .ok_or_else(|| "session not found".to_string())?;
         session.messages.push(SessionMessage {
             role: role.into(),
             content: content.into(),
@@ -152,9 +155,15 @@ impl SessionStore {
     }
 
     /// Increment successful delegation counters for policy (`maxDelegationsPerSession`, per-provider caps).
-    pub async fn record_delegation(&self, id: &str, provider_canonical: &str) -> Result<(), String> {
+    pub async fn record_delegation(
+        &self,
+        id: &str,
+        provider_canonical: &str,
+    ) -> Result<(), String> {
         let mut g = self.inner.write().await;
-        let session = g.get_mut(id).ok_or_else(|| "session not found".to_string())?;
+        let session = g
+            .get_mut(id)
+            .ok_or_else(|| "session not found".to_string())?;
         session.delegation_count += 1;
         *session
             .delegation_by_provider

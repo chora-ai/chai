@@ -249,7 +249,10 @@ mod tests {
             delegate_allowed_models: Some(vec![entry("lms", "granite")]),
         }]);
         assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest").is_err());
+        assert!(
+            assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest")
+                .is_err()
+        );
     }
 
     #[test]
@@ -266,7 +269,10 @@ mod tests {
             delegate_allowed_models: Some(vec![]),
         }]);
         assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest").is_err());
+        assert!(
+            assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest")
+                .is_err()
+        );
     }
 
     #[test]

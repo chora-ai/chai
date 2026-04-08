@@ -2,8 +2,6 @@
 
 This directory contains step-by-step user journeys for understanding the system and manually testing it. Run through them to test behavior after significant changes or before a release.
 
-**Config location:** Gateway and channel settings live in **`~/.chai/profiles/<name>/config.json`** for the **active** profile (`~/.chai/active` symlink, **`CHAI_PROFILE`**, or **`chai gateway --profile`**). There is **no** flat **`~/.chai/config.json`**.
-
 ## Writing Guidelines
 
 Each file is a single journey: prerequisites, steps, and expected outcomes. Keep steps minimal but enough to complete the flow.
@@ -12,7 +10,7 @@ Each file is a single journey: prerequisites, steps, and expected outcomes. Keep
 
 Filenames follow `NN-keyterm-rest.md`: a two-digit number, then a hyphen, then a **key term** aligned with the codebase, then an optional short description.
 
-- **Number** — Order for doing the journeys (e.g. `01` before `02`). Run in sequence when possible.
+- **Number** — Order for doing the journeys (e.g. `01` before `02`).
 - **Key term** — Matches a main concept in the source (e.g. `gateway`, `desktop`, `channel`, `skill`). Use this so readers can find the right journey and so new journeys are named consistently.
 
 Examples: `01-gateway-cli-health-and-ws.md`, `04-desktop-start-stop-gateway.md`, `05-channel-telegram.md`, `08-channel-matrix.md`, `09-channel-signal.md`, `06-skill-notesmd.md`, `07-skill-obsidian.md`. When adding a journey, pick the key term that best fits (gateway, desktop, channel, skill, or another top-level concept), then add a short, hyphenated rest.

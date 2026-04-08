@@ -100,13 +100,17 @@ impl TelegramChannel {
     }
 
     /// Call Telegram getUpdates (long poll). Returns (updates, next_offset).
-    async fn get_updates(&self, offset: Option<i64>) -> Result<(Vec<TelegramUpdate>, Option<i64>), String> {
-        let token = self.token.as_ref().ok_or("telegram bot token not configured")?;
+    async fn get_updates(
+        &self,
+        offset: Option<i64>,
+    ) -> Result<(Vec<TelegramUpdate>, Option<i64>), String> {
+        let token = self
+            .token
+            .as_ref()
+            .ok_or("telegram bot token not configured")?;
         let url = format!(
             "{}/bot{}/getUpdates?timeout={}",
-            TELEGRAM_API_BASE,
-            token,
-            LONG_POLL_TIMEOUT
+            TELEGRAM_API_BASE, token, LONG_POLL_TIMEOUT
         );
         let url = if let Some(off) = offset {
             format!("{}&offset={}", url, off)
@@ -208,9 +212,12 @@ impl TelegramChannel {
     }
 }
 
-async fn run_get_updates_loop(channel: Arc<TelegramChannel>, inbound_tx: mpsc::Sender<InboundMessage>) {
+async fn run_get_updates_loop(
+    channel: Arc<TelegramChannel>,
+    inbound_tx: mpsc::Sender<InboundMessage>,
+) {
     let mut offset: Option<i64> = None;
-        while channel.running() {
+    while channel.running() {
         match channel.get_updates(offset).await {
             Ok((updates, next)) => {
                 if let Ok(mut g) = channel.last_error.lock() {

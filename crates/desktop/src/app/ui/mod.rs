@@ -6,4 +6,3 @@ pub mod sessions;
 pub mod sidebar;
 pub mod spacing;
 pub mod view_toggle;
-

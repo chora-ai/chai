@@ -5,8 +5,8 @@ use crate::channels::registry::ChannelHandle;
 use crate::config::Config;
 use async_trait::async_trait;
 use matrix_channel::MatrixInner;
-use std::path::Path;
 use std::ops::Deref;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -14,36 +14,12 @@ use tokio::task::JoinHandle;
 /// Re-export for gateway routes and docs.
 pub use matrix_channel::PendingMatrixVerification;
 
-/// Resolve path for the matrix-sdk SQLite store (state + E2EE keys). Override with **`CHAI_MATRIX_STORE`**
-/// or **`channels.matrix.storePath`**. Relative `storePath` is resolved against `profile_dir`.
-pub fn resolve_matrix_store_path(config: &Config, profile_dir: &Path) -> std::path::PathBuf {
-    std::env::var("CHAI_MATRIX_STORE")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .map(std::path::PathBuf::from)
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .store_path
-                .as_ref()
-                .map(|s| std::path::PathBuf::from(s.trim()))
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(|p| {
-                    if p.is_absolute() {
-                        p
-                    } else {
-                        profile_dir.join(p)
-                    }
-                })
-        })
-        .unwrap_or_else(|| profile_dir.join("matrix"))
+/// matrix-sdk SQLite + E2EE state: always `<profile_dir>/matrix`.
+fn matrix_store_path(profile_dir: &Path) -> PathBuf {
+    profile_dir.join("matrix")
 }
 
-fn resolve_device_id_for_token(
-    config: &Config,
-    whoami_device: Option<String>,
-) -> Option<String> {
+fn resolve_device_id_for_token(config: &Config, whoami_device: Option<String>) -> Option<String> {
     whoami_device
         .filter(|s| !s.trim().is_empty())
         .or_else(|| {
@@ -88,7 +64,7 @@ pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Optio
                 .filter(|s| !s.is_empty())
         })?;
     let base = homeserver.trim_end_matches('/').to_string();
-    let store_path = resolve_matrix_store_path(config, profile_dir);
+    let store_path = matrix_store_path(profile_dir);
 
     let token = std::env::var("MATRIX_ACCESS_TOKEN")
         .ok()
@@ -119,7 +95,8 @@ pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Optio
 
         let whoami = matrix_channel::fetch_whoami(&base, &t).await;
 
-        let user_id_str = user_id_from_config.or_else(|| whoami.as_ref().map(|w| w.user_id.clone()));
+        let user_id_str =
+            user_id_from_config.or_else(|| whoami.as_ref().map(|w| w.user_id.clone()));
         let user_id_str = match user_id_str {
             Some(u) => u,
             None => {
@@ -186,7 +163,10 @@ pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Optio
 
 impl MatrixChannel {
     /// Sync loop and event handlers; forwards text `m.room.message` to the gateway.
-    pub fn start_inbound(self: Arc<Self>, inbound_tx: mpsc::Sender<InboundMessage>) -> JoinHandle<()> {
+    pub fn start_inbound(
+        self: Arc<Self>,
+        inbound_tx: mpsc::Sender<InboundMessage>,
+    ) -> JoinHandle<()> {
         let (raw_tx, mut raw_rx) = mpsc::channel::<matrix_channel::RawInbound>(64);
         let inbound_tx2 = inbound_tx.clone();
         tokio::spawn(async move {

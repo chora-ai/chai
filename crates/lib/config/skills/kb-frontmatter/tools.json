@@ -1,0 +1,128 @@
+{
+  "tools": [
+    {
+      "name": "kb_frontmatter_read",
+      "description": "Read the YAML frontmatter of a knowledge base note. Returns key-value pairs without the --- delimiters.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_frontmatter_edit",
+      "description": "Set a YAML frontmatter key to a value. Adds the key if missing, updates if present. Creates a frontmatter block if the file has none.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "key", "value"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          },
+          "key": {
+            "type": "string",
+            "description": "Frontmatter key to set (e.g. 'type', 'status', 'tags')"
+          },
+          "value": {
+            "type": "string",
+            "description": "Value to set the key to (e.g. 'draft', '[research, ai]')"
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_frontmatter_delete",
+      "description": "Remove a YAML frontmatter key from a knowledge base note. No-op if the key does not exist.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "key"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+          },
+          "key": {
+            "type": "string",
+            "description": "Frontmatter key to remove (e.g. 'status', 'draft')"
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "chai": ["file frontmatter-read", "file frontmatter-edit", "file frontmatter-delete"]
+  },
+  "execution": [
+    {
+      "tool": "kb_frontmatter_read",
+      "binary": "chai",
+      "subcommand": "file frontmatter-read",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        }
+      ]
+    },
+    {
+      "tool": "kb_frontmatter_edit",
+      "binary": "chai",
+      "subcommand": "file frontmatter-edit",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "key",
+          "kind": "flag",
+          "flag": "key"
+        },
+        {
+          "param": "value",
+          "kind": "flag",
+          "flag": "value"
+        }
+      ]
+    },
+    {
+      "tool": "kb_frontmatter_delete",
+      "binary": "chai",
+      "subcommand": "file frontmatter-delete",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "key",
+          "kind": "flag",
+          "flag": "key"
+        }
+      ]
+    }
+  ]
+}

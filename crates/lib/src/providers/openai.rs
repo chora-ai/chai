@@ -40,10 +40,7 @@ impl OpenAiClient {
     /// List models from `GET /v1/models`.
     pub async fn list_models(&self) -> Result<Vec<OpenAiModel>, OpenAiError> {
         let ids = self.inner.list_models_openai().await?;
-        Ok(ids
-            .into_iter()
-            .map(|name| OpenAiModel { name })
-            .collect())
+        Ok(ids.into_iter().map(|name| OpenAiModel { name }).collect())
     }
 
     pub async fn chat(

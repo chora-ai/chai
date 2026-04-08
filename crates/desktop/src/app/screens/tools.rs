@@ -1,7 +1,7 @@
 use eframe::egui;
 
-use crate::app::ui::{readonly_code, spacing};
 use crate::app::types::GatewayStatusDetails;
+use crate::app::ui::{readonly_code, spacing};
 use crate::app::ChaiApp;
 
 fn effective_tools_json<'a>(

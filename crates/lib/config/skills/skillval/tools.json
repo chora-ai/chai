@@ -1,0 +1,73 @@
+{
+  "tools": [
+    {
+      "name": "skillval_validate",
+      "description": "Validate a skill's tools.json for schema conformance. Reports errors (must fix) and warnings (should review).",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name to validate"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillval_read",
+      "description": "Read a skill's SKILL.md or tools.json file content.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name", "file"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name (e.g. 'notesmd-daily', 'obsidian')"
+          },
+          "file": {
+            "type": "string",
+            "description": "File to read: 'skill_md' for SKILL.md, 'tools_json' for tools.json"
+          }
+        }
+      }
+    },
+    {
+      "name": "skillval_list",
+      "description": "List all installed skills showing SKILL.md and tools.json population status and tool count.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    }
+  ],
+  "allowlist": {
+    "chai": ["skill validate", "skill read", "skill list"]
+  },
+  "execution": [
+    {
+      "tool": "skillval_validate",
+      "binary": "chai",
+      "subcommand": "skill validate",
+      "args": [
+        { "param": "skill_name", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "skillval_read",
+      "binary": "chai",
+      "subcommand": "skill read",
+      "args": [
+        { "param": "skill_name", "kind": "positional" },
+        { "param": "file", "kind": "flag", "flag": "file" }
+      ]
+    },
+    {
+      "tool": "skillval_list",
+      "binary": "chai",
+      "subcommand": "skill list",
+      "args": []
+    }
+  ]
+}

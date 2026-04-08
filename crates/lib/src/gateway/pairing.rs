@@ -40,7 +40,8 @@ impl PairingStore {
 
     async fn save(&self) -> std::io::Result<()> {
         let entries = self.entries.read().await;
-        let json = serde_json::to_string_pretty(&*entries).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let json = serde_json::to_string_pretty(&*entries)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
         if let Some(parent) = self.path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -60,7 +61,13 @@ impl PairingStore {
     }
 
     /// Add or replace entry for this device_id and persist to disk.
-    pub async fn add_or_update(&self, device_id: String, role: String, scopes: Vec<String>, device_token: String) -> anyhow::Result<()> {
+    pub async fn add_or_update(
+        &self,
+        device_id: String,
+        role: String,
+        scopes: Vec<String>,
+        device_token: String,
+    ) -> anyhow::Result<()> {
         let mut entries = self.entries.write().await;
         if let Some(e) = entries.iter_mut().find(|e| e.device_id == device_id) {
             e.role = role;

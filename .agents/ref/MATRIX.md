@@ -6,7 +6,7 @@ status: current
 
 Reference for the **Matrix** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM.md](TELEGRAM.md) shows the Telegram mapping for comparison. Matrix emphasizes **open federation** and **decentralization**: users and rooms live on **homeservers** that interoperate over the protocol ([Matrix](https://matrix.org/)). **Element** is a common [client](https://matrix.org/ecosystem/clients/element/) for humans; the gateway uses a normal Matrix user account (access token or password login). **Interactive device verification (SAS)** can be completed via **gateway HTTP** so Element is not required for that step.
 
-**Status** — **Implemented** in **`crates/adapters/matrix`** (Cargo package **`matrix-channel`**, matrix-sdk) with a thin **`MatrixChannel`** wrapper in **`crates/lib/src/channels/matrix.rs`** when the **`lib`** **`matrix`** Cargo feature is enabled (opt-in: **`cargo build -p cli --features matrix`**, **`cargo install --path crates/cli --features matrix`**, or **`--features matrix`** on **`desktop`**). SQLite state store under **`~/.chai/matrix`** by default (see **`CHAI_MATRIX_STORE`** / **`channels.matrix.storePath`**), **Megolm/Olm** for **encrypted** rooms, Client-Server **`sync_once`** loop, **`OriginalSyncRoomMessageEvent`** for **`m.text`**, outbound **`room.send(RoomMessageEventContent::text_plain(…))`** (encrypts when the room is encrypted). Access-token restore needs **`user_id`** and **`device_id`** (from **`GET /account/whoami`**, or **`MATRIX_DEVICE_ID`** / **`channels.matrix.deviceId`**).
+**Status** — **Implemented** in **`crates/adapters/matrix`** (Cargo package **`matrix-channel`**, matrix-sdk) with a thin **`MatrixChannel`** wrapper in **`crates/lib/src/channels/matrix.rs`** when the **`lib`** **`matrix`** Cargo feature is enabled (opt-in: **`cargo build -p cli --features matrix`**, **`cargo install --path crates/cli --features matrix`**, or **`--features matrix`** on **`desktop`**). SQLite state store is fixed at **`<active-profile>/matrix`** (see **`connect_matrix_client`** in **`crates/lib/src/channels/matrix.rs`**), **Megolm/Olm** for **encrypted** rooms, Client-Server **`sync_once`** loop, **`OriginalSyncRoomMessageEvent`** for **`m.text`**, outbound **`room.send(RoomMessageEventContent::text_plain(…))`** (encrypts when the room is encrypted). Access-token restore needs **`user_id`** and **`device_id`** (from **`GET /account/whoami`**, or **`MATRIX_DEVICE_ID`** / **`channels.matrix.deviceId`**).
 
 **Room allowlist** — Optional: only listed rooms generate inbound agent turns. **`channels.matrix.roomIds`** (JSON array of room ids such as **`!abc:example.org`**) or env **`MATRIX_ROOM_ALLOWLIST`** (comma-separated; overrides config when set and non-empty). Unset / empty means all joined rooms (backward compatible). Implemented via **`resolve_matrix_room_allowlist`** in **`crates/lib/src/config.rs`**.
 
@@ -86,8 +86,9 @@ Fields live on **`MatrixChannelConfig`** (**`channels.matrix`**, **`camelCase`**
 | **`accessToken`** / **`user`** / **`password`** | Access token login or password login. Env: **`MATRIX_ACCESS_TOKEN`**, **`MATRIX_USER`**, **`MATRIX_PASSWORD`**, etc. |
 | **`userId`** | **`@user:server`** when needed for token restore. Env: **`MATRIX_USER_ID`**. |
 | **`deviceId`** | Device id for token restore. Env: **`MATRIX_DEVICE_ID`**. |
-| **`storePath`** | SQLite store directory. Env: **`CHAI_MATRIX_STORE`**. |
 | **`roomIds`** | Optional list of room ids; inbound agent turns only from these rooms. Env: **`MATRIX_ROOM_ALLOWLIST`** (comma-separated, overrides when set). |
+
+**Store path** — Not configurable: always **`<profile_dir>/matrix`** (same directory the active profile’s **`config.json`** lives under).
 
 ## Alignment with Telegram (Conceptual)
 

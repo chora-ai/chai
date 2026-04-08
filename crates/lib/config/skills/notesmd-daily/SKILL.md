@@ -40,3 +40,13 @@ To update a daily note:
 3. Call `notesmd_update_daily` with `date` set to the date, `replace` set to `true`, and `content` set to the updated content in markdown format.
 4. Call `notesmd_daily_read` again with `path` set to today's date.
 5. Return the content from the tool call.
+
+## Examples
+
+### notesmd_daily_read
+
+{"path": "2026-04-05"}
+
+### notesmd_daily_update
+
+{"date": "2026-04-05", "content": "## Log\n\n- Updated project notes", "replace": true}
