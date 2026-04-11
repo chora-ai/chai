@@ -4,7 +4,7 @@
 //! with an `active` symlink selecting the current version. The hash is a truncated SHA-256
 //! of the canonical skill content (sorted file paths + raw bytes).
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
@@ -74,24 +74,23 @@ fn collect_files(dir: &Path, root: &Path) -> Result<Vec<(String, Vec<u8>)>> {
 
 /// Resolve the active skill content directory for a given skill package root.
 ///
-/// If `skill_root/active` is a symlink, returns its target (the versioned snapshot directory).
-/// Otherwise returns `skill_root` itself (flat layout, backward compatible).
-pub fn resolve_active_dir(skill_root: &Path) -> PathBuf {
+/// Returns `Some` only when `skill_root/active` is a symlink to a directory that contains
+/// `SKILL.md` (typically `versions/<hash>/`). Otherwise `None`.
+pub fn resolve_active_dir(skill_root: &Path) -> Option<PathBuf> {
     let active = skill_root.join("active");
-    if active.is_symlink() {
-        // Resolve relative symlinks against the skill root
-        match std::fs::read_link(&active) {
-            Ok(target) => {
-                if target.is_relative() {
-                    skill_root.join(&target)
-                } else {
-                    target
-                }
-            }
-            Err(_) => skill_root.to_path_buf(),
-        }
+    if !active.is_symlink() {
+        return None;
+    }
+    let target = std::fs::read_link(&active).ok()?;
+    let resolved = if target.is_relative() {
+        skill_root.join(&target)
     } else {
-        skill_root.to_path_buf()
+        target
+    };
+    if resolved.join("SKILL.md").is_file() {
+        Some(resolved)
+    } else {
+        None
     }
 }
 
@@ -204,10 +203,13 @@ pub fn write_and_snapshot(skill_root: &Path, rel_path: &str, new_content: &[u8])
     std::fs::create_dir_all(&staging)?;
 
     // Copy current active version to staging
-    let active_dir = resolve_active_dir(skill_root);
-    if active_dir.join("SKILL.md").exists() {
-        copy_skill_content(&active_dir, &staging)?;
-    }
+    let active_dir = resolve_active_dir(skill_root).ok_or_else(|| {
+        anyhow!(
+            "skill at {} has no valid `active` symlink to a version directory containing SKILL.md",
+            skill_root.display()
+        )
+    })?;
+    copy_skill_content(&active_dir, &staging)?;
 
     // Apply the update
     let dest = staging.join(rel_path);
@@ -300,23 +302,23 @@ mod tests {
     }
 
     #[test]
-    fn resolve_active_dir_flat_layout() {
-        let dir = tempdir("flat_layout");
+    fn resolve_active_dir_requires_symlink() {
+        let dir = tempdir("no_symlink");
         fs::write(dir.join("SKILL.md"), "test").unwrap();
-        assert_eq!(resolve_active_dir(&dir), dir);
+        assert!(resolve_active_dir(&dir).is_none());
     }
 
     #[test]
+    #[cfg(unix)]
     fn resolve_active_dir_versioned_layout() {
         let dir = tempdir("versioned_layout");
         let versions = dir.join("versions").join("abc123");
         fs::create_dir_all(&versions).unwrap();
         fs::write(versions.join("SKILL.md"), "test").unwrap();
 
-        #[cfg(unix)]
         std::os::unix::fs::symlink("versions/abc123", dir.join("active")).unwrap();
 
-        let resolved = resolve_active_dir(&dir);
+        let resolved = resolve_active_dir(&dir).unwrap();
         assert_eq!(resolved, dir.join("versions/abc123"));
     }
 
@@ -333,7 +335,7 @@ mod tests {
         assert_eq!(hash.len(), HASH_TRUNCATION);
 
         // Verify the active symlink resolves to the snapshot
-        let active = resolve_active_dir(&dir);
+        let active = resolve_active_dir(&dir).unwrap();
         assert!(active.join("SKILL.md").exists());
         assert!(active.join("tools.json").exists());
         assert!(active.join("scripts").join("test.sh").exists());

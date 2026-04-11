@@ -15,7 +15,7 @@ enum Commands {
     /// Show version
     Version,
 
-    /// Create ~/.chai with profiles (assistant, developer), active symlink, and shared skills
+    /// Create ~/.chai with default profiles, active symlink, and bundled skills
     Init,
 
     /// Run the gateway (HTTP + WebSocket control plane). Uses CHAI_PROFILE or ~/.chai/active unless --profile is set.
@@ -678,11 +678,8 @@ fn walk_md_files(
 }
 
 fn skill_root() -> anyhow::Result<std::path::PathBuf> {
-    if let Ok(root) = std::env::var("CHAI_SKILLS_ROOT") {
-        return Ok(std::path::PathBuf::from(root));
-    }
     let chai_home = lib::profile::chai_home()?;
-    Ok(chai_home.join("skills"))
+    Ok(lib::config::default_skills_dir(&chai_home))
 }
 
 fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
@@ -725,7 +722,13 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
                 let dir = entry.path();
-                let content_dir = lib::skills::versioning::resolve_active_dir(&dir);
+                let Some(content_dir) = lib::skills::versioning::resolve_active_dir(&dir) else {
+                    println!(
+                        "{:<20}  SKILL.md: no   tools.json: no   tools: 0  (missing versioned layout)",
+                        name
+                    );
+                    continue;
+                };
                 let has_skill_md = content_dir.join("SKILL.md").exists();
                 let has_tools_json = content_dir.join("tools.json").exists();
                 let tool_count = if has_tools_json {
@@ -752,7 +755,14 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                     skill_dir.display()
                 );
             }
-            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir);
+            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir).ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "skill '{}' has no valid `active` symlink to versions/<hash>/ (expected versioned layout)",
+                        skill_name
+                    )
+                },
+            )?;
             let path = match file.as_str() {
                 "skill_md" => content_dir.join("SKILL.md"),
                 "tools_json" => content_dir.join("tools.json"),
@@ -881,7 +891,14 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             if !skill_dir.exists() {
                 anyhow::bail!("skill '{}' not found", skill_name);
             }
-            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir);
+            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir).ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "skill '{}' has no valid `active` symlink to versions/<hash>/ (expected versioned layout)",
+                        skill_name
+                    )
+                },
+            )?;
             let tools_path = content_dir.join("tools.json");
             if !tools_path.exists() {
                 anyhow::bail!("no tools.json for '{}'", skill_name);

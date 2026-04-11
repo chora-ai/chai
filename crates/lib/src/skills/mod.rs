@@ -1,6 +1,7 @@
 //! Skills: load AgentSkills-compatible SKILL.md from directories.
 //!
-//! Skills load from the shared `~/.chai/skills` root only (one package per immediate subdirectory with `SKILL.md`).
+//! Skills load from the shared `~/.chai/skills` root only (one package per immediate subdirectory
+//! with the versioned layout: `active` → `versions/<hash>/` and `SKILL.md` inside the snapshot).
 //! When a skill directory contains `tools.json`, it is parsed as a tool descriptor (see descriptor module).
 
 mod descriptor;

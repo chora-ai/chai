@@ -10,13 +10,13 @@ status: in-progress
 
 ## Problem Statement
 
-Chai launched with Telegram as its only messaging surface, which limits operator choice and forces users into a single centralized platform. Operators need the ability to select chat networks that match their threat model, hosting constraints, and privacy requirements — including options with strong E2EE, federation, or user-controlled infrastructure.
+Chai started with Telegram as its only messaging surface, which limits operator choice and forces users into a single centralized platform. Operators need the ability to select chat networks that match their threat model, hosting constraints, and privacy requirements — including options with strong E2EE, federation, or user-controlled infrastructure.
 
 ## Goal
 
 - **User choice** — Let operators pick chat networks that match their threat model and hosting constraints, not only Telegram.
 - **Privacy** — Prefer channels where end-to-end encryption, minimal metadata exposure, or open review are strong defaults or well understood. **Signal** is widely cited for strong E2EE ([Signal](https://signal.org/)). **Matrix** offers decentralized hosting and E2EE with operator-chosen homeservers ([Matrix](https://matrix.org/)).
-- **Decentralization** — **Matrix** stands out for federation and self-hosting. **Signal** and **Telegram** (typical bot flows) rely on **centralized** services operated by their respective organizations.
+- **Decentralization** — **Matrix** stands out for federation and self-hosting. **Signal** and **Telegram** rely on **centralized** services operated by their respective organizations.
 
 ## Current State
 

@@ -45,7 +45,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[DESKTOP_APP.md](epic/DESKTOP_APP.md)** — (in-progress) egui console for gateway, status, chat; editing and UX still in flight.
 - **[MSG_CHANNELS.md](epic/MSG_CHANNELS.md)** — (in-progress) Telegram, Matrix, Signal wired; logging and hardening remain.
 - **[ORCHESTRATION.md](epic/ORCHESTRATION.md)** — (complete) `delegate_task`, policy, merged `status` catalog, desktop events.
-- **[RAG_VECTOR.md](epic/RAG_VECTOR.md)** — (proposed) pgvector retrieval and embeddings; unbuilt; ties to future projects.
+- **[RAG_VECTOR.md](epic/RAG_VECTOR.md)** — (draft) pgvector retrieval and embeddings; unbuilt; ties to future projects.
 - **[RUNTIME_PROFILES.md](epic/RUNTIME_PROFILES.md)** — (complete) Profile trees, active symlink, gateway lock, one shared skills root.
 - **[SIMULATIONS.md](epic/SIMULATIONS.md)** — (draft) Fixture harness someday; `spike` crates stay small live probes.
 - **[SKILL_PACKAGES.md](epic/SKILL_PACKAGES.md)** — (complete) Pins, locks, rollback metaphor; no resolver in tree yet.

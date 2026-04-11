@@ -21,13 +21,6 @@ cargo build -p lib
 
 # Run the command-line interface
 cargo run -p cli -- help
-cargo run -p cli -- version
-cargo run -p cli -- init
-cargo run -p cli -- profile list
-cargo run -p cli -- profile current
-cargo run -p cli -- profile switch <name>
-cargo run -p cli -- gateway   # optional: --profile <name>, --port <port>
-cargo run -p cli -- chat      # optional: --profile <name>, --session <id>
 
 # Run the desktop application
 cargo run -p desktop
@@ -52,13 +45,6 @@ Run the installed CLI:
 
 ```bash
 chai help
-chai version
-chai init
-chai profile list
-chai profile current
-chai profile switch <name>
-chai gateway   # optional: --profile <name>, --port <port>
-chai chat      # optional: --profile <name>, --session <id>
 ```
 
 ## Desktop Application

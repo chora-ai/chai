@@ -73,8 +73,8 @@ The Obsidian team offers early CLI access to supporters; the `obsidian` and `obs
 
 ### Out of Scope
 
-- **Write sandbox implementation** — **[WRITE_SANDBOX.md](WRITE_SANDBOX.md)**
-- **Skill package versioning, lockfiles, pins** — **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**
+- **Write sandbox implementation** — **[WRITE_SANDBOX.md](WRITE_SANDBOX.md)** (complete)
+- **Skill package versioning, lockfiles, pins** — **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** (complete)
 - **Per-agent skill configuration** — **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** (complete)
 - **Skill simulation infrastructure** — **[SIMULATIONS.md](SIMULATIONS.md)**
 - **Tool approval / asking boundary** — **[TOOL_APPROVAL.md](TOOL_APPROVAL.md)**
@@ -207,7 +207,6 @@ Scripts offload mechanical work from the model: string formatting, pattern const
 | `kb-wikilink-write` | `resolve-kb-path.sh`, `resolve-kb-root.sh` | Path resolution, constant KB root injection |
 | `kb-daily` | `resolve-daily-path.sh` | Date-based path resolution with convention file |
 | `kb-frontmatter` | `resolve-kb-path.sh` | Path resolution |
-
 | `git-remote` | `resolve-clone-path.sh` | Relative path → sandbox path (resolveCommand) |
 
 Skills with **no scripts**: `notesmd`, `git`, `git-read`, `devtools`, `devtools-read`, `skillgen`, `skillval`.

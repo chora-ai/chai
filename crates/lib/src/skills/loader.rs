@@ -65,7 +65,8 @@ struct GeneratedFrom {
     capability_tier: Option<String>,
 }
 
-/// Load all skill packages under `skills_root` (e.g. `~/.chai/skills`): each immediate subdirectory with a `SKILL.md` file.
+/// Load all skill packages under `skills_root` (e.g. `~/.chai/skills`): each immediate subdirectory
+/// that uses the versioned layout (`active` symlink → `versions/<hash>/` with `SKILL.md`).
 pub fn load_skills(skills_root: &Path) -> Result<Vec<SkillEntry>> {
     load_skills_from_root(skills_root)
 }
@@ -81,8 +82,10 @@ fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
         if !path.is_dir() {
             continue;
         }
-        // Resolve versioned layout: if `active` symlink exists, read from its target
-        let content_dir = super::versioning::resolve_active_dir(&path);
+        // Require versioned layout: `active` -> `versions/<hash>/` with SKILL.md
+        let Some(content_dir) = super::versioning::resolve_active_dir(&path) else {
+            continue;
+        };
         let skill_md = content_dir.join("SKILL.md");
         if !skill_md.exists() {
             continue;
@@ -240,10 +243,10 @@ mod tests {
         let skills_dir: PathBuf = [&manifest_dir, "tests", "fixtures", "loader_tool_test"]
             .iter()
             .collect();
-        if !skills_dir.join("SKILL.md").exists() {
+        if !skills_dir.join("active").exists() {
             panic!(
-                "missing test fixture at {}",
-                skills_dir.join("SKILL.md").display()
+                "missing test fixture (versioned layout) at {}",
+                skills_dir.display()
             );
         }
         let skills = load_skills(skills_dir.parent().unwrap()).unwrap();

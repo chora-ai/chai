@@ -145,32 +145,12 @@ pub fn verify_at_startup(
             }
         };
 
-        // The entry.path already points to the resolved active dir.
-        // Extract the version hash from the path (last component of versions/<hash>).
+        // The entry.path already points to the resolved active dir (`versions/<hash>/`).
         let active_hash = entry
             .path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("");
-
-        // Check if the path is within a versions/ directory (versioned layout)
-        let is_versioned = entry
-            .path
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            == Some("versions");
-
-        if !is_versioned {
-            // Flat layout — can't verify against lock hash
-            log::warn!(
-                "skill '{}' uses flat layout (no versioning), lock pin {} cannot be verified",
-                name,
-                pin.hash,
-            );
-            mismatches.push(name.to_string());
-            continue;
-        }
 
         if active_hash != pin.hash {
             log::warn!(
@@ -265,28 +245,27 @@ pub fn list_generations(profile_dir: &Path) -> Result<Vec<u64>> {
     Ok(generations)
 }
 
-/// Get the active version hash for a skill entry by looking at the path.
-/// Falls back to computing the hash from disk content if not in versioned layout.
+/// Get the active version hash from the entry path (`.../versions/<hash>/`).
 fn active_hash_for_entry(entry: &SkillEntry) -> Result<String> {
-    let is_versioned = entry
+    let parent_is_versions = entry
         .path
         .parent()
         .and_then(|p| p.file_name())
         .and_then(|n| n.to_str())
         == Some("versions");
-
-    if is_versioned {
-        // Extract hash from path: versions/<hash>
-        Ok(entry
-            .path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown")
-            .to_string())
-    } else {
-        // Flat layout — compute hash from content
-        versioning::compute_content_hash(&entry.path)
+    if !parent_is_versions {
+        anyhow::bail!(
+            "skill '{}' path is not under versions/<hash>/: {}",
+            entry.name,
+            entry.path.display()
+        );
     }
+    Ok(entry
+        .path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string())
 }
 
 #[cfg(test)]
