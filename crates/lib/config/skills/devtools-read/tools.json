@@ -81,9 +81,7 @@
       "tool": "devtools_read_file",
       "binary": "cat",
       "subcommand": "",
-      "args": [
-        { "param": "path", "kind": "positional" }
-      ]
+      "args": [{ "param": "path", "kind": "positional", "readPath": true }]
     },
     {
       "tool": "devtools_list_dir",
@@ -92,20 +90,41 @@
       "args": [
         { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
-        { "param": "path", "kind": "positional" }
-      ]
+        { "param": "path", "kind": "positional", "readPath": true }
+      ],
+      "sideRead": {
+        "pathParam": "path",
+        "filename": "AGENTS.md",
+        "oncePerSession": true
+      }
     },
     {
       "tool": "devtools_search_content",
       "binary": "grep",
       "subcommand": "",
       "args": [
-        { "param": "recursive", "kind": "flagifboolean", "flagIfTrue": "--recursive" },
-        { "param": "line_numbers", "kind": "flagifboolean", "flagIfTrue": "--line-number" },
-        { "param": "case_insensitive", "kind": "flagifboolean", "flagIfTrue": "--ignore-case" },
-        { "param": "files_only", "kind": "flagifboolean", "flagIfTrue": "--files-with-matches" },
+        {
+          "param": "recursive",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--recursive"
+        },
+        {
+          "param": "line_numbers",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--line-number"
+        },
+        {
+          "param": "case_insensitive",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--ignore-case"
+        },
+        {
+          "param": "files_only",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--files-with-matches"
+        },
         { "param": "pattern", "kind": "positional" },
-        { "param": "path", "kind": "positional" }
+        { "param": "path", "kind": "positional", "readPath": true }
       ]
     }
   ]

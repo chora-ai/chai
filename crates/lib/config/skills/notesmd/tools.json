@@ -176,7 +176,7 @@
       "subcommand": "create",
       "args": [
         { "param": "path", "kind": "positional" },
-        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true },
+        { "param": "content", "kind": "flag", "flag": "content" },
         { "param": "replace", "kind": "flagifboolean", "flagIfTrue": "--overwrite", "flagIfFalse": "--append" },
         { "param": "vault", "kind": "flag", "flag": "vault" }
       ]

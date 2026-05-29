@@ -21,7 +21,6 @@ This skill is intended for the developer profile.
 - always follow the generation workflow in order (discover, reference, design, generate)
 - always read the reference skill (`notesmd-daily`) before generating a new skill
 - always include `generated_from` metadata in produced SKILL.md frontmatter
-- always use `normalizeNewlines: true` for any parameter that accepts multi-line content
 - never add subcommands to the allowlist that the skill does not use
 - never include `resolveCommand` unless a parameter genuinely needs runtime resolution
 
@@ -50,8 +49,7 @@ This skill is intended for the developer profile.
 1. Call `skillgen_read` with `skill_name` set to `notesmd-daily` and `file` set
    to `tools_json`.
 2. Study the structure: how tools map to execution specs, how the allowlist is
-   scoped, how arg mappings use `kind`, `flag`, `normalizeNewlines`, and
-   `resolveCommand`.
+   scoped, how arg mappings use `kind`, `flag`, and `resolveCommand`.
 3. Call `skillgen_read` with `file` set to `skill_md` to study the SKILL.md
    format: frontmatter fields, directives section, tool list, and step-by-step
    instructions.
@@ -67,8 +65,6 @@ This skill is intended for the developer profile.
    - Scope the allowlist to only the binary+subcommand pairs used.
    - Choose arg `kind` for each parameter: `positional` for bare arguments,
      `flag` for `--name value` pairs, `flagifboolean` for `--flag` toggles.
-   - Add `normalizeNewlines: true` to any parameter that accepts multi-line
-     content.
    - Add `resolveCommand` only when a parameter needs runtime resolution (e.g.
      computing a file path from a date).
 3. Call `skillgen_write_tools_json` with the complete JSON content.

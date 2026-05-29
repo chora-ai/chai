@@ -6,7 +6,7 @@ status: complete
 
 **Summary** — Give each logical agent (orchestrator and each worker) its **own agent context directory** under **`~/.chai/profiles/<profile>/agents/<agentId>/`** ( **`profileRoot`** = active profile directory per **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** ), **distinct system context** (no shared orchestrator preamble on workers), and **per-agent skill configuration** (**`skillsEnabled`**, **`contextMode`** on each agent entry). Remove **global** skill enablement and global skill context mode from config in favor of agent-scoped fields. Chai has **no** compatibility contract: **no** shims, **no** fallback paths, **no** migration from **`workspace/AGENTS.md`**—only **`agents/<id>/AGENTS.md`** at that fixed path holds on-disk agent context (**no** per-entry directory override). **Implemented:** config, gateway, delegation, **`chai init`**, **README**, desktop **Config** / **Context** / **Skills**, and internal specs aligned with this behavior.
 
-**Status** — **Complete** for planned phases. Runtime behavior, **README**, **`status.agents.entries`**, and internal specs match **Decisions (Shipped)**. **Follow-ups (Non-Blocking)** below are **fully shipped** (entries kept as a record); further **`status`** shape work stays in **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**.
+**Status** — **Complete** for planned phases. Runtime behavior, **README**, **`status.agents.entries`**, and internal specs match **Decisions (Shipped)**. **Follow-ups (Non-Blocking)** below are **fully shipped** (entries kept as a record).
 
 ## Problem Statement
 
@@ -74,9 +74,7 @@ status: complete
 | **`status.agents.entries` and Desktop Context** | Each row includes **`systemContext`** for that agent. Desktop **Context** builds the agent dropdown from **`entries`**: orchestrator two-column (**read-on-demand**) vs worker single column (see **[GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md)**). |
 | **Empty or missing `skillsEnabled`** | **Explicit:** missing or empty **`skillsEnabled`** ⇒ **no** skill tools and **no** skill-derived inlined context for that agent. **No** implicit “inherit from old global list.” Operators must set lists per agent. |
 
-### Layout Under `~/.chai` (profiles only)
-
-Illustration convention: **subdirectories first** (alphabetically), then **files** (alphabetically). Other profile paths (**`matrix/`**, pairing files, an optional user **`workspace/`** folder, etc.) are omitted here—they are not part of the agent-isolation contract.
+### Example Layout Under `~/.chai`
 
 ```text
 ~/.chai/

@@ -157,7 +157,7 @@
       "subcommand": "skill write-skill-md",
       "args": [
         { "param": "skill_name", "kind": "positional" },
-        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+        { "param": "content", "kind": "stdin" }
       ]
     },
     {
@@ -166,7 +166,7 @@
       "subcommand": "skill write-tools-json",
       "args": [
         { "param": "skill_name", "kind": "positional" },
-        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+        { "param": "content", "kind": "stdin" }
       ]
     },
     {
@@ -176,7 +176,7 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "script_name", "kind": "positional" },
-        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+        { "param": "content", "kind": "stdin" }
       ]
     }
   ]

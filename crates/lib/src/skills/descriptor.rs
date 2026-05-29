@@ -1,15 +1,15 @@
 //! Tool descriptor (tools.json) for declarative skill tools.
 //!
 //! When a skill directory contains `tools.json`, the loader parses it and attaches
-//! tool definitions, allowlist, and per-tool execution mapping. The gateway can
-//! use this to build the LLM tool list and drive a generic executor (future).
+//! tool definitions, allowlist, and per-tool execution mapping to the skill. The gateway can
+//! use this to build the LLM tool list and drive a generic executor.
 
 use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Root structure of a skill's tools.json file.
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolDescriptor {
     /// Tool definitions for the LLM (name, description, parameters schema).
     #[serde(default)]
@@ -26,7 +26,7 @@ pub struct ToolDescriptor {
 
 /// One tool as exposed to the LLM (Ollama function-calling shape).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolSpec {
     pub name: String,
     #[serde(default)]
@@ -38,7 +38,7 @@ pub struct ToolSpec {
 
 /// How to execute one tool: which binary/subcommand and how to map JSON params to argv.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ExecutionSpec {
     /// Tool name (must match a name in `tools`).
     pub tool: String,
@@ -55,13 +55,52 @@ pub struct ExecutionSpec {
     /// stdout is returned unmodified.
     #[serde(default)]
     pub post_process: Option<PostProcessSpec>,
+    /// Optional: after the command (and any post-processing) completes, look
+    /// for a file relative to a path parameter and append its contents to the
+    /// tool result. Silently skipped when the file is absent.
+    #[serde(default)]
+    pub side_read: Option<SideReadSpec>,
+    /// Optional: exit codes beyond 0 that should be treated as success.
+    /// For example, `grep` exits with 1 when no matches are found: this is
+    /// not an error. Setting `[0, 1]` causes exit code 1 to return `Ok(stdout)`
+    /// instead of `Err(...)`. Exit codes not in this list (e.g. 2 for grep)
+    /// still surface as tool errors.
+    #[serde(default)]
+    pub success_exit_codes: Option<Vec<i32>>,
+}
+
+/// Spec for appending a file's contents to the tool result when it exists.
+///
+/// After the main command (and optional `postProcess`) runs, the executor
+/// looks for `<resolved-path-param>/<filename>`. If found, its contents are
+/// appended to the tool result with a labeled separator. When `oncePerSession`
+/// is true, the append is skipped for any (session, path) pair that was
+/// already surfaced in the current session.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SideReadSpec {
+    /// Name of the arg param whose resolved value is the directory to look in
+    /// (e.g. `"path"`). Must be a param present in this tool's `args` list.
+    pub path_param: String,
+    /// Filename to look for within that directory (e.g. `"AGENTS.md"`).
+    /// Must not contain path separators or `..`.
+    pub filename: String,
+    /// Label shown as a section header before the appended content.
+    /// Defaults to the filename when absent.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// When `true`, append this file's content at most once per session per
+    /// unique resolved path. Subsequent tool calls that would produce the same
+    /// side-read within the same session are silently skipped.
+    #[serde(default)]
+    pub once_per_session: Option<bool>,
 }
 
 /// Spec for post-processing a tool's stdout: either a script in the skill's
 /// scripts/ dir or an allowlisted command. Receives the raw stdout on stdin;
 /// its own stdout becomes the tool result.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct PostProcessSpec {
     /// Name of script under the skill's scripts/ directory (e.g. "parse-rss").
     /// No allowlist entry needed.
@@ -80,7 +119,7 @@ pub struct PostProcessSpec {
 
 /// Spec for resolving a string param: either a script in the skill's scripts/ dir or an allowlisted command; stdout (trimmed) becomes the value.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ResolveCommandSpec {
     /// Name of script under the skill's scripts/ directory (e.g. "resolve-daily-path"). No allowlist entry needed.
     #[serde(default)]
@@ -98,11 +137,11 @@ pub struct ResolveCommandSpec {
 
 /// How one JSON parameter is passed to the CLI.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct ArgMapping {
     /// JSON parameter name (e.g. "query").
     pub param: String,
-    /// How to pass it: "positional", "flag", or "flagIfBoolean".
+    /// How to pass it: "positional", "flag", "flagIfBoolean", or "stdin".
     #[serde(default)]
     pub kind: ArgKind,
     /// For kind "flag", the flag name (e.g. "content" -> --content). If absent, uses param.
@@ -114,9 +153,6 @@ pub struct ArgMapping {
     /// For kind "flagIfBoolean", the flag to emit when the param value is false (e.g. "--append").
     #[serde(default)]
     pub flag_if_false: Option<String>,
-    /// When true, string values have literal `\n` and `\t` converted to newlines and tabs.
-    #[serde(default)]
-    pub normalize_newlines: Option<bool>,
     /// Optional: run this allowlisted command with param value substituted for "$param" in args; use trimmed stdout as the value.
     #[serde(default)]
     pub resolve_command: Option<ResolveCommandSpec>,
@@ -124,6 +160,11 @@ pub struct ArgMapping {
     /// validates the resolved value against the write sandbox before execution.
     #[serde(default)]
     pub write_path: Option<bool>,
+    /// When true, this parameter is a filesystem read target. The executor
+    /// validates the resolved value against the write sandbox before execution,
+    /// preventing reads from paths outside the authorized sandbox boundary.
+    #[serde(default)]
+    pub read_path: Option<bool>,
     /// When true, a missing or null JSON parameter is omitted from argv (unless
     /// `resolveCommand` is set, in which case the resolver runs with an empty
     /// string). Default: required (same as false).
@@ -146,6 +187,8 @@ pub enum ArgKind {
     Flag,
     /// Param is boolean: emit `flag_if_true` when true, `flag_if_false` when false (e.g. replace -> --overwrite | --append).
     FlagIfBoolean,
+    /// Pipe the value to the process's stdin instead of adding it to argv.
+    Stdin,
 }
 
 impl ToolDescriptor {

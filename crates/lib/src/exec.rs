@@ -8,6 +8,32 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+/// Environment variable that overrides the `chai` binary path used by the
+/// allowlist executor. When set, any tool execution that references the
+/// binary name `"chai"` will use this path instead. This allows local
+/// development builds (e.g. `target/debug/chai`) to be used for testing
+/// without installing to the system PATH.
+const CHAI_BIN_ENV: &str = "CHAI_BIN";
+
+/// Resolve the actual binary path for a given binary name.
+///
+/// When the binary is `"chai"` and the `CHAI_BIN` environment variable is set,
+/// returns the value of that variable so that tool calls use the locally built
+/// chai binary (e.g. `target/debug/chai`) instead of the system-installed one.
+/// When the variable is not set or the binary is not `"chai"`, returns the
+/// binary name unchanged (resolved via PATH by the OS).
+pub fn resolve_binary(binary: &str) -> String {
+    if binary == "chai" {
+        if let Ok(custom) = std::env::var(CHAI_BIN_ENV) {
+            if !custom.is_empty() {
+                log::info!("using CHAI_BIN={}", custom);
+                return custom;
+            }
+        }
+    }
+    binary.to_string()
+}
+
 /// Allowlist: binary name -> set of allowed subcommands (e.g. "notesmd-cli" -> ["search", "create", ...]).
 #[derive(Debug, Clone, Default)]
 pub struct Allowlist {
@@ -44,12 +70,28 @@ impl Allowlist {
 
     /// Run `binary subcommand args...` if allowed. Returns combined stdout; on failure stderr is included in the error.
     /// When `working_dir` is set, the child process runs with that CWD.
+    /// Only exit code 0 is treated as success.
     pub fn run(
         &self,
         binary: &str,
         subcommand: &str,
         args: &[String],
         working_dir: Option<&Path>,
+    ) -> Result<String, String> {
+        self.run_with_codes(binary, subcommand, args, working_dir, &[])
+    }
+
+    /// Run `binary subcommand args...` if allowed, treating the given exit codes
+    /// as success in addition to 0. Returns combined stdout; on failure stderr is
+    /// included in the error. When `working_dir` is set, the child process runs
+    /// with that CWD.
+    pub fn run_with_codes(
+        &self,
+        binary: &str,
+        subcommand: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        success_exit_codes: &[i32],
     ) -> Result<String, String> {
         let allowed = self
             .bins
@@ -61,26 +103,104 @@ impl Allowlist {
                 binary, subcommand
             ));
         }
-        let mut cmd = Command::new(binary);
+        let resolved = resolve_binary(binary);
+        let mut cmd = Command::new(&resolved);
         cmd.args(subcommand.split_whitespace()).args(args);
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
         let output = cmd.output().map_err(|e| format!("exec failed: {}", e))?;
+        Self::collect_output_with_codes(output, success_exit_codes)
+    }
+
+    /// Run `binary subcommand args...` if allowed, piping `stdin` bytes to the child's stdin.
+    /// Returns combined stdout; on failure stderr is included in the error.
+    /// When `working_dir` is set, the child process runs with that CWD.
+    /// Only exit code 0 is treated as success.
+    pub fn run_with_stdin(
+        &self,
+        binary: &str,
+        subcommand: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin: &[u8],
+    ) -> Result<String, String> {
+        self.run_with_stdin_with_codes(binary, subcommand, args, working_dir, stdin, &[])
+    }
+
+    /// Run `binary subcommand args...` if allowed, piping `stdin` bytes to the child's stdin,
+    /// and treating the given exit codes as success in addition to 0. Returns combined stdout;
+    /// on failure stderr is included in the error. When `working_dir` is set, the child process
+    /// runs with that CWD.
+    pub fn run_with_stdin_with_codes(
+        &self,
+        binary: &str,
+        subcommand: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin: &[u8],
+        success_exit_codes: &[i32],
+    ) -> Result<String, String> {
+        use std::io::Write;
+        use std::process::Stdio;
+
+        let allowed = self
+            .bins
+            .get(binary)
+            .ok_or_else(|| format!("binary not allowlisted: {}", binary))?;
+        if !allowed.iter().any(|s| s == subcommand) {
+            return Err(format!(
+                "subcommand not allowlisted: {} {}",
+                binary, subcommand
+            ));
+        }
+        let resolved = resolve_binary(binary);
+        let mut cmd = Command::new(&resolved);
+        cmd.args(subcommand.split_whitespace()).args(args);
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+        if let Some(dir) = working_dir {
+            cmd.current_dir(dir);
+        }
+        let mut child = cmd.spawn().map_err(|e| format!("exec failed: {}", e))?;
+        if let Some(mut pipe) = child.stdin.take() {
+            pipe.write_all(stdin)
+                .map_err(|e| format!("failed to write stdin: {}", e))?;
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("exec failed: {}", e))?;
+        Self::collect_output_with_codes(output, success_exit_codes)
+    }
+
+    /// Collect stdout/stderr from a completed child output into a Result.
+    /// Exit codes in `success_exit_codes` are treated as success (in addition
+    /// to 0, which is always success). For example, passing `[1]` causes grep's
+    /// "no match" exit to return `Ok(stdout)` instead of `Err(...)`.
+    fn collect_output_with_codes(
+        output: std::process::Output,
+        success_exit_codes: &[i32],
+    ) -> Result<String, String> {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if output.status.success() {
-            Ok(stdout)
-        } else {
-            let mut msg = stdout;
-            if !stderr.is_empty() {
-                if !msg.is_empty() {
-                    msg.push_str("\n");
-                }
-                msg.push_str(&stderr);
-            }
-            Err(format!("exit {}: {}", output.status, msg))
+            return Ok(stdout);
         }
+        // Check if the exit code is in the explicit success list.
+        if let Some(code) = output.status.code() {
+            if success_exit_codes.contains(&code) {
+                return Ok(stdout);
+            }
+        }
+        let mut msg = stdout;
+        if !stderr.is_empty() {
+            if !msg.is_empty() {
+                msg.push(10 as char); // newline
+            }
+            msg.push_str(&stderr);
+        }
+        Err(format!("exit {}: {}", output.status, msg))
     }
 }
 
@@ -138,13 +258,28 @@ impl WriteSandbox {
     /// Returns the canonical path on success. For paths that don't exist yet
     /// (new file creation), the parent directory is canonicalized and the
     /// filename is appended.
+    ///
+    /// Relative paths are resolved against the primary sandbox root (the
+    /// sandbox directory itself), not the process working directory. This
+    /// ensures that tools providing sandbox-relative paths work correctly
+    /// regardless of where the gateway process was launched.
     pub fn validate(&self, path: &str) -> Result<PathBuf, String> {
         if self.writable_roots.is_empty() {
             return Err("no writable roots configured (sandbox directory missing)".to_string());
         }
 
         let target = Path::new(path);
-        let canonical = Self::canonicalize_for_write(target)?;
+        // Relative paths must be anchored to the sandbox root, not the process
+        // CWD. `std::fs::canonicalize` resolves relative paths against the
+        // process CWD, which would cause validation to use the wrong base and
+        // either incorrectly reject valid sandbox-relative paths or accept
+        // paths that happen to exist relative to the gateway's launch directory.
+        let resolved_target = if target.is_relative() {
+            self.writable_roots[0].join(target)
+        } else {
+            target.to_path_buf()
+        };
+        let canonical = Self::canonicalize_for_write(&resolved_target)?;
 
         for root in &self.writable_roots {
             if canonical.starts_with(root) {
@@ -169,30 +304,43 @@ impl WriteSandbox {
     }
 
     /// Canonicalize a path for write validation. If the path doesn't exist yet,
-    /// canonicalize the parent and append the filename.
+    /// walks up the ancestor chain until finding an existing directory, canonicalizes
+    /// that, then re-appends the non-existing suffix. This handles cases where
+    /// multiple levels of parent directories do not exist yet (e.g. `a/b/c.txt`
+    /// where neither `a` nor `a/b` exist).
     fn canonicalize_for_write(path: &Path) -> Result<PathBuf, String> {
         // Try direct canonicalization first (path exists).
         if let Ok(canonical) = std::fs::canonicalize(path) {
             return Ok(canonical);
         }
 
-        // Path doesn't exist — canonicalize parent, append filename.
-        let parent = path
-            .parent()
-            .ok_or_else(|| format!("cannot resolve parent of: {}", path.display()))?;
-        let name = path
-            .file_name()
-            .ok_or_else(|| format!("cannot resolve filename of: {}", path.display()))?;
+        // Path doesn't exist — walk up the ancestor chain until we find an
+        // existing directory, then re-append the non-existing suffix components.
+        let mut suffix: Vec<std::ffi::OsString> = Vec::new();
+        let mut current = path.to_path_buf();
 
-        let canonical_parent = std::fs::canonicalize(parent).map_err(|e| {
-            format!(
-                "cannot resolve write path parent {}: {}",
-                parent.display(),
-                e
-            )
-        })?;
+        loop {
+            let name = current
+                .file_name()
+                .ok_or_else(|| format!("cannot resolve write path: {}", path.display()))?
+                .to_os_string();
+            suffix.push(name);
 
-        Ok(canonical_parent.join(name))
+            let parent = current
+                .parent()
+                .ok_or_else(|| format!("cannot resolve parent of: {}", path.display()))?;
+
+            if let Ok(canonical_parent) = std::fs::canonicalize(parent) {
+                // Found an existing ancestor — rebuild the full path.
+                let mut result = canonical_parent;
+                for component in suffix.into_iter().rev() {
+                    result = result.join(component);
+                }
+                return Ok(result);
+            }
+
+            current = parent.to_path_buf();
+        }
     }
 }
 
@@ -217,6 +365,64 @@ mod sandbox_tests {
 
     fn cleanup(base: &Path) {
         let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn resolve_binary_returns_chai_bin_env_when_set() {
+        // Temporarily set CHAI_BIN for this test.
+        std::env::set_var("CHAI_BIN", "/custom/path/to/chai");
+        assert_eq!(resolve_binary("chai"), "/custom/path/to/chai");
+        std::env::remove_var("CHAI_BIN");
+    }
+
+    #[test]
+    fn resolve_binary_returns_binary_name_when_env_not_set() {
+        std::env::remove_var("CHAI_BIN");
+        assert_eq!(resolve_binary("chai"), "chai");
+    }
+
+    #[test]
+    fn resolve_binary_returns_binary_name_when_env_empty() {
+        std::env::set_var("CHAI_BIN", "");
+        assert_eq!(resolve_binary("chai"), "chai");
+        std::env::remove_var("CHAI_BIN");
+    }
+
+    #[test]
+    fn resolve_binary_does_not_affect_other_binaries() {
+        std::env::set_var("CHAI_BIN", "/custom/chai");
+        assert_eq!(resolve_binary("git"), "git");
+        assert_eq!(resolve_binary("cat"), "cat");
+        std::env::remove_var("CHAI_BIN");
+    }
+
+    #[test]
+    fn relative_path_resolved_against_sandbox_root() {
+        let (base, sandbox) = setup_sandbox("relative");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // Write a file inside the sandbox so it exists for canonicalization.
+        let file = sandbox.join("notes").join("entry.md");
+        fs::create_dir_all(file.parent().unwrap()).expect("create subdir");
+        fs::write(&file, "hello").expect("write");
+
+        // Provide a relative path — should resolve against the sandbox root.
+        let result = sb.validate("notes/entry.md");
+        assert!(result.is_ok(), "relative path inside sandbox should be valid: {:?}", result);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn relative_path_new_file_resolved_against_sandbox_root() {
+        let (base, sandbox) = setup_sandbox("relative-new");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // File does not exist yet — parent is the sandbox root itself.
+        let result = sb.validate("new_note.md");
+        assert!(result.is_ok(), "relative new file in sandbox root should be valid: {:?}", result);
+
+        cleanup(&base);
     }
 
     #[test]
@@ -274,6 +480,56 @@ mod sandbox_tests {
         assert!(!new_file.exists());
         let result = sb.validate(new_file.to_str().unwrap());
         assert!(result.is_ok());
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn new_file_in_missing_subdirectory_validates() {
+        let (base, sandbox) = setup_sandbox("newfile-subdir");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // Neither "test/" nor "test/test.md" exist yet — multiple missing levels.
+        let new_file = sandbox.join("test").join("test.md");
+        assert!(!new_file.exists());
+        assert!(!new_file.parent().unwrap().exists());
+        let result = sb.validate(new_file.to_str().unwrap());
+        assert!(result.is_ok(), "deeply nested new file should validate: {:?}", result);
+
+        // The returned path should still be anchored inside the sandbox.
+        let canonical = result.unwrap();
+        let sandbox_canonical = fs::canonicalize(&sandbox).expect("canonicalize sandbox");
+        assert!(
+            canonical.starts_with(&sandbox_canonical),
+            "canonical path {:?} should be inside sandbox {:?}",
+            canonical,
+            sandbox_canonical
+        );
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn new_file_in_missing_subdirectory_relative_path_validates() {
+        let (base, sandbox) = setup_sandbox("newfile-subdir-rel");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // Relative path: "test/test.md" — sandbox root is the base, neither dir exists.
+        let result = sb.validate("test/test.md");
+        assert!(result.is_ok(), "relative nested new file should validate: {:?}", result);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn new_file_deeply_nested_outside_sandbox_rejected() {
+        let (base, sandbox) = setup_sandbox("newfile-deep-outside");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // A deeply nested path whose first existing ancestor is outside the sandbox.
+        let outside = base.join("outside").join("deep").join("file.txt");
+        let result = sb.validate(outside.to_str().unwrap());
+        assert!(result.is_err(), "deeply nested path outside sandbox should be rejected");
 
         cleanup(&base);
     }
@@ -342,6 +598,46 @@ mod sandbox_tests {
         let result = sb.validate("/tmp/anything");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("no writable roots"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_returns_symlink_target_root_for_symlinked_path() {
+        let (base, sandbox) = setup_sandbox("symlink-root");
+
+        // Create an external directory and symlink it into the sandbox.
+        let external = base.join("external-repo");
+        fs::create_dir_all(&external).expect("create external");
+        let link = sandbox.join("repo");
+        symlink(&external, &link).expect("create symlink");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let sandbox_root = std::fs::canonicalize(&sandbox).expect("canonicalize sandbox");
+        let external_root = std::fs::canonicalize(&external).expect("canonicalize external");
+
+        // Write a file in the external directory.
+        let file = external.join("notes.md");
+        fs::write(&file, "content").expect("write");
+
+        // Validate via the relative path through the sandbox symlink.
+        // The returned canonical path must start with the EXTERNAL root, not the
+        // sandbox root -- this is the value `validate_write_paths` uses to select
+        // the correct CWD for the binary (the symlink target, not the sandbox dir).
+        let canonical = sb.validate("repo/notes.md").expect("should validate");
+        assert!(
+            canonical.starts_with(&external_root),
+            "canonical path {:?} should start with external root {:?}",
+            canonical,
+            external_root
+        );
+        assert!(
+            !canonical.starts_with(&sandbox_root) || canonical.starts_with(&external_root),
+            "canonical path {:?} should not be anchored only to the sandbox root {:?}",
+            canonical,
+            sandbox_root
+        );
+
+        cleanup(&base);
     }
 
     #[test]

@@ -9,7 +9,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute or relative file path to read"
+            "description": "File path relative to the sandbox root (use ./ prefix)"
           }
         }
       }
@@ -23,7 +23,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path to list"
+            "description": "Directory path relative to the sandbox root (use ./ prefix)"
           },
           "long": {
             "type": "boolean",
@@ -49,7 +49,7 @@
           },
           "path": {
             "type": "string",
-            "description": "File or directory path to search"
+            "description": "File or directory path relative to the sandbox root (use ./ prefix)"
           },
           "recursive": {
             "type": "boolean",
@@ -72,14 +72,14 @@
     },
     {
       "name": "devtools_write_file",
-      "description": "Write content to a file. Creates the file if it does not exist, overwrites if it does. Parent directory must exist.",
+      "description": "Write content to a file. Creates the file if it does not exist, overwrites if it does. Parent directories are created automatically if they do not exist.",
       "parameters": {
         "type": "object",
         "required": ["path", "content"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute file path to write to (e.g. '/home/user/project/src/main.rs')"
+            "description": "File path relative to the sandbox root (use ./ prefix)"
           },
           "content": {
             "type": "string",
@@ -97,7 +97,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute file path to delete (e.g. '/home/user/project/src/old-file.rs')"
+            "description": "File path relative to the sandbox root (use ./ prefix)"
           }
         }
       }
@@ -114,9 +114,7 @@
       "tool": "devtools_read_file",
       "binary": "cat",
       "subcommand": "",
-      "args": [
-        { "param": "path", "kind": "positional" }
-      ]
+      "args": [{ "param": "path", "kind": "positional", "readPath": true }]
     },
     {
       "tool": "devtools_list_dir",
@@ -125,21 +123,46 @@
       "args": [
         { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
-        { "param": "path", "kind": "positional" }
-      ]
+        { "param": "path", "kind": "positional", "readPath": true }
+      ],
+      "postProcess": {
+        "script": "sanitize-ls"
+      },
+      "sideRead": {
+        "pathParam": "path",
+        "filename": "AGENTS.md",
+        "oncePerSession": true
+      }
     },
     {
       "tool": "devtools_search_content",
       "binary": "grep",
       "subcommand": "",
       "args": [
-        { "param": "recursive", "kind": "flagifboolean", "flagIfTrue": "--recursive" },
-        { "param": "line_numbers", "kind": "flagifboolean", "flagIfTrue": "--line-number" },
-        { "param": "case_insensitive", "kind": "flagifboolean", "flagIfTrue": "--ignore-case" },
-        { "param": "files_only", "kind": "flagifboolean", "flagIfTrue": "--files-with-matches" },
+        {
+          "param": "recursive",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--recursive"
+        },
+        {
+          "param": "line_numbers",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--line-number"
+        },
+        {
+          "param": "case_insensitive",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--ignore-case"
+        },
+        {
+          "param": "files_only",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--files-with-matches"
+        },
         { "param": "pattern", "kind": "positional" },
-        { "param": "path", "kind": "positional" }
-      ]
+        { "param": "path", "kind": "positional", "readPath": true }
+      ],
+      "successExitCodes": [0, 1]
     },
     {
       "tool": "devtools_write_file",
@@ -147,7 +170,10 @@
       "subcommand": "file write",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-        { "param": "content", "kind": "flag", "flag": "content", "normalizeNewlines": true }
+        {
+          "param": "content",
+          "kind": "stdin"
+        }
       ]
     },
     {

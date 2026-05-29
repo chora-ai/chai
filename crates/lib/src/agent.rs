@@ -30,7 +30,7 @@ pub struct AgentTurnResult {
 
 /// Executes a tool by name and JSON arguments. Returns output or error string.
 pub trait ToolExecutor: Send + Sync {
-    fn execute(&self, name: &str, args: &serde_json::Value) -> Result<String, String>;
+    fn execute(&self, name: &str, args: &serde_json::Value, session_id: Option<&str>) -> Result<String, String>;
 }
 
 /// Run one agent turn: load session messages, call the given provider (streaming when on_chunk is Some); if tools are provided and the model returns tool_calls, execute them and re-call until no more tool_calls or max iterations.
@@ -267,7 +267,7 @@ async fn execute_turn_worker(
                 "error: delegate_task is not available in this context".to_string()
             } else {
                 match tool_executor {
-                    Some(executor) => match executor.execute(name, args) {
+                    Some(executor) => match executor.execute(name, args, persist.map(|(_, sid)| sid)) {
                         Ok(out) => out.clone(),
                         Err(e) => {
                             log::warn!("agent: tool {} failed: {}", name, e);
@@ -453,7 +453,7 @@ async fn execute_turn_main(
                 }
             } else {
                 match tool_executor {
-                    Some(executor) => match executor.execute(name, args) {
+                    Some(executor) => match executor.execute(name, args, persist.map(|(_, sid)| sid)) {
                         Ok(out) => out.clone(),
                         Err(e) => {
                             log::warn!("agent: tool {} failed: {}", name, e);

@@ -2,7 +2,13 @@
 # Resolve a date to a daily note path within the knowledge base.
 # Usage: resolve-daily-path.sh <date>
 #
-# Reads the daily notes folder from the convention file:
+# If the input is already an absolute path, returns it unchanged. This makes
+# the script idempotent — when the generic executor substitutes a canonical
+# path into args and build_argv re-resolves it through this script, the
+# absolute path passes through without doubling the sandbox root prefix
+# or appending a second .md extension.
+#
+# Otherwise, reads the daily notes folder from the convention file:
 #   $HOME/.chai/active/sandbox/.kb-daily.conf
 #
 # Convention file format (simple key=value):
@@ -13,8 +19,14 @@
 #
 # Output: <kb_root>/<folder>/<date>.md
 
-kb_root="$HOME/.chai/active/sandbox"
 date="$1"
+
+# If the input is already an absolute path, return it as-is.
+case "$date" in
+    /*) echo "$date"; exit 0 ;;
+esac
+
+kb_root="$HOME/.chai/active/sandbox"
 
 # Default to today if no date provided.
 if [ -z "$date" ]; then

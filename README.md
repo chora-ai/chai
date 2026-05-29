@@ -2,7 +2,11 @@
 
 A multi-agent management system.
 
-## Overview
+## Documentation
+
+For user documentation, see [user guides](docs/README.md).
+
+## Packages
 
 - **`crates/cli`** — A command-line interface for the multi-agent management system
 - **`crates/desktop`** — A graphical user-interface for the multi-agent management system
@@ -11,6 +15,9 @@ A multi-agent management system.
 ## Commands
 
 ```bash
+# Test everything
+cargo test
+
 # Build everything
 cargo build
 
@@ -21,19 +28,9 @@ cargo build -p lib
 
 # Run the command-line interface
 cargo run -p cli -- help
-cargo run -p cli -- version
-cargo run -p cli -- init
-cargo run -p cli -- profile list
-cargo run -p cli -- profile current
-cargo run -p cli -- profile switch <name>
-cargo run -p cli -- gateway   # optional: --profile <name>, --port <port>
-cargo run -p cli -- chat      # optional: --profile <name>, --session <id>
 
 # Run the desktop application
 cargo run -p desktop
-
-# Test everything
-cargo test
 ```
 
 Use `--features matrix` to build or run with the `matrix` adaptor.
@@ -52,13 +49,6 @@ Run the installed CLI:
 
 ```bash
 chai help
-chai version
-chai init
-chai profile list
-chai profile current
-chai profile switch <name>
-chai gateway   # optional: --profile <name>, --port <port>
-chai chat      # optional: --profile <name>, --session <id>
 ```
 
 ## Desktop Application
@@ -76,6 +66,24 @@ Run the installed app:
 ```bash
 chai-desktop
 ```
+
+## Documentation
+
+...
+
+## Quick Start
+
+...
+
+## Developers
+
+...
+
+## Contributing
+
+...
+
+---
 
 ## Configuration
 
@@ -339,7 +347,7 @@ When **`gateway.bind`** is not loopback, use **`gateway.auth`** with **`mode`** 
 
 ### Signal
 
-The gateway connects to a **BYO** signal-cli **`daemon --http`** instance: **`GET /api/v1/events`** (SSE) for inbound messages and **`POST /api/v1/rpc`** with method **`send`** for replies. Install and run signal-cli yourself (see upstream docs); start the daemon before the gateway, e.g. **`signal-cli -a +1234567890 daemon --http 127.0.0.1:7583`**, then set **`channels.signal.httpBase`** or **`SIGNAL_CLI_HTTP`**. Policy: **`.agents/adr/SIGNAL_CLI_INTEGRATION.md`**. **`/new`** in a 1:1 or group context starts a fresh session for that **`conversation_id`**, same as other channels.
+The gateway connects to a **BYO** signal-cli **`daemon --http`** instance: **`GET /api/v1/events`** (SSE) for inbound messages and **`POST /api/v1/rpc`** with method **`send`** for replies. Install and run signal-cli yourself (see upstream docs); start the daemon before the gateway, e.g. **`signal-cli -a +1234567890 daemon --http 127.0.0.1:7583`**, then set **`channels.signal.httpBase`** or **`SIGNAL_CLI_HTTP`**. Policy: **`base/adr/SIGNAL_CLI_INTEGRATION.md`**. **`/new`** in a 1:1 or group context starts a fresh session for that **`conversation_id`**, same as other channels.
 
 ### Matrix
 
@@ -347,7 +355,7 @@ The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-s
 
 ## Agents
 
-In Chai, **agents** hold **configuration** for the assistant the gateway runs: they name the **orchestrator** that owns the conversation, optionally define **workers** for delegated subtasks, and set **defaults** for which **provider** and **model** to use, how **model discovery** is scoped, and per-role **skills** (**`skillsEnabled`**, **`contextMode`**). On disk, each agent’s **`AGENTS.md`** lives in that agent’s **context directory** at **`<active-profile>/agents/<agentId>/AGENTS.md`** (no path override in config). An agent is not a separate service or binary—the **`agents`** block is **configuration** the gateway reads to route each turn and assemble **context**. **Skills** supply instructions and optional tools; top-level **`providers`** supply URLs and API keys; the **`agents`** block ties those inputs to one orchestrator and any workers you define. **Delegation** allowlists, caps, and routes are **policy** on top of that configuration (see [.agents/spec/ORCHESTRATION.md](.agents/spec/ORCHESTRATION.md)).
+In Chai, **agents** hold **configuration** for the assistant the gateway runs: they name the **orchestrator** that owns the conversation, optionally define **workers** for delegated subtasks, and set **defaults** for which **provider** and **model** to use, how **model discovery** is scoped, and per-role **skills** (**`skillsEnabled`**, **`contextMode`**). On disk, each agent’s **`AGENTS.md`** lives in that agent’s **context directory** at **`<active-profile>/agents/<agentId>/AGENTS.md`** (no path override in config). An agent is not a separate service or binary—the **`agents`** block is **configuration** the gateway reads to route each turn and assemble **context**. **Skills** supply instructions and optional tools; top-level **`providers`** supply URLs and API keys; the **`agents`** block ties those inputs to one orchestrator and any workers you define. **Delegation** allowlists, caps, and routes are **policy** on top of that configuration (see [base/spec/ORCHESTRATION.md](base/spec/ORCHESTRATION.md)).
 
 ### Agent Orchestration
 
@@ -387,16 +395,16 @@ Each entry in **`agents`** has a unique **`id`**, a **`role`** (`orchestrator` o
 
 The gateway integrates **six** model **backends** (named by **`agents.defaultProvider`**): **Ollama** (native Ollama API), **LM Studio** (`lms`, OpenAI-compatible local server), **vLLM** (OpenAI-compatible **`vllm serve`** for self-hosted inference), **Hugging Face** (`hf`, OpenAI-compatible Inference Endpoints, TGI, or similar), **NVIDIA NIM** (`nim`, hosted NVIDIA catalog API), **OpenAI** (`openai`, and OpenAI HTTP API or compatible base URL). They differ in **where** the model runs (your machine, your infrastructure, or a cloud API), **which** wire protocol and discovery endpoints Chai uses, and **whether** an API key or fixed base URL applies.
 
-For **provider** taxonomy, configuration, and API comparisons, see [.agents/spec/PROVIDERS.md](.agents/spec/PROVIDERS.md). For **model** ids, repository inventory, and tool-fit notes, see [.agents/spec/MODELS.md](.agents/spec/MODELS.md). For the **API alignment** roadmap, see [.agents/epic/API_ALIGNMENT.md](.agents/epic/API_ALIGNMENT.md). To run **repeatable model tests** by deployment category, see [.testing](.testing/README.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
+For **provider** taxonomy, configuration, and API comparisons, see [base/spec/PROVIDERS.md](base/spec/PROVIDERS.md). For **model** ids, repository inventory, and tool-fit notes, see [base/spec/MODELS.md](base/spec/MODELS.md). For the **API alignment** roadmap, see [base/epic/API_ALIGNMENT.md](base/epic/API_ALIGNMENT.md). To run **repeatable model tests** by deployment category, see [testing](docs/testing/README.md). Endpoint-level detail and how Chai calls each API are in the per-backend references:
 
 | Backend | Document |
 |---------|----------|
-| Ollama (`ollama`) | [.agents/ref/OLLAMA.md](.agents/ref/OLLAMA.md) |
-| LM Studio (`lms`) | [.agents/ref/LM_STUDIO.md](.agents/ref/LM_STUDIO.md) |
-| vLLM (`vllm`) | [.agents/ref/VLLM.md](.agents/ref/VLLM.md) |
-| Hugging Face (`hf`) | [.agents/ref/HUGGINGFACE.md](.agents/ref/HUGGINGFACE.md) |
-| NVIDIA NIM (`nim`) | [.agents/ref/NVIDIA_NIM.md](.agents/ref/NVIDIA_NIM.md) |
-| OpenAI (`openai`) | [.agents/ref/OPENAI.md](.agents/ref/OPENAI.md) |
+| Ollama (`ollama`) | [base/ref/OLLAMA.md](base/ref/OLLAMA.md) |
+| LM Studio (`lms`) | [base/ref/LM_STUDIO.md](base/ref/LM_STUDIO.md) |
+| vLLM (`vllm`) | [base/ref/VLLM.md](base/ref/VLLM.md) |
+| Hugging Face (`hf`) | [base/ref/HUGGINGFACE.md](base/ref/HUGGINGFACE.md) |
+| NVIDIA NIM (`nim`) | [base/ref/NVIDIA_NIM.md](base/ref/NVIDIA_NIM.md) |
+| OpenAI (`openai`) | [base/ref/OPENAI.md](base/ref/OPENAI.md) |
 
 Set **`defaultProvider`** on the orchestrator entry to **`ollama`**, **`lms`**, **`vllm`**, **`hf`**, **`nim`**, or **`openai`** when no per-request override is used. Optional **`enabledProviders`** on the orchestrator entry lists which providers to poll for model discovery at startup (e.g. `["ollama", "lms", "vllm", "hf", "nim", "openai"]`). When absent or empty, only the default provider (`ollama`) is discovered.
 

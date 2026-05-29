@@ -3,8 +3,19 @@
 # Uses notesmd-cli print-default --path-only and .obsidian/daily-notes.json.
 # Usage: resolve-daily-path.sh <date>
 # Output: folder/date or date on stdout; on error echoes the input date.
+#
+# If the input is already an absolute path, returns it unchanged. This makes
+# the script idempotent — when the generic executor substitutes a canonical
+# path into args and build_argv re-resolves it, the absolute path passes
+# through without doubling or re-processing.
 
 date="${1:-}"
+
+# If the input is already an absolute path, return it as-is.
+case "$date" in
+    /*) echo "$date"; exit 0 ;;
+esac
+
 if [ -z "$date" ]; then
   exit 1
 fi

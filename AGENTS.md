@@ -1,12 +1,12 @@
 # Agents
 
-Information and guidelines for working on code in this repository.
+This is the `AGENTS.md` file in the root of the `chai` directory.
 
 ## Primary Resources
 
-This document and the `.agents/` directory are the primary resources.
+This document and the `base/` directory are the primary resources for agents.
 
-**Always read [.agents/README.md](.agents/README.md)** — the entry point for the `.agents/` directory.
+**Always read [base/README.md](base/README.md)** — the entry point for the `base/` directory.
 
 ## Architecture Overview
 
@@ -53,3 +53,7 @@ This document and the `.agents/` directory are the primary resources.
 ### `VISION.md`
 
 - This document provides the state of the project and outlines short and long-term goals. Do not update this document without permission: always request permission before updating.
+
+### `./docs`
+
+- This directory provides user guides for getting started and adanced configurations, step-by-step journeys to learn and exercise the stack, and playbooks to compare models and providers.

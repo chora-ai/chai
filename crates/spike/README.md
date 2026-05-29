@@ -1,6 +1,6 @@
 # chai-spike
 
-Small **spike** binaries for Matrix and Signal integration research. They are **not** part of the Chai gateway; they validate wire formats and ops assumptions documented in **`.agents/ref/`** and **`.agents/spec/CHANNELS.md`**.
+Small **spike** binaries for Matrix and Signal integration research. They are **not** part of the Chai gateway; they validate wire formats and ops assumptions documented in **`base/ref/`** and **`base/spec/CHANNELS.md`**.
 
 ## Matrix (`matrix-probe`)
 

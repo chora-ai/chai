@@ -1,4 +1,4 @@
-//! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `.agents/epic/ORCHESTRATION.md`).
+//! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `base/epic/ORCHESTRATION.md`).
 
 use super::choice::provider_choice_from_canonical;
 use super::dispatch::ProviderClients;

@@ -2,7 +2,7 @@
 status: complete
 ---
 
-# Epic: Skill Packages (Revisions, Locks, and Derivation Metadata — Flake-Style)
+# Epic: Skill Packages (Revisions, Locks, and Derivation Metadata)
 
 **Summary** — Treat each directory under **`~/.chai/skills/<name>/`** as a **skill package**: a **content-addressed revision space** with immutable snapshot directories and an **active** pointer. A **lockfile** per profile records **exact content hashes** the gateway loads—**metaphorically** like **[Nix flakes](https://nixos.wiki/wiki/Flakes)** and **`flake.lock`**: **immutable inputs**, **pinned resolution**, **reproducible** restarts, **rollback** by pointing at a previous pin. **Switching pins** (and **restart**) parallels **activating** a new system configuration. This epic is **orthogonal** to **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)**: **runtime profiles** decide **which** config (and thus **which** lock / pin set) is live; this epic defines **how** skill packages expose **revisions**, **locks**, **derivation metadata**, and **rollback**.
 
@@ -27,7 +27,7 @@ Model each **`skills/<name>/`** tree as a **skill package** with reproducible re
 
 - **Content-addressed revisions** inside each skill package (`skills/<name>/versions/<hash>/`) with an `active` symlink
 - **Per-profile lockfile** (`profiles/<name>/skills.lock`) mapping skill directory name → content hash
-- Gateway startup resolution against lock, with configurable strictness (`warn` default, `strict` opt-in)
+- Gateway startup resolution against lock, with configurable strictness (`strict` default, `warn` opt-in)
 - Generation-level rollback — restoring the entire previous lockfile, not a single package’s revision
 - Derivation metadata in `SKILL.md` frontmatter recording what produced each skill revision
 - **Startup validation** of **`capability_tier`** and **`model_variant_of`** composition against the active profile’s effective model (warn first; see **Capability-Tier Validation (Startup)** under **Design**). This is independently deliverable ahead of the lockfile system.
@@ -55,7 +55,7 @@ How **`lib`** loads skills today (Phase 1 findings):
 ### Skill Sources
 
 - **Single source:** `config::default_skills_dir(chai_home)` returns `<chai_home>/skills` — always `~/.chai/skills/`
-- **No multi-root, no overlay, no config.json override** for the gateway. `CHAI_SKILLS_ROOT` env exists CLI-side only
+- **No multi-root, no overlay, no config override** — a single shared skills root (`~/.chai/skills`) for CLI, gateway, and desktop
 - **Bundled skills** compiled in via `include_dir!` → extracted to `~/.chai/skills/` at `chai init` (skipped if directory exists)
 
 ### Profile and Agent Integration
@@ -215,7 +215,7 @@ Both profiles reference the same `versions/<hash>/` directory — no file copyin
 ## Phases
 
 1. **Capability-tier validation** — ✅ Parse `capability_tier` and `model_variant_of` in `SkillFrontmatter`. Startup warnings for tier/model mismatch and variant overlap. Module: `skills/validation.rs`.
-2. **Version storage** — ✅ Content-addressed snapshot directories (`versions/<hash>/`) and `active` symlink. Loader resolves `active` (backward compatible with flat layout). `chai init` creates versioned layout. CLI write commands create new snapshots. Module: `skills/versioning.rs`.
+2. **Version storage** — ✅ Content-addressed snapshot directories (`versions/<hash>/`) and `active` symlink. Loader requires `active` → `versions/<hash>/`. `chai init` creates versioned layout. CLI write commands create new snapshots. Module: `skills/versioning.rs`.
 3. **Lockfile and resolution** — ✅ Per-profile `skills.lock` schema, gateway verification against lock at startup, `skillLockMode` config field (`strict`/`warn`), generation counter with backup files. Module: `skills/lockfile.rs`.
 4. **Rollback and CLI** — ✅ `chai skill lock`, `rollback <generation>`, `generations` commands. Generation backup files (`skills.lock.<N>`). Rollback updates `active` symlinks to match restored lock.
 5. **CI / harness** — Deferred. Simulations or tests record lockfile for repro (see [SIMULATIONS.md](SIMULATIONS.md)).

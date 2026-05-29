@@ -1,6 +1,10 @@
-# User Journeys
+# Agents
 
-This directory contains step-by-step user journeys for understanding the system and manually testing it. Run through them to test behavior after significant changes or before a release.
+This is the `AGENTS.md` file in the root of the `journey` directory.
+
+## Directory
+
+The `journey` directory is for user journeys.
 
 ## Writing Guidelines
 

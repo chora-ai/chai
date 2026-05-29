@@ -204,7 +204,7 @@ struct ReadOnDemandExecutor {
 }
 
 impl agent::ToolExecutor for ReadOnDemandExecutor {
-    fn execute(&self, name: &str, args: &serde_json::Value) -> Result<String, String> {
+    fn execute(&self, name: &str, args: &serde_json::Value, session_id: Option<&str>) -> Result<String, String> {
         if name == "read_skill" {
             let obj = args
                 .as_object()
@@ -220,7 +220,7 @@ impl agent::ToolExecutor for ReadOnDemandExecutor {
                 .ok_or_else(|| format!("unknown skill: {}", skill_name))?;
             Ok(strip_skill_frontmatter(&skill.content).to_string())
         } else {
-            self.inner.execute(name, args)
+            self.inner.execute(name, args, session_id)
         }
     }
 }

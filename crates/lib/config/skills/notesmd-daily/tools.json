@@ -35,8 +35,7 @@
         {
           "param": "content",
           "kind": "flag",
-          "flag": "content",
-          "normalizeNewlines": true
+          "flag": "content"
         },
         {
           "param": "replace",

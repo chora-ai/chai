@@ -1,4 +1,4 @@
-//! Delegation policy: optional allowlists of (provider, model) pairs (see `.agents/epic/ORCHESTRATION.md`).
+//! Delegation policy: optional allowlists of (provider, model) pairs (see `base/epic/ORCHESTRATION.md`).
 
 use crate::config::{
     canonical_provider, resolve_effective_provider_and_model, AgentsConfig, AllowedModelEntry,

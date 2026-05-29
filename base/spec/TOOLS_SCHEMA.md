@@ -6,7 +6,7 @@ status: stable
 
 When a skill directory contains a `tools.json` file, the loader parses it and attaches tool definitions, an allowlist, and per-tool execution mapping to the skill. This allows skills to declare their tools declaratively so a generic executor can run them without per-skill code.
 
-**Parameters (JSON Schema):** Each tool’s **`parameters`** object uses the same **JSON Schema subset** used across LLM **function / tool** APIs: typically `type: "object"`, **`properties`**, **`required`**, and per-argument **`type`**, **`description`**, and optional constraints. That matches what **OpenAI** (tools / function parameters), **Ollama** (`tools` in chat), and **OpenAI-compatible** servers expect. Chai forwards the descriptor’s tool list to the active **`Provider`** without rewriting the schema. For examples and field conventions, see vendor docs (e.g. OpenAI function-calling parameter shape).
+**Parameters (JSON Schema):** Each tool's **`parameters`** object uses the same **JSON Schema subset** used across LLM **function / tool** APIs: typically `type: "object"`, **`properties`**, **`required`**, and per-argument **`type`**, **`description`**, and optional constraints. That matches what **OpenAI** (tools / function parameters), **Ollama** (`tools` in chat), and **OpenAI-compatible** servers expect. Chai forwards the descriptor's tool list to the active **`Provider`** without rewriting the schema. For examples and field conventions, see vendor docs (e.g. OpenAI function-calling parameter shape).
 
 ## File Location
 
@@ -53,6 +53,7 @@ Each element:
 | `subcommand` | string | Subcommand (e.g. `search`). Must be in `allowlist[binary]`. |
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
 | `postProcess` | object (optional) | Post-process the command's stdout through a script before returning the result to the model. See below. Default: not set. |
+| `sideRead` | object (optional) | After the command (and any `postProcess`) completes, look for a file relative to a path parameter and append its contents to the tool result. Silently skipped when the file is absent. See below. Default: not set. |
 
 #### `args` (array of arg mapping)
 
@@ -65,11 +66,11 @@ Each element:
 | `flag` | string (optional) | For `kind: "flag"`, the flag name (e.g. `content` → `--content`). If absent, uses `param`. For `flag`, if the parameter is missing or null, the flag and value are omitted (optional params). |
 | `flagIfTrue` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is true (e.g. `"--overwrite"`). |
 | `flagIfFalse` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is false (e.g. `"--append"`). |
-| `normalizeNewlines` | boolean (optional) | When `true`, string values have literal `\n` and `\t` converted to real newlines and tabs before being passed to the CLI. Default: not set. |
 | `resolveCommand` | object (optional) | Resolve the param value by running a **script** or an **allowlisted command**; trimmed stdout becomes the new value. On failure or empty stdout, the original value is kept. See below. Default: not set. |
 | `optional` | boolean (optional) | When `true`, a missing or null JSON parameter is omitted from argv. Exception: for `positional` with `resolveCommand` set, a missing parameter is passed to the resolver as an empty string so the resolver can still produce a value (e.g. default paths). Default: not set (required). |
-| `disambiguateAfterSkippedPositionals` | boolean (optional) | For `kind: "positional"` only: when `true`, the executor inserts `--` before this argument’s value if any earlier optional positional in the same `args` list was skipped. Use when a path must be disambiguated from an omitted ref (e.g. `git diff`). Default: not set. |
+| `disambiguateAfterSkippedPositionals` | boolean (optional) | For `kind: "positional"` only: when `true`, the executor inserts `--` before this argument's value if any earlier optional positional in the same `args` list was skipped. Use when a path must be disambiguated from an omitted ref (e.g. `git diff`). Default: not set. |
 | `writePath` | boolean (optional) | When `true`, this parameter is a filesystem write target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Only applies to `positional` and `flag` kinds (not `flagifboolean`). Default: not set. See **[epic/WRITE_SANDBOX.md](../epic/WRITE_SANDBOX.md)**. |
+| `readPath` | boolean (optional) | When `true`, this parameter is a filesystem read target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Only applies to `positional` and `flag` kinds (not `flagifboolean`). Default: not set. See **[epic/WRITE_SANDBOX.md](../epic/WRITE_SANDBOX.md)**. |
 
 #### `resolveCommand` (object)
 
@@ -77,8 +78,8 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `script` | string (optional) | Name of a file in the skill’s **`scripts/`** directory (e.g. `"resolve-daily-path"` → `scripts/resolve-daily-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill’s `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
-| `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill’s allowlist). Use when not using `script`. |
+| `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-daily-path"` → `scripts/resolve-daily-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
+| `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill's allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
 | `args` | array of strings | Arguments; `"$param"` is replaced by the current param value. |
 
@@ -101,6 +102,53 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 - `postProcess` is set on the **execution spec** (per-tool), not on individual args. It transforms the final stdout, not a parameter value.
 - Stdin piping (not command-line args) is used because tool output can be large (RSS feeds, HTML pages, search results).
 - The symmetry with `resolveCommand` is intentional: `resolveCommand` mediates input (parameter → resolved value), `postProcess` mediates output (stdout → structured result).
+
+#### `sideRead` (object)
+
+Appends a file's contents to the tool result when the file exists. After the main command and any `postProcess` step, the executor looks for `<resolved-path-param>/<filename>`. If found and non-empty, its contents are appended under a labeled separator. Silently skipped when the file is absent, unreadable, or empty.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `pathParam` | string | Name of the arg param whose resolved value is the directory to look in (e.g. `"path"`). Must be a param present in this tool's `args` list. |
+| `filename` | string | Filename to look for within that directory (e.g. `"AGENTS.md"`). Must not contain path separators or `..`. |
+| `label` | string (optional) | Label shown as a section header before the appended content (e.g. `"Project Instructions"`). Defaults to the filename when absent. |
+| `oncePerSession` | boolean (optional) | When `true`, append this file's content at most once per session per unique resolved path. Subsequent tool calls that resolve to the same path within the same session are silently skipped. When no session is present (e.g. direct turn calls without a session store), the check is bypassed and the file is always appended. Default: not set (always append). |
+
+**Output shape:** The appended block is separated from the main output by a blank line and a `--- <label> ---` header line, followed by the file's trimmed content:
+
+```
+<main tool output>
+
+--- AGENTS.md ---
+<file contents>
+```
+
+**Design notes:**
+- `sideRead` is set on the **execution spec** (per-tool), not on individual args. It augments the final result with a related file from the filesystem.
+- The three execution-spec output hooks are complementary: `postProcess` transforms the command's stdout; `sideRead` conditionally appends a nearby file. Both run after the command; `postProcess` runs first.
+- `oncePerSession` deduplication is keyed on `(session_id, path_param_value, filename)`. The seen set is recorded before the file is read; if the file is absent on the first call, subsequent calls within the same session will also be skipped. This prevents repeated file-not-found probes.
+- The `filename` field is a static value from the skill descriptor (not model-supplied input), so path traversal in it is a misconfigured skill rather than a model attack. The executor rejects filenames containing `..`, `/`, or `\` as a defense-in-depth measure.
+- Because the `pathParam` value is already validated against the sandbox by a `readPath` annotation on the corresponding arg, the derived `<path>/<filename>` path is also within the sandbox by construction.
+
+**Example:** Automatically surface `AGENTS.md` from a listed directory, at most once per session:
+
+```json
+{
+  "tool": "devtools_list_dir",
+  "binary": "ls",
+  "subcommand": "",
+  "args": [
+    { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
+    { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
+    { "param": "path", "kind": "positional", "readPath": true }
+  ],
+  "sideRead": {
+    "pathParam": "path",
+    "filename": "AGENTS.md",
+    "oncePerSession": true
+  }
+}
+```
 
 **Example:** Parse RSS XML into structured text:
 ```json
@@ -153,8 +201,9 @@ One tool, one positional argument:
 ## Implementation Notes
 
 - **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`.
-- **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill’s SKILL.md content in-process; see [CONTEXT.md](CONTEXT.md).
-- **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `normalizeNewlines` and `resolveCommand` when set) and runs via the allowlist.
+- **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill's SKILL.md content in-process; see [CONTEXT.md](CONTEXT.md).
+- **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `resolveCommand` when set) and runs via the allowlist.
 - **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
-- **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill’s `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
-- **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command’s stdout to the post-processor’s stdin and returns the post-processor’s stdout instead. On failure or empty output, the original stdout is returned unmodified. Same script resolution rules as `resolveCommand` (skill’s `scripts/` dir, no allowlist needed).
+- **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill's `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
+- **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's stdout to the post-processor's stdin and returns the post-processor's stdout instead. On failure or empty output, the original stdout is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).
+- **Side reads**: When `sideRead` is set on an execution spec, the executor appends the named file's contents (relative to the resolved path parameter) to the tool result after `postProcess`. The file is read from disk without going through the allowlist. When `oncePerSession` is `true`, the executor maintains a per-session seen set (keyed by session id and resolved path) and skips re-appending the same file. Silently skipped when the file is absent, empty, or the filename fails the traversal check.

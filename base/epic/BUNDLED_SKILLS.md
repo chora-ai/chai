@@ -73,8 +73,8 @@ The Obsidian team offers early CLI access to supporters; the `obsidian` and `obs
 
 ### Out of Scope
 
-- **Write sandbox implementation** — **[WRITE_SANDBOX.md](WRITE_SANDBOX.md)**
-- **Skill package versioning, lockfiles, pins** — **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)**
+- **Write sandbox implementation** — **[WRITE_SANDBOX.md](WRITE_SANDBOX.md)** (complete)
+- **Skill package versioning, lockfiles, pins** — **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** (complete)
 - **Per-agent skill configuration** — **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** (complete)
 - **Skill simulation infrastructure** — **[SIMULATIONS.md](SIMULATIONS.md)**
 - **Tool approval / asking boundary** — **[TOOL_APPROVAL.md](TOOL_APPROVAL.md)**
@@ -95,7 +95,7 @@ The `search` subcommand was excluded — it's interactive (fzf-based, opens a no
 
 Read-only variant wrapping standard unix tools: `cat` (read files), `ls` (list directories), `grep` (search content). Uses empty-string subcommands in the allowlist since these binaries have no subcommand structure — `"".split_whitespace()` produces no args in the executor. Uses `flagifboolean` for flag control (`-l`, `-a`, `--recursive`, etc.) since it emits the literal flag string rather than adding a `--` prefix.
 
-Write operations use `chai file write --path <path> --content <content>` as the binary backend. The `devtools_write_file` tool has `writePath: true` on its path parameter, so the executor validates against sandbox boundaries before spawning. The `normalizeNewlines: true` flag on the content parameter converts literal `\n` sequences from JSON into real newlines. Delete operations use `chai file delete --path <path>` — the CLI validates the target is a regular file, refusing directories. The `devtools_delete_file` tool has `writePath: true` for sandbox enforcement. A `run_command` tool is intentionally excluded — it can't be made safe within the allowlist model.
+Write operations use `chai file write --path <path> --content <content>` as the binary backend. The `devtools_write_file` tool has `writePath: true` on its path parameter, so the executor validates against sandbox boundaries before spawning. The ~~`normalizeNewlines: true`~~ flag was previously set on the content parameter but has been removed due to a double-decode bug — `serde_json` already decodes JSON escape sequences, making the flag unnecessary and harmful (see `BUG_WRITE_TOOL_ESCAPES.md`). Delete operations use `chai file delete --path <path>` — the CLI validates the target is a regular file, refusing directories. The `devtools_delete_file` tool has `writePath: true` for sandbox enforcement. A `run_command` tool is intentionally excluded — it can't be made safe within the allowlist model.
 
 **Remaining:** No immediate gaps. Future additions (file append, mkdir) can follow the same `chai file <subcommand>` pattern.
 
@@ -174,8 +174,8 @@ Once the `kb` family covers all operations with empirical validation, the `notes
 Six tools backed by `cat`, `ls`, `grep`, `chai file write`, `chai file append`, and `chai file delete`. A single `resolve-kb-path.sh` script resolves relative paths to absolute sandbox paths. The sandbox root is the KB root (`$HOME/.chai/active/sandbox`).
 
 - `kb_read` — `cat` with resolved path
-- `kb_write` — `chai file write` with resolved path (`writePath: true`) and `normalizeNewlines: true`
-- `kb_append` — `chai file append` with resolved path (`writePath: true`) and `normalizeNewlines: true`
+- `kb_write` — `chai file write` with resolved path (`writePath: true`). ~~Previously used `normalizeNewlines: true`~~, removed due to double-decode bug.
+- `kb_append` — `chai file append` with resolved path (`writePath: true`). ~~Previously used `normalizeNewlines: true`~~, removed due to double-decode bug.
 - `kb_delete` — `chai file delete` with resolved path (`writePath: true`). CLI refuses to delete directories
 - `kb_list` — `ls` with resolved path (optional; defaults to KB root)
 - `kb_search` — `grep --recursive --line-number` with resolved path (optional; defaults to KB root), optional `files_only`
@@ -207,7 +207,6 @@ Scripts offload mechanical work from the model: string formatting, pattern const
 | `kb-wikilink-write` | `resolve-kb-path.sh`, `resolve-kb-root.sh` | Path resolution, constant KB root injection |
 | `kb-daily` | `resolve-daily-path.sh` | Date-based path resolution with convention file |
 | `kb-frontmatter` | `resolve-kb-path.sh` | Path resolution |
-
 | `git-remote` | `resolve-clone-path.sh` | Relative path → sandbox path (resolveCommand) |
 
 Skills with **no scripts**: `notesmd`, `git`, `git-read`, `devtools`, `devtools-read`, `skillgen`, `skillval`.
@@ -388,8 +387,8 @@ Daily note operations with configurable date-based path resolution. Replaces `no
 | Tool | Operation | Backend |
 |---|---|---|
 | `kb_daily_read` | Read today's or a specified date's daily note | `cat` with `resolveCommand` date → path |
-| `kb_daily_write` | Create or overwrite a daily note | `chai file write` with `resolveCommand` + `writePath` + `normalizeNewlines` |
-| `kb_daily_append` | Append content to a daily note | `chai file append` with `resolveCommand` + `writePath` + `normalizeNewlines` |
+| `kb_daily_write` | Create or overwrite a daily note | `chai file write` with `resolveCommand` + `writePath`. ~~Previously used `normalizeNewlines`~~, removed due to double-decode bug. |
+| `kb_daily_append` | Append content to a daily note | `chai file append` with `resolveCommand` + `writePath`. ~~Previously used `normalizeNewlines`~~, removed due to double-decode bug. |
 
 **Key script:**
 - `resolve-daily-path.sh` — reads a convention file in the sandbox (`sandbox/.kb-daily.conf` with `folder=00-daily`) instead of `.obsidian/daily-notes.json`. Falls back to `00-daily/<date>.md` if no config exists. Defaults to today's date when no date parameter is provided.
@@ -454,6 +453,7 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 - [x] **Batch generation** — 6 new skills generated and validated
 - [x] **Tool call examples** — added example JSON for every tool in all SKILL.md files to improve small-model accuracy
 - [x] **Git write tools** — `git_add` and `git_commit` added to the git skill
+- [x] **`normalizeNewlines` double-decode fix** — removed `normalizeNewlines: true` from all 9 tool arg mappings across 5 skills (skillgen, kb, kb-daily, notesmd, notesmd-daily), updated skillgen SKILL.md directive, deprecated the field in descriptor.rs and TOOLS_SCHEMA.md
 - [ ] **Empirical validation** — test skills against 7B and 13B models on Ollama
 - [ ] **Capability floor** — document smallest model that reliably generates correct tool calls
 - [ ] **Model-specific frontmatter** — implement `recommended_models`, `capability_tier`, `model_variant_of` in SKILL.md parsing (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** for startup validation)
@@ -498,6 +498,7 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 
 ### Resolved
 
+- **`normalizeNewlines` double-decode bug** — the `normalizeNewlines: true` flag on content parameters caused a double-decode: `serde_json` already decodes JSON escape sequences, then `normalize_content()` performed a second decode, corrupting `\n`/`\t` string literals in written content and producing invalid JSON. Fixed by removing `normalizeNewlines: true` from all 9 tool arg mappings across 5 skills (devtools was fixed earlier; skillgen, kb, kb-daily, notesmd, notesmd-daily fixed now). The field is deprecated in `descriptor.rs` and `TOOLS_SCHEMA.md`. The `skillgen/SKILL.md` directive recommending the flag has been replaced with a "never use" directive.
 - **Output post-processing mechanism** — resolved as per-tool `postProcess` field on execution specs. Implemented with `PostProcessSpec` struct, 7 unit tests. Per-tool precision was the right choice; per-skill would have been too coarse (different tools in the same skill need different post-processing).
 - **Script-as-operation pattern** — resolved via `chai file` subcommands. All complex operations (frontmatter read/edit/delete, rename-with-link-updates, file delete, file append) are implemented as CLI subcommands. `sh`-based execution remains a future option but is not blocking any current requirements.
 - **Cross-param resolution** — `resolveCommand` only passes `$param` (the current parameter value). Cross-param references (e.g., accessing URL from the path resolver in `git_clone`) are not supported. A `$params.<name>` syntax could enable richer resolver logic. Low priority — no current skill requires it; the clone path defaulting works with relative names instead.

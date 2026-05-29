@@ -2,7 +2,7 @@
 status: draft
 ---
 
-# Epic: Tool Call Approval (Draft Proposal)
+# Epic: Tool Call Approval
 
 **Summary** — This epic tracks **optional human-in-the-loop approval** before executing model-requested tool calls. That behavior is **not implemented**; the sections below describe **today’s baseline** (immediate execution, skill allowlists, runtime profiles) and a **draft** design for approval when/if it is prioritized. Default after any future implementation should remain **auto-execute** unless the operator opts into a gate.
 
@@ -171,7 +171,7 @@ Chai's approval mechanism would need to generalize across its gateway/session mo
 
 ## Open Questions
 
-- **Scope** — Desktop-only first vs parity across **Telegram**, **Matrix**, **Signal** from day one?
+- **Scope** — CLI and desktop-only first vs parity across **Telegram**, **Matrix**, **Signal** from day one?
 - **Transcript** — Whether **`assistant` messages with tool_calls** are persisted **before** approval (visible in history) or only after approval (cleaner UX, harder replay).
 - **Partial deny** — Single tool in a batch denied: allow partial execution and synthetic results for the rest?
 - **`delegate_task`** — Block worker tools until orchestrator's user approves, or separate policy?

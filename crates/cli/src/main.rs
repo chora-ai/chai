@@ -15,7 +15,7 @@ enum Commands {
     /// Show version
     Version,
 
-    /// Create ~/.chai with profiles (assistant, developer), active symlink, and shared skills
+    /// Create ~/.chai with default profiles, active symlink, and bundled skills
     Init,
 
     /// Run the gateway (HTTP + WebSocket control plane). Uses CHAI_PROFILE or ~/.chai/active unless --profile is set.
@@ -100,8 +100,8 @@ async fn main() {
             }
         }
         Some(Commands::Chat { profile, session }) => {
-            if let Err(e) = run_chat(profile.as_deref(), session).await {
-                log::error!("chat failed: {}", e);
+            if let Err(e) = run_chat(profile, session).await {
+                log::error!("chat error: {}", e);
                 std::process::exit(1);
             }
         }
@@ -197,31 +197,32 @@ enum SkillCmd {
         #[arg(long)]
         description: Option<String>,
     },
-    /// Write or overwrite SKILL.md for a skill
+    /// Write or overwrite SKILL.md for a skill. Content is read from stdin when --content is omitted.
     WriteSkillMd {
         /// Skill directory name
         skill_name: String,
-        /// Complete SKILL.md content including frontmatter
-        #[arg(long)]
-        content: String,
+        /// Complete SKILL.md content including frontmatter. If omitted, content is read from stdin.
+        /// Accepts values that begin with dashes (e.g. YAML frontmatter).
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
     },
-    /// Write or overwrite tools.json for a skill (validates JSON before writing)
+    /// Write or overwrite tools.json for a skill (validates JSON before writing). Content is read from stdin when --content is omitted.
     WriteToolsJson {
         /// Skill directory name
         skill_name: String,
-        /// Complete tools.json content as JSON
-        #[arg(long)]
-        content: String,
+        /// Complete tools.json content as JSON. If omitted, content is read from stdin.
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
     },
-    /// Write a script to a skill's scripts/ directory
+    /// Write a script to a skill's scripts/ directory. Content is read from stdin when --content is omitted.
     WriteScript {
         /// Skill directory name
         skill_name: String,
         /// Script filename without .sh extension
         script_name: String,
-        /// Complete script content
-        #[arg(long)]
-        content: String,
+        /// Complete script content. If omitted, content is read from stdin.
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
     },
     /// Validate a skill's tools.json for schema conformance
     Validate {
@@ -241,23 +242,25 @@ enum SkillCmd {
 
 #[derive(Subcommand)]
 enum FileCmd {
-    /// Write content to a file (creates or overwrites). Parent directory must exist.
+    /// Write content to a file (creates or overwrites). Content is read from stdin when --content is omitted.
     Write {
         /// Absolute file path to write to
         #[arg(long)]
         path: String,
-        /// Content to write to the file
-        #[arg(long)]
-        content: String,
+        /// Content to write. If omitted, content is read from stdin.
+        /// Accepts values that begin with dashes (e.g. YAML frontmatter).
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
     },
-    /// Append content to an existing file. Creates the file if it does not exist.
+    /// Append content to an existing file. Creates the file if it does not exist. Content is read from stdin when --content is omitted.
     Append {
         /// Absolute file path to append to
         #[arg(long)]
         path: String,
-        /// Content to append to the file
-        #[arg(long)]
-        content: String,
+        /// Content to append. If omitted, content is read from stdin.
+        /// Accepts values that begin with dashes (e.g. YAML frontmatter).
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
     },
     /// Delete a file. Refuses to delete directories.
     Delete {
@@ -309,36 +312,65 @@ enum FileCmd {
     },
 }
 
+/// Read content from stdin when --content was not provided.
+fn read_content_from_stdin_or(content: Option<String>) -> anyhow::Result<String> {
+    match content {
+        Some(c) => Ok(c),
+        None => {
+            use std::io::Read;
+            let mut s = String::new();
+            std::io::stdin()
+                .read_to_string(&mut s)
+                .map_err(|e| anyhow::anyhow!("failed to read stdin: {}", e))?;
+            Ok(s)
+        }
+    }
+}
+
 fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
     match cmd {
         FileCmd::Write { path, content } => {
-            let target = std::path::Path::new(&path);
+            let content = read_content_from_stdin_or(content)?;
+            let target = if std::path::Path::new(&path).is_relative() {
+                std::env::current_dir()?.join(&path)
+            } else {
+                std::path::PathBuf::from(&path)
+            };
             if let Some(parent) = target.parent() {
                 if !parent.exists() {
-                    anyhow::bail!("parent directory does not exist: {}", parent.display());
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        anyhow::anyhow!("failed to create parent directory {}: {}", parent.display(), e)
+                    })?;
                 }
             }
-            std::fs::write(target, &content)
-                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
-            println!("wrote {} ({} bytes)", path, content.len());
+            std::fs::write(&target, &content)
+                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", target.display(), e))?;
+            println!("wrote {} ({} bytes)", target.display(), content.len());
             Ok(())
         }
         FileCmd::Append { path, content } => {
             use std::io::Write;
-            let target = std::path::Path::new(&path);
+            let content = read_content_from_stdin_or(content)?;
+            let target = if std::path::Path::new(&path).is_relative() {
+                std::env::current_dir()?.join(&path)
+            } else {
+                std::path::PathBuf::from(&path)
+            };
             if let Some(parent) = target.parent() {
                 if !parent.exists() {
-                    anyhow::bail!("parent directory does not exist: {}", parent.display());
+                    std::fs::create_dir_all(parent).map_err(|e| {
+                        anyhow::anyhow!("failed to create parent directory {}: {}", parent.display(), e)
+                    })?;
                 }
             }
             let mut file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
-                .open(target)
-                .map_err(|e| anyhow::anyhow!("failed to open {}: {}", path, e))?;
+                .open(&target)
+                .map_err(|e| anyhow::anyhow!("failed to open {}: {}", target.display(), e))?;
             file.write_all(content.as_bytes())
-                .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", path, e))?;
-            println!("appended {} bytes to {}", content.len(), path);
+                .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", target.display(), e))?;
+            println!("appended {} bytes to {}", content.len(), target.display());
             Ok(())
         }
         FileCmd::Delete { path } => {
@@ -678,11 +710,8 @@ fn walk_md_files(
 }
 
 fn skill_root() -> anyhow::Result<std::path::PathBuf> {
-    if let Ok(root) = std::env::var("CHAI_SKILLS_ROOT") {
-        return Ok(std::path::PathBuf::from(root));
-    }
     let chai_home = lib::profile::chai_home()?;
-    Ok(chai_home.join("skills"))
+    Ok(lib::config::default_skills_dir(&chai_home))
 }
 
 fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
@@ -725,7 +754,13 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                 let name = entry.file_name();
                 let name = name.to_string_lossy();
                 let dir = entry.path();
-                let content_dir = lib::skills::versioning::resolve_active_dir(&dir);
+                let Some(content_dir) = lib::skills::versioning::resolve_active_dir(&dir) else {
+                    println!(
+                        "{:<20}  SKILL.md: no   tools.json: no   tools: 0  (missing versioned layout)",
+                        name
+                    );
+                    continue;
+                };
                 let has_skill_md = content_dir.join("SKILL.md").exists();
                 let has_tools_json = content_dir.join("tools.json").exists();
                 let tool_count = if has_tools_json {
@@ -752,7 +787,14 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                     skill_dir.display()
                 );
             }
-            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir);
+            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir).ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "skill '{}' has no valid `active` symlink to versions/<hash>/ (expected versioned layout)",
+                        skill_name
+                    )
+                },
+            )?;
             let path = match file.as_str() {
                 "skill_md" => content_dir.join("SKILL.md"),
                 "tools_json" => content_dir.join("tools.json"),
@@ -808,6 +850,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             skill_name,
             content,
         } => {
+            let content = read_content_from_stdin_or(content)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
                 anyhow::bail!("skill '{}' not found", skill_name);
@@ -829,6 +872,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             skill_name,
             content,
         } => {
+            let content = read_content_from_stdin_or(content)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
                 anyhow::bail!("skill '{}' not found", skill_name);
@@ -853,6 +897,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             script_name,
             content,
         } => {
+            let content = read_content_from_stdin_or(content)?;
             if script_name.contains("..") || script_name.contains('/') || script_name.contains('\\')
             {
                 anyhow::bail!("script_name must not contain '..', '/', or '\\'");
@@ -881,7 +926,14 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             if !skill_dir.exists() {
                 anyhow::bail!("skill '{}' not found", skill_name);
             }
-            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir);
+            let content_dir = lib::skills::versioning::resolve_active_dir(&skill_dir).ok_or_else(
+                || {
+                    anyhow::anyhow!(
+                        "skill '{}' has no valid `active` symlink to versions/<hash>/ (expected versioned layout)",
+                        skill_name
+                    )
+                },
+            )?;
             let tools_path = content_dir.join("tools.json");
             if !tools_path.exists() {
                 anyhow::bail!("no tools.json for '{}'", skill_name);
@@ -1160,7 +1212,7 @@ const CHAT_HELP_TEXT: &str = "available commands:\n\n/new - start a new session 
 const CHAT_NEW_SESSION_ACK: &str =
     "Session restarted. Next message will start with a clean history.";
 
-async fn run_chat(profile: Option<&str>, session: Option<String>) -> anyhow::Result<()> {
+async fn run_chat(profile: Option<String>, session: Option<String>) -> anyhow::Result<()> {
     use std::io::{self, Write};
 
     let mut current_session = session;
@@ -1191,7 +1243,7 @@ async fn run_chat(profile: Option<&str>, session: Option<String>) -> anyhow::Res
             continue;
         }
 
-        match agent_turn_via_gateway(profile, current_session.clone(), input.to_string()).await {
+        match agent_turn_via_gateway(profile.as_deref(), current_session.clone(), input.to_string()).await {
             Ok(reply) => {
                 current_session = Some(reply.session_id);
                 println!("< {}", reply.reply.trim());

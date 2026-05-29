@@ -95,17 +95,14 @@ pub fn init_chai_home() -> Result<PathBuf> {
     }
 
     let skills_dir = chai_home.join("skills");
-    if !skills_dir.exists() {
-        std::fs::create_dir_all(&skills_dir)
-            .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
-        extract_bundled_skills_versioned(&skills_dir)?;
-        log::info!("extracted bundled skills to {}", skills_dir.display());
-    } else {
-        log::debug!(
-            "skills directory already exists at {}, skipping",
-            skills_dir.display()
-        );
-    }
+    std::fs::create_dir_all(&skills_dir)
+        .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
+    // Always sync bundled skills so that updates to bundled skill content (e.g. new
+    // tool annotations, description changes) are applied on the next `chai init` rather
+    // than only on a fresh installation. The extraction is hash-based and idempotent:
+    // existing version snapshots are never re-written, and the active symlink is only
+    // moved when the bundled hash differs from the currently active version.
+    extract_bundled_skills_versioned(&skills_dir)?;
 
     profile::switch_active_profile(&chai_home, "assistant")?;
 
@@ -142,35 +139,54 @@ fn extract_bundled_skills_versioned(skills_dir: &Path) -> Result<()> {
             .collect();
         let hash = versioning::compute_hash_from_entries(&hash_entries);
 
-        // Create version snapshot directory
         let skill_root = skills_dir.join(skill_name);
+
+        // Determine whether the active version is already at the bundled hash so we
+        // can emit the right log level and skip unnecessary disk writes.
+        let active_hash = versioning::resolve_active_dir(&skill_root)
+            .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()));
+        let already_active = active_hash.as_deref() == Some(hash.as_str());
+
+        // Write the version snapshot only when it does not already exist.  Snapshots
+        // are immutable (same hash = same content) so re-writing is never needed.
         let snapshot_dir = skill_root.join("versions").join(&hash);
-        std::fs::create_dir_all(&snapshot_dir)
-            .with_context(|| format!("creating version dir {}", snapshot_dir.display()))?;
+        if !snapshot_dir.exists() {
+            std::fs::create_dir_all(&snapshot_dir)
+                .with_context(|| format!("creating version dir {}", snapshot_dir.display()))?;
 
-        // Write files into the snapshot
-        for (rel_path, contents) in &file_entries {
-            let dest = snapshot_dir.join(rel_path);
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&dest, contents)
-                .with_context(|| format!("writing {}", dest.display()))?;
+            for (rel_path, contents) in &file_entries {
+                let dest = snapshot_dir.join(rel_path);
+                if let Some(parent) = dest.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+                std::fs::write(&dest, contents)
+                    .with_context(|| format!("writing {}", dest.display()))?;
 
-            // Set executable permission for scripts
-            #[cfg(unix)]
-            if rel_path.starts_with("scripts/") {
-                use std::os::unix::fs::PermissionsExt;
-                let mut perms = std::fs::metadata(&dest)?.permissions();
-                perms.set_mode(0o755);
-                std::fs::set_permissions(&dest, perms)?;
+                // Set executable permission for scripts
+                #[cfg(unix)]
+                if rel_path.starts_with("scripts/") {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mut perms = std::fs::metadata(&dest)?.permissions();
+                    perms.set_mode(0o755);
+                    std::fs::set_permissions(&dest, perms)?;
+                }
             }
         }
 
-        // Create active symlink
+        // Update the active symlink unconditionally — this is what upgrades an
+        // installation that was previously pinned to an older bundled version.
         versioning::set_active_version(&skill_root, &hash)?;
 
-        log::debug!("skill '{}' → version {}", skill_name, hash);
+        if already_active {
+            log::debug!("skill '{}' already at bundled version {}", skill_name, hash);
+        } else {
+            log::info!(
+                "skill '{}' → bundled version {} (was: {})",
+                skill_name,
+                hash,
+                active_hash.as_deref().unwrap_or("none")
+            );
+        }
     }
     Ok(())
 }

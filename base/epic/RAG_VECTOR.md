@@ -1,41 +1,41 @@
 ---
-status: proposed
+status: draft
 ---
 
 # Epic: RAG with Vector Database
 
-**Summary** — Enable the assistant to pull knowledge from a local knowledge base backed by a vector database (pgvector) and a dedicated embedding model (Ollama or LM Studio), so the orchestrator can use retrieved context for chat and completion. This epic should align with a future **projects** model (named roots on disk, opt-in per agent, read vs read-write) so indexing sources and retrieval scope are not duplicated in a separate parallel config.
+**Summary** — Enable the assistant to pull knowledge from a local knowledge base backed by a vector database (pgvector) and a dedicated embedding model, so the orchestrator can use retrieved context for chat and completion. This epic should align with a future **projects** model (named roots on disk, opt-in per agent, read vs read-write) so indexing sources and retrieval scope are not duplicated in a separate parallel config.
 
 **Status** — Proposed (not implemented).
 
 ## Problem Statement
 
-Skills (e.g. notesmd, obsidian) provide vault and file access via tool calls, but search is lexical only — the model decides what to search and how to phrase it, with no semantic retrieval. Embedding models are available on Ollama and LM Studio but the endpoints are not integrated. There is no pre-indexed vector store, so the assistant cannot find relevant content by meaning similarity, and long-tail or vague queries cannot be answered by "everything relevant." This epic addresses the missing semantic retrieval layer.
+Skills provide vault and file access via tool calls, but search is lexical only — the model decides what to search and how to phrase it, with no semantic retrieval. Embedding models are available on supported providers but the endpoints are not integrated. There is no pre-indexed vector store, so the assistant cannot find relevant content by meaning similarity, and long-tail or vague queries cannot be answered by "everything relevant." This epic addresses the missing semantic retrieval layer.
 
 ## Goal
 
-Provide a **local-first** retrieval-augmented flow: content (e.g. from an Obsidian vault or other markdown sources) is embedded by a **worker embedding model** (Ollama, LM Studio, or another service) and stored in a **vector database using pgvector**. The **orchestrator** (main chat/completion model) can request relevant chunks via tools: **index build** (when to (re)build the knowledge base) and **query** (retrieve top-k chunks for a query). The worker model is responsible for both index-time and query-time embedding; the orchestrator consumes retrieved context to answer.
+Provide a **local-first** retrieval-augmented flow: content (e.g. from a markdown source) is embedded by a **worker embedding model** and stored in a **vector database using pgvector**. The **orchestrator** (main chat/completion model) or a woker can request relevant chunks via tools: **index build** (when to (re)build the knowledge base) and **query** (retrieve top-k chunks for a query). A dedicated worker is responsible for both index-time and query-time embedding; the other agents consume retrieved context to answer.
 
 ## Current State
 
-- **Skills and tools** — Notes and vault access are provided by skills (e.g. notesmd, obsidian) that expose tools (search, create, read). The model decides when to call these tools and receives results in the conversation; there is no semantic search or pre-indexed vector store.
-- **Embeddings** — Not used. Ollama and LM Studio support embedding models but the endpoints are not yet integrated.
-- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [ORCHESTRATION.md](ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
+- **Skills and tools** — Notes and vault access are provided by skills that expose tools. The model decides when to call these tools and receives results in the conversation; there is no semantic search or pre-indexed vector store.
+- **Embeddings** — Not used. Current providers support embedding models but the endpoints are not yet integrated.
+- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [ORCHESTRATION.md](ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator or another worker requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
 
 ## Scope
 
 ### In Scope
 
-Vector store using **pgvector** (local Postgres or compatible) for portability and future Supabase compatibility; integration with at least one local embedding API (Ollama, LM Studio, or another service) for the worker embedding model; pipeline to embed documents and index them; retrieval (query → embed → similarity search → top-k chunks); tools for the agent: **index build** (e.g. `index_knowledge_base`) and **query** (e.g. `query_knowledge_base`); config for sources, chunking, embedding backend/model, and DB connection.
+Vector store using **pgvector** (local Postgres or compatible) for portability and future Supabase compatibility; integration with at least one local embedding API (Ollama or another provider) for the worker embedding model; pipeline to embed documents and index them; retrieval (query → embed → similarity search → top-k chunks); tools for the agent: **index build** (e.g. `index_knowledge_base`) and **query** (e.g. `query_knowledge_base`); config for sources, chunking, embedding backend/model, and DB connection.
 
 ### Out of Scope
 
-Re-implementing core **`delegate_task`** orchestration (already shipped — see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing note/vault skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
+Re-implementing core **`delegate_task`** orchestration (already shipped — see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
 
 ## Dependencies
 
 - **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [API_ALIGNMENT.md](API_ALIGNMENT.md) and reference documentation for supported or planned backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
-- **Orchestration** — **`delegate_task`** and per-worker turns are **already** implemented ([ORCHESTRATION.md](ORCHESTRATION.md)). This epic adds RAG-specific tools and embedding/index flows on top of that stack; the worker embedding model (Ollama, LM Studio, etc.) would handle index build and query embedding while the orchestrator calls tools and consumes retrieved context (optionally via delegation).
+- **Orchestration** — **`delegate_task`** and per-worker turns are **already** implemented ([ORCHESTRATION.md](ORCHESTRATION.md)). This epic adds RAG-specific tools and embedding/index flows on top of that stack; the worker embedding model would handle index build and query embedding while the orchestrator calls tools and consumes retrieved context (optionally via delegation).
 
 ## Design
 
@@ -60,7 +60,7 @@ Avoid defining paths twice:
 | `projects.*.paths` + separate `knowledgeBase.sources` pointing at the same folders | Config drift, ambiguous precedence |
 | **Projects define roots**; RAG **subscribes** by project id (index these projects; query with optional `projectIds` filter) | One place to edit when a vault moves |
 
-Skills (e.g. Obsidian, notes) remain **capabilities** (tools + instructions). Projects remain **data + policy** (where things live, who may touch them). A skill can require or parameterize by **project id** so tools and RAG agree on roots.
+Skills remain **capabilities** (tools + instructions). Projects remain **data + policy** (where things live, who may touch them). A skill can require or parameterize by **project id** so tools and RAG agree on roots.
 
 #### Permissions Beyond Raw Files
 

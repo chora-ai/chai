@@ -1,4 +1,4 @@
 .env
-.chai
+/result
 /target
 *.rs.bk

@@ -8,19 +8,13 @@ status: in-progress
 
 **Status** — In-progress. Constrained file editing (config, workspace, skills) is the active short-term focus. UX polish and medium-term goals follow. Long-term explorer depends on projects design.
 
----
-
 ## Problem Statement
 
 The desktop app is a functional operator console but lacks in-app editing of the files users already manage — `config.json`, per-agent **`AGENTS.md`** under **`agents/<id>/`**, and skill files under **`~/.chai/skills`**. Users must leave the app to edit these files and restart the gateway manually. Additionally, several fields already available from `status` and `config.json` are not yet surfaced in the UI, and UX consistency (loading states, spacing, accessibility) has gaps. The app also has no filesystem visibility into what the orchestrator "sees," which limits its usefulness as a control surface beyond gateway lifecycle management.
 
----
-
 ## Goal
 
 A desktop app that serves as the primary control surface for Chai: operators can inspect and edit all gateway-relevant config, profile-local agent context, and shared skill packages in-app, receive clear feedback on when changes require a gateway restart, and navigate live runtime state (status, context, skills, tools, logs) with consistent UX. The app complements external editors (Cursor, Obsidian) for broader workflows but owns the gateway lifecycle and Chai-specific configuration surface.
-
----
 
 ## Current State
 
@@ -53,8 +47,6 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 
 **2025-03-25 (follow-up 5)** — **Accessibility / readability**: **`dashboard::kv`** uses a fixed-width key column (**`KV_LABEL_COLUMN_WIDTH`**) so values line up; keys and values use default body text (no **weak** on keys). Removed **`small()`** from Config/Status summary content and view toggles; grid column headers use **strong**; secondary hints keep **weak** only where appropriate.
 
----
-
 ## Scope
 
 ### In Scope
@@ -79,8 +71,6 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 - **File explorer (read-only)** — depends on projects design and canonical path rules; see Long-Term phase below and [RAG_VECTOR.md](RAG_VECTOR.md)
 - **Broader in-app editing** (multi-file, arbitrary project roots) — out of scope until projects exist; Chai complements Cursor/Obsidian rather than replacing them
 - **Per-session or per-project scope in Chat** — depends on gateway session metadata from projects
-
----
 
 ## Design
 
@@ -137,8 +127,6 @@ Larger directions worth revisiting when there is time; **no commitment** — tra
 
 The desktop is already a **credible operator console**: gateway control, **live status**, **Context** inspection, **Skills** inspection, and **Chat** with **delegation** timeline support. The largest **documentation gap** on the **Config** screen is largely addressed for agent context paths, workers, and delegation; remaining gaps include **per-worker allowlists** and full **provider** enumeration. The largest **product gap** relative to user mental models is **no filesystem visibility** of what the orchestrator "sees," which the long-term **explorer** addresses. **Constrained file editing** (config, **`AGENTS.md`**, skill markdown/JSON) is the recommended **bridge**: it delivers value immediately and exercises patterns (paths, validation, apply/restart) needed for **projects** without waiting for the full multi-root design. Short-term work should prioritize **surfacing existing config and status fields**, **polishing** discovery, sessions, and logs, and **incremental** editing support as above.
 
----
-
 ## Requirements
 
 ### Constrained File Editing
@@ -181,8 +169,6 @@ Optional polish on top of **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** (core s
 - [ ] **Unified "connection" panel** — Test **WebSocket** + **HTTP health** in one place for supportability.
 - [ ] **Skills / Context** — Prefer **`status`** skill payloads when present to avoid **drift** between gateway and disk (edge cases: config changed since gateway start).
 
----
-
 ## Phases
 
 | Phase | Focus | Status |
@@ -194,8 +180,6 @@ Optional polish on top of **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** (core s
 | 5 — Medium-term contracts | Streaming tokens, unified connection panel, Skills/Context status parity | Pending |
 | 6 — Long-term (projects) | Read-only file explorer over project roots, broader in-app editing, per-session/project scope | Pending |
 
----
-
 ## Follow-ups
 
 _Items that do not block any phase but are worth revisiting._
@@ -205,8 +189,6 @@ _Items that do not block any phase but are worth revisiting._
 - Export transcript (markdown).
 - Light/dark **theme** toggle if not tied to system only.
 - Notification when gateway **process exits unexpectedly** (subprocess path).
-
----
 
 ## Related Epics and Docs
 

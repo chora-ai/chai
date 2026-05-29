@@ -141,8 +141,7 @@
         {
           "param": "content",
           "kind": "flag",
-          "flag": "content",
-          "normalizeNewlines": true
+          "flag": "content"
         }
       ]
     },
@@ -164,8 +163,7 @@
         {
           "param": "content",
           "kind": "flag",
-          "flag": "content",
-          "normalizeNewlines": true
+          "flag": "content"
         }
       ]
     },
