@@ -25,7 +25,7 @@ use crate::init;
 use crate::orchestration::{
     build_orchestration_catalog, build_workers_context, effective_worker_defaults,
     merge_delegate_task, provider_choice_from_canonical, provider_id, resolve_model,
-    resolve_provider_choice, system_context_with_today, worker_tool_list, DelegateContext,
+    resolve_provider_choice, worker_tool_list, DelegateContext,
     DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
 };
 use crate::profile::{self, ChaiPaths};
@@ -145,10 +145,8 @@ fn require_connect_token(config: &Config) -> Option<String> {
 #[derive(Clone)]
 pub struct GatewayState {
     pub config: Arc<Config>,
-    /// Static portion of the system context built from orchestrator **`AGENTS.md`**, roster, and skills (no date prefix).
-    /// The current date is prepended on each turn so the model sees "today" without
-    /// rebuilding the rest of the context.
-    pub system_context_static: String,
+    /// System context built from orchestrator **`AGENT.md`**, worker roster, and skills.
+    pub system_context: String,
     /// When Some, WebSocket connect must provide params.auth.token matching this.
     pub required_token: Option<String>,
     /// Broadcasts events to connected clients (e.g. shutdown). Subscribers receive JSON event frames.
@@ -193,7 +191,7 @@ pub struct GatewayState {
     pub skills_discovery_root: PathBuf,
     /// Count of skill packages found on disk before orchestrator filtering.
     pub skill_packages_discovered: usize,
-    /// Orchestrator **`AGENTS.md`** directory (`<profile>/agents/<orchestratorId>/`).
+    /// Orchestrator **`AGENT.md`** directory (`<profile>/agents/<orchestratorId>/`).
     pub orchestrator_context_dir: PathBuf,
 }
 
@@ -283,8 +281,7 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     }
     let mut out = String::new();
     out.push_str("## Skills\n\n");
-    out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` when you need to use a skill\n\n");
+    out.push_str("You have skills. Skills have tools.\n\n");
     for s in skills {
         out.push_str("### ");
         out.push_str(&s.name);
@@ -293,7 +290,11 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
             out.push_str(&s.description);
             out.push_str("\n\n");
         }
+        out.push_str("--- SKILL.md (BOF) ---");
+        out.push_str("\n\n");
         out.push_str(strip_skill_frontmatter(&s.content));
+        out.push_str("\n");
+        out.push_str("--- SKILL.md (EOF) ---");
         out.push_str("\n\n");
     }
     out
@@ -320,8 +321,8 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     let mut out = String::new();
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` when you need to use a skill\n\n");
-    out.push_str("Available skills (name — description):\n\n");
+    out.push_str("- call `read_skill` when you need to read a skill\n\n");
+    out.push_str("Available skills:\n\n");
     for s in skills {
         out.push_str("- `");
         out.push_str(&s.name);
@@ -365,10 +366,9 @@ fn skill_runtime_json(skills: &[Skill], mode: SkillContextMode) -> serde_json::V
     })
 }
 
-/// Build static system context from agent-ctx (AGENTS.md), worker roster, and skills, without a date prefix.
-/// Uses context_mode to choose full vs compact skill context. The caller is responsible for
-/// prepending the current date when building the final system message for a turn.
-fn build_system_context_static(
+/// Build system context from agent-ctx (AGENT.md), worker roster, and skills.
+/// Uses context_mode to choose full vs compact skill context.
+fn build_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
@@ -398,8 +398,8 @@ fn build_system_context_static(
     out
 }
 
-/// Worker static context: **`agents/<workerId>/AGENTS.md`** and skills only (no orchestrator roster).
-fn build_worker_system_context_static(
+/// Worker system context: **`agents/<workerId>/AGENT.md`** and skills only (no orchestrator roster).
+fn build_worker_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
@@ -482,16 +482,6 @@ fn build_skill_runtime_for_entries(
         tools_list,
         tool_executor,
     }
-}
-
-/// Build full system context for a turn: date line, capability hints, then cached static context.
-/// Pass **`workers_enabled: None`** for worker agent strings so **`WORKERS_ENABLED`** is omitted.
-fn build_system_context_for_today(
-    static_ctx: &str,
-    workers_enabled: Option<bool>,
-    skills_enabled: bool,
-) -> String {
-    system_context_with_today(static_ctx, workers_enabled, skills_enabled)
 }
 
 /// Tool definition for read_skill (used only when context mode is ReadOnDemand).
@@ -641,12 +631,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         provider_choice,
     );
     let has_workers = !state.worker_delegate_runtimes.is_empty();
-    let orch_skills_enabled = !state.skills.is_empty();
-    let system_context = build_system_context_for_today(
-        &state.system_context_static,
-        Some(has_workers),
-        orch_skills_enabled,
-    );
+    let system_context = &state.system_context;
     let (tools, tool_executor) = state.tools_and_executor();
     let tools = merge_delegate_task(tools, has_workers);
     let worker_tools = worker_tool_list(tools.as_ref());
@@ -673,7 +658,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         &session_id,
         state.provider_clients().as_dyn(provider_choice),
         &model_name,
-        Some(&system_context),
+        Some(system_context),
         state.config.agents.max_session_messages,
         tools,
         tool_executor,
@@ -843,7 +828,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
     let skills = orch_built.skills.clone();
     let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
-    let system_context_static = build_system_context_static(
+    let system_context = build_system_context(
         agent_ctx.as_deref(),
         &skills,
         orch_ctx_mode,
@@ -876,7 +861,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             let w_ctx_mode = worker_context_mode(w);
             let w_built =
                 build_skill_runtime_for_entries(w_entries, w_ctx_mode, sandbox_opt.clone());
-            let w_static = build_worker_system_context_static(
+            let w_context = build_worker_system_context(
                 w_agent_ctx.as_deref(),
                 &w_built.skills,
                 w_ctx_mode,
@@ -884,7 +869,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             worker_map.insert(
                 w.id.clone(),
                 WorkerDelegateRuntime {
-                    system_context_static: w_static,
+                    system_context: w_context,
                     context_directory: w_dir.clone(),
                     skills: Arc::new(w_built.skills),
                     tools_list: w_built.tools_list,
@@ -899,7 +884,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     #[cfg_attr(not(feature = "matrix"), allow(unused_mut))]
     let mut state = GatewayState {
         config: Arc::new(config.clone()),
-        system_context_static,
+        system_context,
         required_token,
         event_tx: event_tx.clone(),
         channel_tasks: channel_tasks.clone(),
@@ -1542,13 +1527,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 nim_models.sort_by(|a, b| a.name.cmp(&b.name));
                 openai_models.sort_by(|a, b| a.name.cmp(&b.name));
                 hf_models.sort_by(|a, b| a.name.cmp(&b.name));
-                let has_workers_status = !state.worker_delegate_runtimes.is_empty();
-                let orch_skills_enabled = !state.skills.is_empty();
-                let system_context = build_system_context_for_today(
-                    &state.system_context_static,
-                    Some(has_workers_status),
-                    orch_skills_enabled,
-                );
+                let system_context = &state.system_context;
                 let orch_mode = orchestrator_context_mode(&state.config.agents);
                 let tools_string = state
                     .tools_list
@@ -1560,7 +1539,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             serde_json::to_string_pretty(tools).ok()
                         }
                     });
-                let today = chrono::Local::now().format("%Y-%m-%d").to_string();
                 let orchestration_catalog = build_orchestration_catalog(
                     &state.config.agents,
                     &ollama_models,
@@ -1697,12 +1675,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let mut entries: Vec<serde_json::Value> = vec![orch_entry];
                 for wid in &worker_ids {
                     if let Some(rt) = state.worker_delegate_runtimes.get(wid) {
-                        let w_skills_enabled = !rt.skills.is_empty();
-                        let w_system_context = build_system_context_for_today(
-                            &rt.system_context_static,
-                            None,
-                            w_skills_enabled,
-                        );
+                        let w_system_context = &rt.system_context;
                         let w_tools_string = rt.tools_list.as_ref().and_then(|tools| {
                             if tools.is_empty() {
                                 None
@@ -1740,9 +1713,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "orchestrationCatalog": serde_json::to_value(&orchestration_catalog).unwrap_or_else(|_| json!([])),
                     "entries": entries,
                 });
-                let clock_block = json!({
-                    "date": today,
-                });
                 let skill_packages_block = json!({
                     "discoveryRoot": state.skills_discovery_root.display().to_string(),
                     "packagesDiscovered": state.skill_packages_discovered,
@@ -1755,9 +1725,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "auth": auth_mode,
                 });
                 // Key order matches `.agents/spec/GATEWAY_STATUS.md` and config cross-check:
-                // clock (extra), then gateway → channels → providers → agents like config, then skillPackages (extra).
+                // gateway → channels → providers → agents like config, then skillPackages (extra).
                 let mut pl = serde_json::Map::new();
-                pl.insert("clock".into(), clock_block);
                 pl.insert("gateway".into(), gateway_block);
                 pl.insert("channels".into(), channels_block);
                 pl.insert(
@@ -1846,12 +1815,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     provider_choice,
                 );
                 let has_workers = !state.worker_delegate_runtimes.is_empty();
-                let orch_skills_enabled = !state.skills.is_empty();
-                let system_context = build_system_context_for_today(
-                    &state.system_context_static,
-                    Some(has_workers),
-                    orch_skills_enabled,
-                );
+                let system_context = &state.system_context;
                 let (tools, tool_executor) = state.tools_and_executor();
                 let tools = merge_delegate_task(tools, has_workers);
                 let worker_tools = worker_tool_list(tools.as_ref());
@@ -1878,7 +1842,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     &session_id,
                     state.provider_clients().as_dyn(provider_choice),
                     &model_name,
-                    Some(&system_context),
+                    Some(system_context),
                     state.config.agents.max_session_messages,
                     tools,
                     tool_executor,

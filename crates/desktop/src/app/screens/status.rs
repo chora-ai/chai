@@ -117,24 +117,6 @@ fn channel_status_field_display(v: &JsonValue, max_chars: usize) -> String {
     truncate_display_chars(&s, max_chars)
 }
 
-fn status_clock_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
-    dashboard::section_group(ui, "Clock", |ui| {
-        let Some(s) = status else {
-            ui.label(egui::RichText::new("Loading from gateway status...").weak());
-            return;
-        };
-        if let Some(ref d) = s.date {
-            let t = d.trim();
-            if !t.is_empty() {
-                dashboard::kv(ui, "date", t);
-                return;
-            }
-        }
-        ui.label(egui::RichText::new("(not reported)").weak());
-    });
-    ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
-}
-
 fn status_gateway_section(
     ui: &mut egui::Ui,
     status: Option<&GatewayStatusDetails>,
@@ -314,7 +296,6 @@ fn status_column_left(
     status: Option<&GatewayStatusDetails>,
     gateway_error: Option<&str>,
 ) {
-    status_clock_section(ui, status);
     status_gateway_section(ui, status, gateway_error);
     status_channels_section(ui, status);
     status_providers_section(ui, status);

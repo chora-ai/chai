@@ -15,6 +15,28 @@
       }
     },
     {
+      "name": "devtools_read_lines",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of devtools_read_file when you only need a specific portion of a file to reduce context usage.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "start_line"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute or relative file path to read"
+          },
+          "start_line": {
+            "type": "integer",
+            "description": "Line number to start reading at (1-indexed, inclusive)"
+          },
+          "end_line": {
+            "type": "integer",
+            "description": "Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read) if omitted."
+          }
+        }
+      }
+    },
+    {
       "name": "devtools_list_dir",
       "description": "List files and directories at a given path.",
       "parameters": {
@@ -27,7 +49,7 @@
           },
           "long": {
             "type": "boolean",
-            "description": "Show detailed format with permissions, size, and dates"
+            "description": "Show detailed format with permissions, sizes, and dates"
           },
           "all": {
             "type": "boolean",
@@ -45,7 +67,7 @@
         "properties": {
           "pattern": {
             "type": "string",
-            "description": "Search pattern (basic regex supported)"
+            "description": "Search pattern (extended regex supported)"
           },
           "path": {
             "type": "string",
@@ -74,7 +96,8 @@
   "allowlist": {
     "cat": [""],
     "ls": [""],
-    "grep": [""]
+    "grep": ["", "-E"],
+    "chai": ["file read-lines"]
   },
   "execution": [
     {
@@ -82,6 +105,16 @@
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }]
+    },
+    {
+      "tool": "devtools_read_lines",
+      "binary": "chai",
+      "subcommand": "file read-lines",
+      "args": [
+        { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
+        { "param": "start_line", "kind": "flag", "flag": "start-line" },
+        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true }
+      ]
     },
     {
       "tool": "devtools_list_dir",
@@ -101,7 +134,7 @@
     {
       "tool": "devtools_search_content",
       "binary": "grep",
-      "subcommand": "",
+      "subcommand": "-E",
       "args": [
         {
           "param": "recursive",
@@ -125,7 +158,8 @@
         },
         { "param": "pattern", "kind": "positional" },
         { "param": "path", "kind": "positional", "readPath": true }
-      ]
+      ],
+      "successExitCodes": [0, 1]
     }
   ]
 }

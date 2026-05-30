@@ -1,5 +1,5 @@
-//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config and `agents/<orchestratorId>/AGENTS.md`.
-//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENTS.md`**.
+//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config and `agents/<orchestratorId>/AGENT.md`.
+//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENT.md`**.
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
@@ -14,13 +14,13 @@ static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/skills
 fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
     match profile_name {
         "assistant" => Ok(include_str!(
-            "../config/profiles/assistant/agents/orchestrator/AGENTS.md"
+            "../config/profiles/assistant/agents/orchestrator/AGENT.md"
         )),
         "developer" => Ok(include_str!(
-            "../config/profiles/developer/agents/orchestrator/AGENTS.md"
+            "../config/profiles/developer/agents/orchestrator/AGENT.md"
         )),
         _ => anyhow::bail!(
-            "no bundled AGENTS.md template for profile {:?}",
+            "no bundled AGENT.md template for profile {:?}",
             profile_name
         ),
     }
@@ -63,16 +63,16 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
             orchestrator_dir.display()
         )
     })?;
-    let orchestrator_agents = orchestrator_dir.join("AGENTS.md");
+    let orchestrator_agents = orchestrator_dir.join("AGENT.md");
     if !orchestrator_agents.exists() {
         std::fs::write(&orchestrator_agents, default_agents_md).with_context(|| {
             format!(
-                "writing default AGENTS.md to {}",
+                "writing default AGENT.md to {}",
                 orchestrator_agents.display()
             )
         })?;
         log::info!(
-            "wrote default AGENTS.md to {}",
+            "wrote default AGENT.md to {}",
             orchestrator_agents.display()
         );
     }

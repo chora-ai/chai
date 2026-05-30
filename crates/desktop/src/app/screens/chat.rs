@@ -98,26 +98,22 @@ fn render_chat_message(
                     ui.add_space(8.0);
                     ui.separator();
                     ui.add_space(4.0);
-                    egui::CollapsingHeader::new(format!("🔧 {} tool call(s)", tool_calls.len()))
-                        .id_source(format!("tool_calls_row_{}", index))
-                        .default_open(false)
-                        .show(ui, |ui| {
-                            for (idx, tc) in tool_calls.iter().enumerate() {
-                                if idx > 0 {
-                                    ui.add_space(4.0);
-                                }
-                                let tool_name = tc
-                                    .get("function")
-                                    .and_then(|f| f.get("name"))
-                                    .and_then(|n| n.as_str())
-                                    .unwrap_or("unknown");
-                                let tool_args = tc
-                                    .get("function")
-                                    .and_then(|f| f.get("arguments"))
-                                    .unwrap_or(&serde_json::Value::Null);
-                                let tool_type =
-                                    tc.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                                ui.label(egui::RichText::new(tool_name).strong());
+                    for (idx, tc) in tool_calls.iter().enumerate() {
+                        let tool_name = tc
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("unknown");
+                        let tool_args = tc
+                            .get("function")
+                            .and_then(|f| f.get("arguments"))
+                            .unwrap_or(&serde_json::Value::Null);
+                        let tool_type =
+                            tc.get("type").and_then(|t| t.as_str()).unwrap_or("");
+                        egui::CollapsingHeader::new(format!("🔧 {}", tool_name))
+                            .id_source(format!("tool_call_row_{}_{}", index, idx))
+                            .default_open(false)
+                            .show(ui, |ui| {
                                 if !tool_type.is_empty() {
                                     ui.label(format!("Type: {}", tool_type));
                                 }
@@ -134,8 +130,8 @@ fn render_chat_message(
                                         }
                                     }
                                 }
-                            }
-                        });
+                            });
+                    }
                 }
             }
         }

@@ -124,8 +124,6 @@ pub struct GatewayStatusDetails {
     pub(crate) system_context: Option<String>,
     /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents.entries[].systemContext`**.
     pub(crate) agent_system_contexts: BTreeMap<String, String>,
-    /// Current date (YYYY-MM-DD) from gateway **`payload.clock.date`**.
-    pub(crate) date: Option<String>,
     /// **`payload.skillPackages.discoveryRoot`**.
     pub(crate) skill_packages_discovery_root: Option<String>,
     /// **`payload.skillPackages.packagesDiscovered`**.

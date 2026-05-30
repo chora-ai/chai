@@ -262,6 +262,34 @@ enum FileCmd {
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
+    /// Patch a file by replacing a range of lines. Content is read from stdin when --content is ommitted.
+    Patch {
+        /// Absolute file path to patch
+        #[arg(long)]
+        path: String,
+        /// Line number to start replacing at (1-indexed, inclusive)
+        #[arg(long)]
+        start_line: usize,
+        /// Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement).
+        #[arg(long)]
+        end_line: Option<usize>,
+        /// Replacement content. If ommitted, content is read from stdin.
+        /// Accepts values that begin with dashes (e.g. YAML frontmatter).
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
+    },
+    /// Read a range of lines from a file with line numbers. Outputs lines in the format {line_number}|{content}.
+    ReadLines {
+        /// Absolute file path to read
+        #[arg(long)]
+        path: String,
+        /// Line number to start reading at (1-indexed, inclusive)
+        #[arg(long)]
+        start_line: usize,
+        /// Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read).
+        #[arg(long)]
+        end_line: Option<usize>,
+    },
     /// Delete a file. Refuses to delete directories.
     Delete {
         /// Absolute file path to delete
@@ -373,6 +401,66 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             println!("appended {} bytes to {}", content.len(), target.display());
             Ok(())
         }
+        FileCmd::Patch { path, start_line, end_line, content } => {
+            let content = read_content_from_stdin_or(content)?;
+            let target = std::path::Path::new(&path);
+            if !target.exists() {
+                anyhow::bail!("file does not exist: {}", path);
+            }
+            if !target.is_file() {
+                anyhow::bail!("not a file: {}", path);
+            }
+            if start_line == 0 {
+                anyhow::bail!("start_line must be at least 1 (1-indexed)");
+            }
+            let end_line = end_line.unwrap_or(start_line);
+            if end_line < start_line {
+                anyhow::bail!("end_line ({}) must be >= start_line ({})", end_line, start_line);
+            }
+
+            let original = std::fs::read_to_string(target)
+                .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
+            let result = patch_string(&original, start_line, Some(end_line), &content);
+
+            std::fs::write(target, &result)
+                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+
+            let replacement_lines = content.lines().count();
+            let effective_end = end_line.min(original.lines().count());
+            println!(
+                "patched {} lines {}-{} - {} line(s) in {}",
+                path, start_line, effective_end, replacement_lines, target.display()
+            );
+            Ok(())
+        }
+        FileCmd::ReadLines { path, start_line, end_line } => {
+            let target = std::path::Path::new(&path);
+            if !target.exists() {
+                anyhow::bail!("file does not exist: {}", path);
+            }
+            if !target.is_file() {
+                anyhow::bail!("not a file: {}", path);
+            }
+            if start_line == 0 {
+                anyhow::bail!("start_line must be at least 1 (1-indexed)");
+            }
+            let end_line = end_line.unwrap_or(start_line);
+            if end_line < start_line {
+                anyhow::bail!("end line ({}) must be >= start_line ({})", end_line, start_line);
+            }
+            let content = std::fs::read_to_string(target)
+                .map_err(|e| anyhow::anyhow!("failed to read {}; {}", path, e))?;
+            for (i, line) in content.lines().enumerate() {
+                let line_num = i + 1;
+                if line_num >= start_line && line_num <= end_line {
+                    println!("{}|{}", line_num, line);
+                }
+                if line_num > end_line {
+                    break;
+                }
+            }
+            Ok(())
+        }
         FileCmd::Delete { path } => {
             let target = std::path::Path::new(&path);
             if !target.exists() {
@@ -470,6 +558,46 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Apply a patch to a string: replace lines [start_line, end_line](1-indexed,
+/// inclusive) with `replacement`. Extracted for reuse and testing.
+fn patch_string(original: &str, start_line: usize, end_line: Option<usize>, replacement: &str) -> String {
+    let end_line = end_line.unwrap_or(start_line);
+    let lines: Vec<&str> = original.lines().collect();
+    let total_lines = lines.len();
+    let trailing_newline = original.ends_with('\n');
+
+    if start_line > total_lines {
+        return original.to_string();
+    }
+
+    let effective_end = end_line.min(total_lines);
+
+    let mut result = String::new();
+
+    for line in &lines[..start_line - 1] {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    if !replacement.is_empty() {
+        result.push_str(replacement);
+        if !replacement.ends_with('\n') {
+            result.push('\n');
+        }
+    }
+
+    for line in &lines[effective_end..] {
+        result.push_str(line);
+        result.push('\n');
+    }
+
+    if !trailing_newline && result.ends_with('\n') {
+        result.pop();
+    }
+
+    result
 }
 
 /// Extract YAML frontmatter from markdown content (between first `---` pair).

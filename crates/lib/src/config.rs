@@ -903,7 +903,7 @@ pub fn resolve_effective_provider_and_model(agents: &AgentsConfig) -> (String, S
     (provider.to_string(), model)
 }
 
-/// Orchestrator **agent context directory** (on-disk home for **`AGENTS.md`**): `<profile_dir>/agents/<orchestratorId>/`.
+/// Orchestrator **agent context directory** (on-disk home for **`AGENT.md`**): `<profile_dir>/agents/<orchestratorId>/`.
 pub fn orchestrator_context_dir(config: &Config, profile_dir: &Path) -> PathBuf {
     let oid = config
         .agents
@@ -924,7 +924,7 @@ pub fn worker_context_dir(worker: &WorkerConfig, profile_dir: &Path) -> Option<P
     Some(agent_context_dir(profile_dir, wid))
 }
 
-/// `<profile_dir>/agents/<agent_id>/` — directory for that agent’s on-disk context (**`AGENTS.md`**).
+/// `<profile_dir>/agents/<agent_id>/` — directory for that agent’s on-disk context (**`AGENT.md`**).
 fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
     profile_dir.join("agents").join(agent_id)
 }

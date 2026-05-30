@@ -120,6 +120,12 @@ pub struct ChaiApp {
     profile_switch_error: Option<String>,
     /// When true, next frame reloads profile list and active name from disk.
     profiles_need_refresh: bool,
+    /// Cached skill entries loaded from the skills directory (refreshed on status interval).
+    cached_skills: Option<Vec<lib::skills::SkillEntry>>,
+    /// When Some, a skills fetch is in flight; we read the result here.
+    skills_fetch_receiver: Option<mpsc::Receiver<Result<Vec<lib::skills::SkillEntry>, String>>>,
+    /// Frames since we last started a skills fetch.
+    frames_since_skills_fetch: u32,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
@@ -193,6 +199,9 @@ impl Default for ChaiApp {
             profile_active: String::new(),
             profile_switch_error: None,
             profiles_need_refresh: true,
+            cached_skills: None,
+            skills_fetch_receiver: None,
+            frames_since_skills_fetch: 0,
         }
     }
 }
@@ -311,6 +320,7 @@ impl ChaiApp {
         }
         self.profile_active = name;
         self.invalidate_enabled_providers_cache();
+        self.invalidate_skills_cache();
         self.profiles_need_refresh = true;
     }
 
@@ -621,11 +631,13 @@ impl eframe::App for ChaiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_gateway_probe();
         self.poll_status_fetch();
+        self.poll_skills_fetch();
         // Drain WebSocket session + delegation events before applying the RPC turn result so timeline order matches gateway order (user → delegation → assistant).
         let owned = self.gateway_owned();
         let running = owned || self.gateway_responds;
         if self.was_gateway_running && !running {
             self.clear_session_and_messages();
+            self.invalidate_skills_cache();
             self.profile_switch_error = None;
             self.profiles_need_refresh = true;
         }
@@ -683,7 +695,7 @@ impl eframe::App for ChaiApp {
                     let subtitle = if !running {
                         Some("Start the gateway to chat with the orchestrator.")
                     } else {
-                        Some("Chat with the orchestrator using the selected model.")
+                        Some("Chat with the orchestrator using the selected provider and model.")
                     };
                     ui_screen(ui, "Chat", subtitle, |ui| {
                         screens::chat::ui_chat(self, ui, running);

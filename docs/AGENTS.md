@@ -4,7 +4,7 @@ This is the `AGENTS.md` file in the root of the `docs` directory.
 
 ## Directory
 
-The `docs` directory is for user documentation.
+The `docs` directory is for user guides and other user documentation.
 
 ## Subdirectories
 
@@ -12,15 +12,15 @@ Each subdirectory includes a `README.md` file and an `AGENTS.md` file.
 
 ### User Guides
 
-For more informations, read `./guides/README.md`.
+For more information, read `./guides/README.md`.
 
 ### User Journeys
 
-For more informations, read `./journeys/README.md`.
+For more information, read `./journeys/README.md`.
 
 ### User Testing
 
-For more informations, read `./testing/README.md`.
+For more information, read `./testing/README.md`.
 
 ## Conventions
 

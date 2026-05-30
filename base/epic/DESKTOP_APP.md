@@ -10,7 +10,7 @@ status: in-progress
 
 ## Problem Statement
 
-The desktop app is a functional operator console but lacks in-app editing of the files users already manage — `config.json`, per-agent **`AGENTS.md`** under **`agents/<id>/`**, and skill files under **`~/.chai/skills`**. Users must leave the app to edit these files and restart the gateway manually. Additionally, several fields already available from `status` and `config.json` are not yet surfaced in the UI, and UX consistency (loading states, spacing, accessibility) has gaps. The app also has no filesystem visibility into what the orchestrator "sees," which limits its usefulness as a control surface beyond gateway lifecycle management.
+The desktop app is a functional operator console but lacks in-app editing of the files users already manage — `config.json`, per-agent **`AGENT.md`** under **`agents/<id>/`**, and skill files under **`~/.chai/skills`**. Users must leave the app to edit these files and restart the gateway manually. Additionally, several fields already available from `status` and `config.json` are not yet surfaced in the UI, and UX consistency (loading states, spacing, accessibility) has gaps. The app also has no filesystem visibility into what the orchestrator "sees," which limits its usefulness as a control surface beyond gateway lifecycle management.
 
 ## Goal
 
@@ -30,7 +30,7 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 | **Config** | Reads **`config.json`** via `lib::config::load_config` (same as CLI); **Config** screen is a read-only summary (no JSON editor): orchestrator **agent context directory** (**`orchestrator_context_dir`**), workers, session cap, delegation policy fields when set. |
 | **Context** | **`status.agents.entries`**: **Agent** combo (orchestrator vs each worker) from each row’s **`systemContext`**; orchestrator **read-on-demand** keeps two columns (system text + skill bodies from disk); worker rows use a single scroll (full text from gateway). Falls back to a single orchestrator string when **`entries`** is absent. |
 | **Skills** | Lists enabled/disabled skill entries from disk; detail pane for SKILL.md + **tools.json** (read-only; no save). |
-| **Agent context** | **`AGENTS.md`** is not edited in-app; **Config** may show the orchestrator **agent context directory** (**`agents/<id>/`**). |
+| **Agent context** | **`AGENT.md`** is not edited in-app; **Config** may show the orchestrator **agent context directory** (**`agents/<id>/`**). |
 | **Logs** | In-memory buffer fed by gateway stderr/stdout when started from desktop. |
 
 ### Shipped
@@ -53,7 +53,7 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 
 **Short-term (current system, no new gateway contracts):**
 
-- Constrained file editing: `config.json`, profile **`agents/<id>/AGENTS.md`** (orchestrator and optionally workers), and per-skill `SKILL.md` / `tools.json` — read and write for this fixed artifact set only
+- Constrained file editing: `config.json`, profile **`agents/<id>/AGENT.md`** (orchestrator and optionally workers), and per-skill `SKILL.md` / `tools.json` — read and write for this fixed artifact set only
 - Apply/restart banner after saves that require gateway restart
 - UX polish: empty/loading states, sessions panel scroll and truncation, logs clear button, header tri-state
 - Quality of life: reveal config in file manager, persist window size and last chat provider/model
@@ -94,7 +94,7 @@ These are **additive** to the current stack: either **`status`** already returns
 
 ### Constrained File Editing Design
 
-The desktop can still implement **read and write** for a **fixed set of artifacts** the user already manages: **`config.json`**, **`agents/<orchestratorId>/AGENTS.md`** (and optionally worker dirs), and **skill** files under the resolved skills root (**`SKILL.md`**, **`tools.json`**). Focus on **markdown** and **JSON** only — matching what the stack already uses.
+The desktop can still implement **read and write** for a **fixed set of artifacts** the user already manages: **`config.json`**, **`agents/<orchestratorId>/AGENT.md`** (and optionally worker dirs), and **skill** files under the resolved skills root (**`SKILL.md`**, **`tools.json`**). Focus on **markdown** and **JSON** only — matching what the stack already uses.
 
 **Why this is valuable**
 
@@ -104,14 +104,14 @@ The desktop can still implement **read and write** for a **fixed set of artifact
 
 **Design caveats (bake in early)**
 
-- **Apply vs restart** — The gateway loads **config** and **skills** at startup; **agent context** is built at startup from **`agents/<id>/AGENTS.md`**. After a save, show a clear **"restart gateway to apply"** (or equivalent) when the running process will not pick up changes live.
+- **Apply vs restart** — The gateway loads **config** and **skills** at startup; **agent context** is built at startup from **`agents/<id>/AGENT.md`**. After a save, show a clear **"restart gateway to apply"** (or equivalent) when the running process will not pick up changes live.
 - **Concurrency** — Detect **external modification** (mtime or content hash) since open; offer **reload** before overwrite.
 - **Validation** — **`config.json`**: parse as JSON and validate with the same rules as **`load_config`** (or fail with a readable error). **`tools.json`**: parse as JSON and validate against **[TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)** or a **serde** round-trip through existing descriptor types where practical; pretty-print on save for diff-friendly files.
 - **Scope creep** — UI copy should state these are **Chai config / agent context dirs / skills roots** only — not a general file manager (that remains Long-Term).
 
 **Suggested order**
 
-1. **`config.json`** + **`agents/<id>/AGENTS.md`** — Few files, largest usability win.
+1. **`config.json`** + **`agents/<id>/AGENT.md`** — Few files, largest usability win.
 2. **Per-skill `SKILL.md` and `tools.json`** — More surface area; **`tools.json`** requires stricter validation.
 
 ### Potential Future Improvements (Not Decided)
@@ -125,14 +125,14 @@ Larger directions worth revisiting when there is time; **no commitment** — tra
 
 ### Baseline Assessment
 
-The desktop is already a **credible operator console**: gateway control, **live status**, **Context** inspection, **Skills** inspection, and **Chat** with **delegation** timeline support. The largest **documentation gap** on the **Config** screen is largely addressed for agent context paths, workers, and delegation; remaining gaps include **per-worker allowlists** and full **provider** enumeration. The largest **product gap** relative to user mental models is **no filesystem visibility** of what the orchestrator "sees," which the long-term **explorer** addresses. **Constrained file editing** (config, **`AGENTS.md`**, skill markdown/JSON) is the recommended **bridge**: it delivers value immediately and exercises patterns (paths, validation, apply/restart) needed for **projects** without waiting for the full multi-root design. Short-term work should prioritize **surfacing existing config and status fields**, **polishing** discovery, sessions, and logs, and **incremental** editing support as above.
+The desktop is already a **credible operator console**: gateway control, **live status**, **Context** inspection, **Skills** inspection, and **Chat** with **delegation** timeline support. The largest **documentation gap** on the **Config** screen is largely addressed for agent context paths, workers, and delegation; remaining gaps include **per-worker allowlists** and full **provider** enumeration. The largest **product gap** relative to user mental models is **no filesystem visibility** of what the orchestrator "sees," which the long-term **explorer** addresses. **Constrained file editing** (config, **`AGENT.md`**, skill markdown/JSON) is the recommended **bridge**: it delivers value immediately and exercises patterns (paths, validation, apply/restart) needed for **projects** without waiting for the full multi-root design. Short-term work should prioritize **surfacing existing config and status fields**, **polishing** discovery, sessions, and logs, and **incremental** editing support as above.
 
 ## Requirements
 
 ### Constrained File Editing
 
 - [ ] **Config editor** — Open `config.json` from resolved path; syntax-colored or plain **TextEdit**; **Save** after JSON validation; **Revert** / reload from disk.
-- [ ] **Orchestrator `AGENTS.md`** — Edit **`agents/<orchestratorId>/AGENTS.md`** (path from **`orchestrator_context_dir`**); create file if missing (optional; mirror **`chai init`** behavior).
+- [ ] **Orchestrator `AGENT.md`** — Edit **`agents/<orchestratorId>/AGENT.md`** (path from **`orchestrator_context_dir`**); create file if missing (optional; mirror **`chai init`** behavior).
 - [ ] **Skill files** — From **Skills** screen: edit **SKILL.md** and **tools.json** with save; validate **JSON** before write; optional **format** button.
 - [ ] **Apply banner** — After any save that requires it, prompt to **restart gateway** (when desktop owns the subprocess, offer **Restart** action).
 
@@ -175,7 +175,7 @@ Optional polish on top of **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** (core s
 |-------|-------|--------|
 | 1 — UX foundation | Shared UI helpers, spacing constants, dashboard widgets, accessibility/readability pass | Complete |
 | 2 — Config and status surfacing | Effective workspace, workers, delegation policy, status agents/models screens | Complete |
-| 3 — Constrained file editing | Read/write `config.json`, **`agents/<id>/AGENTS.md`**, skill `SKILL.md` / `tools.json`; apply/restart banner | In progress |
+| 3 — Constrained file editing | Read/write `config.json`, **`agents/<id>/AGENT.md`**, skill `SKILL.md` / `tools.json`; apply/restart banner | In progress |
 | 4 — UX polish | Loading/empty states, sessions panel, logs clear, header tri-state, optional profile persistent/effective hint, DPI accessibility, QoL items | Pending |
 | 5 — Medium-term contracts | Streaming tokens, unified connection panel, Skills/Context status parity | Pending |
 | 6 — Long-term (projects) | Read-only file explorer over project roots, broader in-app editing, per-session/project scope | Pending |

@@ -3,7 +3,7 @@
 //! **Worker / delegation primitive** — [`crate::agent::run_turn_with_messages`] with explicit messages.
 //!
 //! **Provider dispatch (phase 2)** — [`ProviderChoice`], [`ProviderClients::as_dyn`], and [`resolve_model`]
-//! centralize “which client” + default model resolution for the gateway and future orchestrator code.
+//! centralize "which client" + default model resolution for the gateway and future orchestrator code.
 //!
 //! **Orchestrator loop (phase 3, done)** — [`DELEGATE_TASK_TOOL_NAME`], [`merge_delegate_task`], [`execute_delegate_task`]:
 //! when workers are configured, the orchestrator may delegate via `delegate_task`; the worker uses a per-worker system context and skill tools when
@@ -22,7 +22,7 @@ pub use choice::{
 };
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
-    parse_delegate_tool_calls, parse_delegate_tool_results, system_context_with_today,
+    parse_delegate_tool_calls, parse_delegate_tool_results,
     worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
     DELEGATE_TASK_TOOL_NAME, EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR,
     EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,

@@ -278,7 +278,6 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 let payload = res.get("payload").ok_or("missing payload")?;
                 let gateway = payload.get("gateway");
                 let agents_pl = payload.get("agents");
-                let clock_pl = payload.get("clock");
                 let providers_pl = payload.get("providers");
                 details.channels_block = payload.get("channels").cloned();
                 details.providers_block = payload.get("providers").cloned();
@@ -432,10 +431,6 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                 details.nim_models = provider_model_names(providers_pl, "nim");
                 details.openai_models = provider_model_names(providers_pl, "openai");
                 details.hf_models = provider_model_names(providers_pl, "hf");
-                details.date = clock_pl
-                    .and_then(|c| c.get("date"))
-                    .and_then(|v| v.as_str())
-                    .map(String::from);
                 details.orchestration_catalog = agents_pl
                     .and_then(|a| a.get("orchestrationCatalog"))
                     .and_then(|v| v.as_array())

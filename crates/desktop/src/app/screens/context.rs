@@ -129,7 +129,7 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                 ui_left.label("No context loaded.");
                             }
 
-                            if let Ok((config, paths)) = lib::config::load_config(None) {
+                            if let Ok((config, _paths)) = lib::config::load_config(None) {
                                 let (skill_names, right_title): (&[String], &'static str) =
                                     if is_orchestrator_view {
                                         (
@@ -153,65 +153,60 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                     };
 
                                 if !skill_names.is_empty() {
-                                    let skills_root =
-                                        lib::config::default_skills_dir(&paths.chai_home);
-                                    match lib::skills::load_skills(skills_root.as_path()) {
-                                        Ok(mut entries) => {
-                                            entries.retain(|e| {
+                                    if let Some(ref cached) = app.cached_skills {
+                                        let mut entries: Vec<_> = cached
+                                            .iter()
+                                            .filter(|e| {
                                                 skill_names.iter().any(|n| n == &e.name)
-                                            });
-                                            if entries.is_empty() {
-                                                ui_right.label("No enabled skills were loaded.");
-                                            } else {
-                                                entries.sort_by(|a, b| a.name.cmp(&b.name));
-                                                ui_right.label(
-                                                    egui::RichText::new(right_title).strong(),
-                                                );
-                                                ui_right.add_space(spacing::LINE);
-                                                let scroll_id = if is_orchestrator_view {
-                                                    "context_skills_scroll"
-                                                } else {
-                                                    "context_worker_skills_scroll"
-                                                };
-                                                egui::ScrollArea::vertical()
-                                                    .id_source(scroll_id)
-                                                    .max_height(ui_right.available_height())
-                                                    .show(ui_right, |ui| {
-                                                        for entry in &entries {
-                                                            let body = strip_skill_frontmatter(
-                                                                &entry.content,
-                                                            );
-                                                            let has_body = !body.trim().is_empty();
-
-                                                            ui.label(
-                                                                egui::RichText::new(&entry.name)
-                                                                    .strong(),
-                                                            );
-                                                            ui.add_space(spacing::LINE);
-
-                                                            if has_body {
-                                                                let mut buf = body.to_string();
-                                                                egui::TextEdit::multiline(&mut buf)
-                                                                    .code_editor()
-                                                                    .desired_width(
-                                                                        ui.available_width(),
-                                                                    )
-                                                                    .interactive(false)
-                                                                    .show(ui);
-                                                            }
-
-                                                            ui.add_space(spacing::SUBSECTION);
-                                                        }
-                                                    });
-                                            }
-                                        }
-                                        Err(e) => {
-                                            ui_right.colored_label(
-                                                egui::Color32::RED,
-                                                format!("failed to load skills: {}", e),
+                                            })
+                                            .cloned()
+                                            .collect();
+                                        if entries.is_empty() {
+                                            ui_right.label("No enabled skills were loaded.");
+                                        } else {
+                                            entries.sort_by(|a, b| a.name.cmp(&b.name));
+                                            ui_right.label(
+                                                egui::RichText::new(right_title).strong(),
                                             );
                                             ui_right.add_space(spacing::LINE);
+                                            let scroll_id = if is_orchestrator_view {
+                                                "context_skills_scroll"
+                                            } else {
+                                                "context_worker_skills_scroll"
+                                            };
+                                            egui::ScrollArea::vertical()
+                                                .id_source(scroll_id)
+                                                .max_height(ui_right.available_height())
+                                                .show(ui_right, |ui| {
+                                                    for entry in &entries {
+                                                        let body = strip_skill_frontmatter(
+                                                            &entry.content,
+                                                        );
+                                                        let has_body = !body.trim().is_empty();
+
+                                                        ui.label(
+                                                            egui::RichText::new(&entry.name)
+                                                                .strong(),
+                                                        );
+                                                        ui.add_space(spacing::LINE);
+
+                                                        if has_body {
+                                                            let mut buf = body.to_string();
+                                                            egui::TextEdit::multiline(&mut buf)
+                                                                .code_editor()
+                                                                .desired_width(
+                                                                    ui.available_width(),
+                                                                )
+                                                                .interactive(false)
+                                                                .show(ui);
+                                                        }
+
+                                                        ui.add_space(spacing::SUBSECTION);
+                                                    }
+                                                });
                                         }
+                                    } else {
+                                        ui_right.label("Loading skills...");
                                     }
                                 } else {
                                     ui_right.label(egui::RichText::new(right_title).weak());

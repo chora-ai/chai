@@ -23,11 +23,10 @@ This document specifies the gateway **`status`** WebSocket response **payload**:
 
 ## Payload Shape
 
-Top-level key order matches **`config.json`** blocks for cross-check, with **`clock`** first and **`skillPackages`** last: **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. The gateway emits keys in this order (see **`serde_json`** **`preserve_order`** in the gateway build).
+Top-level key order matches **`config.json`** blocks for cross-check, with **`gateway`** first and **`skillPackages`** last: **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. The gateway emits keys in this order (see **`serde_json`** **`preserve_order`** in the gateway build).
 
 ```json
 {
-  "clock": { },
   "gateway": { },
   "channels": { },
   "providers": { },
@@ -66,12 +65,6 @@ Keys: **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`**. Ea
 | **`discovery`** | Whether model discovery ran for this id (per orchestrator **`enabledProviders`** in config; see [PROVIDERS.md](PROVIDERS.md)). |
 | **`models`** | Array of model objects (includes **`name`** where applicable); empty when discovery is off or the backend is unreachable. |
 
-### `clock`
-
-| Field | Meaning |
-|-------|---------|
-| **`date`** | Calendar date (**`YYYY-MM-DD`**) used in system context (**`TODAYS_DATE=`**); not a skill field. |
-
 ### `skillPackages`
 
 Shared skill store on disk (not per-agent):
@@ -95,11 +88,11 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 | Field | Meaning |
 |-------|---------|
 | **`id`**, **`role`** | Agent id; **`orchestrator`** or **`worker`**. |
-| **`contextDirectory`** | Absolute path to **`AGENTS.md`** home (**`<profile>/agents/<id>/`**). Workers use **`""`** when not resolved. |
+| **`contextDirectory`** | Absolute path to **`AGENT.md`** home (**`<profile>/agents/<id>/`**). Workers use **`""`** when not resolved. |
 | **`defaultProvider`**, **`defaultModel`** | Effective routing defaults for that row. |
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
-| **`systemContext`** | Full static system string for that role for the current date (**`TODAYS_DATE=`**, **`SKILLS_ENABLED=`**; orchestrator adds **`WORKERS_ENABLED=`** when workers exist). |
-| **`tools`** | Pretty-printed JSON array of that agent’s tool definitions, or **`null`**. |
+| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). |
+| **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. |
 | **`skills`** | Per-agent skill runtime (below). |
 
 #### `agents.entries[].skills`
@@ -116,7 +109,6 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 
 | Block | Include | Omit |
 |-------|---------|------|
-| **`clock`** | Date for operator verification | Secrets |
 | **`gateway`** | Bind, port, auth mode, protocol | Secrets |
 | **`channels`** | Active vs configured, transport hints | Tokens, passwords, Matrix access tokens |
 | **`providers`** | Discovery flag, model lists | API keys, URLs that embed credentials |

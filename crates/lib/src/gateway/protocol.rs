@@ -4,8 +4,7 @@
 //! values defined on [`crate::orchestration::EVENT_DELEGATE_START`] and related constants in `crate::orchestration`.
 //!
 //! The **`status`** response **`payload`** top-level keys are emitted in this order (aligned with config cross-check):
-//! **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**.
-//! **`payload.clock.date`**: calendar date (**`YYYY-MM-DD`**) injected into system context (not skill-specific).
+//! **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**.
 //! **`payload.skillPackages`**: shared skill store metadata (**`discoveryRoot`**, **`packagesDiscovered`** on disk before per-agent filtering).
 //! **`payload.agents.entries`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
 //! Each object includes **`id`**, **`role`**, **`contextDirectory`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**

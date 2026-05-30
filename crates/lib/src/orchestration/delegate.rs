@@ -103,38 +103,11 @@ fn optional_worker_id_from_args(args: &serde_json::Value) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-/// Prepend today's date and capability hints to static system context (same as gateway main turn).
-///
-/// **`WORKERS_ENABLED`** — only when **`workers_enabled`** is **`Some`**: orchestrator may delegate (`delegate_task`).
-/// Omitted entirely for worker turns (**`None`**) so worker prompts never mention delegation.
-/// **`SKILLS_ENABLED`** — this agent has at least one loaded skill package for tools / context.
-pub fn system_context_with_today(
-    static_ctx: &str,
-    workers_enabled: Option<bool>,
-    skills_enabled: bool,
-) -> String {
-    let today = chrono::Local::now().format("%Y-%m-%d").to_string();
-    let s = if skills_enabled { "true" } else { "false" };
-    let mut header = format!("TODAYS_DATE={}", today);
-    if let Some(w) = workers_enabled {
-        header.push_str(&format!(
-            "\nWORKERS_ENABLED={}",
-            if w { "true" } else { "false" }
-        ));
-    }
-    header.push_str(&format!("\nSKILLS_ENABLED={}", s));
-    if static_ctx.trim().is_empty() {
-        header
-    } else {
-        format!("{}\n\n{}", header, static_ctx)
-    }
-}
-
 /// Per-worker skill bundle for `delegate_task` when `workerId` is set (built at gateway startup).
 pub struct WorkerDelegateRuntime {
-    /// Static system context without date (no orchestrator roster block).
-    pub system_context_static: String,
-    /// **`AGENTS.md`** directory for this worker (`<profile>/agents/<id>/`), if resolved.
+    /// Static system context (no orchestrator roster block).
+    pub system_context: String,
+    /// **`AGENT.md`** directory for this worker (`<profile>/agents/<id>/`), if resolved.
     pub context_directory: Option<PathBuf>,
     pub skills: Arc<Vec<Skill>>,
     pub tools_list: Option<Vec<ToolDefinition>>,
@@ -147,7 +120,7 @@ pub struct WorkerDelegateRuntime {
 pub struct DelegateContext<'a> {
     pub clients: ProviderClients<'a>,
     pub agents: &'a AgentsConfig,
-    /// Full orchestrator system message (with date) for `delegate_task` without `workerId`.
+    /// Full orchestrator system message for `delegate_task` without `workerId`.
     pub orchestrator_system_context: Option<&'a str>,
     /// Skill tools for the orchestrator path (no `delegate_task`); used when `workerId` is absent.
     pub orchestrator_worker_tools: Option<Vec<ToolDefinition>>,
@@ -482,14 +455,11 @@ pub async fn execute_delegate_task(
                 .worker_runtimes
                 .and_then(|m| m.get(wid))
                 .ok_or_else(|| format!("no worker runtime for workerId: {}", wid))?;
-            let worker_skills_enabled = !rt.skills.is_empty();
-            let sys =
-                system_context_with_today(&rt.system_context_static, None, worker_skills_enabled);
-            let s = sys.trim();
-            if !s.is_empty() {
+            let sys = rt.system_context.trim();
+            if !sys.is_empty() {
                 messages.push(ChatMessage {
                     role: "system".to_string(),
-                    content: s.to_string(),
+                    content: sys.to_string(),
                     tool_calls: None,
                     tool_name: None,
                 });
@@ -578,28 +548,6 @@ mod tests {
     use crate::providers::ToolCallFunction;
     use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
-
-    #[test]
-    fn system_context_with_today_includes_flags() {
-        let s = system_context_with_today("hello", Some(true), false);
-        assert!(s.contains("TODAYS_DATE="));
-        assert!(s.contains("WORKERS_ENABLED=true"));
-        assert!(s.contains("SKILLS_ENABLED=false"));
-        assert!(s.contains("hello"));
-        let empty = system_context_with_today("", Some(false), false);
-        assert!(empty.contains("WORKERS_ENABLED=false"));
-        assert!(empty.contains("SKILLS_ENABLED=false"));
-        assert!(!empty.contains("\n\n\n"));
-    }
-
-    #[test]
-    fn system_context_with_today_worker_omits_workers_line() {
-        let s = system_context_with_today("body", None, true);
-        assert!(s.contains("TODAYS_DATE="));
-        assert!(!s.contains("WORKERS_ENABLED"));
-        assert!(s.contains("SKILLS_ENABLED=true"));
-        assert!(s.contains("body"));
-    }
 
     #[test]
     fn merge_delegate_task_skipped_without_workers() {

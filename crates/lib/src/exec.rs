@@ -164,10 +164,21 @@ impl Allowlist {
             cmd.current_dir(dir);
         }
         let mut child = cmd.spawn().map_err(|e| format!("exec failed: {}", e))?;
-        if let Some(mut pipe) = child.stdin.take() {
+
+        // Take the stdin pipe and write content. Use explicit error handling
+        // instead of `if let Some` so that a missing pipe (which should never
+        // happen since Stdio::piped() is set above) surfaces as an error
+        // rather than silently skipping stdin. Drop the pipe before waiting
+        // so the child sees EOF on stdin.
+        {
+            let mut pipe = child.stdin.take().ok_or_else(|| {
+                "failed to acquire stdin pipe: Stdio::piped() was set but pipe is unavailable"
+                    .to_string()
+            })?;
             pipe.write_all(stdin)
                 .map_err(|e| format!("failed to write stdin: {}", e))?;
         }
+
         let output = child
             .wait_with_output()
             .map_err(|e| format!("exec failed: {}", e))?;

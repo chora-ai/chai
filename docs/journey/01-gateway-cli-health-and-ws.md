@@ -30,7 +30,7 @@
 
 5. **Status over WebSocket**
    - Send: `{"type":"req","id":"3","method":"status","params":{}}`
-   - **Expect:** `"ok":true`, payload with top-level keys in order **`clock`**, **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`status`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
+   - **Expect:** `"ok":true`, payload with top-level keys in order **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`status`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
 
 6. **Stop the gateway**
    - In the gateway terminal: Ctrl+C.

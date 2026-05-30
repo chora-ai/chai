@@ -4,9 +4,9 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 ## Primary Resources
 
-This document and the `base/` directory are the primary resources for agents.
+This document and the `./base/` directory are the primary resources for agents.
 
-**Always read [base/README.md](base/README.md)** — the entry point for the `base/` directory.
+**Always read [base/README.md](base/README.md)** — the entry point for the `./base/` directory.
 
 ## Architecture Overview
 
@@ -46,14 +46,14 @@ This document and the `base/` directory are the primary resources for agents.
 
 ## User Documentation
 
-### `README.md`
+### `./README.md`
 
-- This document provides instructions on how to build, install, and configure the runtime. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
+- This document provides instructions on how to build, install, and run the runtime. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
 
-### `VISION.md`
+### `./VISION.md`
 
 - This document provides the state of the project and outlines short and long-term goals. Do not update this document without permission: always request permission before updating.
 
-### `./docs`
+### `./docs/`
 
 - This directory provides user guides for getting started and adanced configurations, step-by-step journeys to learn and exercise the stack, and playbooks to compare models and providers.

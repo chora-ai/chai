@@ -1,4 +1,4 @@
-//! Compact worker roster for orchestrator system context (see gateway `build_system_context_static`).
+//! Compact worker roster for orchestrator system context (see gateway `build_system_context`).
 
 use std::collections::HashMap;
 

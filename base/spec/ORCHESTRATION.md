@@ -65,7 +65,7 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on another pr
 
 ## Worker Turn Behavior
 
-- The worker receives **its own** static system string: **that worker’s** **`AGENTS.md`**, **that worker’s** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
+- The worker receives **its own** static system string: **that worker’s** **`AGENT.md`**, **that worker’s** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
 - **Tool list** — Skill tools (and optional **`read_skill`**) match the worker’s enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
 - **Messages** — The worker turn is **not** the main session transcript: **`execute_delegate_task`** builds **`[system?, user(instruction)]`** only (see **`delegate.rs`**). Delegation limits may still use the parent **`sessionId`** for caps.
 - Implementation: **`DelegateContext.worker_runtimes`** and **`crates/lib/src/orchestration/delegate.rs`**.

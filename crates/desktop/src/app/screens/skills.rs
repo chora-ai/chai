@@ -80,17 +80,15 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
         .cloned()
         .collect();
 
-    let skills_result = lib::skills::load_skills(skills_root.as_path());
-    let mut skills = match skills_result {
-        Ok(list) => list,
-        Err(e) => {
-            let subtitle = format!("Values below are loaded from {}", skills_root.display());
-            crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
-                ui.colored_label(egui::Color32::RED, format!("failed to load skills: {}", e));
-            });
-            return;
-        }
+    let Some(ref cached) = app.cached_skills else {
+        let subtitle = format!("Values below are loaded from {}", skills_root.display());
+        crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
+            ui.label("Loading skills...");
+        });
+        return;
     };
+
+    let mut skills = cached.clone();
 
     if skills.is_empty() {
         let subtitle = format!("Values below are loaded from {}", skills_root.display());
