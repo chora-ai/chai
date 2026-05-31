@@ -2,7 +2,7 @@
   description = "flake";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
   };
 
   outputs = { self, nixpkgs }:
@@ -19,9 +19,9 @@
       ];
       buildInputs = with pkgs; [
         openssl
-        xorg.libXcursor
-        xorg.libXrandr
-        xorg.libXi
+        libxcursor
+        libxi
+        libxrandr
       ];
       shellHook = ''
         export LD_LIBRARY_PATH="${pkgs.libGL}/lib"
@@ -57,9 +57,9 @@
         ];
         buildInputs = with pkgs; [
           openssl
-          xorg.libXcursor
-          xorg.libXrandr
-          xorg.libXi
+          libxcursor
+          libxi
+          libxrandr
         ];
         cargoBuildFlags = [
           #"--features=matrix"

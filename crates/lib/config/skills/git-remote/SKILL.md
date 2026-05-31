@@ -128,7 +128,7 @@ sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 1. Call `git_clone` with the fork URL and a sandbox path.
 2. Call `git_remote` to verify the remote setup.
 3. Call `git_branch_create` with a descriptive branch name.
-4. Make changes using other skills (e.g. `devtools_write_file`).
+4. Make changes using other skills (e.g. `files_write_file`).
 5. Call `git_add` to stage the changes.
 6. Call `git_commit` with a clear commit message.
 7. Call `git_push` with `remote` set to `origin`, `branch` set to the

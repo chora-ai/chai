@@ -15,12 +15,12 @@ generated_from:
 Fetch and read RSS/Atom feeds for monitoring information sources. Feeds are
 configured in `rss-feeds.txt` in the active profile's sandbox directory with
 one entry per line in `name|url` format. The orchestrator can modify this file
-via `devtools_write_file`; worker agents with only the `rss` skill can read
+via `files_write_file`; worker agents with only the `rss` skill can read
 and fetch but not modify.
 
 ## Prerequisites
 
-- Create `~/.chai/active/sandbox/rss-feeds.txt` with feed entries:
+- Create `rss-feeds.txt` with feed entries:
   ```
   arxiv-cs-ai|https://rss.arxiv.org/rss/cs.AI
   arxiv-cs-cr|https://rss.arxiv.org/rss/cs.CR

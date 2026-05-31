@@ -238,6 +238,11 @@ enum SkillCmd {
     },
     /// List available lockfile generations for the active profile
     Generations,
+    /// Delete an initialized skill package (removes the skill directory and all version snapshots)
+    Delete {
+        /// Skill directory name to delete (e.g. 'test-skill', 'myfeed')
+        skill_name: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -293,6 +298,12 @@ enum FileCmd {
     /// Delete a file. Refuses to delete directories.
     Delete {
         /// Absolute file path to delete
+        #[arg(long)]
+        path: String,
+    },
+    /// Delete an empty directory. Refuses to delete non-empty directories or files.
+    DeleteDir {
+        /// Absolute directory path to delete
         #[arg(long)]
         path: String,
     },
@@ -472,6 +483,25 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             std::fs::remove_file(target)
                 .map_err(|e| anyhow::anyhow!("failed to delete {}: {}", path, e))?;
             println!("deleted {}", path);
+            Ok(())
+        }
+        FileCmd::DeleteDir { path } => {
+            let target = std::path::Path::new(&path);
+            if !target.exists() {
+                anyhow::bail!("directory does not exist: {}", path);
+            }
+            if !target.is_dir() {
+                anyhow::bail!("refusing to delete non-directory: {}", path);
+            }
+            // Check if directory is empty
+            let mut entries = std::fs::read_dir(target)
+                .map_err(|e| anyhow::anyhow!("failed to read directory {}: {}", path, e))?;
+            if entries.next().is_some() {
+                anyhow::bail!("refusing to delete non-empty directory: {}", path);
+            }
+            std::fs::remove_dir(target)
+                .map_err(|e| anyhow::anyhow!("failed to delete directory {}: {}", path, e))?;
+            println!("deleted directory {}", path);
             Ok(())
         }
         FileCmd::FrontmatterRead { path } => {
@@ -1133,6 +1163,36 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                     println!("  generation {}{}", gen, marker);
                 }
             }
+            Ok(())
+        }
+        SkillCmd::Delete { skill_name } => {
+            let skill_dir = skill_root()?.join(&skill_name);
+            if !skill_dir.exists() {
+                anyhow::bail!(
+                    "skill '{}' not found at {}",
+                    skill_name,
+                    skill_dir.display()
+                );
+            }
+            if !skill_dir.is_dir() {
+                anyhow::bail!(
+                    "'{}' is not a directory at {}",
+                    skill_name,
+                    skill_dir.display()
+                );
+            }
+            std::fs::remove_dir_all(&skill_dir).map_err(|e| {
+                anyhow::anyhow!(
+                    "failed to delete skill '{}': {}",
+                    skill_name,
+                    e
+                )
+            })?;
+            println!(
+                "deleted skill '{}' ({})",
+                skill_name,
+                skill_dir.display()
+            );
             Ok(())
         }
     }

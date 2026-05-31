@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "devtools_read_file",
+      "name": "files_read_file",
       "description": "Read the contents of a file.",
       "parameters": {
         "type": "object",
@@ -9,21 +9,21 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute or relative file path to read"
+            "description": "File path relative to the sandbox root (use ./ prefix)"
           }
         }
       }
     },
     {
-      "name": "devtools_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of devtools_read_file when you only need a specific portion of a file to reduce context usage.",
+      "name": "files_read_lines",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Absolute or relative file path to read"
+            "description": "File path relative to the sandbox root (use ./ prefix)"
           },
           "start_line": {
             "type": "integer",
@@ -37,19 +37,19 @@
       }
     },
     {
-      "name": "devtools_list_dir",
-      "description": "List files and directories at a given path.",
+      "name": "files_list_dir",
+      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path to list"
+            "description": "Directory path relative to the sandbox root (use ./ prefix)"
           },
           "long": {
             "type": "boolean",
-            "description": "Show detailed format with permissions, sizes, and dates"
+            "description": "Show detailed format with permissions, size, and dates"
           },
           "all": {
             "type": "boolean",
@@ -59,7 +59,7 @@
       }
     },
     {
-      "name": "devtools_search_content",
+      "name": "files_search_content",
       "description": "Search file contents for a pattern using grep. Returns matching lines with context.",
       "parameters": {
         "type": "object",
@@ -71,11 +71,12 @@
           },
           "path": {
             "type": "string",
-            "description": "File or directory path to search"
+            "description": "File or directory path relative to the sandbox root (use ./ prefix)"
           },
           "recursive": {
             "type": "boolean",
-            "description": "Search directories recursively"
+            "description": "Search directories recursively. Defaults to true when the path is a directory — set to false only to restrict the search to the top-level directory.",
+            "default": true
           },
           "line_numbers": {
             "type": "boolean",
@@ -101,13 +102,13 @@
   },
   "execution": [
     {
-      "tool": "devtools_read_file",
+      "tool": "files_read_file",
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }]
     },
     {
-      "tool": "devtools_read_lines",
+      "tool": "files_read_lines",
       "binary": "chai",
       "subcommand": "file read-lines",
       "args": [
@@ -117,7 +118,7 @@
       ]
     },
     {
-      "tool": "devtools_list_dir",
+      "tool": "files_list_dir",
       "binary": "ls",
       "subcommand": "",
       "args": [
@@ -125,6 +126,9 @@
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
         { "param": "path", "kind": "positional", "readPath": true }
       ],
+      "postProcess": {
+        "script": "sanitize-ls"
+      },
       "sideRead": {
         "pathParam": "path",
         "filename": "AGENTS.md",
@@ -132,7 +136,7 @@
       }
     },
     {
-      "tool": "devtools_search_content",
+      "tool": "files_search_content",
       "binary": "grep",
       "subcommand": "-E",
       "args": [

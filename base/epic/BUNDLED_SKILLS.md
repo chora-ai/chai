@@ -4,9 +4,9 @@ status: in-progress
 
 # Epic: Bundled Skills (Inventory, Generation, and Validation)
 
-**Summary** — Chai ships bundled skill packages under **`~/.chai/skills/`** that give agents structured tool surfaces backed by the allowlist executor. Nineteen skills are inventoried: one complete reference implementation (`notesmd-daily`), sixteen drafted (including read-only variants, local and remote git variants, and the sandbox-aligned `kb` family of five skills), and two blocked pending external dependencies. The skill generation workflow — two meta-skills (`skillgen`, `skillval`) plus a `chai skill` CLI subcommand tree — enables new skills to be authored by capable models and executed by constrained ones. Write-capable skill variants depend on the write sandbox (**[WRITE_SANDBOX.md](WRITE_SANDBOX.md)**).
+**Summary** — Chai ships bundled skill packages under **`~/.chai/skills/`** that give agents structured tool surfaces backed by the allowlist executor. Thirteen skills are bundled: all are drafted and functional, using sandbox-validated primitives and standard unix tools with no external binary dependencies. Five skills have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository (`notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, `websearch`) and one skill has been deleted (`notelink`, superseded by `kb-wikilink`). The skill generation workflow — two meta-skills (`skills`, `skills-read`) plus a `chai skill` CLI subcommand tree — enables new skills to be authored by capable models and executed by constrained ones. Write-capable skill variants depend on the write sandbox (**[WRITE_SANDBOX.md](WRITE_SANDBOX.md)**).
 
-**Status** — **In progress.** Phases 0, 1, 3, 5, and 6 are complete. Phase 6 delivered read-only skill variants (`git-read`, `devtools-read`), `postProcess` output scripts for RSS (XML → structured table), websearch (JSON → formatted results, HTML → readable text), the `devtools_delete_file` tool, and git clone path defaulting via `resolveCommand`. Phase 2 (empirical validation) has not started. Phase 4 (deployment dependencies) is pending.
+**Status** — **In progress.** Phases 0, 1, 3, 5, and 6 are complete. Phase 6 delivered read-only skill variants (`git-read`, `files-read`), `postProcess` output scripts for RSS (XML → structured table), the `files_delete_file` tool, and git clone path defaulting via `resolveCommand`. Phase 2 (empirical validation) has not started. Phase 4 (deployment dependencies) is pending. Five skills moved to `chai-examples` repo; one skill deleted.
 
 ## Problem Statement
 
@@ -19,40 +19,35 @@ Chai's value as agent infrastructure depends on the breadth and quality of its s
 - Empirical validation of generated skills against small local models (7B, 13B)
 - Write-capable skill variants once the sandbox is available
 
+
 ## Current State
+
 
 ### Skill Inventory
 
 | Skill | Tools | Tier | Status | Dependencies |
 |---|---|---|---|---|
-| `notesmd-daily` | 2 | minimal | Complete (reference implementation) | notesmd-cli |
-| `notesmd` | 7 | moderate | **Drafted** | notesmd-cli |
-| `obsidian` | 0 | — | Blocked (no CLI binary) | obsidian CLI |
-| `obsidian-daily` | 0 | — | Blocked (no CLI binary) | obsidian CLI |
 | `git-read` | 5 | minimal | **Drafted** (read-only variant) | git |
 | `git` | 8 | moderate | **Drafted** (local only) | git |
 | `git-remote` | 12 | full | **Drafted** (local + network, clone path defaulting) | git |
-| `devtools-read` | 3 | minimal | **Drafted** (read-only variant) | cat, ls, grep |
-| `devtools` | 5 | full | **Drafted** (read + write + delete) | cat, ls, grep, chai |
-| `websearch` | 2 | full | **Drafted** (postProcess: JSON formatting, HTML stripping) | curl, SearXNG instance; scripts: jq |
+| `files-read` | 4 | minimal | **Drafted** (read-only variant) | cat, ls, grep, chai |
+| `files` | 9 | full | **Drafted** (read + write + append + delete file/dir) | cat, ls, grep, chai |
 | `rss` | 2 | moderate | **Drafted** (postProcess: XML → structured table) | curl, cat, feeds config |
-| `notelink` | 3 | moderate | **Drafted** (superseded by kb-wikilink) | grep |
-| `skillgen` | 6 | full | **Drafted** | chai |
-| `skillval` | 3 | moderate | **Drafted** | chai |
-| `kb` | 6 | moderate | **Drafted** (sandbox-aligned, CRUD + append + delete) | cat, ls, grep, chai |
+| `skills` | 9 | full | **Drafted** | chai |
+| `skills-read` | 3 | minimal | **Drafted** (read-only variant) | chai |
+| `kb` | 6 | moderate | **Drafted** (sandbox-aligned) | cat, ls, grep, chai |
 | `kb-frontmatter` | 3 | moderate | **Drafted** (sandbox-aligned) | chai |
 | `kb-wikilink` | 4 | moderate | **Drafted** (sandbox-aligned, uses postProcess) | grep |
 | `kb-wikilink-write` | 1 | moderate | **Drafted** (sandbox-aligned, rename + link updates) | chai |
 | `kb-daily` | 3 | minimal | **Drafted** (sandbox-aligned, convention file) | cat, chai |
 
-The Obsidian team offers early CLI access to supporters; the `obsidian` and `obsidian-daily` skills are blocked until that binary is available. The `/usr/bin/obsidian` binary is the Electron desktop app launcher, not a CLI tool.
+Five skills have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository: `notesmd` (7 tools, moderate), `notesmd-daily` (2 tools, minimal), `obsidian` (0 tools, blocked), `obsidian-daily` (0 tools, blocked), and `websearch` (2 tools, full). One skill has been deleted: `notelink` (superseded by `kb-wikilink`). See [Example Skills Migration](#example-skills-migration) below.
 
 ### Capability Gaps
 
 | Capability | Status | Gap | Impact |
 |---|---|---|---|
-| Web search | **Skill drafted** (SearXNG backend) | SearXNG instance not yet deployed | Researcher agent has no external information access until SearXNG runs |
-| Developer tools | **Write tool added** (`devtools_write_file` via `chai file write`) | `writePath: true` enforces sandbox boundary | Engineer agent can inspect and modify code within sandbox |
+| Web search | **Skill in examples** (SearXNG backend) | Moved to chai-examples; SearXNG instance not yet deployed | Researcher agent has no external information access until SearXNG runs |
 | Git operations | **Two variants** (`git` local, `git-remote` full) | Clone validated against sandbox; force-push not exposed | Full contribution workflow: clone, branch, commit, push |
 | RSS monitoring | **Functional** (curl backend, feeds configured) | No scheduling trigger | Researcher agent can fetch feeds on demand but can't monitor automatically |
 | Note linking | **Complete** (`kb-wikilink` + `kb-wikilink-write`) | None — broken link detection and rename-with-link-updates implemented | Full link discovery and write operations via sandbox-validated tools |
@@ -66,8 +61,8 @@ The Obsidian team offers early CLI access to supporters; the `obsidian` and `obs
 ### In Scope
 
 - Skill inventory maintenance and per-skill design documentation
-- Generation workflow systematization (skillgen/skillval skills, CLI subcommands)
-- Empirical validation against small models (7B, 13B on Ollama)
+- Generation workflow systematization (skills/skills-read skills, CLI subcommands)
+- Generation workflow systematization (skills/skills-read skills, CLI subcommands)
 - Model-specific skill design (frontmatter fields for capability tier, recommended models, variant relationships)
 - Key patterns discovered during generation (compound subcommands, resolveCommand, etc.)
 
@@ -83,21 +78,26 @@ The Obsidian team offers early CLI access to supporters; the `obsidian` and `obs
 
 ### Per-Skill Design Notes
 
-#### notesmd
+#### notesmd (moved to chai-examples)
 
-Full CRUD operations for `notesmd-cli`: search, read, create, list, delete, frontmatter read, and frontmatter edit. Uses compound subcommands (`frontmatter --print`, `frontmatter --edit`) to encode constant flags into the subcommand string — the executor's `split_whitespace()` expansion handles this naturally, and the allowlist grants each mode separately, making the security boundary more precise.
+Full CRUD operations for `notesmd-cli`. Moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository — the skill wraps an external CLI that resolves vault paths internally (binary-mediated writes), bypassing sandbox validation. The `kb` skill family is the bundled replacement that routes all writes through sandbox-validated paths (see **KB Skill Family** below).
 
-The `search` subcommand was excluded — it's interactive (fzf-based, opens a note). The agent-friendly equivalent is `search-content`, which takes a positional search term and returns results to stdout.
+#### files
 
-**Remaining:** None for basic functionality — all 7 tools are drafted and functional. Write operations (`notesmd_create`, `notesmd_delete`) are binary-mediated — `notesmd-cli` resolves note name to vault path internally, bypassing sandbox validation. The `kb` skill family is the planned replacement that routes all writes through sandbox-validated paths (see **KB Skill Family** below).
+Read-only variant wrapping standard unix tools: `cat` (read files), `ls` (list directories), `grep` (search content). Uses empty-string subcommands in the allowlist since these binaries have no subcommand structure — `"".split_whitespace()` produces no args in the executor. Uses `flagifboolean` for flag control (`-l`, `-a`, `--recursive`, etc.) since it emits the literal flag string rather than adding a `--` prefix. Grep uses `subcommand: "-E"` for extended regex support, with `successExitCodes: [0, 1]` so that exit 1 (no matches) returns an empty result rather than an error.
 
-#### devtools
+Write operations use `chai file write --path <path> --content <content>` as the binary backend. The `files_write_file` tool has `writePath: true` on its path parameter, so the executor validates against sandbox boundaries before spawning. The `normalizeNewlines` field is deprecated — it caused a double-decode bug where `serde_json` already decoded JSON escape sequences and then `normalize_content()` performed a second decode, corrupting written content. Delete operations use `chai file delete --path <path>` — the CLI validates the target is a regular file, refusing directories. The `files_delete_file` tool has `writePath: true` for sandbox enforcement. A `run_command` tool is intentionally excluded — it can't be made safe within the allowlist model.
 
-Read-only variant wrapping standard unix tools: `cat` (read files), `ls` (list directories), `grep` (search content). Uses empty-string subcommands in the allowlist since these binaries have no subcommand structure — `"".split_whitespace()` produces no args in the executor. Uses `flagifboolean` for flag control (`-l`, `-a`, `--recursive`, etc.) since it emits the literal flag string rather than adding a `--` prefix.
+**Line-level operations** use `chai file read-lines` and `chai file patch` as the binary backend. `files_read_lines` reads a range of lines with line numbers in `{line_number}|{content}` format (using `|` separator instead of grep's `:` for unambiguous parsing). `files_write_lines` replaces or deletes a range of lines without rewriting the entire file — lines outside `[start_line, end_line]` are preserved. Both tools are essential for working with large files that exceed practical size limits for full-file reads and writes. The core patching logic is implemented in the `patch_string()` function with unit tests covering single-line replace, range expansion/contraction, deletion, and edge cases.
 
-Write operations use `chai file write --path <path> --content <content>` as the binary backend. The `devtools_write_file` tool has `writePath: true` on its path parameter, so the executor validates against sandbox boundaries before spawning. The ~~`normalizeNewlines: true`~~ flag was previously set on the content parameter but has been removed due to a double-decode bug — `serde_json` already decodes JSON escape sequences, making the flag unnecessary and harmful (see `BUG_WRITE_TOOL_ESCAPES.md`). Delete operations use `chai file delete --path <path>` — the CLI validates the target is a regular file, refusing directories. The `devtools_delete_file` tool has `writePath: true` for sandbox enforcement. A `run_command` tool is intentionally excluded — it can't be made safe within the allowlist model.
+**Resolved issues:**
+- **Silent write failures** — `extract_stdin_content` now validates required `kind: "stdin"` params and returns an error instead of silently falling through to the no-stdin code path. All `child.stdin.take()` sites use `ok_or_else` with explicit block-scope drop, guaranteeing the child sees EOF before the parent waits.
+- **Side-read path resolution** — `apply_side_read` now uses canonical (absolute) paths from `effective_args` instead of raw args, ensuring `AGENTS.md` is loaded from the directory the tool operated on, not the gateway process's CWD.
+- **Extended regex** — `grep` is invoked with `-E` (via `subcommand: "-E"`) so `|`, `+`, `?`, `()`, `{m,n}` work as expected. `successExitCodes: [0, 1]` is set so that no-match (exit 1) returns an empty result, not an error.
 
-**Remaining:** No immediate gaps. Future additions (file append, mkdir) can follow the same `chai file <subcommand>` pattern.
+**Append and directory deletion** use `chai file append` and `chai file delete-dir` as the binary backend. `files_append` appends content to an existing file (or creates it if it doesn't exist) — avoids the read→modify→write round-trip that was previously required for simple additions. `files_delete_dir` deletes an empty directory — the CLI validates the target is a directory and refuses if it contains any entries, preventing accidental data loss. Both tools use `writePath: true` for sandbox enforcement. No recursive deletion (`remove_dir_all`) — the agent must empty the directory first, making the operation explicit.
+
+**Resolved issues:**
 
 #### git
 
@@ -112,33 +112,25 @@ Git local write tools operate on CWD (same as read tools). The allowlist gates w
 
 **Remaining:** No immediate gaps. Force-push prevention could be added as a safety measure (omit `--force` from flag options).
 
-#### websearch
+#### websearch (moved to chai-examples)
 
-Two tools: `websearch_search` (query SearXNG) and `websearch_fetch` (fetch a URL). Both use `curl` as the binary with compound subcommands encoding constant flags (`-sf --max-time 10`). The search tool uses a `resolveCommand` script to transform a query string into a SearXNG JSON API URL, reading the instance address from `SEARXNG_URL` (defaulting to `http://localhost:8888`).
-
-SearXNG was chosen for alignment with local-first values — all queries stay local, no API keys, no third-party dependencies. The skill structure supports adding alternative backends by swapping the URL-building script.
-
-**Remaining:** SearXNG instance needs to be deployed (container alongside the gateway). Prompt injection via search results is the primary security concern — the SKILL.md includes directives to treat results as untrusted input.
+Two tools: `websearch_search` (query SearXNG) and `websearch_fetch` (fetch a URL). Moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository — the skill requires a SearXNG instance (external deployment dependency) that is not available by default. The skill structure supports adding alternative backends by swapping the URL-building script.
 
 #### rss
 
-Feed monitoring via `curl` (fetch feeds) and `cat` (read feed config). Feeds configured in `<profileRoot>/sandbox/rss-feeds.txt` with `name|url` format. The feeds file lives in the sandbox so the orchestrator can modify it via `devtools_write_file` (sandbox-validated); worker agents with only the `rss` skill can read and fetch but not modify. Resolve scripts use `~/.chai/active/sandbox/rss-feeds.txt` — the active profile symlink ensures the right profile is always used.
+Feed monitoring via `curl` (fetch feeds) and `cat` (read feed config). Feeds configured in `<profileRoot>/sandbox/rss-feeds.txt` with `name|url` format. The feeds file lives in the sandbox so the orchestrator can modify it via `files_write_file` (sandbox-validated); worker agents with only the `rss` skill can read and fetch but not modify. Resolve scripts use `~/.chai/active/sandbox/rss-feeds.txt` — the active profile symlink ensures the right profile is always used.
 
 The `rss_check_feed` tool accepts either a feed name (resolved to URL via script) or a direct URL. The `rss_list_feeds` tool reads the feeds file using `cat` with a `resolveCommand` script.
 
-**Remaining:** No "new since last check" tracking — the agent gets the full feed XML each time. State tracking (last-seen entry ID per feed) would need a second sandbox file. Integration with the knowledge base (creating inbox notes from feed entries) works through the existing `notesmd` skill.
+**Remaining:** No "new since last check" tracking — the agent gets the full feed XML each time. State tracking (last-seen entry ID per feed) would need a second sandbox file. Integration with the knowledge base (creating inbox notes from feed entries) works through the `kb` skill.
 
-#### notelink
+#### notelink (deleted)
 
-Knowledge-base-specific operations using `grep`: backlink discovery, tag search, and outgoing link extraction. The `notelink_backlinks` tool uses a `resolveCommand` script to transform a note name into a wikilink grep pattern. The `notelink_outlinks` tool bakes a PCRE lookbehind pattern (`(?<=\[\[)[^\]|]+`) into the compound subcommand to extract clean note names.
+Wikilink discovery via `grep`. Deleted — superseded by `kb-wikilink` which adds broken link detection, tag normalization, and sandbox-aligned paths.
 
-The approach provides raw search primitives and relies on SKILL.md instructions to guide multi-step workflows (e.g., "extract outlinks, then verify each exists"). This keeps the tools mechanical and the judgment in the agent.
+#### skills and skills-read
 
-**Remaining:** `check_frontmatter` and `suggest_links` are not yet implemented. `suggest_links` requires content similarity analysis better handled by the agent's reasoning than by a compiled tool. **Note:** `notelink` is superseded by `kb-wikilink` (with additional broken link detection and tag normalization) — retained during migration period.
-
-#### skillgen and skillval
-
-Two complementary skills for the developer profile. `skillgen` (full tier, 6 tools) handles generation — CLI discovery, reference reading, directory initialization, and writing SKILL.md/tools.json/scripts. `skillval` (moderate tier, 3 tools) handles read-only validation and inspection. The split creates a mechanical security boundary: `skillval`'s allowlist only includes read/validate/list subcommands, safe for delegation to smaller worker agents.
+Two complementary skills for the developer profile. `skills` (full tier, 9 tools) handles generation — CLI discovery, reference reading, directory initialization, writing SKILL.md/tools.json/scripts, and deletion. `skills-read` (minimal tier, 3 tools) handles read-only validation and inspection. The split creates a mechanical security boundary: `skills-read`'s allowlist only includes read/validate/list subcommands, safe for delegation to smaller worker agents. `skills-read` declares `model_variant_of: skills` so config validation warns if both are enabled for the same agent (tool name overlap). This unified skill replaces the earlier `skillgen`/`skillval` pair, mirroring the `files`/`files-read` pattern.
 
 Both skills are backed by the `chai skill` subcommand tree in the CLI. These are binary-mediated writes — `chai` resolves skill name to skills directory path internally. The allowlist enforces compound subcommands (`skill discover`, `skill validate`, etc.).
 
@@ -146,28 +138,38 @@ Both skills are backed by the `chai skill` subcommand tree in the CLI. These are
 
 #### Rationale
 
-The `notesmd`, `notesmd-daily`, `obsidian`, and `obsidian-daily` skills wrap purpose-built CLIs (`notesmd-cli`, future `obsidian` CLI) that resolve vault paths internally. This makes them **binary-mediated writes** — the executor never sees the filesystem path, so the write sandbox cannot validate targets. They also couple the skill surface to Obsidian-specific features (default vault config, `.obsidian/daily-notes.json`), even though the knowledge base is a directory of markdown files that is compatible with Obsidian but not dependent on it.
+The `notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, and `notelink` skills previously bundled with Chai wrapped purpose-built CLIs or used absolute-path grep patterns that bypassed sandbox validation. The first four have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository; `notelink` has been deleted (superseded by `kb-wikilink`). See **Example Skills Migration** below.
 
-The `kb` skill family takes a different approach: **sandbox-aligned primitives**. All tools use core binaries (`cat`, `ls`, `grep`, `chai file write`) with `resolveCommand` scripts that transform KB-relative paths into absolute sandbox paths. Write tools use `writePath: true` on the resolved path, so the executor validates every write against the sandbox boundary. The agent thinks in clean relative paths (`01-admin/AI Assistant.md`); the executor enforces spatial boundaries on the resolved absolute path.
+The `kb` skill family replaces them with **sandbox-aligned primitives**. All tools use core binaries (`cat`, `ls`, `grep`, `chai file write`) with `resolveCommand` scripts that transform KB-relative paths into absolute sandbox paths. Write tools use `writePath: true` on the resolved path, so the executor validates every write against the sandbox boundary. The agent thinks in clean relative paths (`01-admin/AI Assistant.md`); the executor enforces spatial boundaries on the resolved absolute path.
 
 This design aligns with three architectural principles:
 1. **Uniform sandbox enforcement** — all writes go through `writePath` validation, no binary-mediated exceptions
 2. **No external binary dependencies** — standard unix tools + `chai` CLI, no Go/Node/Python CLIs to maintain
 3. **Tool-agnostic knowledge base** — compatible with Obsidian but not coupled to it; the same skills work with any markdown-file-based knowledge base
 
-#### Migration Path
+#### Example Skills Migration
 
-The existing `notesmd`/`notesmd-daily` skills remain functional and are not deprecated yet. The `kb` skill family will grow incrementally:
+Five skills have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository. One skill has been deleted:
 
-| Skill | Purpose | Status | Replaces |
+| Skill | Tools | Disposition | Why |
 |---|---|---|---|
-| `kb` | Core CRUD: read, write, append, delete, list, search | **Drafted** (6 tools) | `notesmd` (read, create, list, search, delete) |
-| `kb-frontmatter` | YAML frontmatter read/edit/delete | **Drafted** (3 tools) | `notesmd` (frontmatter read, frontmatter edit) |
-| `kb-wikilink` | Backlink discovery, link validation, broken link detection | **Drafted** (4 tools) | `notelink` (backlinks, outlinks, tags) |
-| `kb-wikilink-write` | Rename notes with wikilink updates | **Drafted** (1 tool) | `notesmd` (move) |
-| `kb-daily` | Daily note read/write/append with date resolution | **Drafted** (3 tools) | `notesmd-daily` |
+| `notesmd` | 7 | Moved to chai-examples | Binary-mediated writes — `notesmd-cli` resolves vault paths internally, bypassing sandbox validation |
+| `notesmd-daily` | 2 | Moved to chai-examples | Same binary-mediated write concern; depends on `notesmd-cli` and `.obsidian/daily-notes.json` |
+| `obsidian` | 0 | Moved to chai-examples | Blocked — Obsidian CLI doesn't exist; placeholder only |
+| `obsidian-daily` | 0 | Moved to chai-examples | Blocked — same as `obsidian` |
+| `websearch` | 2 | Moved to chai-examples | Requires external SearXNG deployment; not functional by default |
+| `notelink` | 3 | Deleted | Superseded by `kb-wikilink` (broken link detection, tag normalization, sandbox paths) |
 
-Once the `kb` family covers all operations with empirical validation, the `notesmd`/`notesmd-daily`/`obsidian`/`obsidian-daily` skills can be retired. The `notelink` skill may also be absorbed into `kb-wikilink`.
+The bundled `kb-*` skill family covers every operation the moved/deleted skills provided, with sandbox enforcement and no external binary dependencies:
+
+| Moved/Deleted Skill | Bundled Replacement | Key Improvement |
+|---|---|---|
+| `notesmd` | `kb`, `kb-frontmatter` | Sandbox-validated writes via `writePath: true` |
+| `notesmd-daily` | `kb-daily` | Convention file instead of `.obsidian/daily-notes.json`; append tool |
+| `notelink` | `kb-wikilink`, `kb-wikilink-write` | Broken link detection, tag normalization, sandbox paths |
+| `obsidian` / `obsidian-daily` | `kb`, `kb-daily` | Actually functional (Obsidian CLI doesn't exist) |
+
+The example skills in chai-examples remain valuable as reference implementations demonstrating CLI-backed skill design, compound subcommands, and `resolveCommand` patterns. They can be installed by copying from `chai-examples/skills/` to `~/.chai/skills/`.
 
 #### kb
 
@@ -182,7 +184,7 @@ Six tools backed by `cat`, `ls`, `grep`, `chai file write`, `chai file append`, 
 
 **Key design choices:**
 - Compound subcommand `"--recursive --line-number"` on `kb_search` makes recursive search with line numbers the default — KB search is always across a directory of files
-- `kb_write` requires full content (complete overwrite), matching the `devtools_write_file` model. SKILL.md directs the agent to read before writing
+- `kb_write` requires full content (complete overwrite), matching the `files_write_file` model. SKILL.md directs the agent to read before writing
 - `kb_append` for adding content to existing notes (daily updates, log entries) without reading the full note — reduces model inference for common operations
 - `kb_delete` backed by `chai file delete` (not `rm` allowlist) for safety — the CLI validates the target is a regular file, refusing directories
 
@@ -191,17 +193,14 @@ Six tools backed by `cat`, `ls`, `grep`, `chai file write`, `chai file append`, 
 Scripts offload mechanical work from the model: string formatting, pattern construction, path resolution, output parsing. Every script eliminates a class of errors that even capable models occasionally make, and that smaller models make frequently. Three script roles are now supported:
 
 1. **Input transformation** (`resolveCommand`) — parameter → resolved value before execution. Used by 10+ skills for path resolution, pattern building, URL construction, and tag normalization.
-2. **Output transformation** (`postProcess`) — raw stdout → structured text after execution. Used by `kb-wikilink` for broken link detection. Available for RSS XML parsing and websearch output formatting.
+2. **Output transformation** (`postProcess`) — raw stdout → structured text after execution. Used by `kb-wikilink` for broken link detection. RSS XML parsing uses `parse-rss.sh`. Websearch output formatting scripts (`format-search-results.sh`, `strip-html.sh`) are in the example skill in chai-examples.
 3. **Tool backend** (`chai file` subcommands) — complex operations implemented in Rust, invoked as CLI subcommands. Used by `kb`, `kb-frontmatter`, `kb-wikilink-write`, `kb-daily` for frontmatter editing, file deletion, and rename-with-link-updates.
 
 #### Current Script Coverage
 
 | Skill | Scripts | Role |
 |---|---|---|
-| `notesmd-daily` | `resolve-daily-path.sh` | Path resolution: date → vault daily-note path |
 | `rss` | `resolve-feed-url.sh`, `resolve-feeds-path.sh`, `parse-rss.sh` | Name→URL resolution (resolveCommand), default path (resolveCommand), XML → structured table (postProcess) |
-| `notelink` | `build-backlink-pattern.sh` | Pattern construction: note name → escaped grep pattern |
-| `websearch` | `build-search-url.sh`, `format-search-results.sh`, `strip-html.sh` | URL construction (resolveCommand), JSON → structured results (postProcess), HTML → readable text (postProcess) |
 | `kb` | `resolve-kb-path.sh` | Path resolution: relative → absolute sandbox path |
 | `kb-wikilink` | `resolve-kb-path.sh`, `build-backlink-pattern.sh`, `normalize-tag.sh`, `check-broken-links.sh` | Path resolution, pattern construction, tag normalization, broken link filtering (postProcess) |
 | `kb-wikilink-write` | `resolve-kb-path.sh`, `resolve-kb-root.sh` | Path resolution, constant KB root injection |
@@ -209,29 +208,29 @@ Scripts offload mechanical work from the model: string formatting, pattern const
 | `kb-frontmatter` | `resolve-kb-path.sh` | Path resolution |
 | `git-remote` | `resolve-clone-path.sh` | Relative path → sandbox path (resolveCommand) |
 
-Skills with **no scripts**: `notesmd`, `git`, `git-read`, `devtools`, `devtools-read`, `skillgen`, `skillval`.
+The `websearch` skill (now in chai-examples) has scripts `build-search-url.sh`, `format-search-results.sh`, and `strip-html.sh` for URL construction, JSON formatting, and HTML stripping.
+
+Skills with **no scripts**: `git`, `git-read`, `files`, `files-read`, `skills`, `skills-read`.
 
 #### Per-Skill Script Opportunities
 
 **rss** (done)
 - **Output: RSS XML → structured text.** ~~The model receives raw XML and must parse it.~~ Implemented: `parse-rss.sh` postProcess script using awk/sed. Outputs `TITLE | DATE | LINK | SUMMARY` per entry, limits to 20 entries, handles both RSS 2.0 and Atom feeds. Uses mawk-compatible syntax (no gawk extensions).
 
-**websearch** (done)
-- **Output: HTML → readable text.** ~~`websearch_fetch` returns raw HTML.~~ Implemented: `strip-html.sh` postProcess script using sed. Extracts `<title>` and `<body>`, strips script/style blocks, decodes common HTML entities, limits to 200 lines.
-- **Output: JSON → formatted results.** ~~SearXNG returns JSON.~~ Implemented: `format-search-results.sh` postProcess script using jq. Outputs top 10 results as `TITLE | URL | SNIPPET` lines. Graceful fallback to raw JSON when jq is unavailable.
-
-**notelink** (moderate impact)
-- **Input: Tag normalization.** `notelink_by_tag` passes the tag raw. A `resolveCommand` script could normalize format (strip `#` prefix if present, escape regex special characters, build the actual grep pattern). Currently the model must know to pass `#tag` vs `tag` correctly.
+**websearch** (moved to chai-examples)
+- **Output: HTML → readable text.** Implemented: `strip-html.sh` postProcess script using sed. Extracts `<title>` and `<body>`, strips script/style blocks, decodes common HTML entities, limits to 200 lines.
+- **Output: JSON → formatted results.** Implemented: `format-search-results.sh` postProcess script using jq. Outputs top 10 results as `TITLE | URL | SNIPPET` lines. Graceful fallback to raw JSON when jq is unavailable.
+- These scripts are now in the example skill in chai-examples.
 
 **git / git-remote** (partially done)
 - **Input: Clone path defaulting.** ~~`git_clone` requires the agent to construct an absolute sandbox path.~~ Implemented: `resolve-clone-path.sh` resolveCommand resolves relative names to sandbox paths. Cross-param URL extraction (deriving repo name from URL) is not possible with the current `resolveCommand` architecture (`$param` only). The model still provides a directory name; the script handles the absolute path.
 - **Input: Log format defaulting.** A `resolveCommand` could add `--format="%h %s (%an, %ar)"` to produce a consistent, parseable log format rather than relying on the model to pass `--oneline`. Deferred — low priority, `--oneline` is well-handled by models.
 
-**devtools** (low impact)
+**files** (low impact)
 - Generic by design. KB-specific improvements belong in the `kb` skill family, not here.
 
-**skillgen / skillval** (low impact)
-- Full-tier skills for capable models. The model must generate complex JSON/markdown content where scripts can't substitute for judgment.
+**skills / skills-read** (low impact)
+- Full-tier skill for capable models. The model must generate complex JSON/markdown content where scripts can't substitute for judgment.
 
 #### Architecture Implications
 
@@ -241,7 +240,7 @@ All three script roles are now supported:
 2. **Output transformation** (`postProcess`) — implemented in Phase 5. The `PostProcessSpec` struct on `ExecutionSpec` pipes stdout through a script; 7 unit tests. First use: `kb_wikilink_broken` filters grep output to only nonexistent link targets.
 3. **Tool backend** (`chai file` subcommands) — implemented in Phase 5. Seven subcommands (write, append, delete, frontmatter-read, frontmatter-edit, frontmatter-delete, rename-note) provide typed CLI operations that the allowlist executor invokes. Each subcommand is a thin Rust function with safety guards; the skill's `writePath` provides sandbox enforcement.
 
-**All high-impact script opportunities are now implemented.** RSS (`parse-rss.sh`), websearch (`format-search-results.sh`, `strip-html.sh`), and git-remote (`resolve-clone-path.sh`) output/input scripts are in place. The remaining low-priority opportunity is git log format defaulting (deferred).
+**All high-impact script opportunities are now implemented.** RSS (`parse-rss.sh`) and git-remote (`resolve-clone-path.sh`) output/input scripts are in place. Websearch scripts (`format-search-results.sh`, `strip-html.sh`) are in the example skill in chai-examples. The remaining low-priority opportunity is git log format defaulting (deferred).
 
 **Limitation discovered:** `resolveCommand` only passes `$param` (the current parameter value). Cross-param references (e.g., accessing the URL from the path resolver) are not supported. A `$params.<name>` syntax would enable richer resolver logic but is not needed for any current skill.
 
@@ -266,24 +265,23 @@ Smaller skills with fewer tools are easier for smaller models. The orchestrator 
 
 The `git-read` variant enables a pure read-only reviewer agent backed by a 7B model. `model_variant_of: git` links all three. Tool names are shared across variants — config validation should warn if overlapping variants are enabled simultaneously.
 
-**devtools → devtools-read + devtools (current)** — **Done**
+**files → files-read + files (current)** — **Done**
 
 | Variant | Tools | Tier | Agent Role | Status |
 |---|---|---|---|---|
-| `devtools-read` | 3: read_file, list_dir, search_content | minimal | Code inspector, file browser | **Drafted** |
-| `devtools` | 5: read + write_file + delete_file | full | File editor with sandbox writes | **Drafted** |
+| `files-read` | 4: read_file, list_dir, search_content, read_lines | minimal | Code inspector, file browser | **Drafted** |
+| `files` | 7: read + write_file + delete_file + read_lines + write_lines | full | File editor with sandbox writes | **Drafted** |
 
-Read-only variant for worker agents that only need to inspect files. Write and delete tools stay in the full-tier skill. `model_variant_of: devtools` on the read-only variant.
+Read-only variant for worker agents that only need to inspect files. Write and delete tools stay in the full-tier skill. Both variants include `read_lines` for targeted line-range reads. `model_variant_of: files` on the read-only variant.
+**notelink → absorbed into kb-wikilink (complete)**
 
-**notelink → absorb into kb-wikilink**
-
-Rather than splitting notelink, its three tools migrate into `kb-wikilink` with sandbox path resolution. The standalone `notelink` skill remains available during the migration period but is superseded once `kb-wikilink` is complete.
+`notelink`'s three tools have been absorbed into `kb-wikilink` with sandbox path resolution, broken link detection, and tag normalization. The standalone `notelink` skill has been deleted (it was superseded entirely by `kb-wikilink`).
 
 **kb → kb + kb-frontmatter + kb-wikilink + kb-daily (already planned)**
 
 Already designed for splitting. Each skill handles one domain: CRUD, frontmatter, links, daily notes. See **KB Skill Family** section above and detailed plans below.
 
-**No split recommended:** `rss` (2 tools), `websearch` (2 tools), `skillgen`/`skillval` (already split by read/write).
+**No split recommended:** `rss` (2 tools), `skills`/`skills-read` (already split by read/write). `websearch` (2 tools) is now in chai-examples.
 
 #### Orchestrator Delegation Patterns
 
@@ -297,9 +295,9 @@ The orchestrator assigns skills to worker agents based on the task:
 | "Review the recent commits" | `git-read` | minimal |
 | "Clone and set up this repo" | `git-remote` | full |
 | "Check today's RSS feeds" | `rss` | moderate |
-| "Research this topic online" | `websearch` | full |
+| "Research this topic online" | `websearch` (example) | full |
 | "Create today's daily note" | `kb-daily` | minimal |
-| "Inspect this source file" | `devtools-read` | minimal |
+| "Inspect this source file" | `files-read` | minimal |
 
 ### KB Skill Family — Detailed Plans
 
@@ -396,7 +394,7 @@ Daily note operations with configurable date-based path resolution. Replaces `no
 **Improvements over notesmd-daily:**
 1. No Obsidian dependency — convention file instead of `.obsidian/daily-notes.json`
 2. Append tool — `kb_daily_append` adds content without reading the full note (notesmd-daily's `update` mode requires read→modify→write for appending)
-3. Convention file in sandbox — modifiable by the orchestrator via `devtools_write_file`
+3. Convention file in sandbox — modifiable by the orchestrator via `files_write_file`
 4. Date defaults to today — the `resolveCommand` script handles this, not the model
 
 **Capability tier:** minimal. Three tools, deterministic path resolution, no judgment required. Target for 7B models.
@@ -407,7 +405,7 @@ Daily note operations with configurable date-based path resolution. Replaces `no
 
 ### Generation Results
 
-Skills were generated using Claude Opus 4 via the developer profile, producing skills through the `chai skill` CLI subcommand tree. Six new skills were generated: `notesmd`, `git`, `devtools`, `websearch`, `rss`, `notelink`. All pass structural validation via `chai skill validate`.
+Skills were generated using Claude Opus 4 via the developer profile, producing skills through the `chai skill` CLI subcommand tree. Six skills were generated: `notesmd`, `git`, `files` (formerly `devtools`), `websearch`, `rss`, `notelink`. All pass structural validation via `chai skill validate`. Of these, `notesmd` and `websearch` have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository; `notelink` has been deleted (superseded by `kb-wikilink`); `git`, `files`, and `rss` remain bundled.
 
 ### Key Patterns Discovered During Generation
 
@@ -440,26 +438,29 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 **Source code:**
 - `~/Code/chora-ai/chai/.agents/spec/SKILL_FORMAT.md` — skill directory layout, frontmatter, metadata, context modes
 - `~/Code/chora-ai/chai/.agents/spec/TOOLS_SCHEMA.md` — `tools.json` schema: tools array, allowlist, execution mapping, arg kinds, `resolveCommand`, `writePath`
-- `~/Code/chora-ai/chai/crates/lib/config/skills/` — all bundled skills (reference + generated)
+- `~/Code/chora-ai/chai/crates/lib/config/skills/` — all bundled skills (14 sandbox-aligned skills)
 - `~/Code/chora-ai/chai/crates/cli/src/main.rs` — `chai skill` subcommand implementations
+
+**Example skills:**
+- [chai-examples](https://github.com/chora-ai/chai-examples) — example skills moved from bundled set (`notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, `websearch`)
 
 ## Requirements
 
-- [x] **Reference implementation** — `notesmd-daily` complete with `tools.json` and SKILL.md
-- [x] **Skill inventory** — 17 skills inventoried with status and dependencies
-- [x] **Generation workflow** — `skillgen` (6 tools) and `skillval` (3 tools) implemented
-- [x] **CLI subcommands** — `chai skill` tree (8 subcommands) implemented
+- [x] **Reference implementation** — `notesmd-daily` complete with `tools.json` and SKILL.md (moved to chai-examples)
+- [x] **Skill inventory** — 13 bundled skills inventoried with status and dependencies; 5 moved to chai-examples; 1 deleted
+- [x] **Generation workflow** — `skills` (9 tools) and `skills-read` (3 tools) implemented; replaces earlier `skillgen`/`skillval` pair
+- [x] **CLI subcommands** — `chai skill` tree (9 subcommands including `skill delete`) implemented
 - [x] **Compound subcommand support** — executor `split_whitespace()` change
 - [x] **Batch generation** — 6 new skills generated and validated
 - [x] **Tool call examples** — added example JSON for every tool in all SKILL.md files to improve small-model accuracy
 - [x] **Git write tools** — `git_add` and `git_commit` added to the git skill
-- [x] **`normalizeNewlines` double-decode fix** — removed `normalizeNewlines: true` from all 9 tool arg mappings across 5 skills (skillgen, kb, kb-daily, notesmd, notesmd-daily), updated skillgen SKILL.md directive, deprecated the field in descriptor.rs and TOOLS_SCHEMA.md
+- [x] **`normalizeNewlines` double-decode fix** — removed `normalizeNewlines: true` from all 9 tool arg mappings across 5 skills (skills, kb, kb-daily, notesmd, notesmd-daily), updated skills SKILL.md directive, deprecated the field in descriptor.rs and TOOLS_SCHEMA.md
 - [ ] **Empirical validation** — test skills against 7B and 13B models on Ollama
 - [ ] **Capability floor** — document smallest model that reliably generates correct tool calls
 - [ ] **Model-specific frontmatter** — implement `recommended_models`, `capability_tier`, `model_variant_of` in SKILL.md parsing (see **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** for startup validation)
 - [ ] **SearXNG deployment** — deploy instance to unblock `websearch` skill
 - [x] **Feeds configuration** — `~/.chai/feeds.txt` with arXiv cs.AI and cs.CR; resolve scripts written
-- [x] **Devtools write tool** — `devtools_write_file` via `chai file write` with `writePath: true` on path param for sandbox validation
+- [x] **Files write tool** — `files_write_file` via `chai file write` with `writePath: true` on path param for sandbox validation
 - [x] **Notelink fix workflow** — broken link detection via `kb_wikilink_broken`, rename-with-link-updates via `kb_wikilink_rename`, manual fixes via `kb_write`
 - [x] **KB skill** — `kb` skill with 6 tools (read, write, append, delete, list, search) backed by sandbox-validated primitives
 - [x] **KB frontmatter skill** — `kb-frontmatter` with 3 tools (read, edit, delete) backed by `chai file frontmatter-*` CLI subcommands
@@ -471,43 +472,53 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 - [x] **Output post-processing** — `postProcess` field on execution specs: pipes stdout through a script, returns transformed output (7 unit tests, used by `kb-wikilink` broken link detection)
 - [x] **Script-as-operation (resolved via CLI)** — all complex operations (frontmatter, rename-with-link-updates) resolved via `chai file` subcommands. `sh`-based execution remains an option for future skills but is not blocking any current requirements
 - [x] **git-read skill** — read-only git variant (5 tools) for minimal-tier reviewer agents
-- [x] **devtools-read skill** — read-only devtools variant (3 tools) for minimal-tier inspector agents
-- [x] **devtools delete tool** — `devtools_delete_file` via `chai file delete` with `writePath: true`
+- [x] **files-read skill** — read-only files variant (4 tools, including read_lines) for minimal-tier inspector agents
+- [x] **files delete tool** — `files_delete_file` via `chai file delete` with `writePath: true`
 - [x] **RSS output script** — `parse-rss.sh` postProcess transforms XML to `TITLE | DATE | LINK | SUMMARY` table (handles RSS 2.0 and Atom)
-- [x] **Websearch output scripts** — `format-search-results.sh` (SearXNG JSON → `TITLE | URL | SNIPPET`, requires `jq`); `strip-html.sh` (HTML → readable text via sed)
+- [x] **Websearch output scripts** — `format-search-results.sh` (SearXNG JSON → `TITLE | URL | SNIPPET`, requires `jq`); `strip-html.sh` (HTML → readable text via sed) — skill moved to chai-examples
 - [x] **Git clone path defaulting** — `resolve-clone-path.sh` resolveCommand resolves relative names to sandbox; cross-param URL extraction not possible (resolveCommand only passes `$param`)
 - [x] **Tag normalization script** — `normalize-tag.sh` in `kb-wikilink` strips `#` prefix and escapes regex specials
+- [x] **files append tool** — `files_append` via `chai file append` with `writePath: true`
+- [x] **files delete-dir tool** — `files_delete_dir` via `chai file delete-dir` with `writePath: true`. CLI validates target is an empty directory, refusing files and non-empty directories.
 
 ## Phases
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| **0** | **Populate** — complete bundled skill set with `tools.json` and SKILL.md | Done (14 drafted, 2 blocked, 1 complete) |
-| **1** | **Generation workflow** — `skillgen`/`skillval` skills, CLI subcommands, batch generation | Done |
-| **2** | **Empirical validation** — test against small models, document capability floor, refine schemas | Pending |
-| **3** | **Write variants** — git write tools, devtools write/delete tools, kb write/append/delete/rename tools | Done |
-| **4** | **Deployment dependencies** — SearXNG instance, feeds configuration | Pending |
-| **5** | **Sandbox-aligned skills** — `kb` family (5 skills, 17 tools) replacing `notesmd`/`notelink` with sandbox-validated primitives, `postProcess` executor feature, 7 `chai file` CLI subcommands | Done |
-| **6** | **Script enrichment and skill splitting** — read-only skill variants (`git-read`, `devtools-read`), RSS/websearch `postProcess` output scripts, `devtools_delete_file` tool, git clone path defaulting, stale script cleanup | Done |
+| **0** | **Populate** — complete bundled skill set with `tools.json` and SKILL.md | Done (13 drafted; 5 moved to chai-examples repo; 1 deleted) |
+| **1** | **Generation workflow** — `skills`/`skills-read` skills (replacing `skillgen`/`skillval`), CLI subcommands including `skill delete`, batch generation | Done |
 
 ## Open Questions
 
-- **Obsidian CLI access** — the `obsidian` and `obsidian-daily` skills are blocked until the Obsidian team makes the CLI binary available. Monitor for availability.
+- ~~**Obsidian CLI access** —~~ the `obsidian` and `obsidian-daily` skills have been moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository. If the Obsidian CLI becomes available, new skills can be built following the patterns documented there.
 - **Model-specific frontmatter parsing** — where should `recommended_models`, `capability_tier`, `model_variant_of` be validated? At skill load time? At profile startup? See **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** for the startup validation design.
-- **Skill variant naming convention** — as variants multiply (`git-read`, `git`, `git-remote`; `devtools-read`, `devtools`), should variant relationships be encoded in naming (prefix/suffix) or purely in frontmatter (`model_variant_of`)? Naming makes relationships visible at the filesystem level; frontmatter keeps names clean but requires inspection to discover relationships.
+- **Skill variant naming convention** — as variants multiply (`git-read`, `git`, `git-remote`; `files-read`, `files`), should variant relationships be encoded in naming (prefix/suffix) or purely in frontmatter (`model_variant_of`)? Naming makes relationships visible at the filesystem level; frontmatter keeps names clean but requires inspection to discover relationships.
+- **Profile safety check for `skill delete`** — `chai skill delete` currently removes the skill directory without checking whether the skill is enabled in any profile's `skillsEnabled`. A warning + `--force` override (paralleling git's approach) would prevent accidental removal of skills still referenced by active profiles. The skill will silently fail to load on next gateway restart regardless, so a warning is a guardrail, not a hard requirement.
+- **Version-level deletion** — should there be a way to delete individual version snapshots instead of the entire skill? This connects to the GC question in [SKILL_PACKAGES.md](SKILL_PACKAGES.md). Out of scope for the current `skills_delete` tool (which removes the entire skill directory).
+- **KB/files tool duplication** — the `kb` skill family and the `files` skill share the same underlying file operations (read, write, append, delete, list, search) with the addition of `resolve-kb-path.sh` for path resolution. This means two sets of tool definitions and execution specs must be kept in sync. Possible resolutions: (1) status quo — accept the duplication, each skill is self-contained; (2) skill composition — allow skills to declare dependencies on other skills' tools; (3) path resolution as a skill-level concern — add a `pathResolver` field to the skill descriptor so `files_read_file` could be reused in `kb` without duplicating definitions. Revisit when the maintenance burden becomes concrete.
 
 ### Resolved
 
-- **`normalizeNewlines` double-decode bug** — the `normalizeNewlines: true` flag on content parameters caused a double-decode: `serde_json` already decodes JSON escape sequences, then `normalize_content()` performed a second decode, corrupting `\n`/`\t` string literals in written content and producing invalid JSON. Fixed by removing `normalizeNewlines: true` from all 9 tool arg mappings across 5 skills (devtools was fixed earlier; skillgen, kb, kb-daily, notesmd, notesmd-daily fixed now). The field is deprecated in `descriptor.rs` and `TOOLS_SCHEMA.md`. The `skillgen/SKILL.md` directive recommending the flag has been replaced with a "never use" directive.
+- **Example skills migration** — `notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, and `websearch` moved to the [chai-examples](https://github.com/chora-ai/chai-examples) repository. `notelink` deleted (superseded by `kb-wikilink`). These skills either depended on external binaries not available by default, required external deployment dependencies, or were superseded by sandbox-aligned equivalents. The bundled set now contains only skills that are functional after initialization with no external binary dependencies beyond `git` and `curl`.
+- **`normalizeNewlines` double-decode bug** — the `normalizeNewlines: true` flag on content parameters caused a double-decode: `serde_json` already decodes JSON escape sequences, then `normalize_content()` performed a second decode, corrupting `\n`/`\t` string literals in written content and producing invalid JSON. Fixed by removing `normalizeNewlines: true` from all tool arg mappings across affected skills. The field is deprecated in `descriptor.rs` and `TOOLS_SCHEMA.md`.
 - **Output post-processing mechanism** — resolved as per-tool `postProcess` field on execution specs. Implemented with `PostProcessSpec` struct, 7 unit tests. Per-tool precision was the right choice; per-skill would have been too coarse (different tools in the same skill need different post-processing).
-- **Script-as-operation pattern** — resolved via `chai file` subcommands. All complex operations (frontmatter read/edit/delete, rename-with-link-updates, file delete, file append) are implemented as CLI subcommands. `sh`-based execution remains a future option but is not blocking any current requirements.
+- **Script-as-operation pattern** — resolved via `chai file` subcommands. All complex operations (frontmatter read/edit/delete, rename-with-link-updates, file delete, file append, file read-lines, file patch) are implemented as CLI subcommands. `sh`-based execution remains a future option but is not blocking any current requirements.
 - **Cross-param resolution** — `resolveCommand` only passes `$param` (the current parameter value). Cross-param references (e.g., accessing URL from the path resolver in `git_clone`) are not supported. A `$params.<name>` syntax could enable richer resolver logic. Low priority — no current skill requires it; the clone path defaulting works with relative names instead.
 - **Script portability** — scripts must target mawk/POSIX, not gawk. The RSS script hit two mawk incompatibilities: `match()` with capture groups (gawk-only) and `close` as a variable name (reserved keyword in mawk). All scripts now use mawk-compatible syntax.
-
+- **`successExitCodes` for exit codes that are not errors** — added `successExitCodes` field to `ExecutionSpec` allowing per-tool configuration of exit codes treated as success (e.g. `[0, 1]` for `grep` where exit 1 = no matches). Exit codes not in the success list still surface as tool errors.
+- **Extended regex support for grep** — added `-E` as grep subcommand in both `files` and `files-read` tools.json so `|`, `+`, `?`, `()` work as expected. Updated tool description to say "extended regex supported".
+- **Silent write failures** — `extract_stdin_content` now validates required `kind: "stdin"` params and returns an error instead of silently falling through. All `child.stdin.take()` sites use `ok_or_else` with explicit block-scope drop, guaranteeing the child sees EOF before the parent waits. `run_post_process` extracted to `post_process.rs` with a `pipe_stdin` helper.
+- **Side-read path resolution** — `apply_side_read` now uses canonical (absolute) paths from `effective_args` instead of raw args, ensuring `AGENTS.md` is loaded from the directory the tool operated on.
+- **Resolve script idempotency** — all `resolveCommand` scripts now check whether the input is already an absolute path and return it unchanged, preventing path doubling when scripts are invoked twice (once in `validate_write_paths()`, again in `build_argv()`).
+- **Optional flag params with `resolveCommand`** — optional `kind: "flag"` params with `resolveCommand` now invoke the resolver when the parameter is omitted (mirroring existing `kind: "positional"` behavior), so scripts can produce default values.
+- **`kind: "stdin"` for multiline content** — `kind: "flag"` causes `clap` to break on newlines; all content parameters now use `kind: "stdin"`. This was the root cause for skills write tool failures with multiline content.
+- **Line-level read and write operations** — `files_read_lines` and `files_write_lines` added for reading line ranges with line numbers and replacing/deleting line ranges without rewriting entire files. Implemented via `chai file read-lines` and `chai file patch` CLI subcommands with `patch_string()` core logic.
+- **Unified `skills`/`skills-read` replacing `skillgen`/`skillval`** — merged the two role-named skills into domain-named variants mirroring the `files`/`files-read` pattern. `skills` (9 tools, full tier) adds `skills_delete` and `skills_list`/`skills_validate` from the former `skillval`. `skills-read` (3 tools, minimal tier) is the read-only variant with `model_variant_of: skills`. The `chai skill delete` CLI subcommand was added for programmatic skill removal.
+- **`files_append` tool** — added to the `files` skill via `chai file append` with `writePath: true`. Previously, appending required reading the full file, modifying in context, and writing back — wasteful for large files and error-prone for simple additions. The CLI subcommand already existed (used by `kb_append`); only the tools.json and SKILL.md needed updating.
 ## Related Epics and Docs
 
 | Topic | Where |
-|-------|-------|
+|---|---|
 | Write sandbox (path enforcement) | [WRITE_SANDBOX.md](WRITE_SANDBOX.md) |
 | Skill packages (versioning, lockfiles) | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) |
 | Agent isolation (per-agent skills) | [AGENT_ISOLATION.md](AGENT_ISOLATION.md) |
@@ -515,3 +526,4 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 | Tool approval (asking boundary) | [TOOL_APPROVAL.md](TOOL_APPROVAL.md) |
 | Skill format spec | [spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md) |
 | Tools schema spec | [spec/TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) |
+| Example skills repository | [chai-examples](https://github.com/chora-ai/chai-examples) |

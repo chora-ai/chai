@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "skillgen_discover",
+      "name": "skills_discover",
       "description": "Run a CLI binary's help output to discover its interface. Call without subcommand first to see all subcommands, then with subcommand to get detailed flags and parameters.",
       "parameters": {
         "type": "object",
@@ -19,8 +19,17 @@
       }
     },
     {
-      "name": "skillgen_read",
-      "description": "Read a skill's SKILL.md or tools.json file content for use as reference.",
+      "name": "skills_list",
+      "description": "List all installed skills showing SKILL.md and tools.json population status and tool count.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {}
+      }
+    },
+    {
+      "name": "skills_read",
+      "description": "Read a skill's SKILL.md or tools.json file content.",
       "parameters": {
         "type": "object",
         "required": ["skill_name", "file"],
@@ -37,7 +46,21 @@
       }
     },
     {
-      "name": "skillgen_init",
+      "name": "skills_validate",
+      "description": "Validate a skill's tools.json for schema conformance. Reports errors (must fix) and warnings (should review).",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name to validate"
+          }
+        }
+      }
+    },
+    {
+      "name": "skills_init",
       "description": "Initialize a new skill directory with template SKILL.md and empty tools.json. Fails if the skill already exists.",
       "parameters": {
         "type": "object",
@@ -55,7 +78,7 @@
       }
     },
     {
-      "name": "skillgen_write_skill_md",
+      "name": "skills_write_skill_md",
       "description": "Write or overwrite SKILL.md for a skill. Content must be complete markdown with YAML frontmatter.",
       "parameters": {
         "type": "object",
@@ -73,7 +96,7 @@
       }
     },
     {
-      "name": "skillgen_write_tools_json",
+      "name": "skills_write_tools_json",
       "description": "Write or overwrite tools.json for a skill. Validates JSON syntax before writing. Content must conform to the tools schema.",
       "parameters": {
         "type": "object",
@@ -91,7 +114,7 @@
       }
     },
     {
-      "name": "skillgen_write_script",
+      "name": "skills_write_script",
       "description": "Write a script to a skill's scripts/ directory. Creates the directory if needed. Scripts are referenced by resolveCommand in tools.json.",
       "parameters": {
         "type": "object",
@@ -111,21 +134,38 @@
           }
         }
       }
+    },
+    {
+      "name": "skills_delete",
+      "description": "Delete an initialized skill package. Removes the skill directory and all version snapshots. This action is irreversible.",
+      "parameters": {
+        "type": "object",
+        "required": ["skill_name"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name to delete (e.g. 'test-skill', 'myfeed')"
+          }
+        }
+      }
     }
   ],
   "allowlist": {
     "chai": [
       "skill discover",
+      "skill list",
       "skill read",
+      "skill validate",
       "skill init",
       "skill write-skill-md",
       "skill write-tools-json",
-      "skill write-script"
+      "skill write-script",
+      "skill delete"
     ]
   },
   "execution": [
     {
-      "tool": "skillgen_discover",
+      "tool": "skills_discover",
       "binary": "chai",
       "subcommand": "skill discover",
       "args": [
@@ -134,7 +174,13 @@
       ]
     },
     {
-      "tool": "skillgen_read",
+      "tool": "skills_list",
+      "binary": "chai",
+      "subcommand": "skill list",
+      "args": []
+    },
+    {
+      "tool": "skills_read",
       "binary": "chai",
       "subcommand": "skill read",
       "args": [
@@ -143,7 +189,15 @@
       ]
     },
     {
-      "tool": "skillgen_init",
+      "tool": "skills_validate",
+      "binary": "chai",
+      "subcommand": "skill validate",
+      "args": [
+        { "param": "skill_name", "kind": "positional" }
+      ]
+    },
+    {
+      "tool": "skills_init",
       "binary": "chai",
       "subcommand": "skill init",
       "args": [
@@ -152,7 +206,7 @@
       ]
     },
     {
-      "tool": "skillgen_write_skill_md",
+      "tool": "skills_write_skill_md",
       "binary": "chai",
       "subcommand": "skill write-skill-md",
       "args": [
@@ -161,7 +215,7 @@
       ]
     },
     {
-      "tool": "skillgen_write_tools_json",
+      "tool": "skills_write_tools_json",
       "binary": "chai",
       "subcommand": "skill write-tools-json",
       "args": [
@@ -170,13 +224,21 @@
       ]
     },
     {
-      "tool": "skillgen_write_script",
+      "tool": "skills_write_script",
       "binary": "chai",
       "subcommand": "skill write-script",
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "script_name", "kind": "positional" },
         { "param": "content", "kind": "stdin" }
+      ]
+    },
+    {
+      "tool": "skills_delete",
+      "binary": "chai",
+      "subcommand": "skill delete",
+      "args": [
+        { "param": "skill_name", "kind": "positional" }
       ]
     }
   ]

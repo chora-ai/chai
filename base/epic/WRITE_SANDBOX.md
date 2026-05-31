@@ -10,7 +10,7 @@ status: in-progress
 
 ## Problem Statement
 
-Without a spatial boundary, an allowlisted binary could still write anywhere the process can reach. Path-argument tools (e.g. a future `devtools` write tool with an explicit filesystem `path`) need mechanical enforcement so a model cannot turn `cat` into `cat > /etc/passwd` outside an authorized tree. Binary-mediated writes (semantic ids resolved inside `notesmd-cli`, `chai skill`, etc.) remain the binary’s responsibility; the sandbox applies only where the executor sees a path string.
+Without a spatial boundary, an allowlisted binary could still write anywhere the process can reach. Path-argument tools (e.g. a future `files` write tool with an explicit filesystem `path`) need mechanical enforcement so a model cannot turn `cat` into `cat > /etc/passwd` outside an authorized tree. Binary-mediated writes (semantic ids resolved inside `notesmd-cli`, `chai skill`, etc.) remain the binary's responsibility; the sandbox applies only where the executor sees a path string.
 
 The allowlist enforces the **action dimension** (command identity). The sandbox enforces the **spatial dimension** (filesystem location). Neither layer alone is sufficient: the allowlist without a sandbox allows tools to write anywhere; a sandbox without an allowlist allows any binary to run within the boundary. Safe write-capable skills require the composition of both.
 
@@ -72,7 +72,7 @@ The allowlist enforces the **action dimension** (command identity). The sandbox 
 
 Write operations in Chai fall into two categories with different enforcement mechanisms:
 
-1. **Path-argument writes** — the model provides a filesystem path as a tool parameter (e.g., `devtools_write_file` with a `path` arg). The executor CAN validate the path against sandbox boundaries because the write target is explicit in the arguments. This is the category the sandbox enforces.
+1. **Path-argument writes** — the model provides a filesystem path as a tool parameter (e.g., `files_write_file` with a `path` arg). The executor CAN validate the path against sandbox boundaries because the write target is explicit in the arguments. This is the category the sandbox enforces.
 
 2. **Binary-mediated writes** — the model provides a semantic identifier, and the binary resolves the write target internally. Examples:
    - `chai skill write-skill-md` takes `skill_name` → resolves to `<skills_root>/<skill_name>/SKILL.md`
@@ -80,7 +80,7 @@ Write operations in Chai fall into two categories with different enforcement mec
 
    The executor never sees a filesystem path, so sandbox path validation cannot apply. Security depends on the binary rejecting traversal in semantic identifiers and confining writes to its expected directory. The allowlist controls *which* binary-mediated write operations are available; the *where* enforcement is the binary's responsibility.
 
-The sandbox applies to **category 1 only**. In practice, this primarily serves `devtools` (write variant) and `git clone`. Most other writes (`notesmd`, `skillgen`) are binary-mediated.
+The sandbox applies to **category 1 only**. In practice, this primarily serves `files` (write variant) and `git clone`. Most other writes (`notesmd`, `skills`) are binary-mediated.
 
 ### Writable Roots Computation
 

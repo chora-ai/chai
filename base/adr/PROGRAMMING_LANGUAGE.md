@@ -21,7 +21,7 @@ The project uses **Rust** as the implementation language.
 
 - **C++** — Viable for desktop (Qt, etc.) but build and dependency setup are typically heavier. Rust keeps the stack uniform and dependency-minimal.
 - **Go** — Good for CLI and services; desktop UI options are less mature than in Rust.
-- **Node/TypeScript** — Used by OpenClaw; we prefer a single binary, no Node/WebView in the default stack, and stronger typing for long-lived agent code.
+- **Node/TypeScript** — We prefer a single binary, no Node/WebView in the default stack, and stronger typing for long-lived agent code.
 
 ## Summary
 

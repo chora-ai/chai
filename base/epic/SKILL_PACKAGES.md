@@ -128,7 +128,7 @@ Per-profile lockfile at **`profiles/<name>/skills.lock`** (JSON):
   "version": 1,
   "skills": {
     "git": { "hash": "a1b2c3d" },
-    "devtools": { "hash": "f8e9d0b" },
+    "files": { "hash": "f8e9d0b" },
     "kb": { "hash": "9c8d7e6" }
   },
   "generation": 3

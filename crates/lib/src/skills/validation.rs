@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn skills_no_overlap_unrelated() {
         let a = make_entry("git", None, None);
-        let b = make_entry("devtools", None, None);
+        let b = make_entry("files", None, None);
         assert!(!skills_overlap(&a, &b));
     }
 

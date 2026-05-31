@@ -287,7 +287,7 @@ mod tests {
                     },
                 ),
                 (
-                    "devtools".to_string(),
+                    "files".to_string(),
                     SkillPin {
                         hash: "789012345678".to_string(),
                     },
@@ -322,7 +322,7 @@ mod tests {
         let mut lock2 = lock1.clone();
         lock2.generation = 2;
         lock2.skills.insert(
-            "devtools".to_string(),
+            "files".to_string(),
             SkillPin {
                 hash: "bbb".to_string(),
             },

@@ -1,21 +1,16 @@
 {
   "tools": [
     {
-      "name": "skillval_validate",
-      "description": "Validate a skill's tools.json for schema conformance. Reports errors (must fix) and warnings (should review).",
+      "name": "skills_list",
+      "description": "List all installed skills showing SKILL.md and tools.json population status and tool count.",
       "parameters": {
         "type": "object",
-        "required": ["skill_name"],
-        "properties": {
-          "skill_name": {
-            "type": "string",
-            "description": "Skill directory name to validate"
-          }
-        }
+        "required": [],
+        "properties": {}
       }
     },
     {
-      "name": "skillval_read",
+      "name": "skills_read",
       "description": "Read a skill's SKILL.md or tools.json file content.",
       "parameters": {
         "type": "object",
@@ -33,29 +28,36 @@
       }
     },
     {
-      "name": "skillval_list",
-      "description": "List all installed skills showing SKILL.md and tools.json population status and tool count.",
+      "name": "skills_validate",
+      "description": "Validate a skill's tools.json for schema conformance. Reports errors (must fix) and warnings (should review).",
       "parameters": {
         "type": "object",
-        "required": [],
-        "properties": {}
+        "required": ["skill_name"],
+        "properties": {
+          "skill_name": {
+            "type": "string",
+            "description": "Skill directory name to validate"
+          }
+        }
       }
     }
   ],
   "allowlist": {
-    "chai": ["skill validate", "skill read", "skill list"]
+    "chai": [
+      "skill list",
+      "skill read",
+      "skill validate"
+    ]
   },
   "execution": [
     {
-      "tool": "skillval_validate",
+      "tool": "skills_list",
       "binary": "chai",
-      "subcommand": "skill validate",
-      "args": [
-        { "param": "skill_name", "kind": "positional" }
-      ]
+      "subcommand": "skill list",
+      "args": []
     },
     {
-      "tool": "skillval_read",
+      "tool": "skills_read",
       "binary": "chai",
       "subcommand": "skill read",
       "args": [
@@ -64,10 +66,12 @@
       ]
     },
     {
-      "tool": "skillval_list",
+      "tool": "skills_validate",
       "binary": "chai",
-      "subcommand": "skill list",
-      "args": []
+      "subcommand": "skill validate",
+      "args": [
+        { "param": "skill_name", "kind": "positional" }
+      ]
     }
   ]
 }

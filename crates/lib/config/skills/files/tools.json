@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "devtools_read_file",
+      "name": "files_read_file",
       "description": "Read the contents of a file.",
       "parameters": {
         "type": "object",
@@ -15,8 +15,8 @@
       }
     },
     {
-      "name": "devtools_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of devtools_read_file when you only need a specific portion of a file to reduce context usage.",
+      "name": "files_read_lines",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
@@ -37,8 +37,8 @@
       }
     },
     {
-      "name": "devtools_list_dir",
-      "description": "List files and directories at a given path.",
+      "name": "files_list_dir",
+      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
       "parameters": {
         "type": "object",
         "required": ["path"],
@@ -59,7 +59,7 @@
       }
     },
     {
-      "name": "devtools_search_content",
+      "name": "files_search_content",
       "description": "Search file contents for a pattern using grep. Returns matching lines with context.",
       "parameters": {
         "type": "object",
@@ -75,7 +75,8 @@
           },
           "recursive": {
             "type": "boolean",
-            "description": "Search directories recursively"
+            "description": "Search directories recursively. Defaults to true when the path is a directory — set to false only to restrict the search to the top-level directory.",
+            "default": true
           },
           "line_numbers": {
             "type": "boolean",
@@ -93,7 +94,7 @@
       }
     },
     {
-      "name": "devtools_write_file",
+      "name": "files_write_file",
       "description": "Write content to a file. Creates the file if it does not exist, overwrites if it does. Parent directories are created automatically if they do not exist.",
       "parameters": {
         "type": "object",
@@ -111,8 +112,8 @@
       }
     },
     {
-      "name": "devtools_write_lines",
-      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Use this instead of devtools_write_file for targeted edits to large files.",
+      "name": "files_write_lines",
+      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Use this instead of files_write_file for targeted edits to large files.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line", "content"],
@@ -137,7 +138,25 @@
       }
     },
     {
-      "name": "devtools_delete_file",
+      "name": "files_append",
+      "description": "Append content to a file. Creates the file if it does not exist. Parent directories are created automatically if they do not exist.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "File path relative to the sandbox root (use ./ prefix)"
+          },
+          "content": {
+            "type": "string",
+            "description": "Content to append to the file"
+          }
+        }
+      }
+    },
+    {
+      "name": "files_delete_file",
       "description": "Delete a file. Refuses to delete directories.",
       "parameters": {
         "type": "object",
@@ -149,23 +168,37 @@
           }
         }
       }
+    },
+    {
+      "name": "files_delete_dir",
+      "description": "Delete an empty directory. Refuses to delete non-empty directories or files.",
+      "parameters": {
+        "type": "object",
+        "required": ["path"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Directory path relative to the sandbox root (use ./ prefix)"
+          }
+        }
+      }
     }
   ],
   "allowlist": {
     "cat": [""],
     "ls": [""],
     "grep": ["", "-E"],
-    "chai": ["file write", "file delete", "file patch", "file read-lines"]
+    "chai": ["file write", "file delete", "file patch", "file read-lines", "file append", "file delete-dir"]
   },
   "execution": [
     {
-      "tool": "devtools_read_file",
+      "tool": "files_read_file",
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }]
     },
     {
-      "tool": "devtools_read_lines",
+      "tool": "files_read_lines",
       "binary": "chai",
       "subcommand": "file read-lines",
       "args": [
@@ -175,7 +208,7 @@
       ]
     },
     {
-      "tool": "devtools_list_dir",
+      "tool": "files_list_dir",
       "binary": "ls",
       "subcommand": "",
       "args": [
@@ -193,7 +226,7 @@
       }
     },
     {
-      "tool": "devtools_search_content",
+      "tool": "files_search_content",
       "binary": "grep",
       "subcommand": "-E",
       "args": [
@@ -223,7 +256,7 @@
       "successExitCodes": [0, 1]
     },
     {
-      "tool": "devtools_write_file",
+      "tool": "files_write_file",
       "binary": "chai",
       "subcommand": "file write",
       "args": [
@@ -235,7 +268,7 @@
       ]
     },
     {
-      "tool": "devtools_write_lines",
+      "tool": "files_write_lines",
       "binary": "chai",
       "subcommand": "file patch",
       "args": [
@@ -249,9 +282,26 @@
       ]
     },
     {
-      "tool": "devtools_delete_file",
+      "tool": "files_append",
+      "binary": "chai",
+      "subcommand": "file append",
+      "args": [
+        { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
+        { "param": "content", "kind": "stdin" }
+      ]
+    },
+    {
+      "tool": "files_delete_file",
       "binary": "chai",
       "subcommand": "file delete",
+      "args": [
+        { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
+      ]
+    },
+    {
+      "tool": "files_delete_dir",
+      "binary": "chai",
+      "subcommand": "file delete-dir",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
       ]

@@ -50,8 +50,9 @@ Each element:
 |-------|------|-------------|
 | `tool` | string | Tool name (must match a `tools[].name`). |
 | `binary` | string | Binary to run (e.g. `notesmd-cli`). Must be a key in `allowlist`. |
-| `subcommand` | string | Subcommand (e.g. `search`). Must be in `allowlist[binary]`. |
+| `subcommand` | string | Subcommand (e.g. `search`). Must be in `allowlist[binary]`. The value is split by whitespace and each token is prepended before the `args` list when building the command. This allows fixed flags to be encoded as part of the subcommand (e.g. `"-E"` for `grep -E`). |
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
+| `successExitCodes` | array of integers (optional) | Exit codes to treat as success (in addition to 0). Use when a non-zero exit is a normal result, not an error (e.g. `[0, 1]` for `grep` where exit 1 means no matches). Exit codes not in this list (and not 0) surface as tool errors. Default: only exit 0 is success. |
 | `postProcess` | object (optional) | Post-process the command's stdout through a script before returning the result to the model. See below. Default: not set. |
 | `sideRead` | object (optional) | After the command (and any `postProcess`) completes, look for a file relative to a path parameter and append its contents to the tool result. Silently skipped when the file is absent. See below. Default: not set. |
 
@@ -62,15 +63,16 @@ Each element:
 | Field | Type | Description |
 |-------|------|-------------|
 | `param` | string | JSON parameter name (e.g. `query`). |
-| `kind` | string | `"positional"`, `"flag"`, or `"flagifboolean"`. Default `positional`. |
+| `kind` | string | `"positional"`, `"flag"`, `"flagifboolean"`, or `"stdin"`. Default `positional`. `"stdin"` pipes the parameter value to the child process's stdin instead of passing it as a CLI argument. Required for any parameter that may contain multiline content — `kind: "flag"` causes `clap` to break on newlines. Only one `stdin` arg is allowed per execution spec. |
 | `flag` | string (optional) | For `kind: "flag"`, the flag name (e.g. `content` → `--content`). If absent, uses `param`. For `flag`, if the parameter is missing or null, the flag and value are omitted (optional params). |
 | `flagIfTrue` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is true (e.g. `"--overwrite"`). |
 | `flagIfFalse` | string (optional) | For `kind: "flagifboolean"`, the flag to emit when the param is false (e.g. `"--append"`). |
 | `resolveCommand` | object (optional) | Resolve the param value by running a **script** or an **allowlisted command**; trimmed stdout becomes the new value. On failure or empty stdout, the original value is kept. See below. Default: not set. |
-| `optional` | boolean (optional) | When `true`, a missing or null JSON parameter is omitted from argv. Exception: for `positional` with `resolveCommand` set, a missing parameter is passed to the resolver as an empty string so the resolver can still produce a value (e.g. default paths). Default: not set (required). |
+| `optional` | boolean (optional) | When `true`, a missing or null JSON parameter is omitted from argv. Exception: when `resolveCommand` is set, a missing parameter is passed to the resolver as an empty string so the resolver can still produce a value (e.g. default paths). This applies to both `kind: "positional"` and `kind: "flag"`. Default: not set (required). |
 | `disambiguateAfterSkippedPositionals` | boolean (optional) | For `kind: "positional"` only: when `true`, the executor inserts `--` before this argument's value if any earlier optional positional in the same `args` list was skipped. Use when a path must be disambiguated from an omitted ref (e.g. `git diff`). Default: not set. |
 | `writePath` | boolean (optional) | When `true`, this parameter is a filesystem write target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Only applies to `positional` and `flag` kinds (not `flagifboolean`). Default: not set. See **[epic/WRITE_SANDBOX.md](../epic/WRITE_SANDBOX.md)**. |
 | `readPath` | boolean (optional) | When `true`, this parameter is a filesystem read target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Only applies to `positional` and `flag` kinds (not `flagifboolean`). Default: not set. See **[epic/WRITE_SANDBOX.md](../epic/WRITE_SANDBOX.md)**. |
+| `normalizeNewlines` | boolean (optional) | **Deprecated — do not use.** Previously performed a second decode of `\n`/`\t` escape sequences after `serde_json` had already decoded them, causing a double-decode bug that corrupted written content. The field is retained in the schema for backward compatibility but should never be set to `true`. |
 
 #### `resolveCommand` (object)
 
@@ -134,7 +136,7 @@ Appends a file's contents to the tool result when the file exists. After the mai
 
 ```json
 {
-  "tool": "devtools_list_dir",
+  "tool": "files_list_dir",
   "binary": "ls",
   "subcommand": "",
   "args": [
@@ -206,4 +208,7 @@ One tool, one positional argument:
 - **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
 - **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill's `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
 - **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's stdout to the post-processor's stdin and returns the post-processor's stdout instead. On failure or empty output, the original stdout is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).
-- **Side reads**: When `sideRead` is set on an execution spec, the executor appends the named file's contents (relative to the resolved path parameter) to the tool result after `postProcess`. The file is read from disk without going through the allowlist. When `oncePerSession` is `true`, the executor maintains a per-session seen set (keyed by session id and resolved path) and skips re-appending the same file. Silently skipped when the file is absent, empty, or the filename fails the traversal check.
+- **Side reads**: When `sideRead` is set on an execution spec, the executor appends the named file's contents (relative to the resolved path parameter) to the tool result after `postProcess`. The file is read from disk without going through the allowlist. When `oncePerSession` is `true`, the executor maintains a per-session seen set (keyed by session id and resolved path) and skips re-appending the same file. Silently skipped when the file is absent, empty, or the filename fails the traversal check. The `pathParam` value used for both file lookup and `oncePerSession` deduplication is the canonical (absolute, symlink-resolved) path, ensuring correct behavior regardless of whether the caller provides a relative or absolute path.
+- **Stdin validation**: When a `kind: "stdin"` parameter is required (no `optional: true`), `extract_stdin_content` validates that the parameter is present and non-null in the tool call arguments. Missing required stdin params produce an error ("missing required parameter: {param}") instead of silently falling through to the no-stdin code path.
+- **Stdin pipe scoping**: All sites that write to a child process's stdin pipe use `child.stdin.take().ok_or_else(...)` with a block scope that drops the pipe before calling `wait_with_output()`. This guarantees (1) the child sees EOF on stdin before the parent waits, and (2) pipe unavailability surfaces as an error rather than being silently skipped.
+- **Resolve script idempotency**: `resolveCommand` scripts are invoked twice for `writePath`/`readPath` parameters — first in `validate_write_paths()` (result canonicalized and substituted into args), then again in `build_argv()` on the already-resolved value. Scripts that prepend a root path must check whether the input is already absolute and return it unchanged. The idempotent pattern is: `case "$path" in /*) echo "$path"; exit 0 ;; esac`.
