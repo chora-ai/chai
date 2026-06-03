@@ -2,6 +2,8 @@
 
 **Goal:** Confirm a **user-run** signal-cli **HTTP daemon** is reachable, the gateway consumes **`receive`** events from **`GET /api/v1/events`**, and agent replies are sent via **`POST /api/v1/rpc`** (**`send`**).
 
+**Background:** [Connections → Signal](../guides/04-connections.md#signal) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
+
 Chai **does not** install signal-cli. Install it from [upstream](https://github.com/AsamK/signal-cli) and register your number separately. Policy: **`.agents/adr/SIGNAL_CLI_INTEGRATION.md`**.
 
 ## Prerequisites

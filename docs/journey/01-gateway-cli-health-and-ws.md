@@ -2,6 +2,8 @@
 
 **Goal:** Run the gateway from the CLI and verify HTTP health and WebSocket connect/handshake.
 
+**Background:** [Configuration](../guides/03-configuration.md)
+
 ## Prerequisites
 
 - Built project: `cargo build`

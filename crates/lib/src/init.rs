@@ -1,5 +1,5 @@
-//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config and `agents/<orchestratorId>/AGENT.md`.
-//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENT.md`**.
+//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config, `sandbox/` (seeded from templates), and `agents/<orchestratorId>/AGENT.md`.
+//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENT.md`**, **`config/profiles/<name>/sandbox/`**.
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
@@ -21,6 +21,39 @@ fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
         )),
         _ => anyhow::bail!(
             "no bundled AGENT.md template for profile {:?}",
+            profile_name
+        ),
+    }
+}
+
+/// Bundled sandbox template files for a profile.
+///
+/// Returns `[(relative_path, contents)]` for each file in
+/// `config/profiles/<name>/sandbox/`.
+fn bundled_sandbox_templates(profile_name: &str) -> Result<Vec<(&'static str, &'static [u8])>> {
+    match profile_name {
+        "assistant" => Ok(vec![
+            (
+                "AGENTS.md",
+                include_bytes!("../config/profiles/assistant/sandbox/AGENTS.md"),
+            ),
+            (
+                "README.md",
+                include_bytes!("../config/profiles/assistant/sandbox/README.md"),
+            ),
+        ]),
+        "developer" => Ok(vec![
+            (
+                "AGENTS.md",
+                include_bytes!("../config/profiles/developer/sandbox/AGENTS.md"),
+            ),
+            (
+                "README.md",
+                include_bytes!("../config/profiles/developer/sandbox/README.md"),
+            ),
+        ]),
+        _ => anyhow::bail!(
+            "no bundled sandbox templates for profile {:?}",
             profile_name
         ),
     }
@@ -75,6 +108,28 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
             "wrote default AGENT.md to {}",
             orchestrator_agents.display()
         );
+    }
+
+    let sandbox_dir = profile_dir.join("sandbox");
+    if !sandbox_dir.exists() {
+        std::fs::create_dir_all(&sandbox_dir).with_context(|| {
+            format!("creating sandbox directory {}", sandbox_dir.display())
+        })?;
+        log::info!("created sandbox directory at {}", sandbox_dir.display());
+    }
+
+    // Seed sandbox template files from the profile config if they do not
+    // already exist.  This mirrors the AGENT.md seeding pattern above.
+    for (rel_path, contents) in bundled_sandbox_templates(profile_name)? {
+        let dest = sandbox_dir.join(rel_path);
+        if !dest.exists() {
+            if let Some(parent) = dest.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(&dest, contents)
+                .with_context(|| format!("writing sandbox template {}", dest.display()))?;
+            log::info!("seeded sandbox template at {}", dest.display());
+        }
     }
 
     Ok(())

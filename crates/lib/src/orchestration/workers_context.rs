@@ -49,31 +49,12 @@ pub fn build_workers_context(agents: &AgentsConfig, skill_catalog: &[SkillEntry]
         skill_catalog.iter().map(|e| (e.name.as_str(), e)).collect();
 
     let mut out = String::new();
-    out.push_str("## Agents\n\n");
-    out.push_str("You are the orchestrator agent.\n");
-    out.push_str("You have one or more worker agents.\n\n");
-    out.push_str("### Orchestration\n\n");
-    out.push_str("You have a unique skill: orchestration.\n");
-    out.push_str("This skill has one tool: `delegate_task`.\n");
-    out.push_str("You can use this tool to delegate a task to a worker.\n");
-    out.push_str(
-        "When you delegate a task to a worker, the worker attempts to complete the task.\n",
-    );
-    out.push_str(
-        "When a worker completes a task, the worker responds to you and you respond to the user.\n",
-    );
-    out.push_str(
-        "If a worker fails to complete a task, you can try again before responding to the user.\n",
-    );
-    out.push_str("Example tool call: {\"\":\"\"}.\n\n");
-    out.push_str("### Workers\n\n");
-    out.push_str("Each worker may have one or more skills.\n");
-    out.push_str("Each worker may have one or more provider/model pairs.\n");
-    out.push_str(
-        "Available workers, their skills, and their provider/model pairs are listed below.\n\n",
-    );
+    out.push_str("## Workers\n\n");
+    out.push_str("You are the orchestrator agent. You have worker agents. You can:\n\n");
+    out.push_str("- call `delegate_task` to delegate a task to a worker agent\n\n");
+    out.push_str("The worker agent will do the task following your instruction.\n\n");
     for w in workers {
-        line_for_worker(&mut out, agents, w, &skill_by_name);
+        lines_for_worker(&mut out, agents, w, &skill_by_name);
     }
     out
 }
@@ -158,7 +139,7 @@ fn single_line_skill_description(description: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn line_for_worker(
+fn lines_for_worker(
     out: &mut String,
     agents: &AgentsConfig,
     w: &WorkerConfig,
@@ -168,35 +149,36 @@ fn line_for_worker(
     if id.is_empty() {
         return;
     }
-    out.push_str("#### ");
+    out.push_str("### ");
     out.push_str(id);
     out.push_str("\n\n");
-    out.push_str("id: `");
+    out.push_str("workerId: `");
     out.push_str(id);
-    out.push_str("`\n");
+    out.push_str("`\n\n");
 
     let pairs = usable_delegate_pairs_for_worker(agents, w);
     for (i, (p, m)) in pairs.iter().enumerate() {
         if i > 0 {
             out.push_str("\n");
         }
-        out.push_str("provider/model: `");
+        out.push_str("This worker has the following provider/model pairs:\n\n");
+        out.push_str("- provider: `");
         out.push_str(p);
-        out.push_str("`/`");
+        out.push_str("` / ");
+        out.push_str("model: `");
         out.push_str(m);
         out.push_str("`");
     }
-    out.push_str("\n");
+    out.push_str("\n\n");
 
     let names = worker_skills_enabled_list(w);
     if !names.is_empty() {
         for (i, name) in names.iter().enumerate() {
             if i > 0 {
-                out.push_str("; ");
+                out.push_str("\n");
             }
-            out.push_str("skill: `");
-            out.push_str(name.trim());
-            out.push_str("` — ");
+            out.push_str("This worker can perform the following tasks:\n\n");
+            out.push_str("- ");
             match skill_by_name.get(name.as_str()) {
                 Some(entry) => {
                     out.push_str(&single_line_skill_description(&entry.description));
@@ -249,8 +231,7 @@ mod tests {
         assert!(s.contains("You are the orchestrator agent"));
         assert!(s.contains("bob"));
         assert!(s.contains("ollama"));
-        assert!(s.contains("provider/model:"));
-        assert!(s.contains("`ollama`/`llama3.2:latest`"));
+        assert!(s.contains("provider: `ollama` / model: `llama3.2:latest`"));
     }
 
     #[test]
@@ -317,8 +298,8 @@ mod tests {
             model_variant_of: None,
         }];
         let s = build_workers_context(&a, &catalog);
-        assert!(s.contains("`my-skill` — does a thing"));
-        assert!(s.contains("provider/model: `ollama`/`m-a`"));
-        assert!(s.contains("provider/model: `lms`/`m-b`"));
+        assert!(s.contains("provider: `ollama` / model: `m-a`"));
+        assert!(s.contains("provider: `lms` / model: `m-b`"));
+        assert!(s.contains("- does a thing"));
     }
 }

@@ -1,12 +1,12 @@
 ---
-status: in-progress
+status: complete
 ---
 
 # Epic: Write Sandbox (Per-Profile Path Boundary Enforcement)
 
 **Summary** — A **per-profile write sandbox** at **`<profileRoot>/sandbox/`** restricts where skill tools may write when parameters are marked **`writePath`** in `tools.json`. The executor validates resolved values against **writable roots** (the sandbox directory plus canonicalized targets of direct-child symlinks) before running the command. Together with the allowlist (which controls *what* runs), the sandbox controls *where* path-argument writes go. **`ln`** is never allowlisted; symlink creation stays a user action, so each symlink is declarative authorization.
 
-**Status** — **In progress.** Core runtime enforcement is **implemented** (`WriteSandbox`, `writePath` on arg mappings, generic executor validation, optional CWD on allowlisted exec, gateway wiring, [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). **Remaining:** create **`sandbox/`** during **`chai init`**, document the directory in profile layout / user-facing docs where appropriate, and ship **write-capable skill tools** that actually set `writePath` (see **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)**). Binary-mediated writes are still outside sandbox path validation by design.
+**Status** — **Complete.** Core runtime enforcement is **implemented** (`WriteSandbox`, `writePath` on arg mappings, generic executor validation, optional CWD on allowlisted exec, gateway wiring, [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md)). Rollout items are **done**: **`chai init`** creates **`sandbox/`** per profile seeded with template files (**`AGENTS.md`**, **`README.md`**) from the bundled profile config, the sandbox is documented in the user guides ([07-sandbox.md](../../docs/guides/07-sandbox.md)) and configuration reference, and bundled skills ship with **`writePath: true`** tools (see **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)**). Binary-mediated writes are outside sandbox path validation by design.
 
 ## Problem Statement
 
@@ -33,12 +33,9 @@ The allowlist enforces the **action dimension** (command identity). The sandbox 
 - **`ChaiPaths::sandbox_dir`** ([`profile.rs`](../../crates/lib/src/profile.rs)) — `profile_dir.join("sandbox")`.
 - **Gateway** ([`server.rs`](../../crates/lib/src/gateway/server.rs)) — builds `WriteSandbox::new(&paths.sandbox_dir())` when the directory exists; passes it into `GenericToolExecutor::from_descriptors` for each agent.
 - **Spec** — [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) documents **`writePath`**.
-
-### Not Done Yet
-
-- **`chai init`** does not create an empty **`sandbox/`** per profile (users can mkdir or symlink manually).
-- **Profile / user docs** — ensure `sandbox/` is described wherever the profile tree is explained (e.g. [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md), root [README.md](../../README.md) if needed).
-- **Bundled skills** — no shipped tool yet uses **`writePath: true`**; read-only variants remain the default until **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)** adds write tools.
+- **`chai init`** ([`init.rs`](../../crates/lib/src/init.rs)) — creates **`sandbox/`** per profile during initialization, seeded with template files (**`AGENTS.md`**, **`README.md`**) from **`config/profiles/<name>/sandbox/`**.
+- **User docs** — [07-sandbox.md](../../docs/guides/07-sandbox.md) documents the sandbox model, writable roots, symlink-as-authorization, and limitations; [03-configuration.md](../../docs/guides/03-configuration.md) mentions `sandbox/` in the profile directory listing.
+- **Bundled skills** — multiple skills ship **`writePath: true`** tools: `files` (write, append, delete, delete-dir, write-lines), `kb` (write, append, delete), `kb-frontmatter` (edit, delete), `kb-daily` (write, append), `kb-wikilink-write` (rename), `git-remote` (clone). See **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)**.
 
 ## Scope
 
@@ -52,10 +49,8 @@ The allowlist enforces the **action dimension** (command identity). The sandbox 
 | **CWD on allowlisted exec** | Done |
 | **Gateway + `sandbox_dir()`** | Done |
 | **`writePath` in TOOLS_SCHEMA** | Done |
-| **Layout / init docs + `chai init` `sandbox/`** | Pending |
-| **Write tools in bundled skills** | Pending (tracked under BUNDLED_SKILLS) |
-
-### Out of Scope
+| **Layout / init docs + `chai init` `sandbox/`** | Done |
+| **Write tools in bundled skills** | Done (tracked under BUNDLED_SKILLS) |
 
 - **Binary-mediated write validation** — binaries that resolve write targets internally (e.g., `chai skill write-*`, `notesmd-cli create`) are not subject to sandbox path validation. Their write safety depends on the binary itself. See **Two Categories of Write Operations** below.
 - **Per-agent sandbox isolation** — all agents within a profile share one sandbox. Per-agent subdirectories are deferred until a concrete use case demonstrates the need.
@@ -64,7 +59,7 @@ The allowlist enforces the **action dimension** (command identity). The sandbox 
 ## Dependencies
 
 - **[RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)** — `profileRoot`, `ChaiPaths` — **complete**; **`sandbox/`** is the write-boundary directory under each profile.
-- **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — per-agent executor setup — **complete**; each agent’s `GenericToolExecutor` receives the same profile sandbox instance.
+- **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** — per-agent executor setup — **complete**; each agent's `GenericToolExecutor` receives the same profile sandbox instance.
 
 ## Design
 
@@ -195,9 +190,9 @@ This grants the agent write access to its own context through the same path-argu
 - [x] **`ChaiPaths::sandbox_dir`** — returns `profile_dir.join("sandbox")`.
 - [x] **Spec** — [TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) documents **`writePath`**.
 - [x] **Tests** — Unit tests for `WriteSandbox` in [`exec.rs`](../../crates/lib/src/exec.rs) (`sandbox_tests`).
-- [ ] **`chai init`** — create **`sandbox/`** under each new profile (optional empty dir).
-- [ ] **Documentation** — profile tree mentions **`sandbox/`** where profiles are described for users.
-- [ ] **Bundled write tools** — skills that use **`writePath: true`** (see **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)**).
+- [x] **`chai init`** — create **`sandbox/`** under each new profile, seeded with template files (**`AGENTS.md`**, **`README.md`**) from **`config/profiles/<name>/sandbox/`**.
+- [x] **Documentation** — [07-sandbox.md](../../docs/guides/07-sandbox.md) user guide; [03-configuration.md](../../docs/guides/03-configuration.md) profile directory listing.
+- [x] **Bundled write tools** — skills that use **`writePath: true`** (see **[BUNDLED_SKILLS.md](BUNDLED_SKILLS.md)**).
 
 ## Technical Reference
 
@@ -218,13 +213,12 @@ This grants the agent write access to its own context through the same path-argu
 | **1** | **Core sandbox** — `WriteSandbox`, writable roots, `validate()`, unit tests | Done |
 | **2** | **Schema + executor** — `writePath` on `ArgMapping`, validation in `GenericToolExecutor`, CWD on `Allowlist::run()` | Done |
 | **3** | **Gateway + spec** — Wire sandbox at startup, `sandbox_dir()`, TOOLS_SCHEMA | Done |
-| **4** | **Rollout** — `chai init`, profile docs, bundled skills with `writePath` | Pending |
+| **4** | **Rollout** — `chai init`, profile docs, bundled skills with `writePath` | Done |
 
 ## Open Questions
 
 - **Per-agent isolation** — Should agents within a profile get isolated sandbox subdirectories? Deferred until a use case demonstrates the need. The concern: a smaller model might write to the wrong file in a shared sandbox. The mitigant: the skill's tool schema constrains what the model knows about; the allowlist constrains what operations are possible; the sandbox constrains where writes land. Three layers, and the first two are mechanical.
 - **Recursive symlink scanning** — Should symlinks inside subdirectories of `sandbox/` also grant write access? Current design says no — only direct children. This keeps the authorization surface flat and auditable. Revisit if users need to grant access to trees of related directories.
-- **`sandbox/` in `chai init`** — Create an empty `sandbox/` directory in each profile on init? Straightforward follow-up.
 
 ## Related Epics and Docs
 

@@ -12,11 +12,7 @@ generated_from:
 
 # RSS Feed Monitor
 
-Fetch and read RSS/Atom feeds for monitoring information sources. Feeds are
-configured in `rss-feeds.txt` in the active profile's sandbox directory with
-one entry per line in `name|url` format. The orchestrator can modify this file
-via `files_write_file`; worker agents with only the `rss` skill can read
-and fetch but not modify.
+Fetch and read RSS/Atom feeds for monitoring information sources. Feeds are configured in `rss-feeds.txt` in the active profile's sandbox directory with one entry per line in `name|url` format.
 
 ## Prerequisites
 

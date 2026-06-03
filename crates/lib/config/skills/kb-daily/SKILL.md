@@ -12,12 +12,9 @@ generated_from:
 
 # Knowledge Base Daily Notes
 
-Read, write, and append to daily notes with automatic date-based path
-resolution. Daily notes are stored in a configurable folder within the knowledge
-base (default: `00-daily/`).
+Read, write, and append to daily notes with automatic date-based path resolution. Daily notes are stored in a configurable folder within the knowledge base (default: `00-daily/`).
 
-The daily notes folder is configured via `.kb-daily.conf` in the knowledge base
-root. If no configuration exists, the default folder `00-daily` is used.
+The daily notes folder is configured via `.kb-daily.conf` in the knowledge base root. If no configuration exists, the default folder `00-daily` is used.
 
 ## Skill Directives
 
@@ -45,18 +42,15 @@ root. If no configuration exists, the default folder `00-daily` is used.
 
 ### Create today's daily note
 
-1. Call `kb_daily_write` with `content` including YAML frontmatter and the
-   note body. Omit `date` to target today.
+1. Call `kb_daily_write` with `content` including YAML frontmatter and the note body. Omit `date` to target today.
 
 ### Add content to today's daily note
 
-1. Call `kb_daily_append` with `content` set to the text to add. Omit `date`
-   to target today. The content is appended to the end of the file.
+1. Call `kb_daily_append` with `content` set to the text to add. Omit `date` to target today. The content is appended to the end of the file.
 
 ### Add insights from a session
 
-1. Call `kb_daily_append` with a formatted insights section. This avoids
-   reading and rewriting the full daily note.
+1. Call `kb_daily_append` with a formatted insights section. This avoids reading and rewriting the full daily note.
 
 ## Configuration
 

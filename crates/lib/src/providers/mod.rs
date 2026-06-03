@@ -17,8 +17,8 @@ pub use hf::{HfClient, HfError, HfModel};
 pub use lms::{LmsClient, LmsError, LmsModel};
 pub use nim::{NimClient, NimError, NimModel};
 pub use ollama::{
-    ChatMessage, ChatResponse, OllamaClient, OllamaError, OllamaModel, ToolCall, ToolCallFunction,
-    ToolDefinition, ToolFunctionDefinition,
+    ChatMessage, ChatResponse, FinishReason, OllamaClient, OllamaError, OllamaModel, ToolCall,
+    ToolCallFunction, ToolDefinition, ToolFunctionDefinition, Usage,
 };
 pub use openai::{OpenAiClient, OpenAiError, OpenAiModel};
 pub use vllm::{VllmClient, VllmError, VllmModel};

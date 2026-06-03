@@ -1,6 +1,8 @@
 use std::sync::mpsc;
 use std::time::Duration;
 
+use eframe::egui;
+
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -8,11 +10,13 @@ use lib::orchestration::{
     EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 
+
 use super::super::{ChaiApp, ChatMessage, SessionEvent};
 
-/// Last timeline row that is not an orchestration delegation line (used so RPC + WebSocket do not duplicate the same assistant turn).
+/// Last timeline row that is not an orchestration delegation line, tool event, or assistant thinking row
+/// (used so RPC + WebSocket do not duplicate the same assistant turn).
 pub(crate) fn last_non_delegation(messages: &[ChatMessage]) -> Option<&ChatMessage> {
-    messages.iter().rev().find(|m| m.role != "delegation")
+    messages.iter().rev().find(|m| m.role != "delegation" && m.role != "tool_call" && m.role != "tool_result" && m.role != "assistant_progress")
 }
 
 /// Same assistant turn as already shown (same content and tool_calls), ignoring delegation rows in between.
@@ -159,6 +163,95 @@ impl ChaiApp {
                 self.move_session_to_front(&session_id);
                 continue;
             }
+            // Handle streamed tool events: tool_call adds a new row, tool_result
+            // updates the matching tool_call row with the result.
+            if ev.role == "tool_call" {
+                // Check for duplicate tool_call within the current turn (can happen on reconnect).
+                // Only check entries after the last user message, since tool_index resets
+                // per turn and would falsely match entries from previous turns.
+                let turn_start = entry
+                    .iter()
+                    .rposition(|m| m.role == "user")
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                let is_dup = entry[turn_start..].iter().any(|m| {
+                    m.role == "tool_call"
+                        && m.tool_index == ev.tool_index
+                        && m.tool_name == ev.tool_name
+                });
+                log::debug!(
+                    "tool_call event: session={}, name={:?}, index={:?}, is_dup={}, entry_len={}",
+                    session_id, ev.tool_name, ev.tool_index, is_dup, entry.len()
+                );
+                if !is_dup {
+                    entry.push(crate::app::ChatMessage {
+                        role: ev.role.clone(),
+                        content: ev.content.clone(),
+                        tool_calls: ev.tool_calls.clone(),
+                        tool_results: ev.tool_results.clone(),
+                        delegation_event: ev.delegation_event.clone(),
+                        tool_name: ev.tool_name.clone(),
+                        tool_args: ev.tool_args.clone(),
+                        tool_result: None,
+                        tool_index: ev.tool_index,
+                    });
+                }
+                self.session_meta
+                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.move_session_to_front(&session_id);
+                continue;
+            }
+            if ev.role == "tool_result" {
+                // Find the matching tool_call entry by index and fill in the result.
+                // Use rev().find() to match the most recent entry with a given index,
+                // since tool_index resets per turn and older entries may share the same index.
+                log::debug!(
+                    "tool_result event: session={}, name={:?}, index={:?}, has_result={}, entry_len={}",
+                    session_id, ev.tool_name, ev.tool_index, ev.tool_result.is_some(), entry.len()
+                );
+                if let Some(idx) = ev.tool_index {
+                    let found = entry.iter_mut().rev().find(|m| {
+                        m.role == "tool_call" && m.tool_index == Some(idx)
+                    });
+                    if let Some(tc) = found {
+                        log::debug!(
+                            "tool_result MATCHED: index={}, name={:?}",
+                            idx, tc.tool_name
+                        );
+                        tc.tool_result = ev.tool_result.clone();
+                        self.session_meta
+                            .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                        self.move_session_to_front(&session_id);
+                        continue;
+                    } else {
+                        log::debug!(
+                            "tool_result NO MATCH: index={}, tool_call entries: {:?}",
+                            idx,
+                            entry.iter()
+                                .filter(|m| m.role == "tool_call")
+                                .map(|m| (m.tool_index, m.tool_name.clone()))
+                                .collect::<Vec<_>>()
+                        );
+                    }
+                }
+                // No matching tool_call found — push as standalone result entry.
+                log::debug!("tool_result pushing standalone entry");
+                entry.push(crate::app::ChatMessage {
+                    role: ev.role.clone(),
+                    content: ev.content.clone(),
+                    tool_calls: ev.tool_calls.clone(),
+                    tool_results: ev.tool_results.clone(),
+                    delegation_event: ev.delegation_event.clone(),
+                    tool_name: ev.tool_name.clone(),
+                    tool_args: None,
+                    tool_result: ev.tool_result.clone(),
+                    tool_index: ev.tool_index,
+                });
+                self.session_meta
+                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.move_session_to_front(&session_id);
+                continue;
+            }
             // Skip if this is a duplicate of the last message (e.g. echo of our own turn from start_chat_turn + poll_chat_turn).
             if let Some(last) = entry.last() {
                 if last.role == ev.role && last.content == ev.content {
@@ -171,6 +264,9 @@ impl ChaiApp {
             // Assistant from session.message broadcast can duplicate the RPC reply when delegation
             // rows were appended in between (last != assistant). Match against last non-delegation row.
             if ev.role == "assistant" && ev.delegation_event.is_none() {
+                // If streamed tool_call entries already exist for this turn,
+                // clear tool_calls/tool_results so the inline fallback doesn't duplicate.
+                let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
                 if let Some(prev) = last_non_delegation(entry.as_slice()) {
                     if is_duplicate_assistant_row(prev, &ev.role, &ev.content, &ev.tool_calls) {
                         if let Some(existing) = entry.iter_mut().find(|m| {
@@ -190,6 +286,11 @@ impl ChaiApp {
                                     }
                                 }
                             }
+                            // Clear inline tool calls when streamed events exist.
+                            if has_streamed_tools {
+                                existing.tool_calls = None;
+                                existing.tool_results = None;
+                            }
                         }
                         self.session_meta
                             .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
@@ -198,13 +299,24 @@ impl ChaiApp {
                     }
                 }
             }
-            entry.push(crate::app::ChatMessage {
+            // When pushing any non-tool-event message, clear tool_calls/tool_results
+            // on assistant messages if streamed tool events already exist.
+            let mut ev_msg = crate::app::ChatMessage {
                 role: ev.role.clone(),
                 content: ev.content.clone(),
                 tool_calls: ev.tool_calls.clone(),
                 tool_results: ev.tool_results.clone(),
                 delegation_event: ev.delegation_event.clone(),
-            });
+                tool_name: ev.tool_name.clone(),
+                tool_args: ev.tool_args.clone(),
+                tool_result: ev.tool_result.clone(),
+                tool_index: ev.tool_index,
+            };
+            if ev.role == "assistant" && entry.iter().any(|m| m.role == "tool_call") {
+                ev_msg.tool_calls = None;
+                ev_msg.tool_results = None;
+            }
+            entry.push(ev_msg);
             self.session_meta
                 .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
             self.move_session_to_front(&session_id);
@@ -212,7 +324,8 @@ impl ChaiApp {
     }
 
     /// Ensure the background session.events listener is running when the gateway is up.
-    pub(crate) fn ensure_session_events_listener(&mut self, running: bool) {
+    /// The `ctx` is used to request repaints when events arrive, so the UI updates immediately.
+    pub(crate) fn ensure_session_events_listener(&mut self, running: bool, ctx: egui::Context) {
         if !running {
             self.session_events_receiver = None;
             return;
@@ -227,14 +340,14 @@ impl ChaiApp {
                 // Retry loop: if connection fails, wait a bit and retry
                 let mut retry_count = 0;
                 loop {
-                    match run_session_events_loop(tx_clone.clone()) {
+                    match run_session_events_loop(tx_clone.clone(), ctx.clone()) {
                         Err(e) => {
                             retry_count += 1;
                             // Exponential backoff, max 10 seconds
                             let delay = std::cmp::min(2_u64.pow(retry_count.min(3)), 10);
                             // Only log errors occasionally to avoid spam
                             if retry_count <= 3 || retry_count % 10 == 0 {
-                                eprintln!(
+                                log::error!(
                                     "session events listener error: {}, retrying in {}s (attempt {})",
                                     e, delay, retry_count
                                 );
@@ -255,7 +368,8 @@ impl ChaiApp {
 }
 
 /// Listen for session.message events from the gateway and forward them via an mpsc channel.
-fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String> {
+/// After forwarding each event, requests a UI repaint via `ctx` so the desktop shows updates immediately.
+fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -> Result<(), String> {
     let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -445,8 +559,13 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
                                 tool_calls,
                                 tool_results,
                                 delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
                             };
                             let _ = tx.send(ev);
+                            ctx.request_repaint();
                         }
                     } else if matches!(
                         event_name,
@@ -475,8 +594,95 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>) -> Result<(), String>
                                 tool_calls: None,
                                 tool_results: None,
                                 delegation_event: Some(event_name.to_string()),
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
                             };
                             let _ = tx.send(ev);
+                            ctx.request_repaint();
+                        }
+                    } else if event_name == "session.tool_call" || event_name == "session.tool_result" {
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let Some(session_id) = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                            else {
+                                continue;
+                            };
+                            let tool_name = data
+                                .get("toolName")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let tool_args = data.get("toolArgs").cloned();
+                            let tool_result = data
+                                .get("toolResult")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            let tool_index = data
+                                .get("index")
+                                .and_then(|v| v.as_u64())
+                                .map(|i| i as usize);
+                            let role = if event_name == "session.tool_call" {
+                                "tool_call"
+                            } else {
+                                "tool_result"
+                            };
+                            let ev = SessionEvent {
+                                session_id: session_id.to_string(),
+                                role: role.to_string(),
+                                content: String::new(),
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name,
+                                tool_args,
+                                tool_result,
+                                tool_index,
+                            };
+                            let _ = tx.send(ev);
+                            ctx.request_repaint();
+                        }
+                    } else if event_name == "session.assistant_progress" {
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let Some(session_id) = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                            else {
+                                continue;
+                            };
+                            let content = data
+                                .get("content")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("")
+                                .to_string();
+                            if content.trim().is_empty() {
+                                continue;
+                            }
+                            let ev = SessionEvent {
+                                session_id: session_id.to_string(),
+                                role: "assistant_progress".to_string(),
+                                content,
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
+                            };
+                            let _ = tx.send(ev);
+                            ctx.request_repaint();
                         }
                     }
                 }

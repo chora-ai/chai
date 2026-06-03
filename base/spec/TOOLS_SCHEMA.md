@@ -121,8 +121,11 @@ Appends a file's contents to the tool result when the file exists. After the mai
 ```
 <main tool output>
 
---- AGENTS.md ---
+--- AGENTS.md (BOF) ---
+
 <file contents>
+
+--- AGENTS.md (EOF) ---
 ```
 
 **Design notes:**

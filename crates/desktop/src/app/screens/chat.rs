@@ -38,12 +38,21 @@ fn render_chat_message(
     orchestrator_id: &str,
 ) {
     let is_user = m.role == "user";
+    let is_assistant = m.role == "assistant";
+    let is_assistant_progress = m.role == "assistant_progress";
     let is_error = m.role == "error";
     let is_delegation = m.delegation_event.is_some();
+    let is_tool_call = m.role == "tool_call";
+    let is_tool_result = m.role == "tool_result";
+
     let frame = egui::Frame::none()
         .fill(if is_user {
             ui.style().visuals.extreme_bg_color
         } else if is_delegation {
+            ui.style().visuals.faint_bg_color
+        } else if is_tool_call || is_tool_result {
+            ui.style().visuals.faint_bg_color
+        } else if is_assistant || is_assistant_progress {
             ui.style().visuals.faint_bg_color
         } else {
             ui.style().visuals.panel_fill
@@ -53,7 +62,11 @@ fn render_chat_message(
             if is_error {
                 egui::Color32::RED
             } else if is_delegation {
-                egui::Color32::from_rgb(90, 110, 140)
+                egui::Color32::from_rgb(70, 70, 90)
+            } else if is_tool_call || is_tool_result {
+                egui::Color32::from_rgb(70, 90, 70)
+            } else if is_assistant || is_assistant_progress {
+                egui::Color32::from_rgb(70, 90, 70)
             } else {
                 ui.style().visuals.widgets.noninteractive.bg_stroke.color
             },
@@ -76,64 +89,85 @@ fn render_chat_message(
                     .italics()
                     .color(accent),
             );
+        } else if is_tool_call {
+            // Streamed tool call — rendered as a separate timeline entry.
+            let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
+            let has_result = m.tool_result.is_some();
+            let status_icon = if has_result { "✅" } else { "⚙️" };
+            let label = format!("🔧 {} {}", tool_name, status_icon);
+            egui::CollapsingHeader::new(label)
+                .id_source(format!("tool_call_{}_{}", index, m.tool_index.unwrap_or(index)))
+                .default_open(false)
+                .show(ui, |ui| {
+                    if let Some(ref args) = m.tool_args {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("Arguments:").small().weak(),
+                        );
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new(
+                                serde_json::to_string_pretty(args)
+                                    .unwrap_or_else(|_| args.to_string()),
+                            )
+                            .small()
+                            .monospace(),
+                        );
+                    }
+                    if let Some(ref result) = m.tool_result {
+                        ui.add_space(8.0);
+                        ui.label(
+                            egui::RichText::new("Result:").small().weak(),
+                        );
+                        ui.add_space(8.0);
+                        let shown = format_tool_content_display(result);
+                        ui.label(
+                            egui::RichText::new(shown)
+                            .small()
+                            .monospace(),
+                        );
+                    }
+                });
+        } else if is_tool_result {
+            // Standalone tool result (shouldn't normally appear — results are
+            // merged into the tool_call entry — but handle gracefully).
+            let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
+            ui.add_space(8.0);
+            ui.label(
+                egui::RichText::new(format!("🔧 {} ✅", tool_name))
+                    .small(),
+            );
+            if let Some(ref result) = m.tool_result {
+                ui.add_space(8.0);
+                let shown = format_tool_content_display(result);
+                ui.label(egui::RichText::new(shown).small().monospace());
+            }
+        } else if is_assistant_progress {
+            // Intermediate message from the model during tool loop iterations.
+            // This is content the model produced alongside tool calls that would
+            // otherwise be invisible to the user.
+            ui.label(egui::RichText::new(orchestrator_id).small().weak());
+            ui.add_space(8.0);
+            ui.label(&m.content);
         } else if is_user {
             ui.label(egui::RichText::new(user_display).small().weak());
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.label(egui::RichText::new(&m.content).strong());
         } else if is_error {
             ui.label(egui::RichText::new("error").small().weak());
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.label(
                 egui::RichText::new(&m.content)
                     .strong()
                     .color(egui::Color32::RED),
             );
-        } else {
+        } else if is_assistant {
+            // Assistant message — show text content only.
             ui.label(egui::RichText::new(orchestrator_id).small().weak());
-            ui.add_space(4.0);
+            ui.add_space(8.0);
             ui.label(&m.content);
-            if let Some(ref tool_calls) = m.tool_calls {
-                if !tool_calls.is_empty() {
-                    let tool_results = m.tool_results.as_ref();
-                    ui.add_space(8.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-                    for (idx, tc) in tool_calls.iter().enumerate() {
-                        let tool_name = tc
-                            .get("function")
-                            .and_then(|f| f.get("name"))
-                            .and_then(|n| n.as_str())
-                            .unwrap_or("unknown");
-                        let tool_args = tc
-                            .get("function")
-                            .and_then(|f| f.get("arguments"))
-                            .unwrap_or(&serde_json::Value::Null);
-                        let tool_type =
-                            tc.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                        egui::CollapsingHeader::new(format!("🔧 {}", tool_name))
-                            .id_source(format!("tool_call_row_{}_{}", index, idx))
-                            .default_open(false)
-                            .show(ui, |ui| {
-                                if !tool_type.is_empty() {
-                                    ui.label(format!("Type: {}", tool_type));
-                                }
-                                ui.label(format!(
-                                    "Arguments: {}",
-                                    serde_json::to_string_pretty(tool_args)
-                                        .unwrap_or_else(|_| tool_args.to_string())
-                                ));
-                                if let Some(results) = tool_results {
-                                    if let Some(tool_content) = results.get(idx) {
-                                        if !tool_content.trim().is_empty() {
-                                            let shown = format_tool_content_display(tool_content);
-                                            ui.label(format!("Content: {}", shown));
-                                        }
-                                    }
-                                }
-                            });
-                    }
-                }
-            }
+        } else {
+            ui.label(egui::RichText::new(&m.content));
         }
     });
 }

@@ -14,7 +14,6 @@ use crate::orchestration::{
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
 
-const MAX_TOOL_LOOP: usize = 5;
 
 /// Result of one agent turn: final text content and any tool/function calls that were executed during the turn.
 #[derive(Debug, Clone)]
@@ -26,6 +25,11 @@ pub struct AgentTurnResult {
     /// This is parallel to [`AgentTurnResult::tool_calls`] by index: `tool_results[i]` is the output
     /// for `tool_calls[i]`.
     pub tool_results: Vec<String>,
+    /// Whether any model response during this turn was truncated (`finish_reason: "length"`).
+    pub truncated: bool,
+    /// Whether the agent loop hit its iteration limit while the model was still generating
+    /// tool calls. When this is true, some planned work was not executed.
+    pub loop_limit_reached: bool,
 }
 
 /// Executes a tool by name and JSON arguments. Returns output or error string.
@@ -42,6 +46,7 @@ pub async fn run_turn<B: Provider>(
     model: &str,
     system_context: Option<&str>,
     max_session_messages: Option<usize>,
+    max_tool_loop_iterations: u32,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
@@ -54,6 +59,7 @@ pub async fn run_turn<B: Provider>(
         model,
         system_context,
         max_session_messages,
+        max_tool_loop_iterations,
         tools,
         tool_executor,
         delegate,
@@ -70,6 +76,7 @@ pub async fn run_turn_dyn(
     model: &str,
     system_context: Option<&str>,
     max_session_messages: Option<usize>,
+    max_tool_loop_iterations: u32,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
@@ -121,6 +128,7 @@ pub async fn run_turn_dyn(
         &mut on_chunk,
         Some((store, session_id)),
         delegate,
+        max_tool_loop_iterations,
     )
     .await
 }
@@ -129,7 +137,7 @@ pub async fn run_turn_dyn(
 ///
 /// Use this for **worker** or **delegated** subtasks: build `messages` (e.g. system + user instruction), pick a
 /// [`Provider`] and model id, then consume [`AgentTurnResult`]. The same tool loop as [`run_turn`] applies
-/// (`MAX_TOOL_LOOP` iterations); nothing is persisted — the orchestrator merges results into the main session.
+/// (`max_tool_loop_iterations` iterations); nothing is persisted — the orchestrator merges results into the main session.
 ///
 /// Streaming is not supported here (`on_chunk` is unused); add later if needed.
 pub async fn run_turn_with_messages<B: Provider>(
@@ -138,6 +146,7 @@ pub async fn run_turn_with_messages<B: Provider>(
     messages: Vec<ChatMessage>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
+    max_tool_loop_iterations: u32,
 ) -> Result<AgentTurnResult, ProviderError> {
     run_turn_with_messages_dyn(
         provider as &dyn Provider,
@@ -145,6 +154,7 @@ pub async fn run_turn_with_messages<B: Provider>(
         messages,
         tools,
         tool_executor,
+        max_tool_loop_iterations,
     )
     .await
 }
@@ -156,6 +166,7 @@ pub async fn run_turn_with_messages_dyn(
     mut messages: Vec<ChatMessage>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
+    max_tool_loop_iterations: u32,
 ) -> Result<AgentTurnResult, ProviderError> {
     let mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)> = None;
     execute_turn_worker(
@@ -166,6 +177,7 @@ pub async fn run_turn_with_messages_dyn(
         tool_executor,
         &mut on_chunk,
         None,
+        max_tool_loop_iterations,
     )
     .await
 }
@@ -179,6 +191,7 @@ async fn execute_turn_worker(
     tool_executor: Option<&dyn ToolExecutor>,
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
+    max_tool_loop_iterations: u32,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
@@ -194,6 +207,8 @@ async fn execute_turn_worker(
     let mut executed_tool_results: Vec<String> = Vec::new();
     let mut last_content: String;
     let mut last_tool_calls: Vec<ToolCall>;
+    let mut truncated = false;
+    let mut loop_limit_reached = false;
 
     loop {
         let use_stream = on_chunk.is_some() && loop_count == 0;
@@ -215,6 +230,27 @@ async fn execute_turn_worker(
         };
         last_content = res.content().to_string();
         last_tool_calls = res.tool_calls().to_vec();
+
+        let was_truncated = res.is_truncated();
+        if was_truncated {
+            truncated = true;
+            log::warn!(
+                "agent: model response was truncated (finish_reason: {}), some tool calls may have been omitted",
+                res.finish_reason.as_ref().map(|r| r.to_string()).unwrap_or_else(|| "unknown".to_string())
+            );
+        }
+
+        // Diagnostic logging: record usage info for investigating phantom edits.
+        // When a phantom edit occurs, this data helps determine whether the provider's
+        // output was constrained by context (large prompt_tokens, small completion_tokens).
+        log::info!(
+            "agent: loop iteration {} — finish_reason={}, tool_calls={}, content_len={}{}",
+            loop_count,
+            res.finish_reason.as_ref().map(|r| r.to_string()).unwrap_or_else(|| "none".to_string()),
+            last_tool_calls.len(),
+            last_content.len(),
+            res.usage.as_ref().map(|u| format!(", usage=({})", u)).unwrap_or_else(String::new),
+        );
 
         let assistant_msg = ChatMessage {
             role: "assistant".to_string(),
@@ -241,12 +277,39 @@ async fn execute_turn_worker(
         }
 
         if last_tool_calls.is_empty() {
+            // No tool calls — if truncated, inject a notice so the model can retry.
+            if was_truncated {
+                let notice = "⚠️ Your previous response was truncated (finish_reason: length). \
+                    Some tool calls may have been omitted. Please re-emit any missing tool calls.";
+                let notice_msg = ChatMessage {
+                    role: "user".to_string(),
+                    content: notice.to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                };
+                if let Some((store, session_id)) = persist {
+                    store
+                        .append_message_full(session_id, "user", notice, None, None)
+                        .await
+                        .map_err(|e| ProviderError::Session(e.to_string()))?;
+                }
+                messages.push(assistant_msg);
+                messages.push(notice_msg);
+                loop_count += 1;
+                if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+                    log::warn!("agent: max tool loop iterations reached after truncation");
+                    loop_limit_reached = true;
+                    break;
+                }
+                continue;
+            }
             break;
         }
 
         loop_count += 1;
-        if loop_count >= MAX_TOOL_LOOP {
-            log::debug!("agent: max tool loop iterations reached");
+        if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+            log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
+            loop_limit_reached = true;
             break;
         }
 
@@ -296,12 +359,42 @@ async fn execute_turn_worker(
         }
 
         executed_tool_calls.extend(last_tool_calls.clone());
+
+        // If the response was truncated, inject a notice so the model can re-emit
+        // any tool calls that were cut off. The tool calls that were present have
+        // already been executed above.
+        if was_truncated {
+            let notice = "⚠️ Your previous response was truncated (finish_reason: length). \
+                Some tool calls may have been omitted. Please verify your last tool call and \
+                re-emit any missing tool calls.";
+            let notice_msg = ChatMessage {
+                role: "user".to_string(),
+                content: notice.to_string(),
+                tool_calls: None,
+                tool_name: None,
+            };
+            if let Some((store, session_id)) = persist {
+                store
+                    .append_message_full(session_id, "user", notice, None, None)
+                    .await
+                    .map_err(|e| ProviderError::Session(e.to_string()))?;
+            }
+            messages.push(notice_msg);
+            if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+                log::warn!("agent: max tool loop iterations reached after truncation");
+                loop_limit_reached = true;
+                break;
+            }
+            continue;
+        }
     }
 
     Ok(AgentTurnResult {
         content: last_content,
         tool_calls: executed_tool_calls,
         tool_results: executed_tool_results,
+        truncated,
+        loop_limit_reached,
     })
 }
 
@@ -315,6 +408,7 @@ async fn execute_turn_main(
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
     delegate: Option<DelegateContext<'_>>,
+    max_tool_loop_iterations: u32,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
@@ -330,10 +424,12 @@ async fn execute_turn_main(
     let mut executed_tool_results: Vec<String> = Vec::new();
     let mut last_content: String;
     let mut last_tool_calls: Vec<ToolCall>;
+    let mut truncated = false;
     let max_delegations_per_turn = delegate
         .as_ref()
         .and_then(|d| d.agents.max_delegations_per_turn);
     let mut delegate_calls_this_turn: usize = 0;
+    let mut loop_limit_reached = false;
 
     loop {
         let use_stream = on_chunk.is_some() && loop_count == 0;
@@ -355,6 +451,38 @@ async fn execute_turn_main(
         };
         last_content = res.content().to_string();
         last_tool_calls = res.tool_calls().to_vec();
+
+        let was_truncated = res.is_truncated();
+        if was_truncated {
+            truncated = true;
+            log::warn!(
+                "agent: model response was truncated (finish_reason: {}), some tool calls may have been omitted",
+                res.finish_reason.as_ref().map(|r| r.to_string()).unwrap_or_else(|| "unknown".to_string())
+            );
+        }
+
+        // Diagnostic logging: record usage info for investigating phantom edits.
+        // When a phantom edit occurs, this data helps determine whether the provider's
+        // output was constrained by context (large prompt_tokens, small completion_tokens).
+        log::info!(
+            "agent: loop iteration {} — finish_reason={}, tool_calls={}, content_len={}{}",
+            loop_count,
+            res.finish_reason.as_ref().map(|r| r.to_string()).unwrap_or_else(|| "none".to_string()),
+            last_tool_calls.len(),
+            last_content.len(),
+            res.usage.as_ref().map(|u| format!(", usage=({})", u)).unwrap_or_else(String::new),
+        );
+
+        // Emit intermediate assistant message content so the user can see the
+        // model's output between tool calls. Without this, only the final
+        // iteration's content is visible — all intermediate messages are lost.
+        if !last_tool_calls.is_empty() && !last_content.trim().is_empty() {
+            if let Some(ref d) = delegate {
+                if let Some(ref obs) = d.observability {
+                    obs.emit_assistant_message(&last_content, loop_count);
+                }
+            }
+        }
 
         let assistant_msg = ChatMessage {
             role: "assistant".to_string(),
@@ -381,12 +509,39 @@ async fn execute_turn_main(
         }
 
         if last_tool_calls.is_empty() {
+            // No tool calls — if truncated, inject a notice so the model can retry.
+            if was_truncated {
+                let notice = "⚠️ Your previous response was truncated (finish_reason: length). \
+                    Some tool calls may have been omitted. Please re-emit any missing tool calls.";
+                let notice_msg = ChatMessage {
+                    role: "user".to_string(),
+                    content: notice.to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                };
+                if let Some((store, session_id)) = persist {
+                    store
+                        .append_message_full(session_id, "user", notice, None, None)
+                        .await
+                        .map_err(|e| ProviderError::Session(e.to_string()))?;
+                }
+                messages.push(assistant_msg);
+                messages.push(notice_msg);
+                loop_count += 1;
+                if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+                    log::warn!("agent: max tool loop iterations reached after truncation");
+                    loop_limit_reached = true;
+                    break;
+                }
+                continue;
+            }
             break;
         }
 
         loop_count += 1;
-        if loop_count >= MAX_TOOL_LOOP {
-            log::debug!("agent: max tool loop iterations reached");
+        if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+            log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
+            loop_limit_reached = true;
             break;
         }
 
@@ -401,9 +556,18 @@ async fn execute_turn_main(
         messages.push(assistant_msg);
         let mut worker_tool_calls: Vec<ToolCall> = Vec::new();
         let mut worker_tool_results: Vec<String> = Vec::new();
-        for call in &last_tool_calls {
+        for (idx, call) in last_tool_calls.iter().enumerate() {
             let name = call.function.name.as_str();
             let args = &call.function.arguments;
+
+            // Emit session.tool_call event before execution so the desktop can
+            // render tool calls as separate timeline entries as they happen.
+            if let Some(ref d) = delegate {
+                if let Some(ref obs) = d.observability {
+                    obs.emit_tool_call(name, args, executed_tool_calls.len() + idx);
+                }
+            }
+
             let result = if name == DELEGATE_TASK_TOOL_NAME {
                 delegate_calls_this_turn += 1;
                 if let Some(max) = max_delegations_per_turn {
@@ -467,6 +631,14 @@ async fn execute_turn_main(
                 }
             };
             executed_tool_results.push(result.clone());
+
+            // Emit session.tool_result event after execution completes.
+            if let Some(ref d) = delegate {
+                if let Some(ref obs) = d.observability {
+                    obs.emit_tool_result(name, &result, executed_tool_calls.len() + idx);
+                }
+            }
+
             messages.push(ChatMessage {
                 role: "tool".to_string(),
                 content: result.clone(),
@@ -493,11 +665,536 @@ async fn execute_turn_main(
         executed_tool_calls.extend(last_tool_calls.clone());
         executed_tool_calls.extend(worker_tool_calls);
         executed_tool_results.extend(worker_tool_results);
-    }
 
+        // If the response was truncated, inject a notice so the model can re-emit
+        // any tool calls that were cut off. The tool calls that were present have
+        // already been executed above.
+        if was_truncated {
+            let notice = "⚠️ Your previous response was truncated (finish_reason: length). \
+                Some tool calls may have been omitted. Please verify your last tool call and \
+                re-emit any missing tool calls.";
+            let notice_msg = ChatMessage {
+                role: "user".to_string(),
+                content: notice.to_string(),
+                tool_calls: None,
+                tool_name: None,
+            };
+            if let Some((store, session_id)) = persist {
+                store
+                    .append_message_full(session_id, "user", notice, None, None)
+                    .await
+                    .map_err(|e| ProviderError::Session(e.to_string()))?;
+            }
+            messages.push(notice_msg);
+            if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
+                log::warn!("agent: max tool loop iterations reached after truncation");
+                loop_limit_reached = true;
+                break;
+            }
+            continue;
+        }
+    }
     Ok(AgentTurnResult {
         content: last_content,
         tool_calls: executed_tool_calls,
         tool_results: executed_tool_results,
+        truncated,
+        loop_limit_reached,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::providers::{ChatResponse, FinishReason, ToolCallFunction};
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
+
+    /// Mock provider that returns a sequence of pre-programmed responses.
+    /// Each call to `chat` pops the next response from the queue.
+    #[derive(Clone)]
+    struct MockProvider {
+        responses: Arc<Mutex<Vec<ChatResponse>>>,
+    }
+
+    impl MockProvider {
+        fn new(responses: Vec<ChatResponse>) -> Self {
+            Self {
+                responses: Arc::new(Mutex::new(responses)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Provider for MockProvider {
+        async fn chat(
+            &self,
+            _model: &str,
+            _messages: Vec<ChatMessage>,
+            _stream: bool,
+            _tools: Option<Vec<ToolDefinition>>,
+        ) -> Result<ChatResponse, ProviderError> {
+            let mut responses = self.responses.lock().unwrap();
+            if responses.is_empty() {
+                Ok(make_chat_response(
+                    Some(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: "no more responses".to_string(),
+                        tool_calls: None,
+                        tool_name: None,
+                    }),
+                    true,
+                    None,
+                ))
+            } else {
+                Ok(responses.remove(0))
+            }
+        }
+
+        async fn chat_stream(
+            &self,
+            model: &str,
+            messages: Vec<ChatMessage>,
+            _tools: Option<Vec<ToolDefinition>>,
+            _on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
+        ) -> Result<ChatResponse, ProviderError> {
+            self.chat(model, messages, false, None).await
+        }
+    }
+
+    /// Simple tool executor that records calls and returns a canned result.
+    #[derive(Clone)]
+    struct MockToolExecutor {
+        results: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl MockToolExecutor {
+        fn new() -> Self {
+            Self {
+                results: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+    }
+
+    impl ToolExecutor for MockToolExecutor {
+        fn execute(&self, name: &str, args: &serde_json::Value, _session_id: Option<&str>) -> Result<String, String> {
+            let mut results = self.results.lock().unwrap();
+            let result = format!("ok: {}({})", name, args);
+            results.push(result.clone());
+            Ok(result)
+        }
+    }
+
+    fn make_tool_call(name: &str, args: &str) -> ToolCall {
+        ToolCall {
+            typ: "function".to_string(),
+            function: ToolCallFunction {
+                index: None,
+                name: name.to_string(),
+                arguments: serde_json::from_str(args).unwrap_or(serde_json::Value::Null),
+            },
+        }
+    }
+
+    fn make_chat_response(
+        message: Option<ChatMessage>,
+        done: bool,
+        finish_reason: Option<FinishReason>,
+    ) -> ChatResponse {
+        ChatResponse {
+            message,
+            done,
+            finish_reason,
+            eval_count: None,
+            prompt_eval_count: None,
+            usage: None,
+        }
+    }
+
+    // --- Worker loop tests (no session store, no delegate) ---
+
+    #[tokio::test]
+    async fn worker_truncated_response_sets_flag() {
+        let provider = MockProvider::new(vec![make_chat_response(
+            Some(ChatMessage {
+                role: "assistant".to_string(),
+                content: "I was cut off".to_string(),
+                tool_calls: None,
+                tool_name: None,
+            }),
+            true,
+            Some(FinishReason::Length),
+        )]);
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            None,
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+        assert!(result.truncated, "truncated flag should be true when finish_reason is Length");
+    }
+
+    #[tokio::test]
+    async fn worker_normal_response_not_truncated() {
+        let provider = MockProvider::new(vec![make_chat_response(
+            Some(ChatMessage {
+                role: "assistant".to_string(),
+                content: "Hello!".to_string(),
+                tool_calls: None,
+                tool_name: None,
+            }),
+            true,
+            Some(FinishReason::Stop),
+        )]);
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            None,
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+        assert!(!result.truncated, "truncated flag should be false for normal stop");
+    }
+
+    #[tokio::test]
+    async fn worker_truncation_with_tool_calls_executes_and_injects_notice() {
+        // Truncated response with a tool call: the loop should still execute
+        // the tool call (it was fully emitted), inject a truncation notice,
+        // and re-call the provider so any cut-off calls can be re-emitted.
+        let provider = MockProvider::new(vec![
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "I will write the file.".to_string(),
+                    tool_calls: Some(vec![make_tool_call("write_file", r#"{"path":"test.txt"}"#)]),
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Length),
+            ),
+            // Second call: normal stop after truncation notice
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "That's all.".to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+        ]);
+        let executor = MockToolExecutor::new();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "write a file".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            Some(&executor as &dyn ToolExecutor),
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.truncated, "truncated flag should be true");
+        // Tool call from truncated response SHOULD have been executed — it was fully emitted.
+        let executed = executor.results.lock().unwrap();
+        assert_eq!(
+            executed.len(),
+            1,
+            "one tool call should execute from truncated response, got: {:?}",
+            executed
+        );
+        assert!(executed[0].starts_with("ok: write_file"));
+    }
+
+    #[tokio::test]
+    async fn worker_tool_calls_after_truncation_recovery() {
+        // First: truncated text-only. Second: normal with tool call. Third: normal stop.
+        let provider = MockProvider::new(vec![
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Let me think...".to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Length),
+            ),
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Now I'll read the file.".to_string(),
+                    tool_calls: Some(vec![make_tool_call("read_file", r#"{"path":"test.txt"}"#)]),
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Done!".to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+        ]);
+        let executor = MockToolExecutor::new();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "read a file".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            Some(&executor as &dyn ToolExecutor),
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.truncated);
+        let executed = executor.results.lock().unwrap();
+        assert_eq!(executed.len(), 1, "one tool call should execute after truncation recovery");
+        assert!(executed[0].starts_with("ok: read_file"));
+    }
+
+    #[tokio::test]
+    async fn worker_normal_tool_calls_execute() {
+        let provider = MockProvider::new(vec![
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Reading file.".to_string(),
+                    tool_calls: Some(vec![make_tool_call("read_file", r#"{"path":"a.txt"}"#)]),
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Done!".to_string(),
+                    tool_calls: None,
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+        ]);
+        let executor = MockToolExecutor::new();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "read".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            Some(&executor as &dyn ToolExecutor),
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+
+        assert!(!result.truncated);
+        let executed = executor.results.lock().unwrap();
+        assert_eq!(executed.len(), 1);
+        assert!(executed[0].starts_with("ok: read_file"));
+    }
+
+    #[tokio::test]
+    async fn worker_truncation_injects_notice_message_into_history() {
+        // Verify the truncation notice appears in messages sent to the second provider call.
+        let second_call_messages: Arc<Mutex<Option<Vec<ChatMessage>>>> = Arc::new(Mutex::new(None));
+        let captured = second_call_messages.clone();
+
+        #[derive(Clone)]
+        struct CapturingProvider {
+            responses: Arc<Mutex<Vec<ChatResponse>>>,
+            captured: Arc<Mutex<Option<Vec<ChatMessage>>>>,
+        }
+
+        #[async_trait]
+        impl Provider for CapturingProvider {
+            async fn chat(
+                &self,
+                _model: &str,
+                messages: Vec<ChatMessage>,
+                _stream: bool,
+                _tools: Option<Vec<ToolDefinition>>,
+            ) -> Result<ChatResponse, ProviderError> {
+                let mut responses = self.responses.lock().unwrap();
+                if responses.len() == 1 {
+                    let mut captured = self.captured.lock().unwrap();
+                    *captured = Some(messages);
+                }
+                if responses.is_empty() {
+                    Ok(make_chat_response(
+                        Some(ChatMessage {
+                            role: "assistant".to_string(),
+                            content: "no more".to_string(),
+                            tool_calls: None,
+                            tool_name: None,
+                        }),
+                        true,
+                        None,
+                    ))
+                } else {
+                    Ok(responses.remove(0))
+                }
+            }
+
+            async fn chat_stream(
+                &self,
+                model: &str,
+                messages: Vec<ChatMessage>,
+                tools: Option<Vec<ToolDefinition>>,
+                _on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
+            ) -> Result<ChatResponse, ProviderError> {
+                self.chat(model, messages, false, tools).await
+            }
+        }
+
+        let provider = CapturingProvider {
+            responses: Arc::new(Mutex::new(vec![
+                make_chat_response(
+                    Some(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: "partial".to_string(),
+                        tool_calls: None,
+                        tool_name: None,
+                    }),
+                    true,
+                    Some(FinishReason::Length),
+                ),
+                make_chat_response(
+                    Some(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: "recovered".to_string(),
+                        tool_calls: None,
+                        tool_name: None,
+                    }),
+                    true,
+                    Some(FinishReason::Stop),
+                ),
+            ])),
+            captured,
+        };
+
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            None,
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.truncated);
+
+        let captured_msgs = second_call_messages.lock().unwrap();
+        let msgs = captured_msgs.as_ref().expect("should have captured messages from second call");
+        // Messages: original user, assistant (truncated), user (notice)
+        assert!(msgs.len() >= 3, "expected at least 3 messages, got {}", msgs.len());
+
+        let notice_msgs: Vec<&ChatMessage> = msgs
+            .iter()
+            .filter(|m| m.role == "user" && m.content.contains("truncated"))
+            .collect();
+        assert_eq!(
+            notice_msgs.len(),
+            1,
+            "should have exactly one truncation notice, got {:?}",
+            notice_msgs
+        );
+        assert!(notice_msgs[0].content.contains("finish_reason: length"));
+    }
+
+    #[tokio::test]
+    async fn worker_multiple_truncations_hit_max_loop() {
+        let truncated_resp = make_chat_response(
+            Some(ChatMessage {
+                role: "assistant".to_string(),
+                content: "still going...".to_string(),
+                tool_calls: None,
+                tool_name: None,
+            }),
+            true,
+            Some(FinishReason::Length),
+        );
+        let provider = MockProvider::new(vec![
+            truncated_resp.clone(),
+            truncated_resp.clone(),
+            truncated_resp.clone(),
+            truncated_resp.clone(),
+            truncated_resp.clone(),
+            truncated_resp.clone(),
+        ]);
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "keep going".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        // Use a small iteration limit to exercise the max-loop termination path.
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            None,
+            3,
+        )
+        .await
+        .unwrap();
+
+        assert!(result.truncated, "should still report truncation");
+        assert!(result.loop_limit_reached, "should hit loop limit with 3 iterations");
+    }
 }

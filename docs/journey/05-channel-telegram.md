@@ -1,6 +1,8 @@
 # Journey: Telegram — receive message and reply
 
-**Goal:** Confirm the Telegram bot is connected to the gateway, messages from Telegram are received, and the agent’s reply is sent back to the chat.
+**Goal:** Confirm the Telegram bot is connected to the gateway, messages from Telegram are received, and the agent's reply is sent back to the chat.
+
+**Background:** [Connections → Telegram](../guides/04-connections.md#telegram) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
 
 The implementation supports two modes: **long-poll** (gateway pulls updates from Telegram) and **webhook** (Telegram POSTs updates to the gateway). Use long-poll for local testing; use webhook when the gateway is reachable from the internet.
 

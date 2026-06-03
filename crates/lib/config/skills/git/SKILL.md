@@ -14,10 +14,7 @@ generated_from:
 
 # Git
 
-Git repository inspection and local write operations. Provides tools for
-checking repository state, viewing commit history, comparing changes, listing
-branches, staging files, and creating commits. Network operations (push, pull)
-are not included in this skill.
+Git repository inspection and local write operations. Provides tools for checking repository state, viewing commit history, comparing changes, listing branches, staging files, and creating commits. Network operations (push, pull) are not included in this skill.
 
 ## Skill Directives
 
@@ -44,8 +41,7 @@ are not included in this skill.
 
 ### Check repository state
 
-1. Call `git_status` to see the current branch, staged/unstaged changes, and
-   untracked files.
+1. Call `git_status` to see the current branch, staged/unstaged changes, and untracked files.
 
 ### View commit history
 
@@ -57,8 +53,7 @@ are not included in this skill.
 
 1. Call `git_diff` with no parameters to see unstaged working tree changes.
 2. Set `staged` to true to see changes in the index (staged for commit).
-3. Set `ref` to a branch or commit to compare the working tree against it
-   (e.g. `main` to see all changes since diverging from main).
+3. Set `ref` to a branch or commit to compare the working tree against it (e.g. `main` to see all changes since diverging from main).
 4. Set `path` to limit the diff to a specific file.
 
 ### Inspect a specific commit

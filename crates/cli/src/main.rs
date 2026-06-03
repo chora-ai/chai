@@ -407,8 +407,26 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
                 .append(true)
                 .open(&target)
                 .map_err(|e| anyhow::anyhow!("failed to open {}: {}", target.display(), e))?;
+            // If the file already has content that doesn't end with a newline,
+            // prepend one so the appended content starts on a new line.
+            let needs_leading_newline = if target.metadata().map(|m| m.len()).unwrap_or(0) > 0 {
+                let existing = std::fs::read(&target)
+                    .map_err(|e| anyhow::anyhow!("failed to read {}: {}", target.display(), e))?;
+                existing.last() != Some(&b'\n')
+            } else {
+                false
+            };
+            if needs_leading_newline {
+                file.write_all(b"\n")
+                    .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", target.display(), e))?;
+            }
             file.write_all(content.as_bytes())
                 .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", target.display(), e))?;
+            // Ensure the file ends with a newline if the appended content doesn't.
+            if !content.ends_with('\n') {
+                file.write_all(b"\n")
+                    .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", target.display(), e))?;
+            }
             println!("appended {} bytes to {}", content.len(), target.display());
             Ok(())
         }
@@ -1398,7 +1416,7 @@ const CHAT_HELP_TEXT: &str = "available commands:\n\n/new - start a new session 
 
 /// Same acknowledgment as desktop **`/new`** (see `crates/desktop/src/app.rs`).
 const CHAT_NEW_SESSION_ACK: &str =
-    "Session restarted. Next message will start with a clean history.";
+    "New session. Next message will start with a clean history.";
 
 async fn run_chat(profile: Option<String>, session: Option<String>) -> anyhow::Result<()> {
     use std::io::{self, Write};

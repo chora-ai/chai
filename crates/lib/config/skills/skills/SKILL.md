@@ -12,12 +12,7 @@ generated_from:
 
 # Skills
 
-Manage Chai skill packages — discover CLI interfaces, inspect and validate
-existing skills, create new skill packages, and delete obsolete ones.
-
-A read-only variant (`skills-read`) is available for restricted profiles
-(e.g. worker agents that only need inspection capabilities). Do not enable both
-skills together — `skills` is a superset of `skills-read`.
+Manage Chai skill packages — discover CLI interfaces, inspect and validate existing skills, create new skill packages, and delete obsolete ones.
 
 ## Skill Directives
 
@@ -48,9 +43,7 @@ skills together — `skills` is a superset of `skills-read`.
 
 1. Call `skills_discover` with `binary` set to the target CLI name.
 2. Record the available subcommands from the output.
-3. For each subcommand relevant to the skill's purpose, call `skills_discover`
-   with both `binary` and `subcommand` to get flags, argument types, and
-   descriptions.
+3. For each subcommand relevant to the skill's purpose, call `skills_discover` with both `binary` and `subcommand` to get flags, argument types, and descriptions.
 4. Note required vs optional arguments, flag names, and value types.
 
 ### List installed skills
@@ -71,31 +64,26 @@ skills together — `skills` is a superset of `skills-read`.
    - **ERROR** lines indicate structural failures that must be fixed.
    - **WARNING** lines indicate potential issues that should be reviewed.
    - **PASS** indicates the tools.json is structurally conformant.
-3. If errors are found, call `skills_read` with `file` set to `tools_json`
-   to examine the actual content and identify the root cause.
+3. If errors are found, call `skills_read` with `file` set to `tools_json` to examine the actual content and identify the root cause.
 4. Always validate after writing tools.json.
 
 ### Generate a new skill
 
-1. Call `skills_init` with `skill_name` and `description` to create the
-   directory. If the skill already exists, skip this step.
+1. Call `skills_init` with `skill_name` and `description` to create the directory. If the skill already exists, skip this step.
 2. Design the tool surface:
    - Select subcommands to expose (not every CLI subcommand needs a tool).
    - Name tools as `<skillname>_<operation>` (e.g. `notesmd_search`).
    - Design parameters using JSON Schema types matching the CLI's expectations.
    - Scope the allowlist to only the binary+subcommand pairs used.
-   - Choose arg `kind` for each parameter: `positional` for bare arguments,
-     `flag` for `--name value` pairs, `flagifboolean` for `--flag` toggles.
+   - Choose arg `kind` for each parameter: `positional` for bare arguments, `flag` for `--name value` pairs, `flagifboolean` for `--flag` toggles.
    - Add `resolveCommand` only when a parameter needs runtime resolution.
 3. Call `skills_write_tools_json` with the complete JSON content.
 4. Call `skills_validate` to confirm the tools.json is conformant.
 5. Write the SKILL.md:
-   - Include frontmatter with `name`, `description`, `metadata.requires.bins`,
-     and `generated_from` block.
+   - Include frontmatter with `name`, `description`, `metadata.requires.bins`, and `generated_from` block.
    - If this is a constrained variant, include `model_variant_of`.
    - Write skill directives, available tools list, and tool instructions.
-   - For `minimal` tier: every operation must be a numbered step-by-step
-     sequence with no judgment required.
+   - For `minimal` tier: every operation must be a numbered step-by-step sequence with no judgment required.
    - For `moderate` tier: steps may include conditional branches.
    - For `full` tier: instructions may describe goals with reasoning latitude.
 6. Call `skills_write_skill_md` with the complete markdown content.
@@ -103,21 +91,15 @@ skills together — `skills` is a superset of `skills-read`.
 ### Write a resolve script
 
 1. Determine whether a parameter requires runtime resolution.
-2. Write the script content with a `#!/bin/sh` shebang. The script receives
-   arguments from `resolveCommand.args` where `$param` tokens are replaced with
-   the current parameter value. On failure or empty stdout, the original value
-   is kept.
-3. Call `skills_write_script` with `skill_name`, `script_name` (without
-   `.sh`), and `content`.
-4. Reference the script in the tool's `resolveCommand.script` field in
-   tools.json.
+2. Write the script content with a `#!/bin/sh` shebang. The script receives arguments from `resolveCommand.args` where `$param` tokens are replaced with the current parameter value. On failure or empty stdout, the original value is kept.
+3. Call `skills_write_script` with `skill_name`, `script_name` (without `.sh`), and `content`.
+4. Reference the script in the tool's `resolveCommand.script` field in tools.json.
 
 ### Delete a skill
 
 1. Call `skills_list` to confirm the skill exists.
 2. Call `skills_delete` with `skill_name` set to the skill directory name.
-3. The skill directory and all version snapshots are permanently removed.
-   This action is irreversible.
+3. The skill directory and all version snapshots are permanently removed. This action is irreversible.
 4. Call `skills_list` to verify the skill is no longer listed.
 
 ## Examples

@@ -333,10 +333,8 @@ impl ChaiApp {
         self.pending_user_message = None;
         self.chat_messages.clear();
         self.chat_error = None;
-        self.chat_messages.push(ChatMessage::assistant(
-            "Session restarted. Next message will start with a clean history.".to_string(),
-            None,
-            None,
+        self.chat_messages.push(ChatMessage::system(
+            "New Session. Next message will start with a clean history.".to_string(),
         ));
     }
 
@@ -384,7 +382,7 @@ impl ChaiApp {
                                 }
                             }
                         }
-                        let assistant_msg = ChatMessage::assistant(
+                        let mut assistant_msg = ChatMessage::assistant(
                             reply.reply.clone(),
                             if reply.tool_calls.is_empty() {
                                 None
@@ -397,6 +395,14 @@ impl ChaiApp {
                                 Some(reply.tool_results.clone())
                             },
                         );
+                        // If streamed tool_call entries already exist for this turn,
+                        // clear tool_calls/tool_results on the assistant message so the
+                        // inline fallback rendering doesn't produce duplicates.
+                        let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
+                        if has_streamed_tools {
+                            assistant_msg.tool_calls = None;
+                            assistant_msg.tool_results = None;
+                        }
                         let last_is_same = state::chat::last_non_delegation(entry.as_slice())
                             .map(|m| {
                                 state::chat::is_duplicate_assistant_row(
@@ -407,11 +413,31 @@ impl ChaiApp {
                                 )
                             })
                             .unwrap_or(false);
+                        log::debug!(
+                            "poll_chat_turn: session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
+                            reply.session_id,
+                            last_is_same,
+                            entry.len(),
+                            entry.last().map(|m| m.role.as_str()),
+                            state::chat::last_non_delegation(entry.as_slice()).map(|m| m.role.as_str()),
+                        );
                         if last_is_same {
-                            // Prefer the agent response's tool_calls (source of truth for this turn).
+                            // Prefer the agent response's tool_calls (source of truth for this turn),
+                            // unless streamed tool events already exist.
                             let last = entry.last_mut().unwrap();
+                            log::debug!(
+                                "poll_chat_turn dedup: overwriting last entry role={:?}, tool_calls={:?}, tool_results={:?}",
+                                last.role,
+                                last.tool_calls.as_ref().map(|v| v.len()),
+                                last.tool_results.as_ref().map(|v| v.len()),
+                            );
                             last.tool_calls = assistant_msg.tool_calls;
                             last.tool_results = assistant_msg.tool_results;
+                            // Clear inline tool calls when streamed events exist.
+                            if has_streamed_tools {
+                                last.tool_calls = None;
+                                last.tool_results = None;
+                            }
                         } else {
                             entry.push(assistant_msg);
                         }
@@ -548,7 +574,7 @@ impl ChaiApp {
     /// Append the same text as the **`/help`** command to the active chat session.
     pub(crate) fn show_chat_help(&mut self) {
         const TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
-        let msg = ChatMessage::assistant(TEXT.to_string(), None, None);
+        let msg = ChatMessage::system(TEXT.to_string());
         if let Some(sid) = self.chat_session_id.clone() {
             self.session_messages
                 .entry(sid.clone())
@@ -651,7 +677,7 @@ impl eframe::App for ChaiApp {
             .map(|h| lib::profile::gateway_is_running(&h))
             .unwrap_or(true);
         let profile_dropdown_enabled = !profile_switch_locked;
-        self.ensure_session_events_listener(running);
+        self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
         self.poll_chat_turn();
 

@@ -10,9 +10,31 @@ pub struct ChatMessage {
     pub(crate) tool_results: Option<Vec<String>>,
     /// When set, this row is a gateway orchestration line (`orchestration.delegate.*`), not a model role.
     pub(crate) delegation_event: Option<String>,
+    /// Tool name for `tool_call` and `tool_result` role messages.
+    pub(crate) tool_name: Option<String>,
+    /// Tool arguments (JSON) for `tool_call` role messages.
+    pub(crate) tool_args: Option<serde_json::Value>,
+    /// Tool result for `tool_result` role messages.
+    pub(crate) tool_result: Option<String>,
+    /// Index of this tool call within the agent turn (for correlating tool_call → tool_result).
+    pub(crate) tool_index: Option<usize>,
 }
 
 impl ChatMessage {
+    pub(crate) fn system(text: impl Into<String>) -> Self {
+        Self {
+            role: "system".to_string(),
+            content: text.into(),
+            tool_calls: None,
+            tool_results: None,
+            delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
+        }
+    }
+
     pub(crate) fn user(text: impl Into<String>) -> Self {
         Self {
             role: "user".to_string(),
@@ -20,6 +42,10 @@ impl ChatMessage {
             tool_calls: None,
             tool_results: None,
             delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
         }
     }
 
@@ -34,6 +60,10 @@ impl ChatMessage {
             tool_calls,
             tool_results,
             delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
         }
     }
 
@@ -44,6 +74,10 @@ impl ChatMessage {
             tool_calls: None,
             tool_results: None,
             delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
         }
     }
 }
@@ -69,6 +103,14 @@ pub struct SessionEvent {
     pub(crate) tool_results: Option<Vec<String>>,
     /// Gateway `event` field when this is an orchestration row (e.g. `orchestration.delegate.start`).
     pub(crate) delegation_event: Option<String>,
+    /// Tool name for tool events.
+    pub(crate) tool_name: Option<String>,
+    /// Tool arguments for `session.tool_call` events.
+    pub(crate) tool_args: Option<serde_json::Value>,
+    /// Tool result for `session.tool_result` events.
+    pub(crate) tool_result: Option<String>,
+    /// Index of this tool call within the agent turn.
+    pub(crate) tool_index: Option<usize>,
 }
 
 /// One worker row derived from gateway **`status`** `payload.agents.entries` (**`role`** **`worker`**): effective defaults for delegation.

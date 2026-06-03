@@ -6,3 +6,4 @@
 - [Connections](04-connections.md)
 - [Agents](05-agents.md)
 - [Skills](06-skills.md)
+- [Write Sandbox](07-sandbox.md)

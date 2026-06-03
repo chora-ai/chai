@@ -403,11 +403,15 @@ fn apply_side_read(
     format!(
         "{}
 
---- {} ---
-{}",
+--- {} (BOF) ---
+
+{}
+
+--- {} (EOF) ---",
         current_output.trim_end(),
         label,
-        content.trim_end()
+        content.trim_end(),
+        label
     )
 }
 
@@ -761,7 +765,8 @@ mod tests {
 
         let result = apply_side_read(&sr, &args, "file1.txt\nfile2.rs", None, &seen);
         assert!(result.contains("file1.txt"), "original output preserved");
-        assert!(result.contains("--- AGENTS.md ---"), "separator present");
+        assert!(result.contains("--- AGENTS.md (BOF) ---"), "separator present");
+        assert!(result.contains("--- AGENTS.md (EOF) ---"), "separator present");
         assert!(result.contains("Be helpful."), "file content appended");
 
         let _ = fs::remove_dir_all(&dir);
@@ -866,15 +871,17 @@ mod tests {
         let sr = SideReadSpec {
             path_param: "path".to_string(),
             filename: "AGENTS.md".to_string(),
-            label: Some("Project Instructions".to_string()),
+            label: Some("Instructions".to_string()),
             once_per_session: None,
         };
         let args = args_with_path(dir.to_str().unwrap());
         let seen = make_seen();
 
         let result = apply_side_read(&sr, &args, "listing", None, &seen);
-        assert!(result.contains("--- Project Instructions ---"), "custom label used");
-        assert!(!result.contains("--- AGENTS.md ---"), "default label not used");
+        assert!(result.contains("--- Instructions (BOF) ---"), "custom label used");
+        assert!(result.contains("--- Instructions (EOF) ---"), "custom label used");
+        assert!(!result.contains("--- AGENTS.md (BOF) ---"), "default label not used");
+        assert!(!result.contains("--- AGENTS.md (EOF) ---"), "default label not used");
 
         let _ = fs::remove_dir_all(&dir);
     }

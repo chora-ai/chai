@@ -12,15 +12,7 @@ generated_from:
 
 # File Tools
 
-File tools for inspecting, writing, and deleting files, listing
-directories, and searching code. Wraps standard unix utilities (`cat`, `ls`,
-`grep`) and `chai file` subcommands through the allowlist-enforced execution
-model. Write and delete tools require a configured write sandbox — paths are
-validated against writable roots before execution.
-
-A read-only variant (`files-read`) is available for restricted profiles
-(e.g. worker agents that only need inspection capabilities). Do not enable both
-skills together — `files` is a superset of `files-read`.
+File tools for inspecting, writing, and deleting files, listing directories, and searching code. Wraps standard unix utilities (`cat`, `ls`, `grep`) and `chai file` subcommands through the allowlist-enforced execution model. Write and delete tools require a configured write sandbox — paths are validated against writable roots before execution.
 
 ## Skill Directives
 
@@ -36,6 +28,9 @@ skills together — `files` is a superset of `files-read`.
 - prefer `files_read_lines` over `files_read_file` when you only need specific lines, to reduce context usage
 - prefer `files_write_lines` over `files_write_file` for targeted edits to large files
 - always verify a directory is empty with `files_list_dir` before deleting it with `files_delete_dir`
+- always re-read or re-search a file to get fresh line numbers before each `files_write_lines` call — line numbers shift after any edit that adds or removes lines
+- prefer rewriting an entire affected section (e.g. a struct + impl block) as a single `files_write_lines` call over making multiple small targeted edits to the same file
+- when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
 
 ## Available Tools
 
@@ -72,26 +67,23 @@ skills together — `files` is a superset of `files-read`.
 4. When an `AGENTS.md` file exists in the listed directory, its contents are automatically appended to the result as a context section (labeled with the filename). This is an automatic context-loading feature — it is not part of the `ls` output. The `AGENTS.md` content comes from the same directory being listed, and each path is surfaced at most once per session.
 
 ### Search for content in files
+
 1. Call `files_search_content` with `pattern` and a `./`-relative `path`.
 2. Set `recursive` to true to search all files in subdirectories.
 3. Set `line_numbers` to true to include line numbers in output.
 4. Set `case_insensitive` to true for case-insensitive matching.
-5. Set `files_only` to true to get just the list of matching files
-   without showing the matching lines.
+5. Set `files_only` to true to get just the list of matching files without showing the matching lines.
 
 The `pattern` parameter supports **extended regex** (ERE) — `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping all work. This is the same syntax used by `grep -E`. When no matches are found, the tool returns an empty result (not an error).
 
 ### Find files by content
 
-1. Call `files_search_content` with `pattern` set to the content to
-   find, a `./`-relative `path`, `recursive` to true, and `files_only`
-   to true.
+1. Call `files_search_content` with `pattern` set to the content to find, a `./`-relative `path`, `recursive` to true, and `files_only` to true.
 2. This returns only file paths that contain the pattern.
 
 ### Write a file
 
-1. Call `files_write_file` with `path` set to a `./`-relative file path and
-   `content` set to the full file content.
+1. Call `files_write_file` with `path` set to a `./`-relative file path and `content` set to the full file content.
 2. The file is created if it does not exist, or overwritten if it does.
 3. The parent directory must already exist.
 
@@ -102,6 +94,11 @@ The `pattern` parameter supports **extended regex** (ERE) — `|` for alternatio
 3. Lines outside `[start_line, end_line]` are preserved unchanged.
 4. The replacement content can expand (more lines), contract (fewer lines), or delete (empty content) the range.
 5. Use this for targeted edits to large files instead of reading and rewriting the entire file.
+
+**Caution: line numbers change after each edit.** A `files_write_lines` call that adds or removes lines shifts all subsequent line numbers in the file. When making multiple edits to the same file:
+- Always verify the exact content at your target lines immediately before each `files_write_lines` call by reading or searching — never assume line numbers from a prior read are still accurate.
+- When making several non-adjacent edits, work from bottom to top (highest line numbers first) so earlier edits don't shift the line numbers of later targets.
+- When deleting multiple fields or functions, prefer rewriting the entire affected section as a single `files_write_lines` call rather than making many small single-line deletions.
 
 ### Append to a file
 
@@ -123,6 +120,8 @@ For targeted edits to large files:
 2. Call `files_read_lines` to read the lines around the change (for context).
 3. Call `files_write_lines` with the replacement content for just those lines.
 4. Call `files_read_lines` to verify the change.
+
+**Important: preventing stale line number errors.** After any `files_write_lines` call that changes the line count (adds or removes lines), all line numbers below the edit shift. If you need to make another edit to the same file, you must re-read or re-search to get fresh line numbers before the next call — do not reuse line numbers from a previous read. Alternately, rewrite the entire affected section (e.g. a full struct + impl block) as a single `files_write_lines` call, which eliminates the stale-line-number problem entirely.
 
 ### Delete a file
 

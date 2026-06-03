@@ -321,7 +321,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     let mut out = String::new();
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` when you need to read a skill\n\n");
+    out.push_str("- call `read_skill` to read a skill\n\n");
     out.push_str("Available skills:\n\n");
     for s in skills {
         out.push_str("- `");
@@ -660,6 +660,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         &model_name,
         Some(system_context),
         state.config.agents.max_session_messages,
+        crate::config::resolve_max_tool_loop_iterations(&state.config.agents),
         tools,
         tool_executor,
         delegate,
@@ -1844,6 +1845,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     &model_name,
                     Some(system_context),
                     state.config.agents.max_session_messages,
+                    crate::config::resolve_max_tool_loop_iterations(&state.config.agents),
                     tools,
                     tool_executor,
                     delegate,

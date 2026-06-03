@@ -110,7 +110,8 @@ The tree below shows **shared root-level skill storage** and **per-profile** con
 │   │   ├── config.json
 │   │   ├── device.json
 │   │   ├── device_token
-│   │   └── paired.json
+│   │   ├── paired.json
+│   │   └── sandbox/               # write boundary for tools (see WRITE_SANDBOX.md)
 │   └── developer/                   # default developer profile directory
 │       ├── agents/
 │       │   └── orchestrator/
@@ -119,7 +120,8 @@ The tree below shows **shared root-level skill storage** and **per-profile** con
 │       ├── config.json
 │       ├── device.json
 │       ├── device_token
-│       └── paired.json
+│       ├── paired.json
+│       └── sandbox/               # write boundary for tools (see WRITE_SANDBOX.md)
 ├── skills/
 │   └── <skill-name>/
 └── active -> profiles/assistant/    # symlink to active profile (default assistant)

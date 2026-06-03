@@ -2,6 +2,8 @@
 
 Files are grouped by deployment category, then provider, then model family.
 
+For provider configuration details, see [Configuration](../guides/03-configuration.md) and the provider spec (`base/spec/PROVIDERS.md` in the chai source tree). For model ids and tool-fit notes, see the model spec (`base/spec/MODELS.md`). For hands-on channel and skill walkthroughs, see the [User Journeys](../journey/README.md).
+
 ## Playbook Order
 
 | Order | Category | Provider | Model Family | File |

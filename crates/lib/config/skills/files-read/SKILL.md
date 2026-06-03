@@ -13,13 +13,7 @@ model_variant_of: files
 
 # File Tools (Read-Only)
 
-Read-only file tools for inspecting files, listing directories, and
-searching code. Wraps standard unix utilities (`cat`, `ls`, `grep -E`) and
-`chai file read-lines` through the allowlist-enforced execution model. No
-write or delete operations are included.
-
-Do not enable alongside the `files` skill — this is a read-only subset
-intended for worker agents that only need inspection capabilities.
+Read-only file tools for inspecting files, listing directories, and searching code. Wraps standard unix utilities (`cat`, `ls`, `grep -E`) and `chai file read-lines` through the allowlist-enforced execution model. No write or delete operations are included.
 
 ## Skill Directives
 
@@ -65,16 +59,13 @@ intended for worker agents that only need inspection capabilities.
 2. Set `recursive` to true to search all files in subdirectories.
 3. Set `line_numbers` to true to include line numbers in output.
 4. Set `case_insensitive` to true for case-insensitive matching.
-5. Set `files_only` to true to get just the list of matching files
-   without showing the matching lines.
+5. Set `files_only` to true to get just the list of matching files without showing the matching lines.
 
 The `pattern` parameter supports **extended regex** (ERE) — `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping all work. This is the same syntax used by `grep -E`. When no matches are found, the tool returns an empty result (not an error).
 
 ### Find files by content
 
-1. Call `files_search_content` with `pattern` set to the content to
-   find, a `./`-relative `path`, `recursive` to true, and `files_only`
-   to true.
+1. Call `files_search_content` with `pattern` set to the content to find, a `./`-relative `path`, `recursive` to true, and `files_only` to true.
 2. This returns only file paths that contain the pattern.
 
 ### Explore a codebase

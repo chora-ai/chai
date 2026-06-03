@@ -12,12 +12,7 @@ generated_from:
 
 # Knowledge Base
 
-Read, write, append, delete, list, and search a knowledge base of markdown
-notes. The knowledge base root is the active profile's sandbox directory. All
-paths in tool parameters are relative to this root.
-
-Notes are markdown files with YAML frontmatter. The knowledge base is compatible
-with Obsidian but does not depend on Obsidian-specific features or configuration.
+Read, write, append, delete, list, and search a knowledge base of markdown notes. The knowledge base root is the active profile's sandbox directory. All paths in tool parameters are relative to this root.
 
 ## Skill Directives
 
@@ -46,30 +41,24 @@ with Obsidian but does not depend on Obsidian-specific features or configuration
 ### Create a new note
 
 1. Call `kb_list` to verify the target directory exists.
-2. Call `kb_write` with `path` and `content`. Include YAML frontmatter at the
-   top of the content.
+2. Call `kb_write` with `path` and `content`. Include YAML frontmatter at the top of the content.
 
 ### Update an existing note
 
 1. Call `kb_read` to get the current content.
-2. Call `kb_write` with the modified content. The full content must be provided
-   (this is a complete overwrite, not a patch).
+2. Call `kb_write` with the modified content. The full content must be provided (this is a complete overwrite, not a patch).
 
 ### Append to a note
 
-1. Call `kb_append` with `path` and `content`. The content is appended to the
-   end of the file. Use this for adding sections, log entries, or daily note
-   updates without reading the full note first.
+1. Call `kb_append` with `path` and `content`. The content is appended to the end of the file. Use this for adding sections, log entries, or daily note updates without reading the full note first.
 
 ### Delete a note
 
-1. Call `kb_delete` with `path` set to the note's relative path. Only files can
-   be deleted (directories are refused).
+1. Call `kb_delete` with `path` set to the note's relative path. Only files can be deleted (directories are refused).
 
 ### List directory contents
 
-1. Call `kb_list` with `path` set to the directory. Omit `path` to list the
-   knowledge base root.
+1. Call `kb_list` with `path` set to the directory. Omit `path` to list the knowledge base root.
 
 ### Search for content
 

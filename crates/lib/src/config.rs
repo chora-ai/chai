@@ -322,8 +322,13 @@ pub struct AgentsConfig {
     /// Providers delegation cannot target (canonical: `ollama`, `lms`, `vllm`, `nim`).
     pub delegate_blocked_providers: Option<Vec<String>>,
 
-    /// When **`instruction`** starts with a route’s prefix, merge missing **`workerId`** / **`provider`** / **`model`** from that route (first match wins).
+    /// When **`instruction`** starts with a route's prefix, merge missing **`workerId`** / **`provider`** / **`model`** from that route (first match wins).
     pub delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
+
+    /// Maximum number of agent loop iterations (LLM round-trips) per turn. Each iteration is one
+    /// call to the provider followed by tool call execution. The loop exits naturally when the model
+    /// returns no tool calls; this limit is a safety net against runaway loops. Default: 100.
+    pub max_tool_loop_iterations: Option<u32>,
 }
 
 impl Default for AgentsConfig {
@@ -343,6 +348,7 @@ impl Default for AgentsConfig {
             max_delegations_per_provider: None,
             delegate_blocked_providers: None,
             delegation_instruction_routes: None,
+            max_tool_loop_iterations: None,
         }
     }
 }
@@ -410,6 +416,8 @@ struct AgentDefinition {
     delegate_blocked_providers: Option<Vec<String>>,
     #[serde(default)]
     delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
+    #[serde(default)]
+    max_tool_loop_iterations: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -440,6 +448,7 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
         max_delegations_per_provider: agents.max_delegations_per_provider.clone(),
         delegate_blocked_providers: agents.delegate_blocked_providers.clone(),
         delegation_instruction_routes: agents.delegation_instruction_routes.clone(),
+        max_tool_loop_iterations: agents.max_tool_loop_iterations,
     }];
     if let Some(ws) = &agents.workers {
         for w in ws {
@@ -458,6 +467,7 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
                 max_delegations_per_provider: None,
                 delegate_blocked_providers: None,
                 delegation_instruction_routes: None,
+                max_tool_loop_iterations: None,
             });
         }
     }
@@ -479,6 +489,7 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         max_delegations_per_provider: Option<HashMap<String, usize>>,
         delegate_blocked_providers: Option<Vec<String>>,
         delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
+        max_tool_loop_iterations: Option<u32>,
     }
 
     let mut orchestrator: Option<OrchestratorFields> = None;
@@ -513,6 +524,7 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     max_delegations_per_provider: e.max_delegations_per_provider,
                     delegate_blocked_providers: e.delegate_blocked_providers,
                     delegation_instruction_routes: e.delegation_instruction_routes,
+                    max_tool_loop_iterations: e.max_tool_loop_iterations,
                 });
             }
             AgentRole::Worker => {
@@ -552,6 +564,7 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         max_delegations_per_provider: o.max_delegations_per_provider,
         delegate_blocked_providers: o.delegate_blocked_providers,
         delegation_instruction_routes: o.delegation_instruction_routes,
+        max_tool_loop_iterations: o.max_tool_loop_iterations,
     })
 }
 
@@ -937,6 +950,17 @@ pub fn orchestrator_context_mode(agents: &AgentsConfig) -> SkillContextMode {
 /// Worker skill context mode (default full).
 pub fn worker_context_mode(worker: &WorkerConfig) -> SkillContextMode {
     worker.context_mode.unwrap_or_default()
+}
+
+/// Default maximum agent loop iterations per turn when `maxToolLoopIterations` is not set.
+pub const DEFAULT_MAX_TOOL_LOOP_ITERATIONS: u32 = 100;
+
+/// Resolve the maximum agent loop iterations per turn from config, falling back to
+/// [`DEFAULT_MAX_TOOL_LOOP_ITERATIONS`] when not set.
+pub fn resolve_max_tool_loop_iterations(agents: &AgentsConfig) -> u32 {
+    agents
+        .max_tool_loop_iterations
+        .unwrap_or(DEFAULT_MAX_TOOL_LOOP_ITERATIONS)
 }
 
 /// Orchestrator enabled skill names (may be empty).

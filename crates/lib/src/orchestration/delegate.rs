@@ -28,9 +28,15 @@ pub const EVENT_DELEGATE_START: &str = "orchestration.delegate.start";
 pub const EVENT_DELEGATE_COMPLETE: &str = "orchestration.delegate.complete";
 /// WebSocket event name: delegation failed (resolution or worker turn error).
 pub const EVENT_DELEGATE_ERROR: &str = "orchestration.delegate.error";
-/// WebSocket event name: delegation not run (e.g. max delegations per turn exceeded).
+/// WebSocket event name: delegation rejected (policy limit).
 pub const EVENT_DELEGATE_REJECTED: &str = "orchestration.delegate.rejected";
 
+/// WebSocket event name: tool call started (tool about to execute).
+pub const EVENT_TOOL_CALL: &str = "session.tool_call";
+/// WebSocket event name: tool call completed (result available).
+pub const EVENT_TOOL_RESULT: &str = "session.tool_result";
+/// WebSocket event name: intermediate assistant message content during tool loop iterations.
+pub const EVENT_ASSISTANT_PROGRESS: &str = "session.assistant_progress";
 /// Optional broadcast of structured orchestration events to gateway WebSocket clients (`type`: `event`).
 #[derive(Clone)]
 pub struct DelegateObservability {
@@ -92,6 +98,47 @@ impl DelegateObservability {
             extra["workerId"] = json!(w);
         }
         self.send(EVENT_DELEGATE_REJECTED, self.merge_base(extra));
+    }
+
+    /// Emits [`EVENT_TOOL_CALL`] when a tool is about to execute.
+    pub fn emit_tool_call(
+        &self,
+        tool_name: &str,
+        tool_args: &serde_json::Value,
+        index: usize,
+    ) {
+        let payload = self.merge_base(json!({
+            "toolName": tool_name,
+            "toolArgs": tool_args,
+            "index": index,
+        }));
+        self.send(EVENT_TOOL_CALL, payload);
+    }
+
+    /// Emits [`EVENT_TOOL_RESULT`] when a tool execution completes.
+    pub fn emit_tool_result(
+        &self,
+        tool_name: &str,
+        tool_result: &str,
+        index: usize,
+    ) {
+        let payload = self.merge_base(json!({
+            "toolName": tool_name,
+            "toolResult": tool_result,
+            "index": index,
+        }));
+        self.send(EVENT_TOOL_RESULT, payload);
+    }
+
+    /// Emits [`EVENT_ASSISTANT_PROGRESS`] when the model produces content alongside
+    /// tool calls during a loop iteration. This content would otherwise be invisible
+    /// to the user since only the final iteration's content is sent as the assistant reply.
+    pub fn emit_assistant_message(&self, content: &str, iteration: u32) {
+        let payload = self.merge_base(json!({
+            "content": content,
+            "iteration": iteration,
+        }));
+        self.send(EVENT_ASSISTANT_PROGRESS, payload);
     }
 }
 
@@ -492,8 +539,9 @@ pub async fn execute_delegate_task(
         tool_name: None,
     });
     let provider = ctx.clients.as_dyn(choice);
+    let max_iterations = crate::config::resolve_max_tool_loop_iterations(ctx.agents);
     let result =
-        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec).await
+        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations).await
         {
             Ok(r) => r,
             Err(e) => {

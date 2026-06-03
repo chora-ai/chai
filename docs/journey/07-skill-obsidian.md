@@ -2,6 +2,8 @@
 
 **Goal:** Confirm the **obsidian** skill is loaded (official Obsidian CLI, early access), the agent can call its tools (search, search-content, create), and the reply reflects vault data or confirms an action.
 
+**Background:** [Skills](../guides/06-skills.md)
+
 This journey is for the skill **`obsidian`** (early access; binary `obsidian`) only. For the skill **`notesmd`** (binary `notesmd-cli`), see [06-skill-notesmd.md](06-skill-notesmd.md).
 
 ## Prerequisites

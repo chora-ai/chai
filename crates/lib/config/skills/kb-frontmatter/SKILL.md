@@ -12,11 +12,9 @@ generated_from:
 
 # Knowledge Base Frontmatter
 
-Read, edit, and delete YAML frontmatter keys in knowledge base notes. Operates
-surgically on the frontmatter block without touching note body content.
+Read, edit, and delete YAML frontmatter keys in knowledge base notes. Operates surgically on the frontmatter block without touching note body content.
 
-All paths are relative to the knowledge base root (the active profile's sandbox
-directory). Write operations are sandbox-validated.
+All paths are relative to the knowledge base root (the active profile's sandbox directory). Write operations are sandbox-validated.
 
 ## Skill Directives
 
@@ -55,8 +53,7 @@ directory). Write operations are sandbox-validated.
 
 ### Update multiple keys
 
-1. Call `kb_frontmatter_edit` once per key. Each call is a single key-value
-   update — batch multiple calls for multi-field changes.
+1. Call `kb_frontmatter_edit` once per key. Each call is a single key-value update — batch multiple calls for multi-field changes.
 
 ### Migrate a note's type
 

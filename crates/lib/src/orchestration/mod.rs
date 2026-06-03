@@ -24,8 +24,9 @@ pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
     parse_delegate_tool_calls, parse_delegate_tool_results,
     worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
-    DELEGATE_TASK_TOOL_NAME, EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR,
-    EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
+    EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START, EVENT_TOOL_CALL,
+    DELEGATE_TASK_TOOL_NAME, EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE,
+    EVENT_TOOL_RESULT,
 };
 pub use dispatch::ProviderClients;
 pub use model::{

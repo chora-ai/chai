@@ -1,152 +1,253 @@
+# Configuration
 
-## Configuration
+The command-line interface and desktop application use the same configuration. This guide walks you through configuring chai from the simplest working setup to more advanced multi-agent and channel configurations.
 
-The command-line interface and desktop application use the same configuration.
+## Initialization
 
-### Initialization
+After installing, run `chai init` to create `~/.chai/`:
 
-After installing, run **`chai init`** to create **`~/.chai/`**: default profiles **`assistant`** and **`developer`**, a symlink **`active`** → **`profiles/assistant/`**, and a shared **`skills/`** tree.
+- Two default profiles: `assistant` and `developer`
+- An `active` symlink → `profiles/assistant/`
+- A shared `skills/` tree (bundled skills extracted from the application)
+- A `sandbox/` directory per profile for write-capable tools
 
-### Configuration File (`config.json`)
+Each profile gets its own `config.json`, agent context directories, and local state. The active profile is `assistant` by default.
 
-Each **profile** has its own **`config.json`** at **`~/.chai/profiles/<name>/config.json`**. The active profile is **`~/.chai/active`** (symlink). Override for one process with **`CHAI_PROFILE`** or **`chai gateway --profile <name>`**. Use **`chai profile list`**, **`chai profile current`**, and **`chai profile switch <name>`** (gateway must be stopped) to inspect or change the persistent active profile. An empty **`config.json`** is created per profile at initialization.
+## Profiles
 
-**Minimal example** — a valid configuration file (built-in defaults are used at runtime).
+Each profile is an independent configuration tree under `~/.chai/profiles/<name>/`. The active profile is a symlink at `~/.chai/active`. You can:
+
+- **List profiles** — `chai profile list`
+- **Show current profile** — `chai profile current`
+- **Switch profiles** — `chai profile switch <name>` (the gateway must be stopped)
+- **Override per process** — Set `CHAI_PROFILE` or run `chai gateway --profile <name>`
+
+The gateway refuses profile switches while it is running (it holds an advisory lock at `~/.chai/gateway.lock`).
+
+## Configuration File
+
+Each profile has a `config.json` at `~/.chai/profiles/<name>/config.json`. An empty file is valid — built-in defaults are used at runtime:
 
 ```json
 {}
 ```
 
-**Runtime example** — the effective values for **`{}`** (shown here for reference, not required). With no **`agents`** key, **`defaultProvider`** and **`defaultModel`** are unset on disk; **`ollama`** and **`llama3.2:3b`** are the defaults the gateway uses at runtime for routing and model selection (other providers use their own fallbacks when **`defaultModel`** is unset; see **Providers and Models** below).
+With no `agents` key, the gateway runs a single orchestrator using Ollama and `llama3.2:3b`. Everything else has sensible defaults too: the gateway binds to `127.0.0.1:15151` with no auth, no channels are configured, and no skills are enabled.
+
+## Configuring a Provider
+
+When you want to use a provider other than Ollama (or a different Ollama address), add a `providers` block. Each provider entry is optional — include only the ones you need.
+
+**Using LM Studio instead of Ollama:**
 
 ```json
 {
-  "gateway": {
-    "port": 15151,
-    "bind": "127.0.0.1",
-    "auth": {
-      "mode": "none"
+  "agents": [
+    {
+      "id": "orchestrator",
+      "role": "orchestrator",
+      "defaultProvider": "lms",
+      "defaultModel": "ibm/granite-4-micro"
+    }
+  ]
+}
+```
+
+**Using OpenAI with an API key:**
+
+```json
+{
+  "providers": {
+    "openai": {
+      "apiKey": "sk-..."
     }
   },
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
-      "defaultProvider": "ollama",
-      "defaultModel": "llama3.2:3b",
+      "defaultProvider": "openai",
+      "defaultModel": "gpt-4o-mini"
+    }
+  ]
+}
+```
+
+You can also set API keys via environment variables (`OPENAI_API_KEY`, `NVIDIA_API_KEY`, `HF_API_KEY`, `VLLM_API_KEY`) instead of putting them in `config.json`. Environment variables override the file values at runtime.
+
+**Overriding a provider's base URL:**
+
+```json
+{
+  "providers": {
+    "openai": {
+      "baseUrl": "https://my-proxy.example.com/v1",
+      "apiKey": "sk-..."
+    }
+  }
+}
+```
+
+This is useful for Azure OpenAI endpoints or other OpenAI-compatible proxies.
+
+Use the exact model id expected by the selected provider for `defaultModel`:
+
+| Provider | Model id example | Where to find it |
+|----------|-----------------|------------------|
+| `ollama` | `llama3.2:3b`, `qwen3:8b` | `ollama list` |
+| `lms` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
+| `vllm` | `Qwen/Qwen2.5-7B-Instruct` | Same id you pass to `vllm serve` |
+| `hf` | `meta-llama/Llama-3.1-8B-Instruct` | Your endpoint's expected id |
+| `nim` | `meta/llama-3.2-3b-instruct` | [NVIDIA LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis) |
+| `openai` | `gpt-4o-mini` | [OpenAI models](https://platform.openai.com/docs/models) |
+
+For systematic provider and model testing, see the [Testing Playbooks](../testing/README.md).
+
+## Configuring Channels
+
+Channels connect the gateway to messaging platforms. Add a `channels` block to enable one.
+
+**Telegram (long-poll):**
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "botToken": "123456:ABC-DEF..."
+    }
+  }
+}
+```
+
+Or set `TELEGRAM_BOT_TOKEN` as an environment variable. For webhook mode (better for public gateways), also set `webhookUrl` and optionally `webhookSecret`. See [Connections](04-connections.md) for the full setup walkthrough.
+
+**Matrix:**
+
+```json
+{
+  "channels": {
+    "matrix": {
+      "homeserver": "https://matrix.org",
+      "accessToken": "syt_...",
+      "userId": "@my-bot:matrix.org"
+    }
+  }
+}
+```
+
+Or use `user` + `password` for `m.login.password` auth. The corresponding `MATRIX_*` environment variables also work.
+
+**Signal:**
+
+Signal requires a running signal-cli HTTP daemon. Point to it:
+
+```json
+{
+  "channels": {
+    "signal": {
+      "httpBase": "http://127.0.0.1:7583",
+      "account": "+1234567890"
+    }
+  }
+}
+```
+
+See [Connections](04-connections.md) for signal-cli setup instructions.
+
+For hands-on channel setup, see the user journeys: [Telegram](../journey/05-channel-telegram.md) · [Matrix](../journey/08-channel-matrix.md) · [Signal](../journey/09-channel-signal.md).
+
+## Configuring Agents
+
+The `agents` array defines the orchestrator and optional workers. Omit the key entirely for a single-orchestrator default setup.
+
+**Single orchestrator with custom provider and skills:**
+
+```json
+{
+  "agents": [
+    {
+      "id": "orchestrator",
+      "role": "orchestrator",
+      "defaultProvider": "openai",
+      "defaultModel": "gpt-4o-mini",
+      "skillsEnabled": ["files", "notesmd-daily"],
       "contextMode": "full"
     }
   ]
 }
 ```
 
-**Full example** — a valid configuration with all top-level fields (plus a worker agent).
+**Orchestrator with a worker:**
 
 ```json
 {
-  "gateway": {
-    "port": 15151,
-    "bind": "127.0.0.1",
-    "auth": {
-      "mode": "none",
-      "token": null
-    }
-  },
-  "channels": {
-    "telegram": {
-      "botToken": null,
-      "webhookUrl": null,
-      "webhookSecret": null
-    },
-    "matrix": {
-      "homeserver": null,
-      "accessToken": null,
-      "user": null,
-      "password": null,
-      "userId": null,
-      "deviceId": null,
-      "roomIds": null
-    },
-    "signal": {
-      "httpBase": null,
-      "account": null
-    }
-  },
-  "providers": {
-    "ollama": {
-      "baseUrl": null
-    },
-    "lms": {
-      "baseUrl": null
-    },
-    "vllm": {
-      "apiKey": null,
-      "baseUrl": null
-    },
-    "hf": {
-      "apiKey": null,
-      "baseUrl": null
-    },
-    "nim": {
-      "apiKey": null,
-      "extraModels": null
-    },
-    "openai": {
-      "apiKey": null,
-      "baseUrl": null
-    }
-  },
   "agents": [
     {
-      "id": "orchestrator",
+      "id": "assistant",
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
-      "enabledProviders": [],
-      "maxSessionMessages": null,
-      "maxDelegationsPerTurn": null,
-      "maxDelegationsPerSession": null,
-      "maxDelegationsPerProvider": null,
-      "delegateAllowedModels": [
-        {
-          "provider": "ollama",
-          "model": "llama3.2:3b",
-          "local": false,
-          "toolCapable": null
-        }
-      ],
-      "delegateBlockedProviders": [],
-      "delegationInstructionRoutes": [
-        {
-          "instructionPrefix": "[worker]",
-          "workerId": "worker",
-          "provider": null,
-          "model": null
-        }
-      ]
+      "enabledProviders": ["ollama", "lms"]
     },
     {
-      "id": "worker",
+      "id": "engineer",
       "role": "worker",
-      "defaultProvider": null,
-      "defaultModel": null,
-      "enabledProviders": [],
-      "delegateAllowedModels": [
-        {
-          "provider": "ollama",
-          "model": "llama3.2:3b",
-          "local": false,
-          "toolCapable": null
-        }
-      ]
+      "defaultProvider": "lms",
+      "defaultModel": "ibm/granite-4-micro",
+      "enabledProviders": ["lms"]
     }
   ]
 }
 ```
 
-### Gateway
+With workers configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Each agent gets its own `AGENT.md` at `~/.chai/active/agents/<agentId>/AGENT.md`. See [Agents](05-agents.md) for more on orchestration and delegation.
 
-**`gateway`** — HTTP/WebSocket listen address and auth.
+**Key agent fields:**
+
+- `defaultProvider` / `defaultModel` — Which backend and model the agent uses.
+- `enabledProviders` — Which providers to poll for model discovery at startup. When omitted or empty, only the default provider is discovered.
+- `skillsEnabled` — Which skill packages to load for this agent. Omitted or empty means no skills.
+- `contextMode` — How skill content appears in the system context: `full` (inlined) or `readOnDemand` (compact list + `read_skill` tool).
+
+## Securing the Gateway
+
+By default, the gateway binds to `127.0.0.1` with no authentication — safe for local use. If you bind to a non-loopback address (to accept connections from other machines), enable token auth:
+
+```json
+{
+  "gateway": {
+    "bind": "0.0.0.0",
+    "auth": {
+      "mode": "token",
+      "token": "your-secret-here"
+    }
+  }
+}
+```
+
+Or set `CHAI_GATEWAY_TOKEN` as an environment variable. Clients must present this token when connecting via WebSocket.
+
+## Configuration Directory
+
+The `~/.chai/` directory structure:
+
+| Path | Purpose |
+|------|---------|
+| `profiles/<name>/config.json` | Per-profile configuration |
+| `profiles/<name>/agents/<agentId>/AGENT.md` | Per-agent instructions |
+| `profiles/<name>/sandbox/` | Write boundary for tools (see [Write Sandbox](07-sandbox.md)) |
+| `profiles/<name>/paired.json` | Desktop pairing state |
+| `active` | Symlink to the active profile |
+| `skills/` | Shared on-disk skills tree |
+| `gateway.lock` | Advisory lock while gateway runs (profile + PID) |
+
+---
+
+## Configuration Reference
+
+Complete field-level reference for `config.json`. All keys are `camelCase`.
+
+### Gateway
 
 | Field | Default | Override | Note |
 |-------|---------|----------|------|
@@ -156,8 +257,6 @@ Each **profile** has its own **`config.json`** at **`~/.chai/profiles/<name>/con
 | `gateway.auth.token` | - | `CHAI_GATEWAY_TOKEN` | Only used if `mode` is `token` |
 
 ### Channels
-
-**`channels`** — Channel integrations (Telegram, Signal, Matrix).
 
 | Field | Default | Override | Note |
 |-------|---------|----------|------|
@@ -170,77 +269,66 @@ Each **profile** has its own **`config.json`** at **`~/.chai/profiles/<name>/con
 | `channels.matrix.accessToken` | - | `MATRIX_ACCESS_TOKEN` | Or `user` + `password` |
 | `channels.matrix.user` | - | `MATRIX_USER` | Password login localpart or MXID |
 | `channels.matrix.password` | - | `MATRIX_PASSWORD` | For `m.login.password` |
-| `channels.matrix.userId` | - | `MATRIX_USER_ID` | With token auth, for echo filtering. |
-| `channels.matrix.deviceId` | - | `MATRIX_DEVICE_ID` | Token restore when whoami omits device id. |
-| `channels.matrix.roomIds` | - | `MATRIX_ROOM_ALLOWLIST` | Non-empty config list limits turns to those rooms; env (comma-separated) replaces the list when set and non-empty. |
+| `channels.matrix.userId` | - | `MATRIX_USER_ID` | With token auth, for echo filtering |
+| `channels.matrix.deviceId` | - | `MATRIX_DEVICE_ID` | Token restore when whoami omits device id |
+| `channels.matrix.roomIds` | - | `MATRIX_ROOM_ALLOWLIST` | Non-empty config list limits turns to those rooms; env (comma-separated) replaces the list when set and non-empty |
 
 ### Providers
 
-**`providers`** — Per-backend URLs and API keys.
-
 | Field | Default | Override | Note |
 |-------|---------|----------|------|
-| `providers.ollama.baseUrl` | `http://127.0.0.1:11434` | - | Ollama client default when unset. |
-| `providers.lms.baseUrl` | `http://127.0.0.1:1234/v1` | - | OpenAI-compatible LM Studio API. |
-| `providers.vllm.baseUrl` | `http://127.0.0.1:8000/v1` | - | Include **`/v1`**. |
-| `providers.vllm.apiKey` | - | `VLLM_API_KEY` | When server uses **`--api-key`**. |
-| `providers.hf.baseUrl` | `http://127.0.0.1:8080/v1` | - | Set a real Inference Endpoint or TGI URL with **`/v1`**. |
+| `providers.ollama.baseUrl` | `http://127.0.0.1:11434` | - | Ollama client default when unset |
+| `providers.lms.baseUrl` | `http://127.0.0.1:1234/v1` | - | OpenAI-compatible LM Studio API |
+| `providers.vllm.baseUrl` | `http://127.0.0.1:8000/v1` | - | Include `/v1` |
+| `providers.vllm.apiKey` | - | `VLLM_API_KEY` | When server uses `--api-key` |
+| `providers.hf.baseUrl` | `http://127.0.0.1:8080/v1` | - | Set a real Inference Endpoint or TGI URL with `/v1` |
 | `providers.hf.apiKey` | - | `HF_API_KEY` | - |
-| `providers.nim.apiKey` | - | `NVIDIA_API_KEY` | Base URL is fixed (**`https://integrate.api.nvidia.com/v1`**). |
-| `providers.nim.extraModels` | - | - | NIM model id array; merged into gateway **`nimModels`** / desktop **`status`**. |
-| `providers.openai.baseUrl` | `https://api.openai.com/v1` | - | Override for Azure or other compatible endpoints. |
+| `providers.nim.apiKey` | - | `NVIDIA_API_KEY` | Base URL is fixed (`https://integrate.api.nvidia.com/v1`) |
+| `providers.nim.extraModels` | - | - | NIM model id array; merged into gateway `nimModels` / desktop `status` |
+| `providers.openai.baseUrl` | `https://api.openai.com/v1` | - | Override for Azure or other compatible endpoints |
 | `providers.openai.apiKey` | - | `OPENAI_API_KEY` | - |
 
 ### Agents
 
-**`agents`** — JSON array: exactly one **`"role": "orchestrator"`** and any number of **`"role": "worker"`**. Omit the **`agents`** key (or use **`"agents": null`**) to use built-in defaults: a single orchestrator with **`id`** **`orchestrator`** and effective **`role`** **`orchestrator`**. Fields below are **camelCase** keys on each array object.
+The `agents` array contains exactly one `"role": "orchestrator"` and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
 
-**Orchestrator-only** (ignored if present on a worker object): **`maxSessionMessages`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerProvider`**, **`delegateBlockedProviders`**, **`delegationInstructionRoutes`**.
+**Orchestrator-only fields** (ignored on worker objects): `maxSessionMessages`, `maxToolLoopIterations`, `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider`, `delegateBlockedProviders`, `delegationInstructionRoutes`.
 
-The table uses two default columns: **Default (property omitted)** is the effective behavior when that JSON property is missing on an **`agents`** array entry (orchestrator vs worker called out where they differ). **When `agents` omitted** is the built-in config when the top-level **`agents`** key is absent or **`null`** (no worker entries). **same** means that case matches the orchestrator line in **Default (property omitted)** for that row (there is only an implicit orchestrator).
-
-| Field | Default (when field omitted) | Default (when `agents` omitted) | Note |
-|-------|---------------------------|------------------------|------|
-| `id` | Required in **`agents`** array | **`orchestrator`** | Unique per entry. Worker **`id`** is **`delegate_task`** **`workerId`**. |
-| `role` | Required in **`agents`** array | **`orchestrator`** | In the array, must be **`orchestrator`** or **`worker`** (no serde default). With no **`agents`** key, the implicit single agent is the orchestrator. |
-| `defaultProvider` | Orchestrator: **`ollama`**. Worker: same effective provider as orchestrator | **`ollama`** | Unknown id → **`ollama`**. Drives orchestrator turns and discovery when **`enabledProviders`** is unset or empty. |
-| `defaultModel` | Orchestrator: provider fallback (see below). Worker: worker string, else orchestrator string, then fallback for worker’s provider | **`llama3.2:3b`** (built-in **`defaultProvider`** is **`ollama`**) | Fallback when still unset: **`ollama`** → **`llama3.2:3b`**; **`lms`** → **`llama-3.2-3B-instruct`**; **`vllm`** → **`Qwen/Qwen2.5-7B-Instruct`**; **`nim`** → **`meta/llama-3.2-3b-instruct`**; **`openai`** → **`gpt-4o-mini`**; **`hf`** → **`meta-llama/Llama-3.1-8B-Instruct`**. |
-| `enabledProviders` | Orchestrator: only effective **`defaultProvider`** polled. Worker: see Note | **same** | Orchestrator: **`null`** or **`[]`** → poll that provider only; non-empty → only those. Worker: **`null`** → no extra **`delegate_task`** restriction (still subject to orchestrator discovery). **`[]`** → **`delegate_task`** only to that worker’s effective default provider. Non-empty → only listed providers for that worker. |
-| `skillsEnabled` | No skill packages | **same** | Omitted or **`[]`**: nothing loaded from **`~/.chai/skills`**. |
-| `contextMode` | **`full`** | **same** | **`full`** or **`readOnDemand`**. |
-| `maxSessionMessages` | All messages (no trim) | **same** | Orchestrator only. When set and **`> 0`**, only the last N session messages are sent to the provider; full history stays in the session store. |
-| `maxDelegationsPerTurn` | No dedicated cap | **same** | Orchestrator only. Tool loop iteration limit still applies. When set, excess **`delegate_task`** calls error in that turn. |
-| `maxDelegationsPerSession` | No limit | **same** | Orchestrator only. |
-| `maxDelegationsPerProvider` | No per-provider cap | **same** | Orchestrator only. Non-empty: keys are canonical provider ids; values are max successful delegations per session to that provider. |
-| `delegateAllowedModels` | Only effective default **`(provider, model)`** for that scope | **same** | Missing, **`null`**, or **`[]`**: **`delegate_task`** must match orchestrator **`resolve_effective_provider_and_model`** or worker **`effective_worker_defaults`**. Non-empty: only listed **`{ provider, model, local?, toolCapable? }`**; a non-empty worker list overrides the orchestrator list for that **`workerId`**. |
-| `delegateBlockedProviders` | Nothing blocked | **same** | Orchestrator only. Non-empty: those canonical provider ids disallowed for **`delegate_task`**. |
-| `delegationInstructionRoutes` | None | **same** | Orchestrator only. **`{ instructionPrefix, workerId?, provider?, model? }`**; first matching prefix fills missing **`delegate_task`** fields. |
-
-### Configuration Directory (`~/.chai/`)
-
-- **`profiles/<name>/`** — Per-profile **`config.json`**, **`agents/<agentId>/`** (**`AGENT.md`** per agent), **`paired.json`**, device identity, Matrix store (defaults), and other profile-local state.
-- **`active`** — Symlink to **`profiles/<name>/`** (persistent active profile).
-- **`skills/`** — Shared on-disk skills tree. After **`chai init`**, bundled skills are extracted here.
-- **`gateway.lock`** — While a gateway runs, this file is held with an **advisory exclusive lock** and contains profile name + PID (for debugging). **`chai profile switch`** and the desktop profile control refuse while another process holds that lock.
-
-### Environment variables
+| Field | Default (When Field Omitted) | Default (When `agents` Omitted) | Note |
+|-------|------------------------------|----------------------------------|------|
+| `id` | Required in `agents` array | `orchestrator` | Unique per entry. Worker `id` is `delegate_task` `workerId`. |
+| `role` | Required in `agents` array | `orchestrator` | Must be `orchestrator` or `worker`. |
+| `defaultProvider` | Orchestrator: `ollama`. Worker: same as orchestrator | `ollama` | Unknown id → `ollama`. |
+| `defaultModel` | Orchestrator: provider fallback. Worker: worker string, else orchestrator string, then fallback | `llama3.2:3b` (built-in `defaultProvider` is `ollama`) | Fallbacks: `ollama` → `llama3.2:3b`; `lms` → `llama-3.2-3B-instruct`; `vllm` → `Qwen/Qwen2.5-7B-Instruct`; `nim` → `meta/llama-3.2-3b-instruct`; `openai` → `gpt-4o-mini`; `hf` → `meta-llama/Llama-3.1-8B-Instruct`. |
+| `enabledProviders` | Orchestrator: only `defaultProvider` polled. Worker: see Note | same | Orchestrator: `null` or `[]` → poll that provider only; non-empty → only those. Worker: `null` → no extra `delegate_task` restriction; `[]` → only default provider; non-empty → only listed providers. |
+| `skillsEnabled` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
+| `contextMode` | `full` | same | `full` or `readOnDemand`. |
+| `maxSessionMessages` | All messages (no trim) | same | Orchestrator only. When set and `> 0`, only the last N messages are sent; full history stays in the session store. |
+| `maxToolLoopIterations` | `100` | `100` | Orchestrator only. Maximum LLM round-trips per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. |
+| `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |
+| `maxDelegationsPerSession` | No limit | same | Orchestrator only. |
+| `maxDelegationsPerProvider` | No per-provider cap | same | Orchestrator only. Keys are provider ids; values are max successful delegations per session. |
+| `delegateAllowedModels` | Only effective default (provider, model) for that scope | same | Non-empty: only listed `{ provider, model, local?, toolCapable? }`. A non-empty worker list overrides the orchestrator list for that `workerId`. |
+| `delegateBlockedProviders` | Nothing blocked | same | Orchestrator only. Non-empty: those provider ids disallowed for `delegate_task`. |
+| `delegationInstructionRoutes` | None | same | Orchestrator only. `{ instructionPrefix, workerId?, provider?, model? }`; first matching prefix fills missing `delegate_task` fields. |
+### Environment Variables
 
 | Variable | Overrides | Description |
 |----------|-----------|-------------|
-| `CHAI_PROFILE` | Active profile | Profile name; overrides **`~/.chai/active`** for config resolution for that process. |
-| `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret for WebSocket connect when auth mode is `token`. |
+| `CHAI_PROFILE` | Active profile | Profile name; overrides `~/.chai/active` for that process. |
+| `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
-| `TELEGRAM_WEBHOOK_SECRET` | `channels.telegram.webhookSecret` | Optional webhook verification secret (header **`X-Telegram-Bot-Api-Secret-Token`**). |
-| `SIGNAL_CLI_HTTP` | `channels.signal.httpBase` | signal-cli HTTP daemon base URL (`http://127.0.0.1:7583`). |
-| `SIGNAL_CLI_ACCOUNT` | `channels.signal.account` | Optional `+E.164` for multi-account signal-cli JSON-RPC. |
-| `MATRIX_HOMESERVER` | `channels.matrix.homeserver` | Matrix homeserver base URL (`https://…`). |
-| `MATRIX_ACCESS_TOKEN` | `channels.matrix.accessToken` | Matrix client access token. |
-| `MATRIX_USER_ID` | `channels.matrix.userId` | Matrix user id (`@user:server`) when using an access token without password login. |
-| `MATRIX_USER` | `channels.matrix.user` | Localpart or full MXID for password login. |
-| `MATRIX_PASSWORD` | `channels.matrix.password` | Password for **`m.login.password`**. |
-| `MATRIX_DEVICE_ID` | `channels.matrix.deviceId` | Device id for access-token session restore when whoami omits it. |
-| `MATRIX_ROOM_ALLOWLIST` | `channels.matrix.roomIds` | Comma-separated room ids; when set and non-empty, replaces the config allowlist. |
-| `VLLM_API_KEY` | `providers.vllm.apiKey` | Bearer token for vLLM when the server was started with `--api-key`. |
-| `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face OpenAI-compatible endpoints when required. |
-| `NVIDIA_API_KEY` | `providers.nim.apiKey` | API key for NVIDIA NIM hosted API at `https://integrate.api.nvidia.com`. When set, this is used for the NIM provider. |
-| `OPENAI_API_KEY` | `providers.openai.apiKey` | API key for the OpenAI API (or compatible **`providers.openai.baseUrl`**). |
+| `TELEGRAM_WEBHOOK_SECRET` | `channels.telegram.webhookSecret` | Webhook verification secret. |
+| `SIGNAL_CLI_HTTP` | `channels.signal.httpBase` | signal-cli HTTP daemon base URL. |
+| `SIGNAL_CLI_ACCOUNT` | `channels.signal.account` | `+E.164` for multi-account signal-cli. |
+| `MATRIX_HOMESERVER` | `channels.matrix.homeserver` | Matrix homeserver base URL. |
+| `MATRIX_ACCESS_TOKEN` | `channels.matrix.accessToken` | Matrix access token. |
+| `MATRIX_USER_ID` | `channels.matrix.userId` | Matrix user id for echo filtering with token auth. |
+| `MATRIX_USER` | `channels.matrix.user` | Localpart or MXID for password login. |
+| `MATRIX_PASSWORD` | `channels.matrix.password` | Password for `m.login.password`. |
+| `MATRIX_DEVICE_ID` | `channels.matrix.deviceId` | Device id for token session restore. |
+| `MATRIX_ROOM_ALLOWLIST` | `channels.matrix.roomIds` | Comma-separated room ids; replaces config allowlist when set and non-empty. |
+| `VLLM_API_KEY` | `providers.vllm.apiKey` | Bearer token for vLLM. |
+| `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face endpoints. |
+| `NVIDIA_API_KEY` | `providers.nim.apiKey` | API key for NVIDIA NIM. |
+| `OPENAI_API_KEY` | `providers.openai.apiKey` | API key for OpenAI or compatible endpoint. |

@@ -19,9 +19,7 @@ Chai's value as agent infrastructure depends on the breadth and quality of its s
 - Empirical validation of generated skills against small local models (7B, 13B)
 - Write-capable skill variants once the sandbox is available
 
-
 ## Current State
-
 
 ### Skill Inventory
 
@@ -51,7 +49,7 @@ Five skills have been moved to the [chai-examples](https://github.com/chora-ai/c
 | Git operations | **Two variants** (`git` local, `git-remote` full) | Clone validated against sandbox; force-push not exposed | Full contribution workflow: clone, branch, commit, push |
 | RSS monitoring | **Functional** (curl backend, feeds configured) | No scheduling trigger | Researcher agent can fetch feeds on demand but can't monitor automatically |
 | Note linking | **Complete** (`kb-wikilink` + `kb-wikilink-write`) | None — broken link detection and rename-with-link-updates implemented | Full link discovery and write operations via sandbox-validated tools |
-| Write sandbox | **Implemented** ([WRITE_SANDBOX](WRITE_SANDBOX.md)) | Runtime complete; `chai init` and docs pending | Path-argument write tools can use `writePath: true` now |
+| Write sandbox | **Complete** ([WRITE_SANDBOX](WRITE_SANDBOX.md)) | None | Path-argument write tools use `writePath: true`; `chai init` creates `sandbox/`; user guide documented |
 | Autonomous scheduling | Not started | Gateway is reactive (responds to messages) | No cron-like trigger for "check inbox every morning" |
 | Asking boundary | Not started | Not encoded in orchestrator context | Agent can't distinguish when to act vs. escalate |
 | MCP integration | Not started | Not yet supported | Can't consume the existing MCP server ecosystem |
@@ -515,6 +513,7 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 - **Line-level read and write operations** — `files_read_lines` and `files_write_lines` added for reading line ranges with line numbers and replacing/deleting line ranges without rewriting entire files. Implemented via `chai file read-lines` and `chai file patch` CLI subcommands with `patch_string()` core logic.
 - **Unified `skills`/`skills-read` replacing `skillgen`/`skillval`** — merged the two role-named skills into domain-named variants mirroring the `files`/`files-read` pattern. `skills` (9 tools, full tier) adds `skills_delete` and `skills_list`/`skills_validate` from the former `skillval`. `skills-read` (3 tools, minimal tier) is the read-only variant with `model_variant_of: skills`. The `chai skill delete` CLI subcommand was added for programmatic skill removal.
 - **`files_append` tool** — added to the `files` skill via `chai file append` with `writePath: true`. Previously, appending required reading the full file, modifying in context, and writing back — wasteful for large files and error-prone for simple additions. The CLI subcommand already existed (used by `kb_append`); only the tools.json and SKILL.md needed updating.
+
 ## Related Epics and Docs
 
 | Topic | Where |

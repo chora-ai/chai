@@ -4,7 +4,7 @@ A multi-agent management system.
 
 ## Documentation
 
-For user guides and other user documentation, see [documentation](docs/README.md).
+For user guides and other documentation, see [docs](docs/README.md).
 
 ## Packages
 

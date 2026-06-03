@@ -50,7 +50,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[SIMULATIONS.md](epic/SIMULATIONS.md)** — (draft) Fixture harness someday; `spike` crates stay small live probes.
 - **[SKILL_PACKAGES.md](epic/SKILL_PACKAGES.md)** — (complete) Pins, locks, rollback metaphor; no resolver in tree yet.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today’s default.
-- **[WRITE_SANDBOX.md](epic/WRITE_SANDBOX.md)** — (in-progress) Runtime `WriteSandbox` and `writePath` enforcement.
+- **[WRITE_SANDBOX.md](epic/WRITE_SANDBOX.md)** — (complete) Per-profile `WriteSandbox` and `writePath` enforcement.
 
 ### `/meta`
 

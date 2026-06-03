@@ -13,12 +13,7 @@ model_variant_of: skills
 
 # Skills (Read-Only)
 
-Inspect and validate Chai skill packages. This skill provides read-only access
-to installed skills for conformance checking, structural validation, and
-inventory reporting.
-
-Do not enable alongside the `skills` skill — this is a read-only subset
-intended for worker agents that only need inspection capabilities.
+Inspect and validate Chai skill packages. This skill provides read-only access to installed skills for conformance checking, structural validation, and inventory reporting.
 
 ## Skill Directives
 
@@ -53,10 +48,8 @@ intended for worker agents that only need inspection capabilities.
    - **ERROR** lines indicate structural failures that must be fixed.
    - **WARNING** lines indicate potential issues that should be reviewed.
    - **PASS** indicates the tools.json is structurally conformant.
-3. If errors are found, call `skills_read` with `file` set to `tools_json`
-   to examine the actual content and identify the root cause.
-4. Report findings with specific errors, the affected tool names, and what needs
-   to change.
+3. If errors are found, call `skills_read` with `file` set to `tools_json` to examine the actual content and identify the root cause.
+4. Report findings with specific errors, the affected tool names, and what needs to change.
 
 ### Audit a skill's SKILL.md
 
@@ -66,16 +59,14 @@ intended for worker agents that only need inspection capabilities.
    - If the skill has tools, the body lists them in an "Available Tools" section.
    - Tool names in SKILL.md match the names in tools.json.
    - Instructions reference only tools that exist in tools.json.
-3. If `generated_from` metadata is present, verify `capability_tier` is one of
-   `minimal`, `moderate`, or `full`.
+3. If `generated_from` metadata is present, verify `capability_tier` is one of `minimal`, `moderate`, or `full`.
 
 ### Cross-validate a skill
 
 1. Call `skills_list` to get the inventory.
 2. For each skill of interest, call `skills_validate` to check tools.json.
 3. Call `skills_read` with `file` set to `skill_md` to check SKILL.md.
-4. Verify consistency: tools listed in SKILL.md should match tools.json, and
-   `metadata.requires.bins` should match binaries in the allowlist.
+4. Verify consistency: tools listed in SKILL.md should match tools.json, and `metadata.requires.bins` should match binaries in the allowlist.
 
 ## Examples
 

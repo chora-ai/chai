@@ -12,12 +12,9 @@ generated_from:
 
 # Knowledge Base Wikilink Write
 
-Rename knowledge base notes and automatically update all wikilinks that
-reference them. Handles both plain links (`[[Note Name]]`) and aliased links
-(`[[Note Name|display text]]`).
+Rename knowledge base notes and automatically update all wikilinks that reference them. Handles both plain links (`[[Note Name]]`) and aliased links (`[[Note Name|display text]]`).
 
-All paths are relative to the knowledge base root (the active profile's sandbox
-directory). Write operations are sandbox-validated.
+All paths are relative to the knowledge base root (the active profile's sandbox directory). Write operations are sandbox-validated.
 
 ## Skill Directives
 
@@ -35,23 +32,18 @@ directory). Write operations are sandbox-validated.
 
 ### Rename a note
 
-1. Call `kb_wikilink_rename` with `from` set to the current path and `to` set
-   to the new path. Both are relative to the knowledge base root.
-2. The tool renames the file and updates all `[[old name]]` and
-   `[[old name|alias]]` wikilinks across the entire knowledge base.
+1. Call `kb_wikilink_rename` with `from` set to the current path and `to` set to the new path. Both are relative to the knowledge base root.
+2. The tool renames the file and updates all `[[old name]]` and `[[old name|alias]]` wikilinks across the entire knowledge base.
 3. The output reports the rename and the number of files with updated links.
 
 ### Move a note to a different directory
 
-1. Call `kb_wikilink_rename` with `from` as the current path and `to` as the
-   path in the new directory. Wikilinks use note names (not paths), so links
-   are only updated if the file name changes.
+1. Call `kb_wikilink_rename` with `from` as the current path and `to` as the path in the new directory. Wikilinks use note names (not paths), so links are only updated if the file name changes.
 
 ### Rename and reorganize
 
 1. Call `kb_wikilink_rename` for each note that needs to move or be renamed.
-2. Check for broken links afterward using `kb_wikilink_broken` from the
-   `kb-wikilink` skill.
+2. Check for broken links afterward using `kb_wikilink_broken` from the `kb-wikilink` skill.
 
 ## Examples
 

@@ -2,7 +2,7 @@
 //! This module is the **wire implementation** used by several named providers (`lms`, `vllm`, `openai`, `hf`).
 //! It is **not** merged with [`super::openai::OpenAiClient`]: that crate module supplies OpenAI-specific defaults and the [`crate::providers::Provider`] impl; this module stays provider-agnostic so one implementation serves every OpenAI-shaped backend.
 
-use crate::providers::{ChatMessage, ChatResponse, ToolCall, ToolCallFunction, ToolDefinition};
+use crate::providers::{ChatMessage, ChatResponse, FinishReason, ToolCall, ToolCallFunction, ToolDefinition, Usage};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -139,6 +139,7 @@ impl OpenAiCompatClient {
         let mut buffer = Vec::new();
         let mut content = String::new();
         let mut tool_calls: Vec<OpenAiStreamToolCall> = Vec::new();
+        let mut finish_reason: Option<FinishReason> = None;
 
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.map_err(OpenAiCompatError::Request)?;
@@ -155,6 +156,9 @@ impl OpenAiCompatClient {
                     }
                     if let Ok(ev) = serde_json::from_str::<OpenAiStreamChunk>(data) {
                         if let Some(choice) = ev.choices.and_then(|c| c.into_iter().next()) {
+                            if let Some(fr) = choice.finish_reason {
+                                finish_reason = Some(fr);
+                            }
                             if let Some(delta) = choice.delta {
                                 if let Some(c) = delta.content {
                                     on_chunk(&c);
@@ -220,6 +224,10 @@ impl OpenAiCompatClient {
                 tool_name: None,
             }),
             done: true,
+            finish_reason,
+            eval_count: None,
+            prompt_eval_count: None,
+            usage: None,
         })
     }
 }
@@ -388,11 +396,20 @@ fn tool_definitions_to_openai(tools: Vec<ToolDefinition>) -> Vec<OpenAiTool> {
 #[derive(Debug, Deserialize)]
 struct OpenAiChatResponse {
     choices: Option<Vec<OpenAiChoice>>,
+    usage: Option<OpenAiUsage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct OpenAiUsage {
+    prompt_tokens: Option<u64>,
+    completion_tokens: Option<u64>,
+    total_tokens: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAiChoice {
     message: Option<OpenAiResponseMessage>,
+    finish_reason: Option<FinishReason>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -421,10 +438,14 @@ struct OpenAiResponseToolCallFunction {
 fn openai_response_to_chat_response(
     data: OpenAiChatResponse,
 ) -> Result<ChatResponse, OpenAiCompatError> {
-    let message = data
-        .choices
-        .and_then(|c| c.into_iter().next())
-        .and_then(|c| c.message);
+    let choice = data.choices.and_then(|c| c.into_iter().next());
+    let finish_reason = choice.as_ref().and_then(|c| c.finish_reason.clone());
+    let message = choice.and_then(|c| c.message);
+    let usage = data.usage.map(|u| Usage {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+    });
     let (content, tool_calls) = match message {
         Some(m) => {
             let content = m.content.unwrap_or_default();
@@ -461,6 +482,10 @@ fn openai_response_to_chat_response(
             tool_name: None,
         }),
         done: true,
+        finish_reason,
+        eval_count: None,
+        prompt_eval_count: None,
+        usage,
     })
 }
 
@@ -472,6 +497,7 @@ struct OpenAiStreamChunk {
 #[derive(Debug, Deserialize)]
 struct OpenAiStreamChoice {
     delta: Option<OpenAiStreamDelta>,
+    finish_reason: Option<FinishReason>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -506,4 +532,112 @@ struct OpenAiStreamToolCall {
 struct OpenAiStreamToolCallFunction {
     name: String,
     arguments: String,
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- OpenAI non-streaming: finish_reason propagation via openai_response_to_chat_response ---
+
+    #[test]
+    fn openai_response_finish_reason_length() {
+        let json = r#"{"choices":[{"message":{"role":"assistant","content":"cut off"},"finish_reason":"length"}]}"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(resp.is_truncated());
+        assert_eq!(resp.finish_reason, Some(FinishReason::Length));
+        assert_eq!(resp.content(), "cut off");
+    }
+
+    #[test]
+    fn openai_response_finish_reason_stop() {
+        let json = r#"{"choices":[{"message":{"role":"assistant","content":"done"},"finish_reason":"stop"}]}"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(!resp.is_truncated());
+        assert_eq!(resp.finish_reason, Some(FinishReason::Stop));
+    }
+
+    #[test]
+    fn openai_response_finish_reason_tool_calls() {
+        let json = r#"{
+            "choices":[{
+                "message":{
+                    "role":"assistant",
+                    "content":null,
+                    "tool_calls":[{"id":"call_0","type":"function","function":{"name":"read_file","arguments":"{}"}}]
+                },
+                "finish_reason":"tool_calls"
+            }]
+        }"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(!resp.is_truncated());
+        assert_eq!(resp.finish_reason, Some(FinishReason::ToolCalls));
+        assert_eq!(resp.tool_calls().len(), 1);
+        assert_eq!(resp.tool_calls()[0].function.name, "read_file");
+    }
+
+    #[test]
+    fn openai_response_no_finish_reason() {
+        let json = r#"{"choices":[{"message":{"role":"assistant","content":"hello"}}]}"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(!resp.is_truncated());
+        assert_eq!(resp.finish_reason, None);
+    }
+
+    #[test]
+    fn openai_response_no_choices() {
+        let json = r#"{"choices":[]}"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(!resp.is_truncated());
+        assert_eq!(resp.finish_reason, None);
+        assert_eq!(resp.content(), "");
+    }
+
+    // --- OpenAI streaming: OpenAiStreamChoice finish_reason deserialization ---
+
+    #[test]
+    fn openai_stream_choice_finish_reason_length() {
+        let json = r#"{"choices":[{"delta":{"content":"partial"},"finish_reason":"length"}]}"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        let choice = chunk.choices.unwrap().into_iter().next().unwrap();
+        assert_eq!(choice.finish_reason, Some(FinishReason::Length));
+    }
+
+    #[test]
+    fn openai_stream_choice_finish_reason_stop() {
+        let json = r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+        let chunk: OpenAiStreamChunk = serde_json::from_str(json).unwrap();
+        let choice = chunk.choices.unwrap().into_iter().next().unwrap();
+        assert_eq!(choice.finish_reason, Some(FinishReason::Stop));
+    }
+
+    // --- Truncation with partial tool calls (the phantom edit scenario) ---
+
+    #[test]
+    fn openai_response_truncated_with_partial_tool_calls() {
+        // Simulates a truncated response: the model emitted one tool call but intended
+        // more — finish_reason: "length" signals truncation.
+        let json = r#"{
+            "choices":[{
+                "message":{
+                    "role":"assistant",
+                    "content":"I will write both files.",
+                    "tool_calls":[{"id":"call_0","type":"function","function":{"name":"write_file","arguments":"{\"path\":\"a.txt\"}"}}]
+                },
+                "finish_reason":"length"
+            }]
+        }"#;
+        let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
+        let resp = openai_response_to_chat_response(data).unwrap();
+        assert!(resp.is_truncated());
+        // The first tool call is present but the agent loop should see the truncation
+        // signal and know more may have been intended.
+        assert_eq!(resp.tool_calls().len(), 1);
+    }
 }

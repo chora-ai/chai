@@ -2,6 +2,8 @@
 
 **Goal:** Call the WebSocket `send` method to deliver a message to a channel. This journey verifies the API and error behavior.
 
+**Background:** [Connections](../guides/04-connections.md)
+
 ## Prerequisites
 
 - Gateway running (see [01-gateway-cli-health-and-ws.md](01-gateway-cli-health-and-ws.md)).

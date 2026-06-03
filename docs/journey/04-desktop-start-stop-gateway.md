@@ -1,6 +1,8 @@
 # Journey: Desktop — start/stop gateway and detection
 
-**Goal:** Use the desktop app to start the gateway, see “Gateway: running”, and stop it. Also verify that an externally started gateway is detected.
+**Goal:** Use the desktop app to start the gateway, see "Gateway: running", and stop it. Also verify that an externally started gateway is detected.
+
+**Background:** [Getting Started](../guides/02-getting-started.md)
 
 ## Prerequisites
 

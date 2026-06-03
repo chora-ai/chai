@@ -115,7 +115,7 @@ Create, read, search, update, and delete notes.
 
 You have skills. Skills have tools. You can:
 
-- call `read_skill` when you need to read a skill
+- call `read_skill` to read a skill
 
 Available skills:
 

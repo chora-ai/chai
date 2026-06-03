@@ -2,6 +2,8 @@
 
 **Goal:** Confirm the **notesmd** skill is loaded, the agent can call its tools (search, search-content, create, daily), and the reply reflects vault data or confirms an action.
 
+**Background:** [Skills](../guides/06-skills.md)
+
 This journey is for the skill **`notesmd`** (binary `notesmd-cli`) only. For the skill using the official Obsidian CLI **`obsidian`** (early access, binary `obsidian`), see [07-skill-obsidian.md](07-skill-obsidian.md).
 
 ## Prerequisites

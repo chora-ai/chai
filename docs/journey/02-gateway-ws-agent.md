@@ -2,6 +2,8 @@
 
 **Goal:** Run one agent turn over the WebSocket: send a user message and receive an assistant reply from Ollama.
 
+**Background:** [Agents](../guides/05-agents.md)
+
 ## Prerequisites
 
 - Gateway running (see [01-gateway-cli-health-and-ws.md](01-gateway-cli-health-and-ws.md)).

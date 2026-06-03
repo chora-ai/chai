@@ -15,12 +15,7 @@ model_variant_of: git
 
 # Git (Read-Only)
 
-Read-only Git repository inspection. Provides tools for checking repository
-state, viewing commit history, comparing changes, and listing branches. No
-staging, committing, branching, or network operations are included.
-
-Do not enable alongside the `git` or `git-remote` skills — this is a read-only
-subset intended for worker agents that only need to inspect repositories.
+Read-only Git repository inspection. Provides tools for checking repository state, viewing commit history, comparing changes, and listing branches. No staging, committing, branching, or network operations are included.
 
 ## Skill Directives
 
@@ -41,8 +36,7 @@ subset intended for worker agents that only need to inspect repositories.
 
 ### Check repository state
 
-1. Call `git_status` to see the current branch, staged/unstaged changes, and
-   untracked files.
+1. Call `git_status` to see the current branch, staged/unstaged changes, and untracked files.
 
 ### View commit history
 
@@ -54,8 +48,7 @@ subset intended for worker agents that only need to inspect repositories.
 
 1. Call `git_diff` with no parameters to see unstaged working tree changes.
 2. Set `staged` to true to see changes in the index (staged for commit).
-3. Set `ref` to a branch or commit to compare the working tree against it
-   (e.g. `main` to see all changes since diverging from main).
+3. Set `ref` to a branch or commit to compare the working tree against it (e.g. `main` to see all changes since diverging from main).
 4. Set `path` to limit the diff to a specific file.
 
 ### Inspect a specific commit

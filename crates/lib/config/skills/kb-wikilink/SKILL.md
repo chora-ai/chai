@@ -12,12 +12,9 @@ generated_from:
 
 # Knowledge Base Wikilinks
 
-Discover relationships between knowledge base notes through backlinks, tag
-search, outgoing link extraction, and broken link detection. Operates on
-markdown files with `[[wikilink]]` syntax and YAML frontmatter tags.
+Discover relationships between knowledge base notes through backlinks, tag search, outgoing link extraction, and broken link detection. Operates on markdown files with `[[wikilink]]` syntax and YAML frontmatter tags.
 
-All paths are relative to the knowledge base root (the active profile's sandbox
-directory). This skill is read-only.
+All paths are relative to the knowledge base root (the active profile's sandbox directory). This skill is read-only.
 
 ## Skill Directives
 
@@ -38,8 +35,7 @@ directory). This skill is read-only.
 
 ### Find backlinks to a note
 
-1. Call `kb_wikilink_backlinks` with `note_name` set to the note's display name
-   (e.g. "Conventions", not the file path).
+1. Call `kb_wikilink_backlinks` with `note_name` set to the note's display name (e.g. "Conventions", not the file path).
 2. Optionally set `path` to a subdirectory to narrow the search.
 3. Each result line shows a file path and the line containing the wikilink.
 
@@ -68,8 +64,7 @@ directory). This skill is read-only.
 
 ### Audit a directory for broken links
 
-1. For each note in the directory (use `kb_list` from the `kb` skill), call
-   `kb_wikilink_broken` to check for broken links.
+1. For each note in the directory (use `kb_list` from the `kb` skill), call `kb_wikilink_broken` to check for broken links.
 2. Collect and report all broken links grouped by source note.
 
 ## Examples

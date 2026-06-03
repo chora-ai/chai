@@ -26,7 +26,9 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
 | **`skillsEnabled`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** — how orchestrator skill text appears in system context (and whether **`read_skill`** is offered). |
-| **`delegateAllowedModels`** | Optional allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When **non-empty**, every resolved **`delegate_task`** target (without **`workerId`**) must match a pair. When **omitted** or **empty**, only the orchestrator effective default **`provider`** / **`model`** is allowed for those delegations. |
+| **`delegateAllowedModels`** | Optional allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When **non-empty**, every resolved **`delegate_task`** target (without **`workerId`**) must match a pair. When **omitted** or **`empty`**, only the orchestrator effective default **`provider`** / **`model`** is allowed for those delegations. |
+| **`maxSessionMessages`** | When set and **`> 0`**, only the last N messages are sent per turn; full history stays in the session store. |
+| **`maxToolLoopIterations`** | Maximum LLM round-trips per turn (default 100). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
 | **`maxDelegationsPerSession`** | Cap on **successful** delegations per persisted session (requires session id on the gateway path). |
 | **`maxDelegationsPerProvider`** | Per-session caps keyed by canonical provider id. |
@@ -80,6 +82,20 @@ While connected to the gateway WebSocket, clients receive **`type`: `event`** fr
 | **`orchestration.delegate.complete`** | Worker turn finished successfully. |
 | **`orchestration.delegate.error`** | Resolution failed (e.g. unknown worker, allowlist) or the worker turn failed; payload may include **`error`**, optional **`workerId`**. |
 | **`orchestration.delegate.rejected`** | Delegation not started due to a **limit**; payload includes **`reason`** (see below), optional **`maxDelegationsPerTurn`**, **`workerId`**, **`sessionId`**. |
+
+### Turn Streaming Events
+
+Tool calls, results, and intermediate thinking are streamed as separate events, interleaved with delegation and message events, so clients can render agent activity in real time:
+
+| Event | Meaning |
+|-------|---------|
+| **`session.tool_call`** | A tool is about to execute. Payload includes **`toolName`**, **`toolArgs`**, **`index`**, **`sessionId`**. |
+| **`session.tool_result`** | A tool execution completed. Payload includes **`toolName`**, **`toolResult`**, **`index`**, **`sessionId`**. |
+| **`session.assistant_progress`** | Intermediate content from the model during a tool loop iteration. Payload includes **`content`**, **`iteration`**, **`sessionId`**. Emitted when the model produces non-empty text alongside tool calls; without this event, that content would be invisible since only the final iteration's content is sent as the assistant reply. |
+
+The **`index`** on tool events is a running count within the current agent turn (across all loop iterations of a single `run_turn_dyn` call). It resets when a new turn starts (new user message). Clients matching `tool_result` to `tool_call` entries should search in reverse to find the most recent entry with a given index, since indices may collide across turns.
+
+Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs`** (emitted via `DelegateObservability`). The agent loop emits them in **`crates/lib/src/agent.rs`** (`execute_turn_main`).
 
 **`orchestration.delegate.rejected` reasons** (stable strings for clients):
 

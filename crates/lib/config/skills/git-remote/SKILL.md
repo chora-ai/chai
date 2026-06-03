@@ -15,10 +15,7 @@ model_variant_of: git
 
 # Git (Remote)
 
-Full Git operations for open-source contribution and remote collaboration.
-Includes all local operations (inspect, stage, commit, branch) plus network
-operations (clone, pull, push). Clone targets are validated against the write
-sandbox. Do not enable alongside the `git` skill — this skill is a superset.
+Full Git operations for open-source contribution and remote collaboration. Includes all local operations (inspect, stage, commit, branch) plus network operations (clone, pull, push). Clone targets are validated against the write sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 
 ## Skill Directives
 
@@ -52,8 +49,7 @@ sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 
 ### Check repository state
 
-1. Call `git_status` to see the current branch, staged/unstaged changes, and
-   untracked files.
+1. Call `git_status` to see the current branch, staged/unstaged changes, and untracked files.
 
 ### View commit history
 
@@ -65,8 +61,7 @@ sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 
 1. Call `git_diff` with no parameters to see unstaged working tree changes.
 2. Set `staged` to true to see changes in the index (staged for commit).
-3. Set `ref` to a branch or commit to compare the working tree against it
-   (e.g. `main` to see all changes since diverging from main).
+3. Set `ref` to a branch or commit to compare the working tree against it (e.g. `main` to see all changes since diverging from main).
 4. Set `path` to limit the diff to a specific file.
 
 ### Inspect a specific commit
@@ -99,25 +94,21 @@ sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 
 ### Clone a repository
 
-1. Call `git_clone` with `url` set to the repository URL and `path` set to
-   a directory name (e.g. `my-repo`) or absolute path. Relative names are
-   automatically resolved to the sandbox directory.
+1. Call `git_clone` with `url` set to the repository URL and `path` set to a directory name (e.g. `my-repo`) or absolute path. Relative names are automatically resolved to the sandbox directory.
 2. Call `git_status` to verify the clone succeeded.
 3. Call `git_remote` to confirm the remote configuration.
 
 ### Pull changes from remote
 
 1. Call `git_pull` to pull from the tracking remote.
-2. To pull from a specific remote, set `remote` (e.g. `upstream`) and
-   optionally `branch` (e.g. `main`).
+2. To pull from a specific remote, set `remote` (e.g. `upstream`) and optionally `branch` (e.g. `main`).
 3. Call `git_log` with `count` set to `5` to see what was pulled.
 
 ### Push changes to remote
 
 1. Call `git_status` to verify all changes are committed.
 2. Call `git_push` to push to the tracking remote.
-3. For a new branch with no upstream, set `remote` to `origin`, `branch`
-   to the branch name, and `set_upstream` to true.
+3. For a new branch with no upstream, set `remote` to `origin`, `branch` to the branch name, and `set_upstream` to true.
 
 ### List remotes
 
@@ -131,8 +122,7 @@ sandbox. Do not enable alongside the `git` skill — this skill is a superset.
 4. Make changes using other skills (e.g. `files_write_file`).
 5. Call `git_add` to stage the changes.
 6. Call `git_commit` with a clear commit message.
-7. Call `git_push` with `remote` set to `origin`, `branch` set to the
-   branch name, and `set_upstream` set to true.
+7. Call `git_push` with `remote` set to `origin`, `branch` set to the branch name, and `set_upstream` set to true.
 
 ## Examples
 

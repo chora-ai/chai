@@ -1,8 +1,10 @@
 # Journey: Matrix — receive message and reply
 
-**Goal:** Confirm the gateway is logged into a Matrix homeserver, messages in a **joined** room are received (including **encrypted** rooms when keys are available), and the agent’s reply is sent back as `m.room.message` (`m.text`).
+**Goal:** Confirm the gateway is logged into a Matrix homeserver, messages in a **joined** room are received (including **encrypted** rooms when keys are available), and the agent's reply is sent back as `m.room.message` (`m.text`).
 
-The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). There is no separate “bot” API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
+**Background:** [Connections → Matrix](../guides/04-connections.md#matrix) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
+
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). There is no separate "bot" API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
 
 **Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [.agents/ref/MATRIX.md](../.agents/ref/MATRIX.md).
 

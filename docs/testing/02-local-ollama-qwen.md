@@ -25,3 +25,8 @@ The following models do not support tools:
 ## Procedure
 
 Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure.
+
+
+## See Also
+
+- [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
