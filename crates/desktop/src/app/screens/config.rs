@@ -13,7 +13,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     };
     let config_path = paths.config_path.clone();
     if app.default_model.is_none() {
-        let (_, model) = lib::config::resolve_effective_provider_and_model(&config.agents);
+        let (_, model) = lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
         app.default_model = Some(model);
     }
 
@@ -199,123 +199,63 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 
     dashboard::section_group(ui, "Providers", |ui| {
-        let Some(ref b) = config.providers else {
+        if config.providers.entries.is_empty() {
             ui.label(egui::RichText::new("Not configured.").weak());
             return;
-        };
-
-        let mut any = false;
-
-        if let Some(ref o) = b.ollama {
-            if let Some(url) = o
-                .base_url
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                dashboard::kv(ui, "Ollama base URL", url);
-                any = true;
-            }
         }
-        if let Some(ref l) = b.lms {
-            if let Some(url) = l
-                .base_url
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                dashboard::kv(ui, "LM Studio base URL", url);
-                any = true;
+
+        for def in &config.providers.entries {
+            let resolved_base = lib::config::resolve_provider_base_url(&config.providers, &def.id);
+            let resolved_key = lib::config::resolve_provider_api_key(&config.providers, &def.id);
+
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            // Show provider id with endpoint type label.
+            let endpoint_label = match def.endpoint {
+                lib::config::EndpointType::Ollama => "Ollama",
+                lib::config::EndpointType::OpenaiCompat => "OpenAI-Compatible",
+                lib::config::EndpointType::Anthropic => "Anthropic",
+                lib::config::EndpointType::Google => "Google",
+            };
+            ui.label(egui::RichText::new(format!("{} ({})", def.id, endpoint_label)).strong());
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            dashboard::kv(ui, "endpoint", def.endpoint.as_str());
+            if let Some(ref url) = resolved_base {
+                dashboard::kv(ui, "base URL", url.as_str());
             }
-        }
-        if let Some(ref n) = b.nim {
-            let key_set = n
-                .api_key
+            let key_set = resolved_key
                 .as_ref()
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false);
-            dashboard::kv(ui, "NIM API key", if key_set { "set" } else { "(not set)" });
-            any = true;
-            if let Some(ref extra) = n.extra_models {
-                if !extra.is_empty() {
-                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                    ui.label(egui::RichText::new("NIM extra models"));
-                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                    ui.horizontal_wrapped(|ui| {
-                        for m in extra {
-                            ui.add(egui::Label::new(egui::RichText::new(m)));
-                        }
-                    });
-                    ui.add_space(spacing::TABLE_BLOCK_AFTER);
+            dashboard::kv(ui, "API key", if key_set { "set" } else { "(not set)" });
+            if let Some(ref default_model) = def.default_model {
+                if !default_model.trim().is_empty() {
+                    dashboard::kv(ui, "default model", default_model.trim());
                 }
             }
-        }
-        if let Some(ref v) = b.vllm {
-            if let Some(url) = v
-                .base_url
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                dashboard::kv(ui, "vLLM base URL", url);
+            // Model discovery.
+            let discovery_label = match def.model_discovery {
+                lib::config::ModelDiscovery::Default => "default",
+                lib::config::ModelDiscovery::Lmstudio => "lmstudio",
+                lib::config::ModelDiscovery::Static => "static",
+            };
+            dashboard::kv(ui, "model discovery", discovery_label);
+            if !def.static_models.is_empty() {
+                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                ui.label(egui::RichText::new("Static models"));
+                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                ui.horizontal_wrapped(|ui| {
+                    for m in &def.static_models {
+                        ui.add(egui::Label::new(egui::RichText::new(m)));
+                    }
+                });
+                ui.add_space(spacing::TABLE_BLOCK_AFTER);
             }
-            let key_set = v
-                .api_key
-                .as_ref()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(false);
-            dashboard::kv(
-                ui,
-                "vLLM API key",
-                if key_set { "set" } else { "(not set)" },
-            );
-            any = true;
-        }
-        if let Some(ref o) = b.openai {
-            if let Some(url) = o
-                .base_url
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                dashboard::kv(ui, "OpenAI base URL", url);
-            }
-            let key_set = o
-                .api_key
-                .as_ref()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(false);
-            dashboard::kv(
-                ui,
-                "OpenAI API key",
-                if key_set { "set" } else { "(not set)" },
-            );
-            any = true;
-        }
-        if let Some(ref h) = b.hf {
-            if let Some(url) = h
-                .base_url
-                .as_ref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                dashboard::kv(ui, "Hugging Face base URL", url);
-            }
-            let key_set = h
-                .api_key
-                .as_ref()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(false);
-            dashboard::kv(
-                ui,
-                "Hugging Face API key",
-                if key_set { "set" } else { "(not set)" },
-            );
-            any = true;
-        }
-
-        if !any {
-            ui.label(egui::RichText::new("Not configured.").weak());
+            // Auto-load.
+            let autoload_label = match def.auto_load {
+                lib::config::AutoLoad::None => "off",
+                lib::config::AutoLoad::Lmstudio => "lmstudio",
+            };
+            dashboard::kv(ui, "auto load", autoload_label);
         }
     });
 }
@@ -344,7 +284,7 @@ fn config_summary_right_column(
     profile_dir: &std::path::Path,
 ) {
     let (default_provider, default_model) =
-        lib::config::resolve_effective_provider_and_model(&config.agents);
+        lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
 
     let orch_id = config
         .agents
@@ -552,7 +492,7 @@ fn config_summary_right_column(
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 ui.label(egui::RichText::new(format!("Worker: {}", wid)).strong());
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.agents, w);
+                let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.providers, &config.agents, w);
                 dashboard::kv(ui, "Default provider", wp.as_str());
                 dashboard::kv(ui, "Default model", wm.as_str());
                 let w_ep = enabled_providers_display(&w.enabled_providers);

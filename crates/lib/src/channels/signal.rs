@@ -1,6 +1,6 @@
 //! Signal channel: JSON-RPC over HTTP to a user-run signal-cli daemon (`daemon --http`).
 //!
-//! See `.agents/adr/SIGNAL_CLI_INTEGRATION.md` — BYO signal-cli; no bundling.
+//! See `base/adr/SIGNAL_CLI_INTEGRATION.md` — BYO signal-cli; no bundling.
 
 use crate::channels::inbound::InboundMessage;
 use crate::channels::registry::ChannelHandle;

@@ -11,7 +11,7 @@ mod state;
 mod types;
 mod ui;
 
-pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, SessionEvent};
+pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, ProviderStatusInfo, SessionEvent};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Screen {
@@ -78,7 +78,9 @@ pub struct ChaiApp {
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
     /// User message we sent for the in-flight turn (used when reply creates a new session).
     pending_user_message: Option<String>,
-    /// Live session messages from gateway events (keyed by session id).
+    /// True when the in-flight turn was started for a new (previously unbound) session.
+    /// Set in start_chat_turn when chat_session_id is None; read in poll_chat_turn.
+    chat_turn_is_new_session: bool,
     session_messages: BTreeMap<String, Vec<ChatMessage>>,
     /// Optional channel metadata for each session (channelId, conversationId).
     session_meta: HashMap<String, (Option<String>, Option<String>)>,
@@ -178,6 +180,7 @@ impl Default for ChaiApp {
             chat_error: None,
             chat_turn_receiver: None,
             pending_user_message: None,
+            chat_turn_is_new_session: false,
             session_messages: BTreeMap::new(),
             session_meta: HashMap::new(),
             session_events_receiver: None,
@@ -228,10 +231,16 @@ impl ChaiApp {
             .map(|v| v.is_empty())
             .unwrap_or(true)
         {
-            let (default, _) = lib::config::resolve_effective_provider_and_model(&config.agents);
+            let (default, _) = lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
             vec![default]
         } else {
             let mut seen = std::collections::HashSet::new();
+            let configured_ids: std::collections::HashSet<String> = config
+                .providers
+                .entries
+                .iter()
+                .map(|p| p.id.trim().to_lowercase())
+                .collect();
             config
                 .agents
                 .enabled_providers
@@ -240,21 +249,14 @@ impl ChaiApp {
                 .iter()
                 .map(|s| s.trim().to_lowercase())
                 .filter(|s| !s.is_empty())
-                .filter(|s| {
-                    *s == "ollama"
-                        || *s == "lms"
-                        || *s == "vllm"
-                        || *s == "nim"
-                        || *s == "openai"
-                        || *s == "hf"
-                })
+                .filter(|s| configured_ids.contains(s.as_str()))
                 .filter(|s| seen.insert(s.clone()))
                 .collect()
         };
         // Always include the effective default provider in the dropdown so the UI reflects
         // which provider the gateway will actually use when no override is provided.
         let (default_provider, _) =
-            lib::config::resolve_effective_provider_and_model(&config.agents);
+            lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
         if !list.contains(&default_provider) {
             list.push(default_provider);
         }
@@ -331,6 +333,7 @@ impl ChaiApp {
         // previous server session (which would make the next send continue that history).
         self.chat_turn_receiver = None;
         self.pending_user_message = None;
+        self.chat_turn_is_new_session = false;
         self.chat_messages.clear();
         self.chat_error = None;
         self.chat_messages.push(ChatMessage::system(
@@ -345,6 +348,7 @@ impl ChaiApp {
         self.chat_error = None;
         self.chat_turn_receiver = None;
         self.pending_user_message = None;
+        self.chat_turn_is_new_session = false;
         self.session_messages.clear();
         self.session_meta.clear();
         self.session_order.clear();
@@ -363,8 +367,26 @@ impl ChaiApp {
                 self.chat_turn_receiver = None;
                 match result {
                     Ok(reply) => {
-                        let was_new_session = self.chat_session_id.is_none();
-                        self.chat_session_id = Some(reply.session_id.clone());
+                        // Use chat_turn_is_new_session (set in start_chat_turn when
+                        // chat_session_id was None) instead of checking chat_session_id
+                        // here, because poll_session_events may have already bound it
+                        // from the first streamed event.
+                        let was_new_session = self.chat_turn_is_new_session;
+                        self.chat_turn_is_new_session = false;
+                        if self.chat_session_id.is_none() {
+                            self.chat_session_id = Some(reply.session_id.clone());
+                        }
+
+                        // Collect pre-session error before borrowing session_messages.
+                        let pre_session_error: Option<ChatMessage> = if was_new_session {
+                            self.chat_messages
+                                .iter()
+                                .rev()
+                                .find(|m| m.role == "error")
+                                .cloned()
+                        } else {
+                            None
+                        };
 
                         let entry = self
                             .session_messages
@@ -414,8 +436,9 @@ impl ChaiApp {
                             })
                             .unwrap_or(false);
                         log::debug!(
-                            "poll_chat_turn: session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
+                            "poll_chat_turn: session={}, was_new_session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
                             reply.session_id,
+                            was_new_session,
                             last_is_same,
                             entry.len(),
                             entry.last().map(|m| m.role.as_str()),
@@ -441,39 +464,35 @@ impl ChaiApp {
                         } else {
                             entry.push(assistant_msg);
                         }
+                        // Retain only the most recent pre-session error so it doesn't disappear
+                        // when we switch to the new session, without piling every past failure
+                        // onto the new session. Inserted after entry work is done to avoid a
+                        // second mutable borrow of session_messages.
+                        if let Some(err_msg) = pre_session_error {
+                            let entry = self
+                                .session_messages
+                                .get_mut(&reply.session_id)
+                                .expect("entry exists");
+                            entry.insert(0, err_msg);
+                        }
                         self.session_meta
                             .entry(reply.session_id.clone())
                             .or_insert((None, None));
 
                         self.pending_user_message = None;
-                        if was_new_session {
-                            // Retain only the most recent pre-session error so it doesn't disappear when we switch to the new session, without piling every past failure onto the new session.
-                            let last_pre_error = self
-                                .chat_messages
-                                .iter()
-                                .rev()
-                                .find(|m| m.role == "error")
-                                .cloned();
-                            if let Some(err_msg) = last_pre_error {
-                                let entry = self
-                                    .session_messages
-                                    .get_mut(&reply.session_id)
-                                    .expect("entry exists");
-                                entry.insert(0, err_msg);
-                            }
-                        }
                         self.chat_messages = self
                             .session_messages
                             .get(&reply.session_id)
                             .cloned()
                             .unwrap_or_default();
                         self.move_session_to_front(&reply.session_id);
-                        if was_new_session {
+                        if was_new_session && self.selected_session_id.is_none() {
                             self.selected_session_id = Some(reply.session_id);
                         }
                     }
                     Err(e) => {
                         self.pending_user_message = None;
+                        self.chat_turn_is_new_session = false;
                         let err_text = e.clone();
                         // Show the full error as an in-stream chat message.
                         self.chat_messages
@@ -602,6 +621,7 @@ impl ChaiApp {
         self.chat_error = None;
         self.chat_input.clear();
         self.pending_user_message = Some(message.clone());
+        self.chat_turn_is_new_session = self.chat_session_id.is_none();
 
         // Handle special commands
         if message.eq_ignore_ascii_case("/new") {

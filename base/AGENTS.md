@@ -8,7 +8,7 @@ The `base` directory is the root of the chai knowledge base and also contains ad
 
 ## Conventions
 
-- **Issue tracking**: Bugs and feature requests are tracked in files prefixed with `BUG_` and `FEAT_` respectively (e.g. `FEAT_AUDIT_LARGE_FILES.md`). Summaries are maintained in this file under "Active Work"; full details are in the individual files.
+- **Issue tracking**: Bugs and feature requests are tracked in files prefixed with `BUG_` and `FEAT_` respectively (e.g. `FEAT_SKILL_LOGS.md`). Summaries are maintained in this file under "Active Work"; full details are in the individual files.
 
 ## Working Notes
 
@@ -18,14 +18,12 @@ The `BUG_*`/`FEAT_*` files in the root of the `base` directory are a **lighter-w
 - **Structured docs** (`adr/`, `epic/`, etc.) = canonical, versioned, shared. Formal frontmatter and structure. For design decisions and project-wide reference.
 
 When a working note matures (e.g. a bug fix is verified, or a feature grows into a design decision), its substance should **graduate into structured documentation**:
-- A fix that changes architecture → new ADR (e.g., `successExitCodes` in `tools.json` → `adr/`)
-- A feature that grows in scope → new epic (e.g., tool approval workflow → `epic/`)
-- A spec that needs updating → update existing spec (e.g., `spec/TOOLS_SCHEMA.md`)
-- Reference material → `ref/`
+- A significant change in architecture → new ADR (`adr/`)
+- A feature that grows in scope → new epic (`epic/`)
+- A spec that needs updating → update existing spec (`spec/`)
+- A change to channels or providers → update existing ref (`ref/`)
 
-Completed working notes where the substance is captured in source files or structured docs should be deleted to keep the working layer clean.
-
-## Active Work
+## Actuve Work
 
 - **[FEAT_USER_GUIDES.md](FEAT_USER_GUIDES.md)** — Improve user guides at `docs/guides/`: fill stubs, restructure configuration, broaden skills guide, fix cross-references, add missing topics, clean up consistency.
 - **[FEAT_USER_JOURNEY.md](FEAT_USER_JOURNEY.md)** — Improve user journeys at `docs/journey/`: add on-ramp journey, enrich README, harmonize depth, reduce skill journey duplication, add missing journeys.

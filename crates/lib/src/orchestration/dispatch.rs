@@ -1,33 +1,42 @@
-//! Hold references to configured provider clients and return [`Provider`] trait objects for dispatch.
+//! Hold provider clients indexed by provider id for dynamic dispatch.
 
-use crate::providers::{
-    HfClient, LmsClient, NimClient, OllamaClient, OpenAiClient, Provider, VllmClient,
-};
+use crate::providers::Provider;
+use std::collections::HashMap;
+use std::sync::Arc;
 
 use super::choice::ProviderChoice;
 
-/// References to provider clients built at gateway startup. Use [`ProviderClients::as_dyn`]
-/// to run [`crate::agent::run_turn`] or [`crate::agent::run_turn_with_messages`] without matching on [`ProviderChoice`].
-#[derive(Clone, Copy)]
-pub struct ProviderClients<'a> {
-    pub ollama: &'a OllamaClient,
-    pub lms: &'a LmsClient,
-    pub vllm: &'a VllmClient,
-    pub nim: &'a NimClient,
-    pub openai: &'a OpenAiClient,
-    pub hf: &'a HfClient,
+/// Provider clients built at gateway startup, indexed by provider id.
+/// Use [`ProviderClients::get`] to run [`crate::agent::run_turn`] or
+/// [`crate::agent::run_turn_with_messages`] without matching on a provider enum.
+#[derive(Clone, Default)]
+pub struct ProviderClients {
+    clients: HashMap<String, Arc<dyn Provider>>,
 }
 
-impl<'a> ProviderClients<'a> {
-    /// Returns a trait object for the given provider (single dispatch point for orchestration).
-    pub fn as_dyn(&self, choice: ProviderChoice) -> &'a dyn Provider {
-        match choice {
-            ProviderChoice::Ollama => self.ollama as &dyn Provider,
-            ProviderChoice::Lms => self.lms as &dyn Provider,
-            ProviderChoice::Vllm => self.vllm as &dyn Provider,
-            ProviderChoice::Nim => self.nim as &dyn Provider,
-            ProviderChoice::OpenAi => self.openai as &dyn Provider,
-            ProviderChoice::Hf => self.hf as &dyn Provider,
-        }
+impl ProviderClients {
+    /// Register a provider client under the given id.
+    pub fn insert(&mut self, id: impl Into<String>, client: Arc<dyn Provider>) {
+        self.clients.insert(id.into(), client);
+    }
+
+    /// Returns a trait object for the given provider id.
+    pub fn get(&self, choice: &ProviderChoice) -> Option<&dyn Provider> {
+        self.clients.get(choice.as_str()).map(|c| c.as_ref())
+    }
+
+    /// Returns a trait object for the given provider id string.
+    pub fn get_by_id(&self, id: &str) -> Option<&dyn Provider> {
+        self.clients.get(id).map(|c| c.as_ref())
+    }
+
+    /// Returns true if a provider with the given id is registered.
+    pub fn has(&self, id: &str) -> bool {
+        self.clients.contains_key(id)
+    }
+
+    /// Returns the set of registered provider ids.
+    pub fn ids(&self) -> Vec<String> {
+        self.clients.keys().cloned().collect()
     }
 }

@@ -151,6 +151,31 @@ impl ChaiApp {
                 .session_messages
                 .entry(session_id.clone())
                 .or_insert_with(Vec::new);
+            // When the first streamed event arrives for a new session while the RPC is
+            // still in flight, bind chat_session_id and selected_session_id immediately
+            // so the UI renders from session_messages (where tool calls are stored)
+            // instead of the fallback chat_messages buffer.
+            if self.chat_session_id.is_none() && self.pending_user_message.is_some() {
+                self.chat_session_id = Some(session_id.clone());
+                self.selected_session_id = Some(session_id.clone());
+                // Ensure the pending user message is present in the session entry
+                // (start_chat_turn only adds it to chat_messages when session_id is None).
+                if let Some(ref user_content) = self.pending_user_message {
+                    let already = entry
+                        .iter()
+                        .any(|m| m.role == "user" && m.content == *user_content);
+                    if !already {
+                        entry.insert(0, crate::app::ChatMessage::user(user_content.clone()));
+                    }
+                }
+                // Sync chat_messages so the fallback buffer matches.
+                self.chat_messages = entry.clone();
+                log::debug!(
+                    "poll_session_events: bound new session_id={}, selected_session_id={}",
+                    session_id,
+                    session_id
+                );
+            }
             // Skip duplicate user line (gateway echo after poll_chat_turn already prepended the same user for a new session).
             if ev.role == "user"
                 && ev.delegation_event.is_none()

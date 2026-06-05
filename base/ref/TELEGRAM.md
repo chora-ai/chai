@@ -85,7 +85,7 @@ See [CHANNELS.md](../spec/CHANNELS.md#shutdown). Telegram-specific: if **`telegr
 
 ## User-Facing Verification
 
-See [`.journey/05-channel-telegram.md`](../../.journey/05-channel-telegram.md) for end-to-step confirmation.
+See [`docs/journey/05-channel-telegram.md`](../../docs/journey/05-channel-telegram.md) for end-to-step confirmation.
 
 ## See Also
 

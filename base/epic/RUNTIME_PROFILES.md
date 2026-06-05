@@ -6,7 +6,7 @@ status: complete
 
 **Summary** — Chai uses a **NixOS-like switching model**: multiple **named runtime profiles** under **`~/.chai/profiles/`**, with **one active profile** at a time. The **persistent** choice is **`~/.chai/active`** → **`profiles/<name>/`**, overridable per process by **`CHAI_PROFILE`** and **`chai gateway --profile`** (ephemeral). **Changing** the persistent profile requires **stopping the gateway**, **`chai profile switch`**, and **restart** — **no** switch while the gateway is running (CLI error; desktop disables the profile control). **Switching the live stack** means **restarting the gateway** (and optionally desktop attach) so models, **per-agent skill configuration** (**`skillsEnabled`**, **`contextMode`** in that profile’s **`config.json`**; see **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)**), delegation policy, channel bindings, and **on-disk agent context** (**`agents/<id>/`**) come from that profile. **Skill packages** live in a **shared store** at **`~/.chai/skills/`**; profiles do **not** duplicate package trees—they differ by **per-agent** enablement lists and (when **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** lands) **pins / lockfile**. **Preferred posture:** **full isolation** for **identity, pairing, device, channel stores**, and **profile-local files**; **one canonical skill store** with **per-profile, per-agent composition** of what loads. Default profile names (**`assistant`**, **`developer`**) are **labels** for two **equivalent** scaffolds; **motivations** for using a second profile appear in **Problem statement** and **Goal** but are **not** enforced by different defaults or developer-only runtime features.
 
-**Status** — **Complete.** Layout, **`chai profile`** CLI, **`gateway.lock`** with **advisory exclusive lock** (**`fs2`**, portable **`flock` / `LockFileEx`** semantics), shared **`skills/`**, **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** paths, and **desktop** header profile switcher (same lock rule as CLI) are **shipped**. **Historical** references in **`.journey/`**, **`.agents/ref/CLAW_ECOSYSTEM.md`**, **[DESKTOP_APP.md](DESKTOP_APP.md)**, and **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** under **`.agents`** were updated to the profile layout (or labeled historical). Optional **persistent vs effective** profile hint in the desktop UI remains in **[DESKTOP_APP.md](DESKTOP_APP.md)**.
+**Status** — **Complete.** Layout, **`chai profile`** CLI, **`gateway.lock`** with **advisory exclusive lock** (**`fs2`**, portable **`flock` / `LockFileEx`** semantics), shared **`skills/`**, **[AGENT_ISOLATION.md](AGENT_ISOLATION.md)** paths, and **desktop** header profile switcher (same lock rule as CLI) are **shipped**. **Historical** references in **`docs/journey/`**, **`base/ref/CLAW_ECOSYSTEM.md`**, **[DESKTOP_APP.md](DESKTOP_APP.md)**, and **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** under **`base`** were updated to the profile layout (or labeled historical). Optional **persistent vs effective** profile hint in the desktop UI remains in **[DESKTOP_APP.md](DESKTOP_APP.md)**.
 
 ## Shipped Model
 
@@ -51,7 +51,7 @@ Multiple **named runtime profiles** under **`~/.chai/profiles/`** with **one act
 
 ### Relationship to Simulations and Model Testing
 
-| Aspect | This epic (runtime profiles) | [SIMULATIONS.md](SIMULATIONS.md) / [`.testing/`](../../.testing/) |
+| Aspect | This epic (runtime profiles) | [SIMULATIONS.md](SIMULATIONS.md) / [`docs/testing/`](../../docs/testing/) |
 |--------|------------------------------|------------------------------------------------------------------------|
 | **What it bounds** | **Who sees what data** and **which profile subtree** is live | **Repeatable scenarios**, fixtures, optional CI for gateway behavior |
 | **Overlap** | *Motivation:* a **second profile** (e.g. the one named **`developer`**) is a common place to run automated or scripted model/skill tests **without** touching another profile’s state | Harness runs assume a **known config**—profiles let you keep that config **isolated** from a profile you use for something else |
@@ -144,7 +144,7 @@ The tree below shows **shared root-level skill storage** and **per-profile** con
 - [x] **Gateway lock** — **`~/.chai/gateway.lock`**: profile name + PID for humans; **`gateway_is_running`** and second **`chai gateway`** use a **non-blocking advisory exclusive lock** (**`fs2`**) so concurrent starts do not race.
 - [x] **Per-profile pairing and device identity** — `paired.json`, **`device.json`**, **`device_token`** under each profile directory; gateway uses profile-local paths.
 - [x] **Desktop profile switching (core)** — Header shows **persistent** active profile name; **ComboBox** switches **`~/.chai/active`** when the gateway is **not** running (same lock rule as CLI). Optional **persistent vs effective** hint when env overrides exist — **[DESKTOP_APP.md](DESKTOP_APP.md)**.
-- [x] **Historical doc alignment** — **`.journey/`**, **`.agents/ref/CLAW_ECOSYSTEM.md`**, **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** (where still useful as history), and stray **`CHAI_CONFIG_PATH`** / flat **`config.json`** references brought in line with the profile layout.
+- [x] **Historical doc alignment** — **`docs/journey/`**, **`base/ref/CLAW_ECOSYSTEM.md`**, **[IMPLEMENTATION.md](../poc/IMPLEMENTATION.md)** / **[CHANGELOG.md](../poc/CHANGELOG.md)** (where still useful as history), and stray **`CHAI_CONFIG_PATH`** / flat **`config.json`** references brought in line with the profile layout.
 
 ## Delivery Phases (Retrospective)
 
@@ -154,7 +154,7 @@ The tree below shows **shared root-level skill storage** and **per-profile** con
 | **Profile layout** | Per-profile config, **`agents/<id>/`**, pairing, channels, shared **`skills/`**, switch + restart. |
 | **Second default profile** | **`developer`** scaffold has **parity** with **`assistant`**. |
 | **Desktop** | Header profile switcher + lock rule (**`crates/desktop`**). |
-| **Lock + docs** | Advisory **`gateway.lock`**; journey, **`.agents`** implementation archive, and ecosystem docs updated. |
+| **Lock + docs** | Advisory **`gateway.lock`**; journey, **`base`** implementation archive, and ecosystem docs updated. |
 
 ## Implementation Order (with Related Epics)
 
@@ -173,4 +173,4 @@ When adding **agent isolation**, **skill packages**, or adjacent work on top of 
 - [DESKTOP_APP.md](DESKTOP_APP.md) — Desktop **profile** UX beyond this epic’s core switcher (optional **persistent vs effective** hint).
 - [SIMULATIONS.md](SIMULATIONS.md) — Harness and repeatable runs; complementary to profile-bound trust.
 - [README.md](../../README.md) — Describes profile layout, **`CHAI_PROFILE`**, and **`chai profile`** commands (keep in sync with code).
-- [.testing/README.md](../../.testing/README.md) — Model-comparison playbooks; natural fit for a **second** or **non-production** profile when you want isolation from daily assistant state.
+- [docs/testing/README.md](../../docs/testing/README.md) — Model-comparison playbooks; natural fit for a **second** or **non-production** profile when you want isolation from daily assistant state.

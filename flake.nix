@@ -11,28 +11,51 @@
     pkgs = nixpkgs.legacyPackages.${system};
   in
   {
-    # shell for `nix develop`
-    devShells.${system}.default = pkgs.mkShell {
-      nativeBuildInputs = with pkgs; [
-        cargo
-        pkg-config
-      ];
-      buildInputs = with pkgs; [
-        openssl
-        libxcursor
-        libxi
-        libxrandr
-      ];
-      shellHook = ''
-        export LD_LIBRARY_PATH="${pkgs.libGL}/lib"
-      '';
+    # shells for `nix develop`
+    devShells.${system} = {
+
+      # default shell
+      default = pkgs.mkShell {
+        nativeBuildInputs = with pkgs; [
+          cargo
+          pkg-config
+        ];
+        buildInputs = with pkgs; [
+          openssl
+          libxcursor
+          libxi
+          libxrandr
+        ];
+        shellHook = ''
+          export LD_LIBRARY_PATH="${pkgs.libGL}/lib"
+        '';
+      };
     };
 
-    # packages for `nix build` and `nix run`
+    # packages for `nix build`
     packages.${system} = {
 
-      # crates/cli (chai)
+      # all binaries
       default = pkgs.rustPlatform.buildRustPackage {
+        name = "chai-binaries";
+        src = ./.;
+        nativeBuildInputs = with pkgs; [
+          pkg-config
+        ];
+        buildInputs = with pkgs; [
+          openssl
+          libxcursor
+          libxi
+          libxrandr
+        ];
+        cargoBuildFlags = [
+          #"--features=matrix"
+        ];
+        cargoLock.lockFile = ./Cargo.lock;
+      };
+
+      # crates/cli (chai)
+      cli = pkgs.rustPlatform.buildRustPackage {
         name = "chai";
         src = ./.;
         nativeBuildInputs = with pkgs; [

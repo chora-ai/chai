@@ -1,10 +1,11 @@
 //! Ollama API client (http://127.0.0.1:11434 by default).
 //! Supports non-streaming and streaming chat (NDJSON).
 
+use crate::providers::{Provider, ProviderError};
 use anyhow::Result;
+use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-
 const DEFAULT_BASE_URL: &str = "http://127.0.0.1:11434";
 
 /// Client for Ollama HTTP API.
@@ -173,6 +174,33 @@ impl OllamaClient {
         };
         resp.resolve_usage();
         Ok(resp)
+    }
+}
+
+#[async_trait]
+impl Provider for OllamaClient {
+    async fn chat(
+        &self,
+        model: &str,
+        messages: Vec<ChatMessage>,
+        stream: bool,
+        tools: Option<Vec<ToolDefinition>>,
+    ) -> Result<ChatResponse, ProviderError> {
+        OllamaClient::chat(self, model, messages, stream, tools)
+            .await
+            .map_err(ProviderError::Ollama)
+    }
+
+    async fn chat_stream(
+        &self,
+        model: &str,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<ToolDefinition>>,
+        on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ChatResponse, ProviderError> {
+        OllamaClient::chat_stream(self, model, messages, tools, on_chunk)
+            .await
+            .map_err(ProviderError::Ollama)
     }
 }
 

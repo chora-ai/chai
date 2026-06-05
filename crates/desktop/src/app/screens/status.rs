@@ -4,17 +4,16 @@ use serde_json::Value as JsonValue;
 use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, GatewayStatusDetails, StatusViewMode};
 
-/// Order matches gateway **`status`** payload **`providers`** object (see **`server.rs`**).
-const STATUS_PROVIDER_IDS: &[&str] = &["ollama", "lms", "vllm", "nim", "openai", "hf"];
-
-const PROVIDER_DISPLAY: &[(&str, &str)] = &[
-    ("ollama", "Ollama"),
-    ("lms", "LM Studio"),
-    ("vllm", "vLLM"),
-    ("nim", "NIM"),
-    ("openai", "OpenAI"),
-    ("hf", "Hugging Face"),
-];
+/// Friendly display names for well-known endpoint types.
+fn endpoint_display_name(endpoint: &str) -> &str {
+    match endpoint {
+        "ollama" => "Ollama",
+        "openai-compat" => "OpenAI-Compatible",
+        "anthropic" => "Anthropic",
+        "google" => "Google",
+        _ => endpoint,
+    }
+}
 
 pub fn ui_status_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
@@ -188,21 +187,6 @@ fn status_channels_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetai
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 }
 
-fn models_from_provider_json(v: &JsonValue) -> Vec<String> {
-    v.get("models")
-        .and_then(|m| m.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|o| {
-                    o.get("name")
-                        .and_then(|n| n.as_str())
-                        .map(std::string::ToString::to_string)
-                })
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
     dashboard::section_group(ui, "Providers", |ui| {
         let Some(s) = status else {
@@ -210,57 +194,55 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
             return;
         };
 
-        if let Some(ref block) = s.providers_block {
-            if let Some(obj) = block.as_object() {
-                for id in STATUS_PROVIDER_IDS {
-                    let Some(per) = obj.get(*id) else {
-                        continue;
-                    };
-                    let title = PROVIDER_DISPLAY
-                        .iter()
-                        .find(|(k, _)| *k == *id)
-                        .map(|(_, d)| *d)
-                        .unwrap_or(id);
-                    let discovery = per
-                        .get("discovery")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let models = models_from_provider_json(per);
+        // Iterate providers dynamically from the parsed provider_info.
+        let mut provider_ids: Vec<&String> = s.provider_info.keys().collect();
+        provider_ids.sort();
 
-                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                    ui.label(egui::RichText::new(title).strong());
-                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                    dashboard::kv(ui, "discovery", if discovery { "on" } else { "off" });
+        for pid in &provider_ids {
+            let info = s.provider_info.get(pid.as_str()).unwrap();
+            // Use the provider id as the section title; append the endpoint type for clarity.
+            let title = if **pid == info.endpoint || info.endpoint == "unknown" {
+                (*pid).clone()
+            } else {
+                format!("{} ({})", pid, endpoint_display_name(&info.endpoint))
+            };
 
-                    if models.is_empty() {
-                        let empty_label = if *id == "nim" {
-                            "(static catalog not loaded)"
-                        } else {
-                            "(no models discovered)"
-                        };
-                        ui.label(egui::RichText::new(empty_label).weak());
-                    } else {
-                        egui::Grid::new(format!("status_providers_models_{id}"))
-                            .num_columns(1)
-                            .striped(true)
-                            .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                            .show(ui, |ui| {
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.label(dashboard::grid_header_rich(ui, "model"));
-                                });
-                                ui.end_row();
-                                for m in &models {
-                                    dashboard::grid_cell(ui, |ui| {
-                                        ui.add(egui::Label::new(egui::RichText::new(m)));
-                                    });
-                                    ui.end_row();
-                                }
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            ui.label(egui::RichText::new(title).strong());
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            dashboard::kv(ui, "endpoint", endpoint_display_name(&info.endpoint));
+            dashboard::kv(ui, "discovery", if info.discovery { "on" } else { "off" });
+
+            if info.models.is_empty() {
+                let empty_label = if !info.discovery {
+                    "(discovery off)"
+                } else {
+                    "(no models discovered)"
+                };
+                ui.label(egui::RichText::new(empty_label).weak());
+            } else {
+                egui::Grid::new(format!("status_providers_models_{pid}"))
+                    .num_columns(1)
+                    .striped(true)
+                    .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
+                    .show(ui, |ui| {
+                        dashboard::grid_cell(ui, |ui| {
+                            ui.label(dashboard::grid_header_rich(ui, "model"));
+                        });
+                        ui.end_row();
+                        for m in &info.models {
+                            dashboard::grid_cell(ui, |ui| {
+                                ui.add(egui::Label::new(egui::RichText::new(m)));
                             });
-                    }
-                    ui.add_space(spacing::TABLE_BLOCK_AFTER);
-                }
-                return;
+                            ui.end_row();
+                        }
+                    });
             }
+            ui.add_space(spacing::TABLE_BLOCK_AFTER);
+        }
+
+        if provider_ids.is_empty() {
+            ui.label(egui::RichText::new("(no providers configured)").weak());
         }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);

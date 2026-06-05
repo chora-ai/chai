@@ -3,41 +3,50 @@
 use std::collections::HashMap;
 
 use crate::config::{
-    canonical_provider, provider_discovery_enabled, worker_skills_enabled_list, AgentsConfig,
-    WorkerConfig,
+    canonical_provider_id, provider_discovery_enabled, worker_skills_enabled_list, AgentsConfig,
+    ProvidersConfig, WorkerConfig,
 };
 use crate::skills::SkillEntry;
 
-use super::choice::provider_choice_from_canonical;
+use super::choice::ProviderChoice;
 use super::model::resolve_model;
 
 /// Effective `(provider, model)` when `delegate_task` omits `provider` and `model` for this worker
 /// (mirrors runtime resolution in `orchestration/delegate.rs`).
-pub fn effective_worker_defaults(agents: &AgentsConfig, w: &WorkerConfig) -> (String, String) {
+pub fn effective_worker_defaults(
+    providers: &ProvidersConfig,
+    agents: &AgentsConfig,
+    w: &WorkerConfig,
+) -> (String, String) {
     let global_default_provider = agents
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
-        .unwrap_or("ollama");
+        .and_then(|s| canonical_provider_id(providers, s))
+        .or_else(|| providers.entries.first().map(|p| p.id.trim().to_string()))
+        .unwrap_or_else(|| "ollama".to_string());
 
-    let provider_canonical = w
+    let provider_id = w
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
+        .and_then(|s| canonical_provider_id(providers, s))
         .unwrap_or(global_default_provider);
 
-    let provider_choice = provider_choice_from_canonical(provider_canonical);
+    let provider_choice = ProviderChoice::new(&provider_id);
     let config_model = w
         .default_model
         .as_deref()
         .or(agents.default_model.as_deref());
-    let model = resolve_model(config_model, None, provider_choice);
-    (provider_canonical.to_string(), model)
+    let model = resolve_model(providers, config_model, None, &provider_choice);
+    (provider_id, model)
 }
 
 /// Renders worker ids, default provider/model, enabled skills (with descriptions from `skill_catalog`), and
 /// allowed `(provider, model)` pairs for `delegate_task` (same rules as runtime delegation). Empty when there are no workers.
-pub fn build_workers_context(agents: &AgentsConfig, skill_catalog: &[SkillEntry]) -> String {
+pub fn build_workers_context(
+    providers: &ProvidersConfig,
+    agents: &AgentsConfig,
+    skill_catalog: &[SkillEntry],
+) -> String {
     let Some(workers) = agents.workers.as_ref() else {
         return String::new();
     };
@@ -54,54 +63,55 @@ pub fn build_workers_context(agents: &AgentsConfig, skill_catalog: &[SkillEntry]
     out.push_str("- call `delegate_task` to delegate a task to a worker agent\n\n");
     out.push_str("The worker agent will do the task following your instruction.\n\n");
     for w in workers {
-        lines_for_worker(&mut out, agents, w, &skill_by_name);
+        lines_for_worker(&mut out, providers, agents, w, &skill_by_name);
     }
     out
 }
 
-fn provider_delegation_blocked(agents: &AgentsConfig, provider_canonical: &str) -> bool {
+fn provider_delegation_blocked(agents: &AgentsConfig, provider_id: &str) -> bool {
     let Some(ref list) = agents.delegate_blocked_providers else {
         return false;
     };
-    list.iter()
-        .filter_map(|p| canonical_provider(p.as_str()))
-        .any(|p| p == provider_canonical)
+    list.iter().any(|p| p.trim() == provider_id)
 }
 
 /// Worker may target this provider in `delegate_task` (mirrors `resolve_delegate_target` gates).
 fn worker_may_use_provider(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     w: &WorkerConfig,
-    provider_canonical: &str,
+    provider_id: &str,
 ) -> bool {
-    if !provider_discovery_enabled(agents, provider_canonical) {
+    if !provider_discovery_enabled(providers, agents, provider_id) {
         return false;
     }
-    if provider_delegation_blocked(agents, provider_canonical) {
+    if provider_delegation_blocked(agents, provider_id) {
         return false;
     }
     let global_default_provider = agents
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
-        .unwrap_or("ollama");
+        .and_then(|s| canonical_provider_id(providers, s))
+        .or_else(|| providers.entries.first().map(|p| p.id.trim().to_string()))
+        .unwrap_or_else(|| "ollama".to_string());
     let default_provider = w
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
+        .and_then(|s| canonical_provider_id(providers, s))
         .unwrap_or(global_default_provider);
     match &w.enabled_providers {
         None => true,
-        Some(list) if list.is_empty() => provider_canonical == default_provider,
+        Some(list) if list.is_empty() => provider_id == default_provider,
         Some(list) => list
             .iter()
-            .filter_map(|p| canonical_provider(p))
-            .any(|p| p == provider_canonical),
+            .filter_map(|s| canonical_provider_id(providers, s))
+            .any(|p| p == provider_id),
     }
 }
 
 /// `(provider, model)` pairs the orchestrator may use for this worker via `delegate_task` (mirrors `assert_delegation_pair_allowed` for a worker id).
 fn usable_delegate_pairs_for_worker(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     w: &WorkerConfig,
 ) -> Vec<(String, String)> {
@@ -110,12 +120,12 @@ fn usable_delegate_pairs_for_worker(
             let mut pairs: Vec<(String, String)> = list
                 .iter()
                 .filter_map(|e| {
-                    let p = canonical_provider(e.provider.as_str())?;
+                    let p = canonical_provider_id(providers, &e.provider)?;
                     let m = e.model.trim();
-                    if m.is_empty() || !worker_may_use_provider(agents, w, p) {
+                    if m.is_empty() || !worker_may_use_provider(providers, agents, w, &p) {
                         return None;
                     }
-                    Some((p.to_string(), m.to_string()))
+                    Some((p, m.to_string()))
                 })
                 .collect();
             pairs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
@@ -123,8 +133,8 @@ fn usable_delegate_pairs_for_worker(
             return pairs;
         }
     }
-    let (def_p, def_m) = effective_worker_defaults(agents, w);
-    if worker_may_use_provider(agents, w, def_p.as_str()) {
+    let (def_p, def_m) = effective_worker_defaults(providers, agents, w);
+    if worker_may_use_provider(providers, agents, w, &def_p) {
         vec![(def_p, def_m)]
     } else {
         Vec::new()
@@ -141,6 +151,7 @@ fn single_line_skill_description(description: &str) -> String {
 
 fn lines_for_worker(
     out: &mut String,
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     w: &WorkerConfig,
     skill_by_name: &HashMap<&str, &SkillEntry>,
@@ -156,7 +167,7 @@ fn lines_for_worker(
     out.push_str(id);
     out.push_str("`\n\n");
 
-    let pairs = usable_delegate_pairs_for_worker(agents, w);
+    let pairs = usable_delegate_pairs_for_worker(providers, agents, w);
     for (i, (p, m)) in pairs.iter().enumerate() {
         if i > 0 {
             out.push_str("\n");
@@ -195,7 +206,32 @@ fn lines_for_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WorkerConfig;
+    use crate::config::{EndpointType, ProviderDefinition, WorkerConfig};
+
+    fn test_providers(ids: &[&str]) -> ProvidersConfig {
+        ProvidersConfig {
+            entries: ids.iter().map(|id| {
+                let endpoint = match *id {
+                    "ollama" => EndpointType::Ollama,
+                    _ => EndpointType::OpenaiCompat,
+                };
+                ProviderDefinition {
+                    id: id.to_string(),
+                    endpoint,
+                    base_url: if endpoint == EndpointType::OpenaiCompat {
+                        Some(format!("http://localhost/{}", id))
+                    } else {
+                        None
+                    },
+                    api_key: None,
+                    default_model: None,
+                    model_discovery: Default::default(),
+                    static_models: Vec::new(),
+                    auto_load: Default::default(),
+                }
+            }).collect(),
+        }
+    }
 
     fn sample_agents() -> AgentsConfig {
         let mut a = AgentsConfig::default();
@@ -214,20 +250,23 @@ mod tests {
 
     #[test]
     fn no_workers_yields_empty() {
+        let providers = test_providers(&["ollama"]);
         let a = AgentsConfig::default();
-        assert!(build_workers_context(&a, &[]).is_empty());
+        assert!(build_workers_context(&providers, &a, &[]).is_empty());
     }
 
     #[test]
     fn empty_worker_list_yields_empty() {
+        let providers = test_providers(&["ollama"]);
         let mut a = AgentsConfig::default();
         a.workers = Some(vec![]);
-        assert!(build_workers_context(&a, &[]).is_empty());
+        assert!(build_workers_context(&providers, &a, &[]).is_empty());
     }
 
     #[test]
     fn includes_orchestrator_and_worker() {
-        let s = build_workers_context(&sample_agents(), &[]);
+        let providers = test_providers(&["ollama"]);
+        let s = build_workers_context(&providers, &sample_agents(), &[]);
         assert!(s.contains("You are the orchestrator agent"));
         assert!(s.contains("bob"));
         assert!(s.contains("ollama"));
@@ -236,6 +275,7 @@ mod tests {
 
     #[test]
     fn worker_without_defaults_inherits_orchestrator() {
+        let providers = test_providers(&["ollama"]);
         let mut a = AgentsConfig::default();
         a.orchestrator_id = Some("alice".to_string());
         a.default_provider = Some("ollama".to_string());
@@ -249,7 +289,7 @@ mod tests {
             context_mode: None,
             delegate_allowed_models: None,
         }]);
-        let s = build_workers_context(&a, &[]);
+        let s = build_workers_context(&providers, &a, &[]);
         assert!(s.contains("bob"));
         assert!(s.contains("ollama"));
         assert!(s.contains("llama3.2:latest"));
@@ -260,6 +300,7 @@ mod tests {
         use crate::config::AllowedModelEntry;
         use std::path::PathBuf;
 
+        let providers = test_providers(&["ollama", "lms"]);
         let mut a = AgentsConfig::default();
         a.orchestrator_id = Some("orch".to_string());
         a.default_provider = Some("ollama".to_string());
@@ -297,7 +338,7 @@ mod tests {
             capability_tier: None,
             model_variant_of: None,
         }];
-        let s = build_workers_context(&a, &catalog);
+        let s = build_workers_context(&providers, &a, &catalog);
         assert!(s.contains("provider: `ollama` / model: `m-a`"));
         assert!(s.contains("provider: `lms` / model: `m-b`"));
         assert!(s.contains("- does a thing"));

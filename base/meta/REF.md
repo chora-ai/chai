@@ -1,6 +1,6 @@
 # Reference Document Conventions
 
-Reference documents summarize external systems, APIs, and projects for agent use during implementation. They live in `.agents/ref/` (e.g. `ref/OLLAMA.md`). Reference docs exist so the implementing agent has the context it needs without fetching external documentation mid-session.
+Reference documents summarize external systems, APIs, and projects for agent use during implementation. They live in `base/ref/` (e.g. `ref/OLLAMA.md`). Reference docs exist so the implementing agent has the context it needs without fetching external documentation mid-session.
 
 ## Frontmatter
 
@@ -45,7 +45,7 @@ Most of the time you should **edit the doc and leave `status: current`** rather 
 ## Naming
 
 - File name: `<SYSTEM_NAME>.md` (uppercase, underscores) for single-system references
-- File name: `<TOPIC>.md` for comparison or ecosystem documents (e.g. `CLAW_ECOSYSTEM.md`)
+- File name: `<TOPIC>.md` for comparison or ecosystem documents (e.g. `OLLAMA.md`)
 - Place in `ref/` directory; the **`ref/`** path identifies these as reference documents.
 
 ## Maintenance

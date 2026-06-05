@@ -17,7 +17,8 @@ The following models do not support tools:
 
 ## Setup
 
-- `agents.defaultProvider`: `ollama`
+- Provider: `endpoint: "ollama"` (e.g. `{ "id": "ollama", "endpoint": "ollama" }`)
+- `agents.defaultProvider`: provider `id` (e.g. `"ollama"`)
 - `agents.defaultModel`: one model from the list above
 
 ## Procedure

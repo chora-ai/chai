@@ -1,7 +1,8 @@
 //! Delegation policy: optional allowlists of (provider, model) pairs (see `base/epic/ORCHESTRATION.md`).
 
 use crate::config::{
-    canonical_provider, resolve_effective_provider_and_model, AgentsConfig, AllowedModelEntry,
+    canonical_provider_id, resolve_effective_provider_and_model, AgentsConfig, ProvidersConfig,
+    AllowedModelEntry,
 };
 use crate::session::SessionStore;
 use serde_json::{json, Value};
@@ -9,23 +10,24 @@ use serde_json::{json, Value};
 use super::workers_context::effective_worker_defaults;
 
 fn pair_matches_catalog(
+    providers: &ProvidersConfig,
     catalog: &[AllowedModelEntry],
-    provider_canonical: &str,
+    provider_id: &str,
     model: &str,
 ) -> bool {
     catalog.iter().any(|e| {
-        canonical_provider(e.provider.as_str()) == Some(provider_canonical)
+        canonical_provider_id(providers, &e.provider).as_deref() == Some(provider_id)
             && e.model.trim() == model
     })
 }
 
 fn matches_effective_default(
-    provider_canonical: &str,
+    provider_id: &str,
     model: &str,
     default_provider: &str,
     default_model: &str,
 ) -> bool {
-    provider_canonical == default_provider && model == default_model.trim()
+    provider_id == default_provider && model == default_model.trim()
 }
 
 /// When **`delegateAllowedModels`** is **non-empty**, the resolved `(provider, model)` for
@@ -34,9 +36,10 @@ fn matches_effective_default(
 /// default** provider/model for that scope is allowed (`effective_worker_defaults` for a worker,
 /// `resolve_effective_provider_and_model` when no worker).
 pub fn assert_delegation_pair_allowed(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     worker_id: Option<&str>,
-    provider_canonical: &str,
+    provider_id: &str,
     model: &str,
 ) -> Result<(), String> {
     let model = model.trim();
@@ -52,7 +55,7 @@ pub fn assert_delegation_pair_allowed(
         {
             if let Some(ref list) = w.delegate_allowed_models {
                 if !list.is_empty() {
-                    if !pair_matches_catalog(list, provider_canonical, model) {
+                    if !pair_matches_catalog(providers, list, provider_id, model) {
                         return Err(format!(
                             "provider/model not allowed for worker {} (delegateAllowedModels)",
                             wid
@@ -61,8 +64,8 @@ pub fn assert_delegation_pair_allowed(
                     return Ok(());
                 }
             }
-            let (def_p, def_m) = effective_worker_defaults(agents, w);
-            if matches_effective_default(provider_canonical, model, &def_p, &def_m) {
+            let (def_p, def_m) = effective_worker_defaults(providers, agents, w);
+            if matches_effective_default(provider_id, model, &def_p, &def_m) {
                 return Ok(());
             }
             return Err(format!(
@@ -74,7 +77,7 @@ pub fn assert_delegation_pair_allowed(
 
     if let Some(ref list) = agents.delegate_allowed_models {
         if !list.is_empty() {
-            if !pair_matches_catalog(list, provider_canonical, model) {
+            if !pair_matches_catalog(providers, list, provider_id, model) {
                 return Err(
                     "provider/model not allowed for delegation (agents.delegateAllowedModels)"
                         .to_string(),
@@ -84,8 +87,8 @@ pub fn assert_delegation_pair_allowed(
         }
     }
 
-    let (def_p, def_m) = resolve_effective_provider_and_model(agents);
-    if matches_effective_default(provider_canonical, model, &def_p, &def_m) {
+    let (def_p, def_m) = resolve_effective_provider_and_model(providers, agents);
+    if matches_effective_default(provider_id, model, &def_p, &def_m) {
         return Ok(());
     }
     Err(format!(
@@ -140,10 +143,11 @@ pub fn apply_delegation_instruction_routes(agents: &AgentsConfig, args: &Value) 
     v
 }
 
-/// Rejects delegation to providers listed in **`delegateBlockedProviders`** (canonical ids).
+/// Rejects delegation to providers listed in **`delegateBlockedProviders`** (provider ids).
 pub fn assert_delegate_provider_not_blocked(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
-    provider_canonical: &str,
+    provider_id: &str,
 ) -> Result<(), String> {
     let Some(ref list) = agents.delegate_blocked_providers else {
         return Ok(());
@@ -152,10 +156,10 @@ pub fn assert_delegate_provider_not_blocked(
         return Ok(());
     }
     for p in list {
-        if canonical_provider(p.as_str()) == Some(provider_canonical) {
+        if canonical_provider_id(providers, p).as_deref() == Some(provider_id) {
             return Err(format!(
                 "delegation to provider {} is blocked (delegateBlockedProviders)",
-                provider_canonical
+                provider_id
             ));
         }
     }
@@ -166,8 +170,9 @@ pub fn assert_delegate_provider_not_blocked(
 pub async fn assert_session_delegation_limits(
     store: &SessionStore,
     session_id: &str,
+    _providers: &ProvidersConfig,
     agents: &AgentsConfig,
-    provider_canonical: &str,
+    provider_id: &str,
 ) -> Result<(), String> {
     let session = store
         .get(session_id)
@@ -184,16 +189,16 @@ pub async fn assert_session_delegation_limits(
     }
 
     if let Some(ref map) = agents.max_delegations_per_provider {
-        if let Some(&limit) = map.get(provider_canonical) {
+        if let Some(&limit) = map.get(provider_id) {
             let n = session
                 .delegation_by_provider
-                .get(provider_canonical)
+                .get(provider_id)
                 .copied()
                 .unwrap_or(0);
             if n >= limit {
                 return Err(format!(
                     "max delegations to provider {} for this session reached (configure maxDelegationsPerProvider.{})",
-                    provider_canonical, provider_canonical
+                    provider_id, provider_id
                 ));
             }
         }
@@ -205,8 +210,33 @@ pub async fn assert_session_delegation_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DelegationInstructionRoute, WorkerConfig};
+    use crate::config::{DelegationInstructionRoute, EndpointType, ProviderDefinition, WorkerConfig};
     use serde_json::json;
+
+    fn test_providers(ids: &[&str]) -> ProvidersConfig {
+        ProvidersConfig {
+            entries: ids.iter().map(|id| {
+                let endpoint = match *id {
+                    "ollama" => EndpointType::Ollama,
+                    _ => EndpointType::OpenaiCompat,
+                };
+                ProviderDefinition {
+                    id: id.to_string(),
+                    endpoint,
+                    base_url: if endpoint == EndpointType::OpenaiCompat {
+                        Some(format!("http://localhost/{}", id))
+                    } else {
+                        None
+                    },
+                    api_key: None,
+                    default_model: None,
+                    model_discovery: Default::default(),
+                    static_models: Vec::new(),
+                    auto_load: Default::default(),
+                }
+            }).collect(),
+        }
+    }
 
     fn entry(p: &str, m: &str) -> AllowedModelEntry {
         AllowedModelEntry {
@@ -219,24 +249,27 @@ mod tests {
 
     #[test]
     fn no_lists_allows_only_orchestrator_default() {
+        let providers = test_providers(&["ollama"]);
         let agents = AgentsConfig::default();
-        let (def_p, def_m) = crate::config::resolve_effective_provider_and_model(&agents);
+        let (def_p, def_m) = crate::config::resolve_effective_provider_and_model(&providers, &agents);
         assert!(
-            assert_delegation_pair_allowed(&agents, None, def_p.as_str(), def_m.as_str()).is_ok()
+            assert_delegation_pair_allowed(&providers, &agents, None, def_p.as_str(), def_m.as_str()).is_ok()
         );
-        assert!(assert_delegation_pair_allowed(&agents, None, "lms", "x").is_err());
+        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "lms", "x").is_err());
     }
 
     #[test]
     fn orchestrator_list_enforced_without_worker() {
+        let providers = test_providers(&["ollama"]);
         let mut agents = AgentsConfig::default();
         agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
-        assert!(assert_delegation_pair_allowed(&agents, None, "ollama", "llama3.2:latest").is_ok());
-        assert!(assert_delegation_pair_allowed(&agents, None, "lms", "x").is_err());
+        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "ollama", "llama3.2:latest").is_ok());
+        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "lms", "x").is_err());
     }
 
     #[test]
     fn worker_list_overrides_global_when_non_empty() {
+        let providers = test_providers(&["ollama", "lms"]);
         let mut agents = AgentsConfig::default();
         agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
         agents.workers = Some(vec![WorkerConfig {
@@ -248,15 +281,16 @@ mod tests {
             context_mode: None,
             delegate_allowed_models: Some(vec![entry("lms", "granite")]),
         }]);
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
+        assert!(assert_delegation_pair_allowed(&providers, &agents, Some("w"), "lms", "granite").is_ok());
         assert!(
-            assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest")
+            assert_delegation_pair_allowed(&providers, &agents, Some("w"), "ollama", "llama3.2:latest")
                 .is_err()
         );
     }
 
     #[test]
     fn worker_empty_list_uses_worker_defaults_not_orchestrator_list() {
+        let providers = test_providers(&["ollama", "lms"]);
         let mut agents = AgentsConfig::default();
         agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
         agents.workers = Some(vec![WorkerConfig {
@@ -268,9 +302,9 @@ mod tests {
             context_mode: None,
             delegate_allowed_models: Some(vec![]),
         }]);
-        assert!(assert_delegation_pair_allowed(&agents, Some("w"), "lms", "granite").is_ok());
+        assert!(assert_delegation_pair_allowed(&providers, &agents, Some("w"), "lms", "granite").is_ok());
         assert!(
-            assert_delegation_pair_allowed(&agents, Some("w"), "ollama", "llama3.2:latest")
+            assert_delegation_pair_allowed(&providers, &agents, Some("w"), "ollama", "llama3.2:latest")
                 .is_err()
         );
     }
@@ -293,9 +327,10 @@ mod tests {
 
     #[test]
     fn blocked_provider_rejects() {
+        let providers = test_providers(&["ollama", "nim"]);
         let mut agents = AgentsConfig::default();
         agents.delegate_blocked_providers = Some(vec!["nim".to_string()]);
-        assert!(assert_delegate_provider_not_blocked(&agents, "ollama").is_ok());
-        assert!(assert_delegate_provider_not_blocked(&agents, "nim").is_err());
+        assert!(assert_delegate_provider_not_blocked(&providers, &agents, "ollama").is_ok());
+        assert!(assert_delegate_provider_not_blocked(&providers, &agents, "nim").is_err());
     }
 }

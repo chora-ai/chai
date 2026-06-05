@@ -9,9 +9,7 @@ use crate::channels::{
     TelegramChannel, TelegramTransport, TelegramUpdate,
 };
 use crate::config::{
-    self, orchestrator_context_mode, resolve_hf_api_key, resolve_hf_base_url, resolve_lms_base_url,
-    resolve_nim_api_key, resolve_ollama_base_url, resolve_openai_api_key, resolve_openai_base_url,
-    resolve_telegram_webhook_secret, resolve_vllm_api_key, resolve_vllm_base_url,
+    self, orchestrator_context_mode, resolve_telegram_webhook_secret,
     worker_context_mode, Config, SkillContextMode,
 };
 #[cfg(feature = "matrix")]
@@ -24,14 +22,14 @@ use crate::gateway::protocol::{
 use crate::init;
 use crate::orchestration::{
     build_orchestration_catalog, build_workers_context, effective_worker_defaults,
-    merge_delegate_task, provider_choice_from_canonical, provider_id, resolve_model,
+    merge_delegate_task, resolve_model,
     resolve_provider_choice, worker_tool_list, DelegateContext,
     DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
 };
 use crate::profile::{self, ChaiPaths};
 use crate::providers::{
-    HfClient, HfModel, LmsClient, LmsModel, NimClient, NimModel, OllamaClient, OllamaModel,
-    OpenAiClient, OpenAiModel, ToolDefinition, VllmClient, VllmModel,
+    build_provider_client,
+    ToolDefinition,
 };
 use crate::routing::SessionBindingStore;
 use crate::session::SessionStore;
@@ -158,22 +156,10 @@ pub struct GatewayState {
     pub session_store: Arc<SessionStore>,
     pub channel_registry: Arc<ChannelRegistry>,
     pub bindings: Arc<SessionBindingStore>,
-    pub ollama_client: OllamaClient,
-    /// Ollama models discovered at startup (or soon after). Empty if Ollama unreachable.
-    pub ollama_models: Arc<tokio::sync::RwLock<Vec<OllamaModel>>>,
-    pub lms_client: LmsClient,
-    /// LM Studio models discovered at startup (or soon after). Empty if LM Studio unreachable.
-    pub lms_models: Arc<tokio::sync::RwLock<Vec<LmsModel>>>,
-    pub nim_client: NimClient,
-    /// NIM models: static list (NVIDIA does not expose a list endpoint). Used for status/UI.
-    pub nim_models: Arc<tokio::sync::RwLock<Vec<NimModel>>>,
-    pub vllm_client: VllmClient,
-    /// vLLM models from GET /v1/models at startup (empty if unreachable).
-    pub vllm_models: Arc<tokio::sync::RwLock<Vec<VllmModel>>>,
-    pub openai_client: OpenAiClient,
-    pub openai_models: Arc<tokio::sync::RwLock<Vec<OpenAiModel>>>,
-    pub hf_client: HfClient,
-    pub hf_models: Arc<tokio::sync::RwLock<Vec<HfModel>>>,
+    /// Per-provider runtime state (client + discovered model list), keyed by provider id.
+    pub provider_states: Arc<HashMap<String, ProviderRuntimeState>>,
+    /// Built provider clients for dispatch (indexed by provider id).
+    pub provider_clients: ProviderClients,
     /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
     pub skills: Arc<Vec<Skill>>,
     /// Combined tool definitions for the orchestrator: skill tools from tools.json, plus read_skill when context mode is ReadOnDemand, plus delegate_task when at least one worker is configured (same list sent to the model).
@@ -193,6 +179,14 @@ pub struct GatewayState {
     pub skill_packages_discovered: usize,
     /// Orchestrator **`AGENT.md`** directory (`<profile>/agents/<orchestratorId>/`).
     pub orchestrator_context_dir: PathBuf,
+}
+
+/// Per-provider runtime state: discovered model name list.
+/// (Provider clients are stored separately in `GatewayState::provider_clients`.)
+#[derive(Clone, Default)]
+pub struct ProviderRuntimeState {
+    /// Discovered model names (populated at startup or soon after). Empty if unreachable.
+    pub models: Arc<tokio::sync::RwLock<Vec<String>>>,
 }
 
 /// Executor that handles read_skill (lookup by name, return SKILL.md content) and delegates all other tools to the generic executor. Used when context mode is ReadOnDemand.
@@ -224,18 +218,6 @@ impl agent::ToolExecutor for ReadOnDemandExecutor {
 }
 
 impl GatewayState {
-    /// References to configured provider clients for [`ProviderClients::as_dyn`] dispatch.
-    fn provider_clients(&self) -> ProviderClients<'_> {
-        ProviderClients {
-            ollama: &self.ollama_client,
-            lms: &self.lms_client,
-            vllm: &self.vllm_client,
-            nim: &self.nim_client,
-            openai: &self.openai_client,
-            hf: &self.hf_client,
-        }
-    }
-
     /// Register an in-process channel task to be awaited during graceful shutdown.
     #[allow(dead_code)]
     pub async fn register_channel_task(&self, handle: JoinHandle<()>) {
@@ -372,6 +354,7 @@ fn build_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
+    providers: &config::ProvidersConfig,
     agents: &config::AgentsConfig,
     skill_catalog: &[SkillEntry],
 ) -> String {
@@ -383,7 +366,7 @@ fn build_system_context(
             out.push_str("\n\n");
         }
     }
-    let workers_ctx = build_workers_context(agents, skill_catalog);
+    let workers_ctx = build_workers_context(providers, agents, skill_catalog);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
         out.push_str("\n");
@@ -624,11 +607,12 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         Some(&msg.channel_id),
         Some(&msg.conversation_id),
     );
-    let provider_choice = resolve_provider_choice(&state.config.agents);
+    let provider_choice = resolve_provider_choice(&state.config.providers, &state.config.agents);
     let model_name = resolve_model(
+        &state.config.providers,
         state.config.agents.default_model.as_deref(),
         None,
-        provider_choice,
+        &provider_choice,
     );
     let has_workers = !state.worker_delegate_runtimes.is_empty();
     let system_context = &state.system_context;
@@ -636,7 +620,8 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     let tools = merge_delegate_task(tools, has_workers);
     let worker_tools = worker_tool_list(tools.as_ref());
     let delegate = Some(DelegateContext {
-        clients: state.provider_clients(),
+        clients: &state.provider_clients,
+        providers: &state.config.providers,
         agents: &state.config.agents,
         orchestrator_system_context: if system_context.trim().is_empty() {
             None
@@ -653,10 +638,13 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         session_store: Some(&state.session_store),
         session_id: Some(session_id.as_str()),
     });
+    let provider_dyn = state.provider_clients.get(&provider_choice)
+        .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
+        .expect("provider client should exist");
     let result = agent::run_turn_dyn(
         &state.session_store,
         &session_id,
-        state.provider_clients().as_dyn(provider_choice),
+        provider_dyn,
         &model_name,
         Some(system_context),
         state.config.agents.max_session_messages,
@@ -734,25 +722,27 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     let pairing_store = Arc::new(PairingStore::load(paired_path).await);
     let (event_tx, _) = broadcast::channel(64);
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let ollama_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let lms_base_url = Some(resolve_lms_base_url(&config));
-    let lms_client = LmsClient::new(lms_base_url);
-    let lms_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let nim_api_key = resolve_nim_api_key(&config);
-    let nim_client = NimClient::new(nim_api_key.clone());
-    let nim_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let vllm_base = Some(resolve_vllm_base_url(&config));
-    let vllm_api_key = resolve_vllm_api_key(&config);
-    let vllm_client = VllmClient::new(vllm_base, vllm_api_key.clone());
-    let vllm_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let openai_base = Some(resolve_openai_base_url(&config));
-    let openai_api_key = resolve_openai_api_key(&config);
-    let openai_client = OpenAiClient::new(openai_base, openai_api_key.clone());
-    let openai_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
-    let hf_base = Some(resolve_hf_base_url(&config));
-    let hf_api_key = resolve_hf_api_key(&config);
-    let hf_client = HfClient::new(hf_base, hf_api_key.clone());
-    let hf_models = Arc::new(tokio::sync::RwLock::new(Vec::new()));
+
+    // Build provider clients and runtime state dynamically from the providers array.
+    let mut provider_states: HashMap<String, ProviderRuntimeState> = HashMap::new();
+    let mut provider_clients = ProviderClients::default();
+    for def in &config.providers.entries {
+        let client = match build_provider_client(def, &config.providers) {
+            Ok(c) => c,
+            Err(e) => {
+                log::warn!("skipping provider '{}': {}", def.id, e);
+                continue;
+            }
+        };
+        provider_clients.insert(def.id.clone(), client.clone());
+        provider_states.insert(
+            def.id.clone(),
+            ProviderRuntimeState {
+                models: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            },
+        );
+    }
+
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
     let orch_context_dir = config::orchestrator_context_dir(&config, &paths.profile_dir);
@@ -833,6 +823,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         agent_ctx.as_deref(),
         &skills,
         orch_ctx_mode,
+        &config.providers,
         &config.agents,
         &all_entries,
     );
@@ -893,18 +884,8 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         session_store: Arc::new(SessionStore::new()),
         channel_registry: Arc::new(ChannelRegistry::new()),
         bindings: Arc::new(SessionBindingStore::new()),
-        ollama_client: OllamaClient::new(resolve_ollama_base_url(&config)),
-        ollama_models: ollama_models.clone(),
-        lms_client,
-        lms_models: lms_models.clone(),
-        nim_client,
-        nim_models: nim_models.clone(),
-        vllm_client,
-        vllm_models: vllm_models.clone(),
-        openai_client,
-        openai_models: openai_models.clone(),
-        hf_client,
-        hf_models: hf_models.clone(),
+        provider_states: Arc::new(provider_states),
+        provider_clients,
         skills: Arc::new(skills),
         tools_list,
         tool_executor,
@@ -917,126 +898,131 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         orchestrator_context_dir: orch_context_dir,
     };
 
-    if config::provider_discovery_enabled(&config.agents, "ollama") {
-        let ollama = state.ollama_client.clone();
-        let models = state.ollama_models.clone();
-        tokio::spawn(async move {
-            match ollama.list_models().await {
-                Ok(list) => {
-                    *models.write().await = list;
-                    log::info!("ollama model discovery completed");
+    // Spawn model discovery tasks for each configured provider.
+    {
+        let states = state.provider_states.clone();
+        let providers = &config.providers;
+        let agents = &config.agents;
+        for def in &providers.entries {
+            let provider_id = def.id.clone();
+            let discovery_on = config::provider_discovery_enabled(providers, agents, &provider_id);
+            if !discovery_on {
+                log::debug!("{} model discovery skipped (not in enabledProviders)", provider_id);
+                continue;
+            }
+
+            let runtime = match states.get(&provider_id) {
+                Some(r) => r.clone(),
+                None => continue,
+            };
+            let model_discovery = def.model_discovery;
+            let static_models = def.static_models.clone();
+
+            match model_discovery {
+                config::ModelDiscovery::Default => {
+                    match def.endpoint {
+                        config::EndpointType::Ollama => {
+                            let ollama = crate::providers::OllamaClient::new(
+                                crate::config::resolve_provider_base_url(providers, &provider_id),
+                            );
+                            let models = runtime.models.clone();
+                            tokio::spawn(async move {
+                                match ollama.list_models().await {
+                                    Ok(list) => {
+                                        let names: Vec<String> = list.into_iter().map(|m| m.name).collect();
+                                        *models.write().await = names;
+                                        log::info!("{} model discovery completed", provider_id);
+                                    }
+                                    Err(e) => {
+                                        log::debug!("{} model discovery failed: {}", provider_id, e);
+                                    }
+                                }
+                            });
+                        }
+                        config::EndpointType::OpenaiCompat => {
+                            let compat = crate::providers::OpenAiCompatClient::new_adapter(
+                                crate::config::resolve_provider_base_url(providers, &provider_id)
+                                    .unwrap_or_default(),
+                                crate::config::resolve_provider_api_key(providers, &provider_id),
+                            );
+                            let models = runtime.models.clone();
+                            tokio::spawn(async move {
+                                match compat.list_models_openai().await {
+                                    Ok(list) => {
+                                        *models.write().await = list;
+                                        log::info!("{} model discovery completed", provider_id);
+                                    }
+                                    Err(e) => {
+                                        log::debug!("{} model discovery failed: {}", provider_id, e);
+                                    }
+                                }
+                            });
+                        }
+                        config::EndpointType::Anthropic | config::EndpointType::Google => {
+                            log::debug!("{} model discovery not available for endpoint type {:?}", provider_id, def.endpoint);
+                        }
+                    }
                 }
-                Err(e) => {
-                    log::debug!("ollama model discovery failed: {}", e);
+                config::ModelDiscovery::Lmstudio => {
+                    let compat = crate::providers::OpenAiCompatClient::new_adapter(
+                        crate::config::resolve_provider_base_url(providers, &provider_id)
+                            .unwrap_or_default(),
+                        crate::config::resolve_provider_api_key(providers, &provider_id),
+                    );
+                    let models = runtime.models.clone();
+                    tokio::spawn(async move {
+                        match compat.list_models_lmstudio().await {
+                            Ok(list) => {
+                                *models.write().await = list;
+                                log::info!("{} model discovery completed (lmstudio)", provider_id);
+                            }
+                            Err(e) => {
+                                log::debug!("{} model discovery failed (lmstudio): {}", provider_id, e);
+                            }
+                        }
+                    });
+                }
+                config::ModelDiscovery::Static => {
+                    let models = runtime.models.clone();
+                    tokio::spawn(async move {
+                        let mut names = static_models;
+                        names.sort();
+                        *models.write().await = names;
+                        log::info!("{} model list loaded (static from config)", provider_id);
+                    });
                 }
             }
-        });
-    } else {
-        log::debug!("ollama model discovery skipped (not in enabledProviders)");
-    }
-    if config::provider_discovery_enabled(&config.agents, "lms") {
-        let lms = state.lms_client.clone();
-        let models = state.lms_models.clone();
-        tokio::spawn(async move {
-            match lms.list_models().await {
-                Ok(list) => {
-                    *models.write().await = list;
-                    log::info!("lms model discovery completed");
-                }
-                Err(e) => {
-                    log::debug!("lms model discovery failed: {}", e);
-                }
-            }
-        });
-    } else {
-        log::debug!("lms model discovery skipped (not in enabledProviders)");
-    }
-    if config::provider_discovery_enabled(&config.agents, "vllm") {
-        let vllm = state.vllm_client.clone();
-        let models = state.vllm_models.clone();
-        tokio::spawn(async move {
-            match vllm.list_models().await {
-                Ok(list) => {
-                    *models.write().await = list;
-                    log::info!("vllm model discovery completed");
-                }
-                Err(e) => {
-                    log::debug!("vllm model discovery failed: {}", e);
-                }
-            }
-        });
-    } else {
-        log::debug!("vllm model discovery skipped (not in enabledProviders)");
-    }
-    if config::provider_discovery_enabled(&config.agents, "nim") {
-        let models = nim_models.clone();
-        let cfg_for_nim = config.clone();
-        tokio::spawn(async move {
-            *models.write().await = NimClient::gateway_model_list(&cfg_for_nim);
-            log::info!("nim model list loaded (static catalog plus optional extraModels)");
-        });
-    }
-    if config::provider_discovery_enabled(&config.agents, "openai") {
-        let openai = state.openai_client.clone();
-        let models = state.openai_models.clone();
-        tokio::spawn(async move {
-            match openai.list_models().await {
-                Ok(list) => {
-                    *models.write().await = list;
-                    log::info!("openai model discovery completed");
-                }
-                Err(e) => {
-                    log::debug!("openai model discovery failed: {}", e);
-                }
-            }
-        });
-    } else {
-        log::debug!("openai model discovery skipped (not in enabledProviders)");
-    }
-    if config::provider_discovery_enabled(&config.agents, "hf") {
-        let hf = state.hf_client.clone();
-        let models = state.hf_models.clone();
-        tokio::spawn(async move {
-            match hf.list_models().await {
-                Ok(list) => {
-                    *models.write().await = list;
-                    log::info!("huggingface model discovery completed");
-                }
-                Err(e) => {
-                    log::debug!("huggingface model discovery failed: {}", e);
-                }
-            }
-        });
-    } else {
-        log::debug!("huggingface model discovery skipped (not in enabledProviders)");
-    }
-    if resolve_provider_choice(&config.agents) == ProviderChoice::Nim {
-        log::warn!(
-            "NVIDIA NIM hosted API is enabled; this is not a privacy-preserving option. Requests and data are sent to NVIDIA servers. Free tier is rate-limited (~40 requests/min)."
-        );
-        if nim_api_key.is_none() || nim_api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
-            log::warn!("NIM provider selected but no API key set (providers.nim.apiKey or NVIDIA_API_KEY). Requests will fail until a key is configured.");
         }
     }
-    if resolve_provider_choice(&config.agents) == ProviderChoice::OpenAi {
-        log::warn!(
-            "OpenAI API is enabled; requests and data are sent to OpenAI (not a local-first option)."
-        );
-        if openai_api_key.is_none()
-            || openai_api_key
-                .as_ref()
-                .map(|k| k.is_empty())
-                .unwrap_or(true)
-        {
-            log::warn!("openai provider selected but no API key set (providers.openai.apiKey or OPENAI_API_KEY). Requests will fail until a key is configured.");
-        }
-    }
-    if resolve_provider_choice(&config.agents) == ProviderChoice::Hf {
-        log::info!(
-            "huggingface provider selected; set providers.hf.baseUrl to your OpenAI-compatible endpoint (Inference Endpoints or TGI) including /v1."
-        );
-        if resolve_hf_base_url(&config) == "http://127.0.0.1:8080/v1" {
-            log::warn!("hf provider uses default base URL http://127.0.0.1:8080/v1; set providers.hf.baseUrl to your deployment unless testing locally.");
+
+    // Startup warnings for non-local providers in the default provider selection.
+    {
+        let default_choice = resolve_provider_choice(&config.providers, &config.agents);
+        if let Some(def) = config.providers.get(default_choice.as_str()) {
+            match def.endpoint {
+                config::EndpointType::OpenaiCompat => {
+                    // Only warn for known hosted endpoints, not local openai-compat servers.
+                    let base = crate::config::resolve_provider_base_url(&config.providers, default_choice.as_str());
+                    if base.as_ref().map(|u| u.contains("openai.com")).unwrap_or(false) {
+                        log::warn!(
+                            "OpenAI API is enabled; requests and data are sent to OpenAI (not a local-first option)."
+                        );
+                        let api_key = crate::config::resolve_provider_api_key(&config.providers, &default_choice.as_str());
+                        if api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
+                            log::warn!("{} provider selected but no API key set. Requests will fail until a key is configured.", default_choice);
+                        }
+                    } else if base.as_ref().map(|u| u.contains("nvidia.com")).unwrap_or(false) {
+                        log::warn!(
+                            "NVIDIA NIM hosted API is enabled; this is not a privacy-preserving option. Requests and data are sent to NVIDIA servers. Free tier is rate-limited (~40 requests/min)."
+                        );
+                        let api_key = crate::config::resolve_provider_api_key(&config.providers, &default_choice.as_str());
+                        if api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
+                            log::warn!("{} provider selected but no API key set. Requests will fail until a key is configured.", default_choice);
+                        }
+                    }
+                }
+                _ => {}
+            }
         }
     }
 
@@ -1510,24 +1496,22 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 } else {
                     "none"
                 };
-                let provider_choice = resolve_provider_choice(&state.config.agents);
+                let provider_choice = resolve_provider_choice(&state.config.providers, &state.config.agents);
                 let default_model = resolve_model(
+                    &state.config.providers,
                     state.config.agents.default_model.as_deref(),
                     None,
-                    provider_choice,
+                    &provider_choice,
                 );
-                let mut ollama_models = state.ollama_models.read().await.clone();
-                let mut lms_models = state.lms_models.read().await.clone();
-                let mut vllm_models = state.vllm_models.read().await.clone();
-                let mut nim_models = state.nim_models.read().await.clone();
-                let mut openai_models = state.openai_models.read().await.clone();
-                let mut hf_models = state.hf_models.read().await.clone();
-                ollama_models.sort_by(|a, b| a.name.cmp(&b.name));
-                lms_models.sort_by(|a, b| a.name.cmp(&b.name));
-                vllm_models.sort_by(|a, b| a.name.cmp(&b.name));
-                nim_models.sort_by(|a, b| a.name.cmp(&b.name));
-                openai_models.sort_by(|a, b| a.name.cmp(&b.name));
-                hf_models.sort_by(|a, b| a.name.cmp(&b.name));
+
+                // Build discovered models map from provider states.
+                let mut discovered_models: HashMap<String, Vec<String>> = HashMap::new();
+                for (pid, runtime) in state.provider_states.iter() {
+                    let mut models = runtime.models.read().await.clone();
+                    models.sort();
+                    discovered_models.insert(pid.clone(), models);
+                }
+
                 let system_context = &state.system_context;
                 let orch_mode = orchestrator_context_mode(&state.config.agents);
                 let tools_string = state
@@ -1541,13 +1525,9 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         }
                     });
                 let orchestration_catalog = build_orchestration_catalog(
+                    &state.config.providers,
                     &state.config.agents,
-                    &ollama_models,
-                    &lms_models,
-                    &vllm_models,
-                    &nim_models,
-                    &openai_models,
-                    &hf_models,
+                    &discovered_models,
                 );
                 let orchestrator_id = state
                     .config
@@ -1569,13 +1549,13 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 if id.is_empty() {
                                     return None;
                                 }
-                                let pair = effective_worker_defaults(&state.config.agents, w);
+                                let pair = effective_worker_defaults(&state.config.providers, &state.config.agents, w);
                                 Some((id.to_string(), pair))
                             })
                             .collect()
                     })
                     .unwrap_or_default();
-                let discovery_ids = config::discovery_enabled_provider_ids(&state.config.agents);
+                let discovery_ids = config::discovery_enabled_provider_ids(&state.config.providers, &state.config.agents);
                 let reg_ids = state.channel_registry.ids().await;
                 let active: HashSet<&str> = reg_ids.iter().map(|s| s.as_str()).collect();
                 let cfg_ref = state.config.as_ref();
@@ -1605,58 +1585,25 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "matrix": serde_json::Value::Object(matrix_ch),
                     "signal": serde_json::Value::Object(signal_ch),
                 });
-                let agents_cfg = &state.config.agents;
-                let provider_entry =
-                    |id: &str, models: &serde_json::Value| -> serde_json::Value {
-                        let on = config::provider_discovery_enabled(agents_cfg, id);
-                        json!({
-                            "discovery": on,
-                            "models": if on { models.clone() } else { json!([]) },
-                        })
-                    };
+
+                // Build providers map dynamically from configured providers.
                 let mut providers_map = serde_json::Map::new();
-                providers_map.insert(
-                    "ollama".into(),
-                    provider_entry(
-                        "ollama",
-                        &serde_json::to_value(&ollama_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
-                providers_map.insert(
-                    "lms".into(),
-                    provider_entry(
-                        "lms",
-                        &serde_json::to_value(&lms_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
-                providers_map.insert(
-                    "vllm".into(),
-                    provider_entry(
-                        "vllm",
-                        &serde_json::to_value(&vllm_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
-                providers_map.insert(
-                    "nim".into(),
-                    provider_entry(
-                        "nim",
-                        &serde_json::to_value(&nim_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
-                providers_map.insert(
-                    "openai".into(),
-                    provider_entry(
-                        "openai",
-                        &serde_json::to_value(&openai_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
-                providers_map.insert(
-                    "hf".into(),
-                    provider_entry(
-                        "hf",
-                        &serde_json::to_value(&hf_models).unwrap_or_else(|_| json!([])),
-                    ),
-                );
+                for (pid, runtime) in state.provider_states.iter() {
+                    let models = runtime.models.read().await.clone();
+                    let on = config::provider_discovery_enabled(&state.config.providers, &state.config.agents, pid);
+                    let endpoint = state.config.providers.get(pid)
+                        .map(|def| def.endpoint.as_str())
+                        .unwrap_or("unknown");
+                    providers_map.insert(
+                        pid.clone(),
+                        json!({
+                            "endpoint": endpoint,
+                            "discovery": on,
+                            "models": if on { models } else { vec!["".to_string(); 0] },
+                        }),
+                    );
+                }
+
                 let mut worker_ids: Vec<String> =
                     state.worker_delegate_runtimes.keys().cloned().collect();
                 worker_ids.sort();
@@ -1665,13 +1612,14 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "id": orchestrator_id,
                     "role": "orchestrator",
                     "contextDirectory": state.orchestrator_context_dir.display().to_string(),
-                    "defaultProvider": provider_id(provider_choice),
+                    "defaultProvider": provider_choice.as_str(),
                     "defaultModel": default_model,
                     "enabledProviders": serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
                     "systemContext": serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
                     "tools": serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
                     "skills": skill_runtime_json(state.skills.as_ref(), orch_mode),
                 });
+
 
                 let mut entries: Vec<serde_json::Value> = vec![orch_entry];
                 for wid in &worker_ids {
@@ -1725,7 +1673,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "bind": state.config.gateway.bind,
                     "auth": auth_mode,
                 });
-                // Key order matches `.agents/spec/GATEWAY_STATUS.md` and config cross-check:
+                // Key order matches `base/spec/GATEWAY_STATUS.md` and config cross-check:
                 // gateway → channels → providers → agents like config, then skillPackages (extra).
                 let mut pl = serde_json::Map::new();
                 pl.insert("gateway".into(), gateway_block);
@@ -1803,17 +1751,18 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     None,
                 );
-                // Use request provider override when valid (see canonical_provider), else config default.
+                // Use request provider override when valid, else config default.
                 let provider_choice = params
                     .provider
                     .as_deref()
-                    .and_then(config::canonical_provider)
-                    .map(provider_choice_from_canonical)
-                    .unwrap_or_else(|| resolve_provider_choice(&state.config.agents));
+                    .and_then(|s| config::canonical_provider_id(&state.config.providers, s))
+                    .map(ProviderChoice::new)
+                    .unwrap_or_else(|| resolve_provider_choice(&state.config.providers, &state.config.agents));
                 let model_name = resolve_model(
+                    &state.config.providers,
                     state.config.agents.default_model.as_deref(),
                     params.model.as_deref(),
-                    provider_choice,
+                    &provider_choice,
                 );
                 let has_workers = !state.worker_delegate_runtimes.is_empty();
                 let system_context = &state.system_context;
@@ -1821,7 +1770,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let tools = merge_delegate_task(tools, has_workers);
                 let worker_tools = worker_tool_list(tools.as_ref());
                 let delegate = Some(DelegateContext {
-                    clients: state.provider_clients(),
+                    clients: &state.provider_clients,
+                    providers: &state.config.providers,
                     agents: &state.config.agents,
                     orchestrator_system_context: if system_context.trim().is_empty() {
                         None
@@ -1838,12 +1788,20 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     session_store: Some(&state.session_store),
                     session_id: Some(session_id.as_str()),
                 });
+                let provider_dyn = state.provider_clients.get(&provider_choice)
+                    .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
+                    .expect("provider client should exist");
+                let system_context_opt = if system_context.trim().is_empty() {
+                    None
+                } else {
+                    Some(system_context.as_str())
+                };
                 let run_result = agent::run_turn_dyn(
                     &state.session_store,
                     &session_id,
-                    state.provider_clients().as_dyn(provider_choice),
+                    provider_dyn,
                     &model_name,
-                    Some(system_context),
+                    system_context_opt,
                     state.config.agents.max_session_messages,
                     crate::config::resolve_max_tool_loop_iterations(&state.config.agents),
                     tools,

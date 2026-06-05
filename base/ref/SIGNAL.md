@@ -8,7 +8,7 @@ Reference for the **Signal** channel in Chai. Gateway behavior is specified in [
 
 **Distribution and license (project policy)** — Chai **does not** ship signal-cli; operators **BYO** an install and run the **HTTP daemon** (see [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md)). Repository **LICENSE** files are unchanged for this integration.
 
-**Status** — **Implemented** in **`crates/lib/src/channels/signal.rs`**: **`GET /api/v1/events`** (SSE) for JSON-RPC **`receive`** notifications with **`dataMessage.message`**; **`POST /api/v1/rpc`** with **`send`** (`recipient` +E.164 or **`groupId`**). **User journey:** [`.journey/09-channel-signal.md`](../../.journey/09-channel-signal.md).
+**Status** — **Implemented** in **`crates/lib/src/channels/signal.rs`**: **`GET /api/v1/events`** (SSE) for JSON-RPC **`receive`** notifications with **`dataMessage.message`**; **`POST /api/v1/rpc`** with **`send`** (`recipient` +E.164 or **`groupId`**). **User journey:** [`docs/journey/09-channel-signal.md`](../../docs/journey/09-channel-signal.md).
 
 ## Purpose and How to Use
 

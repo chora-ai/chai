@@ -1,6 +1,6 @@
 # Epic Conventions
 
-Epics are proposals and tracking documents for significant features or architectural changes. They live in **`.agents/epic/`** as `<NAME>.md` (uppercase, underscores; e.g. `ORCHESTRATION.md`).
+Epics are proposals and tracking documents for significant features or architectural changes. They live in **`base/epic/`** as `<NAME>.md` (uppercase, underscores; e.g. `ORCHESTRATION.md`).
 
 ## Epics and Specs
 
@@ -58,7 +58,7 @@ Epics follow a standard section order. Sections marked *(when applicable)* may b
 
 **Phases** — Ordered delivery plan. Use a table with columns for phase number/name, focus, and status. Phases should be incrementally deliverable.
 
-**Related Epics and Docs** — Cross-references to other epics, specs, ADRs, reference documents, and external files (e.g. `.testing/`, `.journey/`). Use relative links.
+**Related Epics and Docs** — Cross-references to other epics, specs, ADRs, reference documents, and external files (e.g. `docs/testing/`, `docs/journey/`). Use relative links.
 
 ### Optional Sections
 

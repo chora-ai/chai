@@ -18,9 +18,11 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 
 ## Current State
 
-- **Backends implemented:** **Ollama** (native API), **LM Studio** (`lms`, OpenAI-compat), **vLLM** (`vllm`, OpenAI-compat), **NVIDIA NIM** (`nim`, hosted OpenAI-compat), **OpenAI** (`openai`, OpenAI API or compatible base URL), **Hugging Face** (`hf`, OpenAI-compat Inference Endpoints / TGI / similar). The agent uses a common **`Provider`** trait; **`agents.defaultProvider`** and **`agents.defaultModel`** select which client and model are used.
-- **Shared HTTP layer:** LM Studio, vLLM, OpenAI, Hugging Face, and NIM chat paths use the shared **`openai_compat`** module (`OpenAiCompatClient` or equivalent) for `/v1/chat/completions` and `/v1/models` where applicable. **`openai.rs`** / **`hf.rs`** are thin wrappers with provider defaults and error types; they are not merged into **`openai_compat`** (see [OPENAI.md](../ref/OPENAI.md)).
-- **Model discovery:** Gateway discovers models from configured backends at startup (per **`agents.enabledProviders`** rules) and exposes them under WebSocket **`status.payload.providers`** (per-provider **`models`** arrays).
+- **Provider configuration:** Providers are defined as a **JSON array** of provider objects, each with a unique `id` and an `endpoint` type (`"ollama"`, `"openai-compat"`, `"anthropic"`, or `"google"`). Product-specific behaviors (LM Studio auto-load, LM Studio model discovery, NIM static catalog) are expressed as configurable behavior fields (`modelDiscovery`, `staticModels`, `autoLoad`) rather than separate endpoint types or code modules. See [PROVIDERS.md](../spec/PROVIDERS.md) for the full configuration reference.
+- **Backends implemented:** **Ollama** (`"ollama"` endpoint), **LM Studio** (`"openai-compat"` + `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"`), **vLLM** (`"openai-compat"` + custom `baseUrl`), **NVIDIA NIM** (`"openai-compat"` + `modelDiscovery: "static"`, `staticModels`), **OpenAI** (`"openai-compat"` + `baseUrl`), **Hugging Face** (`"openai-compat"` + `baseUrl`). The agent uses a common **`Provider`** trait; `defaultProvider` and `defaultModel` select which client and model are used.
+- **Dispatch:** `ProviderClients` is a `HashMap<String, Arc<dyn Provider>>` keyed by provider `id`. The old `ProviderChoice` enum has been replaced by string-based provider id lookups.
+- **Shared HTTP layer:** All OpenAI-compat providers use the shared **`openai_compat`** module (`OpenAiCompatClient`) for `/v1/chat/completions` and (when applicable) model discovery. LM Studio–specific behaviors (auto-load, native model list) are implemented as methods on `OpenAiCompatClient`; separate thin wrapper modules (`openai.rs`, `vllm.rs`, `hf.rs`, `lms.rs`, `nim.rs`) have been eliminated.
+- **Model discovery:** Configured per-provider via the `modelDiscovery` field. Options: `"default"` (endpoint-type standard), `"lmstudio"` (LM Studio native API), or `"static"` (config-curated list). Discovery runs at startup for providers in an agent's `enabledProviders` and is exposed via WebSocket **`status`** payload (keyed by provider `id`).
 - **Single backend per run:** One default backend and model for the entire agent loop; no per-request or per-step backend selection (orchestration delegation is separate; see [ORCHESTRATION.md](ORCHESTRATION.md)).
 
 ## Scope
@@ -28,56 +30,58 @@ Support a variety of LLM backends so users can run models locally (Ollama, LM St
 ### In Scope
 
 - **Phase 1 (done):** Ollama-native and OpenAI-compat backends listed above; message/tool documentation; compatibility for LocalAI, llama.cpp, and Venice (OpenAI-compat) when they expose those API families; deployment and streaming notes in ref docs.
+
 - **Phase 2 (tracked, not implemented):** Official **Anthropic** and **Google** APIs — see [Phase 2: Anthropic and Google](#phase-2-anthropic-and-google).
 
 ### Out of Scope
 
 - Orchestrator–worker delegation as an API-alignment deliverable; see [ORCHESTRATION.md](ORCHESTRATION.md).
 
-## Compatibility Targets (No Dedicated Provider Id)
+## Compatibility Targets (No Dedicated Endpoint Type)
 
-These stacks are **tracked** here so expectations stay clear: Chai does **not** need a new canonical **`defaultProvider`** value when the server speaks an API family we already support.
+These stacks are **tracked** here so expectations stay clear: Chai does **not** need a new canonical endpoint type when the server speaks an API family we already support. They use existing endpoint types with custom `baseUrl` and behavior settings.
 
-- **LocalAI** — **Done (compatibility only).** **Ollama-compatible** deployment → use **`"ollama"`** and **`providers.ollama.baseUrl`**. **OpenAI-compatible** deployment → use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at that server’s **`/v1`** base (same client as vLLM). A future **`localai`** provider id would be optional UX only, not a new wire format.
-- **llama.cpp** — **OpenAI-compatible** HTTP (e.g. **`llama-server`** with OpenAI-style routes when enabled) → use an existing OpenAI-compat path: typically **`"vllm"`** or **`"lms"`** with **`providers.*.baseUrl`** set to the server’s **`/v1`** origin, same as any other OpenAI-shaped endpoint. **Not** tracked as a separate shipped backend until we need one. A **non–OpenAI-compat**, **non–Ollama** HTTP API from llama.cpp would require **new adapter work** and would be a distinct epic item if prioritized (not current scope).
-- **Venice** — **OpenAI-compatible** hosted API → use **`"openai"`** with **`providers.openai.baseUrl`** set to Venice’s base (e.g. **`https://api.venice.ai/api/v1`**) and a Venice API key via **`OPENAI_API_KEY`** / **`providers.openai.apiKey`**. No dedicated **`venice`** provider id; see [OPENAI.md](../ref/OPENAI.md) and [Venice docs](https://docs.venice.ai/overview/about-venice). Venice-specific request fields (e.g. **`venice_parameters`**) are **not** sent by Chai’s client today.
+- **LocalAI** — **Done (compatibility only).** **Ollama-compatible** deployment → use `endpoint: "ollama"` and `baseUrl`. **OpenAI-compatible** deployment → use `endpoint: "openai-compat"` and `baseUrl` pointing at that server's `/v1` base.
+- **llama.cpp** — **OpenAI-compatible** HTTP (e.g. **`llama-server`** with OpenAI-style routes when enabled) → use `endpoint: "openai-compat"` with `baseUrl` set to the server's `/v1` origin. **Not** tracked as a separate shipped backend until we need one. A **non–OpenAI-compat**, **non–Ollama** HTTP API from llama.cpp would require **new adapter work** and would be a distinct epic item if prioritized (not current scope).
+- **Venice** — **OpenAI-compatible** hosted API → use `endpoint: "openai-compat"` with `baseUrl` set to Venice's base (e.g. **`https://api.venice.ai/api/v1`**) and a Venice API key via `apiKey`. No dedicated endpoint type; see [OPENAI.md](../ref/OPENAI.md) and [Venice docs](https://docs.venice.ai/overview/about-venice). Venice-specific request fields (e.g. **`venice_parameters`**) are **not** sent by Chai's client today.
 
 ## Phase 1 Requirements
 
 - [x] Ollama integrated (native API: `/api/tags`, `/api/chat`).
-- [x] LM Studio integrated (OpenAI-compat chat: `/v1/chat/completions`; model list: native **`GET …/api/v1/models`** — see [LM_STUDIO.md](../ref/LM_STUDIO.md)).
-- [x] LocalAI: **Ollama mode** — use **`agents.defaultProvider`**: **`"ollama"`** and optional **`providers.ollama.baseUrl`** (no code change). **OpenAI-compat mode** — use **`"vllm"`** and **`providers.vllm.baseUrl`** pointing at LocalAI’s `/v1` base (same shared adapter as vLLM); see [README.md](../../README.md) and [VLLM.md](../ref/VLLM.md).
-- [x] vLLM: **`VllmClient`** + shared **`openai_compat`**; see [VLLM.md](../ref/VLLM.md).
-- [x] Hugging Face (TGI / Inference Endpoints / OpenAI-compat): **`HfClient`** + **`openai_compat`**; **`providers.hf.baseUrl`**, **`HF_API_KEY`**; see [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
-- [x] OpenAI: **`OpenAiClient`** + **`openai_compat`**; **`OPENAI_API_KEY`**, optional **`providers.openai.baseUrl`**; see [OPENAI.md](../ref/OPENAI.md).
+- [x] LM Studio integrated (OpenAI-compat chat: `/v1/chat/completions`; model discovery: native **`GET …/api/v1/models`** via `modelDiscovery: "lmstudio"`; auto-load via `autoLoad: "lmstudio"` — see [LM_STUDIO.md](../ref/LM_STUDIO.md)).
+- [x] LocalAI: **Ollama mode** — use `endpoint: "ollama"` and `baseUrl` (no code change). **OpenAI-compat mode** — use `endpoint: "openai-compat"` and `baseUrl` pointing at LocalAI's `/v1` base; see [README.md](../../README.md) and [VLLM.md](../ref/VLLM.md).
+- [x] vLLM: `endpoint: "openai-compat"` + `baseUrl`; see [VLLM.md](../ref/VLLM.md).
+- [x] Hugging Face (TGI / Inference Endpoints / OpenAI-compat): `endpoint: "openai-compat"` + `baseUrl` + `apiKey`; see [HUGGINGFACE.md](../ref/HUGGINGFACE.md).
+- [x] OpenAI: `endpoint: "openai-compat"` + `baseUrl: "https://api.openai.com/v1"` + `apiKey`; see [OPENAI.md](../ref/OPENAI.md).
+- [x] NVIDIA NIM: `endpoint: "openai-compat"` + `modelDiscovery: "static"` + `staticModels` + `apiKey`; see [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md).
 - [x] Message and tool format translation **implemented** for every **Phase 1** backend and **documented** in this epic (see [Message and Tool Translation](#message-and-tool-translation)) and per-backend [reference docs](../ref/).
 
 ## Phase 2: Anthropic and Google
 
-**Status:** **Proposed.** Phase 2 has not yet begun; **`anthropic`** and **`gemini`** are not currently valid **`agents.defaultProvider`** values.
+**Status:** **Proposed.** Phase 2 has not yet begun; the `"anthropic"` and `"google"` endpoint types exist in the `EndpointType` enum but return errors at runtime when used.
 
-**Goal:** Add **`Provider`** implementations for official **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies). Chai supports **`anthropic`** and **`gemini`** as valid **`agents.defaultProvider`** values. Each provider has a dedicated adapter that maps the internal agent contract (full history, system context, tools, **`tool_name`** on tool results) to and from the vendor API. Users targeting official Anthropic or Google endpoints get the same reliable routing and tool correlation as users on the OpenAI path.
+**Goal:** Add **`Provider`** implementations for official **Anthropic (Claude)** and **Google (Gemini)** HTTP APIs (not OpenAI-shaped proxies). Users can define providers with `endpoint: "anthropic"` or `endpoint: "google"`. Each provider has a dedicated adapter that maps the internal agent contract (full history, system context, tools, **`tool_name`** on tool results) to and from the vendor API. Users targeting official Anthropic or Google endpoints get the same reliable routing and tool correlation as users on the OpenAI path.
 
 ### Problem Statement (Phase 2)
 
-Chai's current provider support covers OpenAI-compatible APIs via the **`openai_compat`** module. Claude (Anthropic) and Gemini (Google) use distinct wire formats — different message layouts, tool-calling conventions, and model discovery mechanisms — that cannot be handled by the existing **`openai_compat`** path when users target official Anthropic or Google endpoints. First-class support requires dedicated adapter families for each vendor API.
+Chai's current provider support covers Ollama-native and OpenAI-compatible APIs. Claude (Anthropic) and Gemini (Google) use distinct wire formats — different message layouts, tool-calling conventions, and model discovery mechanisms — that cannot be handled by the existing `"ollama"` or `"openai-compat"` paths when users target official Anthropic or Google endpoints. First-class support requires dedicated adapter implementations for each vendor API.
 
 ### Scope (Phase 2)
 
 #### In Scope
 
-- **`anthropic` provider:** adapter, config, model discovery, tool-calling support
-- **`gemini` provider:** adapter, config, model discovery, tool-calling support
-- Config changes for **`providers.anthropic`** / **`providers.gemini`**, env vars, **`canonical_provider`**
-- Orchestration changes: **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks
-- Gateway server changes: client construction, discovery, **`status`** payload keys
-- Desktop changes: provider allowlist, model reconciliation, info screen
+- **`"anthropic"` endpoint type:** adapter, config, model discovery, tool-calling support
+- **`"google"` endpoint type:** adapter, config, model discovery, tool-calling support
+- Config: providers with `endpoint: "anthropic"` / `endpoint: "google"`, env vars (`ANTHROPIC_API_KEY`, `GOOGLE_API_KEY`)
+- Provider client modules in `crates/lib/src/providers/`
+- Gateway server changes: client construction, discovery, **`status`** payload
+- Desktop changes: provider info screen, model reconciliation
 - User docs and ref docs for both providers
 - Tests for both providers
 
 #### Out of Scope
 
-- OpenAI-compatible routing for Anthropic or Google hosted endpoints (these can use the existing **`openai`** or **`vllm`** path with a custom base URL — this is a compatibility route, not a substitute for first-class support)
+- OpenAI-compatible routing for Anthropic or Google hosted endpoints (these can use `endpoint: "openai-compat"` with a custom `baseUrl` — this is a compatibility route, not a substitute for first-class support)
 
 ### Design (Phase 2)
 
@@ -93,18 +97,17 @@ The internal agent contract stays the same: full history, system context, tools,
 
 #### Relationship to OpenAI-Compat
 
-Servers that expose **OpenAI-compatible** HTTP for Claude or Gemini (if hosted that way) could use the existing **`openai`** or **`vllm`** path with a provider base URL; that is a **compatibility** route, not a substitute for first-class Anthropic/Google APIs when users use official endpoints.
+Servers that expose **OpenAI-compatible** HTTP for Claude or Gemini (if hosted that way) could use `endpoint: "openai-compat"` with a provider `baseUrl`; that is a **compatibility** route, not a substitute for first-class Anthropic/Google APIs when users use official endpoints.
 
 ### Requirements (Phase 2, Not Yet Satisfied)
 
-- [ ] **Anthropic:** Client + adapter + config + gateway **`status`** discovery (or documented static catalog) + desktop + docs.
+- [ ] **Anthropic:** Client + adapter + gateway discovery (or documented static catalog) + desktop + docs.
 - [ ] **Google (Gemini):** Same as above for the chosen Gemini API surface.
-- [ ] **`crates/lib/src/config.rs`** — **`providers.anthropic`** / **`providers.gemini`** (or similar), env vars, **`canonical_provider`**
 - [ ] **`crates/lib/src/providers/`** — New client modules and **`Provider`** impls for Anthropic and Google
-- [ ] **`crates/lib/src/orchestration/`** — **`ProviderChoice`**, **`ProviderClients`**, **`resolve_model`** fallbacks
-- [ ] **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload keys (e.g. **`anthropicModels`**, **`geminiModels`**)
-- [ ] **`crates/desktop/`** — Provider allowlist, model reconciliation, info screen
-- [ ] User docs — [README.md](../../README.md), ref docs under [`.agents/ref/`](../ref/), [spec/PROVIDERS.md](../spec/PROVIDERS.md), [spec/MODELS.md](../spec/MODELS.md)
+- [ ] **`crates/lib/src/providers/mod.rs`** — Add `Anthropic` and `Google` arms to `build_provider_client()`
+- [ ] **`crates/lib/src/gateway/server.rs`** — Client construction, discovery, **`status`** payload
+- [ ] **`crates/desktop/`** — Provider info screen, model reconciliation
+- [ ] User docs — [README.md](../../README.md), ref docs under [`base/ref/`](../ref/), [spec/PROVIDERS.md](../spec/PROVIDERS.md), [spec/MODELS.md](../spec/MODELS.md)
 
 Until Phase 2 ships, [spec/PROVIDERS.md](../spec/PROVIDERS.md) continues to list Claude and Gemini under **planned**.
 
@@ -127,50 +130,50 @@ Until Phase 2 ships, [spec/PROVIDERS.md](../spec/PROVIDERS.md) continues to list
 - [spec/PROVIDERS.md](../spec/PROVIDERS.md) — Provider configuration spec
 - [spec/MODELS.md](../spec/MODELS.md) — Model resolution and fallback spec
 - [ref/OPENAI.md](../ref/OPENAI.md) — Reference for the existing OpenAI-compat adapter (useful baseline for new adapters)
-- [.testing/README.md](../../.testing/README.md) — Test index
+- [../docs/testing/README.md](../../docs/testing/README.md) — User testing index
 
 ## Technical Reference
 
 ### Concepts
 
 - **Internal format** — The gateway uses a single message and tool shape for the agent (e.g. messages with `role`, `content`, optional `tool_calls`; tool results keyed by **`tool_name`**). Each backend adapter translates between this and the provider's request/response.
-- **API families** — **Ollama-native**: `/api/chat`, `/api/tags`; tool results use `tool_name`. **OpenAI-compat**: `/v1/chat/completions`, `/v1/models`; tool results use **`tool_call_id`**; assistant `tool_calls` have `id`, `function.name`, `function.arguments`. **Provider-specific** (Claude, Gemini): own request/response and tool schema; need a dedicated adapter each ([Phase 2](#phase-2-anthropic-and-google)).
+- **API families** — **Ollama-native**: `/api/chat`, `/api/tags`; tool results use `tool_name`. **OpenAI-compat**: `/v1/chat/completions`, `/v1/models`; tool results use **`tool_call_id`**; assistant `tool_calls` have `id`, `function.name`, `function.arguments`. Product-specific behaviors (LM Studio auto-load, LM Studio model discovery, NIM static catalog) are expressed through configurable behavior fields, not separate adapter modules. **Provider-specific** (Claude, Gemini): own request/response and tool schema; need a dedicated adapter each ([Phase 2](#phase-2-anthropic-and-google)).
 - **Statelessness** — All backends are stateless: the client sends full history and system prompt every call. The agent builds the message list from the session store and prepends system context; no backend-specific state.
 
 ### Message and Tool Translation
 
-| Backend (`defaultProvider`) | API family | Where mapping lives | Documentation |
-|---------------------------|------------|---------------------|---------------|
-| `ollama` | Ollama-native | `OllamaClient` | [OLLAMA.md](../ref/OLLAMA.md) |
-| `lms` | OpenAI-compat | `LmsClient` → `OpenAiCompatClient` | [LM_STUDIO.md](../ref/LM_STUDIO.md) |
-| `vllm` | OpenAI-compat | `VllmClient` → `OpenAiCompatClient` | [VLLM.md](../ref/VLLM.md) |
-| `hf` | OpenAI-compat | `HfClient` → `OpenAiCompatClient` | [HUGGINGFACE.md](../ref/HUGGINGFACE.md) |
-| `nim` | OpenAI-compat (hosted) | `NimClient` (dedicated types; same wire ideas) | [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md) |
-| `openai` | OpenAI-compat | `OpenAiClient` → `OpenAiCompatClient` | [OPENAI.md](../ref/OPENAI.md) |
+| Provider `id` (example) | Endpoint Type | Where Mapping Lives | Documentation |
+|--------------------------|---------------|---------------------|---------------|
+| `ollama` | `"ollama"` | `OllamaClient` | [OLLAMA.md](../ref/OLLAMA.md) |
+| `lms` | `"openai-compat"` + `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"` | `OpenAiCompatClient` | [LM_STUDIO.md](../ref/LM_STUDIO.md) |
+| `vllm` | `"openai-compat"` + custom `baseUrl` | `OpenAiCompatClient` | [VLLM.md](../ref/VLLM.md) |
+| `hf` | `"openai-compat"` + custom `baseUrl` | `OpenAiCompatClient` | [HUGGINGFACE.md](../ref/HUGGINGFACE.md) |
+| `nim` | `"openai-compat"` + `modelDiscovery: "static"`, `staticModels` | `OpenAiCompatClient` | [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md) |
+| `openai` | `"openai-compat"` + `baseUrl: "https://api.openai.com/v1"` | `OpenAiCompatClient` | [OPENAI.md](../ref/OPENAI.md) |
 
-OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`tool_call_id`** on the wire and reverse for assistant tool calls. Ollama uses **`tool_name`** end-to-end on its native API.
+OpenAI-compat adapters map internal tool results (**`tool_name`**) to OpenAI **`tool_call_id`** on the wire and reverse for assistant tool calls. Ollama uses **`tool_name`** end-to-end on its native API. All OpenAI-compat providers share the same `OpenAiCompatClient`; product-specific behaviors are configured via behavior fields, not separate adapter code.
 
 ### Why Alignment Matters
 
-- **Single agent interface** — One `run_turn` and one `Provider` trait regardless of provider; the agent loop does not branch on "which API." Adding a backend is a new client + adapter, not a new agent path.
+- **Single agent interface** — One `run_turn` and one `Provider` trait regardless of provider; the agent loop does not branch on "which API." Adding a backend is a new provider in the config array (and, for new endpoint types, a new `Provider` impl), not a new agent path.
 - **Capabilities we rely on** — Chat with history, tool/function calling, and a system message as the first message. Backends that support these (Ollama, OpenAI-compat family) fit the same adapter pattern; provider-specific APIs (Claude, Gemini) need a translation layer from our internal format.
 - **Deployment and auth** — Local/self-hosted often need only base URL; remote APIs need API keys and correct base URLs. The adapter hides this behind config.
 
 ### By API Family
 
-| Family | Examples | Status | Adapter / notes |
+| Family | Examples | Status | Adapter / Notes |
 |--------|----------|--------|-----------------|
 | **Ollama-native** | Ollama, LocalAI (Ollama mode), llama.cpp if same API | Phase 1 done | **`OllamaClient`**. Same path when server exposes `/api/chat`, `/api/tags`. |
-| **OpenAI-compat** | LM Studio, OpenAI, Hugging Face TGI/IE, vLLM, LocalAI (OpenAI mode), NIM | Phase 1 done | **`OpenAiCompatClient`** (+ thin provider wrappers); `tool_name` ↔ `tool_call_id`. |
+| **OpenAI-compat** | LM Studio, OpenAI, Hugging Face TGI/IE, vLLM, LocalAI (OpenAI mode), NIM | Phase 1 done | **`OpenAiCompatClient`**; product-specific behaviors via `modelDiscovery`, `staticModels`, `autoLoad`. `tool_name` ↔ `tool_call_id`. |
 | **Provider-specific** | Claude (Anthropic), Gemini (Google) | Phase 2 | [Phase 2](#phase-2-anthropic-and-google). |
 
 For providers, configuration, and API families, see [spec/PROVIDERS.md](../spec/PROVIDERS.md). For model families and named model ids, see [spec/MODELS.md](../spec/MODELS.md).
 
 ### Implementation Notes
 
-- The **`Provider`** trait and a single **`agents.defaultProvider`** + **`agents.defaultModel`** keep one backend per run; each backend implements the same trait and performs its own message/tool translation.
-- **Ollama or Ollama-compatible** servers: use **`OllamaClient`** and set default backend/model.
-- **OpenAI-style** backends: shared **`openai_compat`** layer; per-provider config (base URL, API key) on **`ProvidersConfig`**.
+- The **`Provider`** trait and provider `id` + `endpoint` type keep one backend per agent; each backend implements the same trait and performs its own message/tool translation.
+- **Ollama or Ollama-compatible** servers: use `endpoint: "ollama"` and set `baseUrl` if needed.
+- **OpenAI-style** backends: shared **`openai_compat`** layer (**`OpenAiCompatClient`**); per-provider config (base URL, API key, behavior fields) in the `providers` array.
 - **Claude, Gemini (Phase 2):** New client and adapter each unless a common abstraction is introduced; internal format remains the contract for the agent.
 - **Streaming:** The main agent path is non-streaming today. Streaming format differs by API family (Ollama: NDJSON; OpenAI-compat: SSE); see ref docs when extending streaming to the channel.
-- **Backend-specific features:** Adapters need only support chat, tools, and system message. Features such as model load/unload (LM Studio), keep_alive or embeddings (Ollama), or provider-specific options are not required for the agent loop; see ref docs for what each API offers.
+- **Backend-specific features:** Adapters need only support chat, tools, and system message. Features such as model load/unload (LM Studio, configured via `autoLoad`), keep_alive or embeddings (Ollama), or provider-specific options are not required for the agent loop; see ref docs for what each API offers.

@@ -1,6 +1,6 @@
 //! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `base/epic/ORCHESTRATION.md`).
 
-use super::choice::provider_choice_from_canonical;
+use super::choice::ProviderChoice;
 use super::dispatch::ProviderClients;
 use super::model::resolve_model;
 use super::policy::{
@@ -9,7 +9,8 @@ use super::policy::{
 };
 use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
 use crate::config::{
-    canonical_provider, provider_discovery_enabled, AgentsConfig, SkillContextMode,
+    canonical_provider_id, provider_discovery_enabled, AgentsConfig, ProvidersConfig,
+    SkillContextMode,
 };
 use crate::providers::{ChatMessage, ToolCall, ToolDefinition, ToolFunctionDefinition};
 use crate::session::SessionStore;
@@ -165,7 +166,8 @@ pub struct WorkerDelegateRuntime {
 /// References needed to run a worker turn from the main agent loop.
 #[derive(Clone)]
 pub struct DelegateContext<'a> {
-    pub clients: ProviderClients<'a>,
+    pub clients: &'a ProviderClients,
+    pub providers: &'a ProvidersConfig,
     pub agents: &'a AgentsConfig,
     /// Full orchestrator system message for `delegate_task` without `workerId`.
     pub orchestrator_system_context: Option<&'a str>,
@@ -252,7 +254,7 @@ fn format_delegate_result(
     reply: String,
     tool_calls: Vec<ToolCall>,
     tool_results: Vec<String>,
-    provider_canonical: &str,
+    provider_id: &str,
     model: &str,
 ) -> String {
     let payload = serde_json::json!({
@@ -260,7 +262,7 @@ fn format_delegate_result(
         "toolCalls": tool_calls,
         "toolResults": tool_results,
         "worker": {
-            "provider": provider_canonical,
+            "provider": provider_id,
             "model": model,
         }
     });
@@ -293,12 +295,13 @@ pub fn parse_delegate_tool_results(payload: &str) -> Result<Vec<String>, String>
 
 #[derive(Debug)]
 struct DelegateTarget {
-    provider_canonical: &'static str,
-    provider_choice: super::choice::ProviderChoice,
+    provider_id: String,
+    provider_choice: ProviderChoice,
     model: String,
 }
 
 fn resolve_delegate_target(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     args: &serde_json::Value,
 ) -> Result<DelegateTarget, String> {
@@ -324,13 +327,15 @@ fn resolve_delegate_target(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
 
+    // Default to the first configured provider or "ollama".
     let global_default_provider = agents
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
-        .unwrap_or("ollama");
+        .and_then(|s| canonical_provider_id(providers, s))
+        .or_else(|| providers.entries.first().map(|p| p.id.trim().to_string()))
+        .unwrap_or_else(|| "ollama".to_string());
 
-    let (provider_canonical, model) = if let Some(ref worker_id) = worker_id {
+    let (provider_id, model) = if let Some(ref worker_id) = worker_id {
         let worker = agents
             .workers
             .as_ref()
@@ -340,72 +345,73 @@ fn resolve_delegate_target(
         let default_provider = worker
             .default_provider
             .as_deref()
-            .and_then(canonical_provider)
-            .unwrap_or(global_default_provider);
+            .and_then(|s| canonical_provider_id(providers, s))
+            .unwrap_or(global_default_provider.clone());
 
-        let provider_canonical = match provider_raw {
-            Some(p) => canonical_provider(p).ok_or_else(|| format!("unknown provider: {}", p))?,
-            None => default_provider,
+        let provider_id = match provider_raw {
+            Some(p) => canonical_provider_id(providers, p).ok_or_else(|| format!("unknown provider: {}", p))?,
+            None => default_provider.clone(),
         };
 
         let allowed = match &worker.enabled_providers {
             None => true,
-            Some(list) if list.is_empty() => provider_canonical == default_provider,
+            Some(list) if list.is_empty() => provider_id == default_provider,
             Some(list) => list
                 .iter()
-                .filter_map(|p| canonical_provider(p))
-                .any(|p| p == provider_canonical),
+                .filter_map(|s| canonical_provider_id(providers, s))
+                .any(|p| p == provider_id),
         };
         if !allowed {
             return Err(format!(
                 "provider {} is not enabled for workerId {} (workers.enabledProviders)",
-                provider_canonical, worker_id
+                provider_id, worker_id
             ));
         }
 
-        if !provider_discovery_enabled(agents, provider_canonical) {
+        if !provider_discovery_enabled(providers, agents, &provider_id) {
             return Err(format!(
                 "provider {} is not enabled for this agent (agents.enabledProviders)",
-                provider_canonical
+                provider_id
             ));
         }
 
-        let provider_choice = provider_choice_from_canonical(provider_canonical);
+        let provider_choice = ProviderChoice::new(&provider_id);
         let config_model = worker
             .default_model
             .as_deref()
             .or(agents.default_model.as_deref());
-        let model = resolve_model(config_model, model_param, provider_choice);
-        (provider_canonical, model)
+        let model = resolve_model(providers, config_model, model_param, &provider_choice);
+        (provider_id, model)
     } else {
-        let provider_canonical = match provider_raw {
-            Some(p) => canonical_provider(p).ok_or_else(|| format!("unknown provider: {}", p))?,
+        let provider_id = match provider_raw {
+            Some(p) => canonical_provider_id(providers, p).ok_or_else(|| format!("unknown provider: {}", p))?,
             None => global_default_provider,
         };
 
-        if !provider_discovery_enabled(agents, provider_canonical) {
+        if !provider_discovery_enabled(providers, agents, &provider_id) {
             return Err(format!(
                 "provider {} is not enabled for this agent (agents.enabledProviders)",
-                provider_canonical
+                provider_id
             ));
         }
 
-        let provider_choice = provider_choice_from_canonical(provider_canonical);
+        let provider_choice = ProviderChoice::new(&provider_id);
         let model = resolve_model(
+            providers,
             agents.default_model.as_deref(),
             model_param,
-            provider_choice,
+            &provider_choice,
         );
-        (provider_canonical, model)
+        (provider_id, model)
     };
 
-    assert_delegate_provider_not_blocked(agents, provider_canonical)?;
+    assert_delegate_provider_not_blocked(providers, agents, &provider_id)?;
 
-    assert_delegation_pair_allowed(agents, worker_id.as_deref(), provider_canonical, &model)?;
+    assert_delegation_pair_allowed(providers, agents, worker_id.as_deref(), &provider_id, &model)?;
 
-    let provider_choice = provider_choice_from_canonical(provider_canonical);
+    let provider_choice = ProviderChoice::new(&provider_id);
     Ok(DelegateTarget {
-        provider_canonical,
+        provider_id,
         provider_choice,
         model,
     })
@@ -430,7 +436,7 @@ pub async fn execute_delegate_task(
         return Err("instruction must not be empty".to_string());
     }
 
-    let target = match resolve_delegate_target(ctx.agents, &merged) {
+    let target = match resolve_delegate_target(ctx.providers, ctx.agents, &merged) {
         Ok(t) => t,
         Err(e) => {
             if let Some(ref obs) = ctx.observability {
@@ -443,13 +449,13 @@ pub async fn execute_delegate_task(
             return Err(e);
         }
     };
-    let provider_canonical = target.provider_canonical;
-    let choice = target.provider_choice;
+    let provider_id = &target.provider_id;
+    let choice = &target.provider_choice;
     let model = target.model;
 
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
         if let Err(e) =
-            assert_session_delegation_limits(store, sid, ctx.agents, provider_canonical).await
+            assert_session_delegation_limits(store, sid, ctx.providers, ctx.agents, provider_id).await
         {
             if let Some(ref obs) = ctx.observability {
                 let reason = if e.contains("maxDelegationsPerSession") {
@@ -471,7 +477,7 @@ pub async fn execute_delegate_task(
 
     if let Some(ref obs) = ctx.observability {
         let mut extra = json!({
-            "provider": provider_canonical,
+            "provider": provider_id,
             "model": model,
         });
         if let Some(wid) = worker_id {
@@ -484,13 +490,13 @@ pub async fn execute_delegate_task(
         log::info!(
             "orchestration: delegate_task workerId={} provider={} model={}",
             wid,
-            provider_canonical,
+            provider_id,
             model
         );
     } else {
         log::info!(
             "orchestration: delegate_task provider={} model={}",
-            provider_canonical,
+            provider_id,
             model
         );
     }
@@ -538,7 +544,9 @@ pub async fn execute_delegate_task(
         tool_calls: None,
         tool_name: None,
     });
-    let provider = ctx.clients.as_dyn(choice);
+    let provider = ctx.clients.get(choice).ok_or_else(|| {
+        format!("no client registered for provider '{}'", choice.as_str())
+    })?;
     let max_iterations = crate::config::resolve_max_tool_loop_iterations(ctx.agents);
     let result =
         match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations).await
@@ -549,7 +557,7 @@ pub async fn execute_delegate_task(
                 if let Some(ref obs) = ctx.observability {
                     let mut extra = json!({
                         "error": msg,
-                        "provider": provider_canonical,
+                        "provider": provider_id,
                         "model": model,
                     });
                     if let Some(w) = optional_worker_id_from_args(&merged) {
@@ -562,14 +570,14 @@ pub async fn execute_delegate_task(
         };
 
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
-        if let Err(e) = store.record_delegation(sid, provider_canonical).await {
+        if let Err(e) = store.record_delegation(sid, provider_id).await {
             log::warn!("orchestration: record_delegation failed: {}", e);
         }
     }
 
     if let Some(ref obs) = ctx.observability {
         let mut extra = json!({
-            "provider": provider_canonical,
+            "provider": provider_id,
             "model": model,
             "workerToolCalls": result.tool_calls.len(),
             "workerToolResults": result.tool_results.len(),
@@ -584,7 +592,7 @@ pub async fn execute_delegate_task(
         result.content,
         result.tool_calls,
         result.tool_results,
-        provider_canonical,
+        provider_id,
         &model,
     ))
 }
@@ -592,10 +600,36 @@ pub async fn execute_delegate_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AllowedModelEntry, WorkerConfig};
+    use crate::config::{AllowedModelEntry, ProviderDefinition, WorkerConfig, EndpointType};
     use crate::providers::ToolCallFunction;
     use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
+
+    /// Helper to build a ProvidersConfig with the given ids.
+    fn test_providers(ids: &[&str]) -> ProvidersConfig {
+        ProvidersConfig {
+            entries: ids.iter().map(|id| {
+                let endpoint = match *id {
+                    "ollama" => EndpointType::Ollama,
+                    _ => EndpointType::OpenaiCompat,
+                };
+                ProviderDefinition {
+                    id: id.to_string(),
+                    endpoint,
+                    base_url: if endpoint == EndpointType::OpenaiCompat {
+                        Some(format!("http://localhost/{}", id))
+                    } else {
+                        None
+                    },
+                    api_key: None,
+                    default_model: None,
+                    model_discovery: Default::default(),
+                    static_models: Vec::new(),
+                    auto_load: Default::default(),
+                }
+            }).collect(),
+        }
+    }
 
     #[test]
     fn merge_delegate_task_skipped_without_workers() {
@@ -707,6 +741,7 @@ mod tests {
 
     #[test]
     fn resolve_delegate_target_uses_worker_defaults() {
+        let providers = test_providers(&["ollama", "lms"]);
         let agents = AgentsConfig {
             orchestrator_id: None,
             default_provider: Some("ollama".to_string()),
@@ -729,8 +764,8 @@ mod tests {
             "instruction": "do the thing"
         });
 
-        let target = resolve_delegate_target(&agents, &args).expect("resolved");
-        assert_eq!(target.provider_canonical, "lms");
+        let target = resolve_delegate_target(&providers, &agents, &args).expect("resolved");
+        assert_eq!(target.provider_id, "lms");
         assert_eq!(target.model, "worker-model");
     }
 
@@ -749,7 +784,6 @@ mod tests {
                 "workerId": "w",
             })),
         );
-        // If this were used in tests with a receiver, we'd parse — here we only ensure merge_base includes sessionId.
         let merged = obs.merge_base(json!({ "provider": "ollama" }));
         assert_eq!(merged["sessionId"], "sess-1");
         assert_eq!(merged["provider"], "ollama");
@@ -757,6 +791,7 @@ mod tests {
 
     #[test]
     fn resolve_delegate_target_rejects_disallowed_delegate_pair() {
+        let providers = test_providers(&["ollama", "lms"]);
         let agents = AgentsConfig {
             default_provider: Some("ollama".to_string()),
             default_model: Some("global-default".to_string()),
@@ -774,12 +809,13 @@ mod tests {
             "model": "some-model",
             "instruction": "do the thing"
         });
-        let err = resolve_delegate_target(&agents, &args).expect_err("should reject pair");
+        let err = resolve_delegate_target(&providers, &agents, &args).expect_err("should reject pair");
         assert!(err.contains("delegateAllowedModels"), "{}", err);
     }
 
     #[test]
     fn resolve_delegate_target_enforces_worker_enabled_providers() {
+        let providers = test_providers(&["ollama", "lms"]);
         let agents = AgentsConfig {
             default_provider: Some("ollama".to_string()),
             default_model: Some("global-default".to_string()),
@@ -802,7 +838,7 @@ mod tests {
             "instruction": "do the thing"
         });
 
-        let err = resolve_delegate_target(&agents, &args).expect_err("should reject provider");
+        let err = resolve_delegate_target(&providers, &agents, &args).expect_err("should reject provider");
         assert!(err.contains("workers.enabledProviders"));
     }
 }

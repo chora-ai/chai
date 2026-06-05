@@ -4,7 +4,7 @@
 
 **Background:** [Connections → Signal](../guides/04-connections.md#signal) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
 
-Chai **does not** install signal-cli. Install it from [upstream](https://github.com/AsamK/signal-cli) and register your number separately. Policy: **`.agents/adr/SIGNAL_CLI_INTEGRATION.md`**.
+Chai **does not** install signal-cli. Install it from [upstream](https://github.com/AsamK/signal-cli) and register your number separately. Policy: **`base/adr/SIGNAL_CLI_INTEGRATION.md`**.
 
 ## Prerequisites
 

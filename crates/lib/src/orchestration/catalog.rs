@@ -4,8 +4,7 @@ use std::collections::{HashMap, HashSet};
 
 use serde::Serialize;
 
-use crate::config::{canonical_provider, AgentsConfig, AllowedModelEntry};
-use crate::providers::{HfModel, LmsModel, NimModel, OllamaModel, OpenAiModel, VllmModel};
+use crate::config::{canonical_provider_id, AgentsConfig, ProvidersConfig, AllowedModelEntry};
 
 /// One row in the merged orchestration catalog (WebSocket **`status`** payload **`agents.orchestrationCatalog`**).
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -24,31 +23,31 @@ pub struct OrchestrationCatalogEntry {
 
 type Hint = (Option<bool>, Option<bool>);
 
-fn insert_allowlist(map: &mut HashMap<(String, String), Hint>, e: &AllowedModelEntry) {
-    let Some(p) = canonical_provider(e.provider.as_str()) else {
+fn insert_allowlist(map: &mut HashMap<(String, String), Hint>, providers: &ProvidersConfig, e: &AllowedModelEntry) {
+    let Some(p) = canonical_provider_id(providers, &e.provider) else {
         return;
     };
     let model = e.model.trim().to_string();
     if model.is_empty() {
         return;
     }
-    let key = (p.to_string(), model);
+    let key = (p, model);
     map.insert(key, (Some(e.local), e.tool_capable));
 }
 
 /// Collect hints: worker allowlist entries override orchestrator for the same `(provider, model)`.
-fn allowlist_hints(agents: &AgentsConfig) -> HashMap<(String, String), Hint> {
+fn allowlist_hints(providers: &ProvidersConfig, agents: &AgentsConfig) -> HashMap<(String, String), Hint> {
     let mut map = HashMap::new();
     if let Some(ref list) = agents.delegate_allowed_models {
         for e in list {
-            insert_allowlist(&mut map, e);
+            insert_allowlist(&mut map, providers, e);
         }
     }
     if let Some(ref workers) = agents.workers {
         for w in workers {
             if let Some(ref list) = w.delegate_allowed_models {
                 for e in list {
-                    insert_allowlist(&mut map, e);
+                    insert_allowlist(&mut map, providers, e);
                 }
             }
         }
@@ -86,36 +85,24 @@ fn push_discovered(
 }
 
 /// Build a merged list: discovered models per provider, then allowlist-only pairs not seen in discovery.
+/// The `discovered_models` map uses provider id → model name list.
 pub fn build_orchestration_catalog(
+    providers: &ProvidersConfig,
     agents: &AgentsConfig,
-    ollama: &[OllamaModel],
-    lms: &[LmsModel],
-    vllm: &[VllmModel],
-    nim: &[NimModel],
-    openai: &[OpenAiModel],
-    hf: &[HfModel],
+    discovered_models: &HashMap<String, Vec<String>>,
 ) -> Vec<OrchestrationCatalogEntry> {
-    let hints = allowlist_hints(agents);
+    let hints = allowlist_hints(providers, agents);
     let mut seen: HashSet<(String, String)> = HashSet::new();
     let mut out: Vec<OrchestrationCatalogEntry> = Vec::new();
 
-    for m in ollama {
-        push_discovered(&mut out, &mut seen, "ollama", &m.name, &hints);
-    }
-    for m in lms {
-        push_discovered(&mut out, &mut seen, "lms", &m.name, &hints);
-    }
-    for m in vllm {
-        push_discovered(&mut out, &mut seen, "vllm", &m.name, &hints);
-    }
-    for m in nim {
-        push_discovered(&mut out, &mut seen, "nim", &m.name, &hints);
-    }
-    for m in openai {
-        push_discovered(&mut out, &mut seen, "openai", &m.name, &hints);
-    }
-    for m in hf {
-        push_discovered(&mut out, &mut seen, "hf", &m.name, &hints);
+    // Iterate over discovered models by provider id.
+    let mut provider_ids: Vec<&String> = discovered_models.keys().collect();
+    provider_ids.sort();
+    for provider_id in provider_ids {
+        let models = discovered_models.get(provider_id).map(|v| v.as_slice()).unwrap_or(&[]);
+        for model in models {
+            push_discovered(&mut out, &mut seen, provider_id, model, &hints);
+        }
     }
 
     // Allowlist-only rows (configured but not in current discovery lists).
@@ -151,10 +138,36 @@ pub fn build_orchestration_catalog(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WorkerConfig;
+    use crate::config::{EndpointType, ProviderDefinition, WorkerConfig};
+
+    fn test_providers(ids: &[&str]) -> ProvidersConfig {
+        ProvidersConfig {
+            entries: ids.iter().map(|id| {
+                let endpoint = match *id {
+                    "ollama" => EndpointType::Ollama,
+                    _ => EndpointType::OpenaiCompat,
+                };
+                ProviderDefinition {
+                    id: id.to_string(),
+                    endpoint,
+                    base_url: if endpoint == EndpointType::OpenaiCompat {
+                        Some(format!("http://localhost/{}", id))
+                    } else {
+                        None
+                    },
+                    api_key: None,
+                    default_model: None,
+                    model_discovery: Default::default(),
+                    static_models: Vec::new(),
+                    auto_load: Default::default(),
+                }
+            }).collect(),
+        }
+    }
 
     #[test]
     fn merges_discovery_and_allowlist_only() {
+        let providers = test_providers(&["ollama"]);
         let agents = AgentsConfig {
             delegate_allowed_models: Some(vec![AllowedModelEntry {
                 provider: "ollama".to_string(),
@@ -164,11 +177,9 @@ mod tests {
             }]),
             ..AgentsConfig::default()
         };
-        let ollama = vec![OllamaModel {
-            name: "llama3.2:latest".to_string(),
-            size: None,
-        }];
-        let cat = build_orchestration_catalog(&agents, &ollama, &[], &[], &[], &[], &[]);
+        let mut discovered = HashMap::new();
+        discovered.insert("ollama".to_string(), vec!["llama3.2:latest".to_string()]);
+        let cat = build_orchestration_catalog(&providers, &agents, &discovered);
         assert!(cat
             .iter()
             .any(|r| r.model == "llama3.2:latest" && r.discovered));
@@ -183,6 +194,7 @@ mod tests {
 
     #[test]
     fn worker_hint_overrides_orchestrator_for_same_pair() {
+        let providers = test_providers(&["ollama"]);
         let agents = AgentsConfig {
             delegate_allowed_models: Some(vec![AllowedModelEntry {
                 provider: "ollama".to_string(),
@@ -206,11 +218,9 @@ mod tests {
             }]),
             ..AgentsConfig::default()
         };
-        let ollama = vec![OllamaModel {
-            name: "m".to_string(),
-            size: None,
-        }];
-        let cat = build_orchestration_catalog(&agents, &ollama, &[], &[], &[], &[], &[]);
+        let mut discovered = HashMap::new();
+        discovered.insert("ollama".to_string(), vec!["m".to_string()]);
+        let cat = build_orchestration_catalog(&providers, &agents, &discovered);
         let row = cat.iter().find(|r| r.model == "m").expect("row");
         assert_eq!(row.local, Some(true));
     }

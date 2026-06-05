@@ -26,7 +26,7 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 - **`crates/lib/src/providers/ollama.rs`** — Single Ollama HTTP client.
 - **`OllamaClient::new(base_url: Option<String>)`** — Default base URL `http://127.0.0.1:11434`; no auth (local only).
-- **Config** — `agents.defaultModel` in config (e.g. `llama3.2:3b`, `qwen3:8b`). Model name must match `ollama list` exactly. See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
+- **Config** — Ollama is configured as `{ "id": "ollama", "endpoint": "ollama" }` in the `providers` array. `agents.defaultProvider` references the provider `id`. `agents.defaultModel` in config (e.g. `llama3.2:3b`, `qwen3:8b`). Model name must match `ollama list` exactly. See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
 ### Endpoints Used
 
@@ -43,8 +43,8 @@ Reference for how the Ollama API is used in this codebase, what the full API off
 
 ### Where Ollama Is Referenced
 
-- **Gateway server** — Holds **`OllamaClient`** and **`ollama_models`**; resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when **`defaultProvider`** is **`"ollama"`** (inbound messages and WebSocket **`agent`** requests).
-- **Agent** — **`run_turn_dyn`** builds messages and calls the provider’s **`chat`** / **`chat_stream`**; when the backend is Ollama, that is **`OllamaClient`**. Model id comes from config or override (**`agents.defaultModel`** in JSON). Handles **`tool_calls`** and re-calls up to a fixed max iterations.
+- **Gateway server** — Holds **`OllamaClient`** for any provider with `endpoint: "ollama"`; model lists are stored per provider id. Resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when a provider with `endpoint: "ollama"` is referenced in `defaultProvider` (inbound messages and WebSocket **`agent`** requests).
+- **Agent** — **`run_turn_dyn`** builds messages and calls the provider's **`chat`** / **`chat_stream`**; when the backend is Ollama, that is **`OllamaClient`**. Model id comes from config or override (**`agents.defaultModel`** in JSON). Handles **`tool_calls`** and re-calls up to a fixed max iterations.
 - **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd, notesmd-daily, obsidian, obsidian-daily) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
 
 ## Ollama API Overview

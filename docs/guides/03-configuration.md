@@ -34,14 +34,40 @@ Each profile has a `config.json` at `~/.chai/profiles/<name>/config.json`. An em
 
 With no `agents` key, the gateway runs a single orchestrator using Ollama and `llama3.2:3b`. Everything else has sensible defaults too: the gateway binds to `127.0.0.1:15151` with no auth, no channels are configured, and no skills are enabled.
 
-## Configuring a Provider
+## Configuring Providers
 
-When you want to use a provider other than Ollama (or a different Ollama address), add a `providers` block. Each provider entry is optional — include only the ones you need.
+Providers are defined as a **JSON array** in the `providers` key. Each provider has a unique `id` (referenced by agents) and an `endpoint` type that determines the wire protocol. Additional fields like `baseUrl`, `apiKey`, and behavior settings are optional.
 
-**Using LM Studio instead of Ollama:**
+### Endpoint Types
+
+An **endpoint type** describes the wire protocol — what HTTP routes to call and how to serialize/deserialize messages. The `id` is just a name; the `endpoint` determines the protocol.
+
+| Endpoint | Description | Default Base URL | Default Model |
+|----------|------------|------------------|---------------|
+| `"ollama"` | Native Ollama API (`/api/chat`, `/api/tags`) | `http://127.0.0.1:11434` | `llama3.2:3b` |
+| `"openai-compat"` | OpenAI-compatible servers (`/v1/chat/completions`, `/v1/models`) | `http://127.0.0.1:1234/v1` | `gpt-4o-mini` |
+| `"anthropic"` | Anthropic Messages API (not yet implemented) | `https://api.anthropic.com` | `claude-sonnet-4-20250514` |
+| `"google"` | Google Gemini API (not yet implemented) | `https://generativelanguage.googleapis.com` | `gemini-2.5-flash` |
+
+The `"openai-compat"` endpoint type covers any server speaking the OpenAI chat completions protocol — LM Studio, vLLM, OpenAI itself, Hugging Face TGI, NVIDIA NIM, and more. They are all the same endpoint type, differentiated by `baseUrl` and behavior fields.
+
+### Common Provider Examples
+
+**Ollama (default localhost — no `providers` key needed):**
+
+```json
+{}
+```
+
+The gateway defaults to a single Ollama provider at `http://127.0.0.1:11434` with model `llama3.2:3b`.
+
+**LM Studio instead of Ollama:**
 
 ```json
 {
+  "providers": [
+    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+  ],
   "agents": [
     {
       "id": "orchestrator",
@@ -53,15 +79,15 @@ When you want to use a provider other than Ollama (or a different Ollama address
 }
 ```
 
-**Using OpenAI with an API key:**
+LM Studio uses `modelDiscovery: "lmstudio"` to list models via its native `GET /api/v1/models` endpoint (instead of `GET /v1/models`), and `autoLoad: "lmstudio"` to automatically load an unloaded model and retry when LM Studio returns an "unloaded" error.
+
+**OpenAI with an API key:**
 
 ```json
 {
-  "providers": {
-    "openai": {
-      "apiKey": "sk-..."
-    }
-  },
+  "providers": [
+    { "id": "openai", "endpoint": "openai-compat", "baseUrl": "https://api.openai.com/v1" }
+  ],
   "agents": [
     {
       "id": "orchestrator",
@@ -73,33 +99,145 @@ When you want to use a provider other than Ollama (or a different Ollama address
 }
 ```
 
-You can also set API keys via environment variables (`OPENAI_API_KEY`, `NVIDIA_API_KEY`, `HF_API_KEY`, `VLLM_API_KEY`) instead of putting them in `config.json`. Environment variables override the file values at runtime.
+Set the API key via the `OPENAI_API_KEY` environment variable or add `"apiKey": "sk-..."` to the provider object. Environment variables override the file values at runtime.
 
-**Overriding a provider's base URL:**
+**vLLM:**
 
 ```json
 {
-  "providers": {
-    "openai": {
-      "baseUrl": "https://my-proxy.example.com/v1",
-      "apiKey": "sk-..."
+  "providers": [
+    { "id": "vllm", "endpoint": "openai-compat", "baseUrl": "http://127.0.0.1:8000/v1" }
+  ],
+  "agents": [
+    {
+      "id": "orchestrator",
+      "role": "orchestrator",
+      "defaultProvider": "vllm",
+      "defaultModel": "Qwen/Qwen2.5-7B-Instruct"
     }
-  }
+  ]
 }
 ```
 
-This is useful for Azure OpenAI endpoints or other OpenAI-compatible proxies.
+If the vLLM server uses `--api-key`, set `VLLM_API_KEY` or add `"apiKey"` to the provider.
+
+**Hugging Face (TGI / Inference Endpoints):**
+
+```json
+{
+  "providers": [
+    { "id": "hf", "endpoint": "openai-compat", "baseUrl": "https://your-deployment.endpoints.huggingface.cloud/v1" }
+  ],
+  "agents": [
+    {
+      "id": "orchestrator",
+      "role": "orchestrator",
+      "defaultProvider": "hf",
+      "defaultModel": "meta-llama/Llama-3.1-8B-Instruct"
+    }
+  ]
+}
+```
+
+Set `HF_API_KEY` or add `"apiKey"` to the provider.
+
+**NVIDIA NIM with a static model list:**
+
+```json
+{
+  "providers": [
+    {
+      "id": "nim",
+      "endpoint": "openai-compat",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "modelDiscovery": "static",
+      "staticModels": [
+        "meta/llama-3.1-8b-instruct",
+        "meta/llama-3.1-70b-instruct",
+        "deepseek-ai/deepseek-v3.1"
+      ]
+    }
+  ],
+  "agents": [
+    {
+      "id": "orchestrator",
+      "role": "orchestrator",
+      "defaultProvider": "nim",
+      "defaultModel": "meta/llama-3.1-8b-instruct"
+    }
+  ]
+}
+```
+
+NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is used with a user-curated list in `staticModels`. Set `NVIDIA_API_KEY` or add `"apiKey"`.
+
+**OpenAI-compatible proxy (Azure, Venice, etc.):**
+
+```json
+{
+  "providers": [
+    { "id": "azure", "endpoint": "openai-compat", "baseUrl": "https://my-proxy.example.com/v1", "apiKey": "sk-..." }
+  ]
+}
+```
+
+This is useful for Azure OpenAI endpoints, Venice, or any other OpenAI-compatible proxy.
+
+**Multiple providers:**
+
+```json
+{
+  "providers": [
+    { "id": "ollama", "endpoint": "ollama" },
+    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" },
+    { "id": "openai", "endpoint": "openai-compat", "baseUrl": "https://api.openai.com/v1" }
+  ],
+  "agents": [
+    {
+      "id": "assistant",
+      "role": "orchestrator",
+      "defaultProvider": "ollama",
+      "defaultModel": "llama3.2:3b",
+      "enabledProviders": ["ollama", "lms", "openai"]
+    }
+  ]
+}
+```
+
+### Behavior Fields
+
+#### Model Discovery
+
+The `modelDiscovery` field controls how a provider's available model list is obtained.
+
+| Value | Description | Default For |
+|-------|-------------|-------------|
+| `"default"` | Use the endpoint type's standard discovery method. | All endpoint types |
+| `"lmstudio"` | LM Studio native: `GET /api/v1/models`, filter `type == "llm"`. | — |
+| `"static"` | Use the `staticModels` config field. No polling. | — |
+
+When omitted, `modelDiscovery` defaults to `"default"`, which uses `GET /api/tags` for `"ollama"` and `GET /v1/models` for `"openai-compat"`.
+
+#### Static Models
+
+The `staticModels` field is an array of model id strings used when `modelDiscovery: "static"`. This is useful for providers that lack a model list endpoint or when you want to curate the list yourself.
+
+#### Auto-Load
+
+The `autoLoad` field controls whether a failed chat request triggers a model-load retry. Set to `"lmstudio"` for LM Studio's auto-load feature (on "unloaded" error, call `POST /api/v1/models/load` and retry). Default is `false`.
+
+### Model Id Reference
 
 Use the exact model id expected by the selected provider for `defaultModel`:
 
-| Provider | Model id example | Where to find it |
-|----------|-----------------|------------------|
-| `ollama` | `llama3.2:3b`, `qwen3:8b` | `ollama list` |
-| `lms` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
-| `vllm` | `Qwen/Qwen2.5-7B-Instruct` | Same id you pass to `vllm serve` |
-| `hf` | `meta-llama/Llama-3.1-8B-Instruct` | Your endpoint's expected id |
-| `nim` | `meta/llama-3.2-3b-instruct` | [NVIDIA LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis) |
-| `openai` | `gpt-4o-mini` | [OpenAI models](https://platform.openai.com/docs/models) |
+| Provider `id` (example) | Endpoint | Model id example | Where to find it |
+|--------------------------|----------|-----------------|------------------|
+| `ollama` | `"ollama"` | `llama3.2:3b`, `qwen3:8b` | `ollama list` |
+| `lms` | `"openai-compat"` + `modelDiscovery: "lmstudio"` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
+| `vllm` | `"openai-compat"` | `Qwen/Qwen2.5-7B-Instruct` | Same id you pass to `vllm serve` |
+| `hf` | `"openai-compat"` | `meta-llama/Llama-3.1-8B-Instruct` | Your endpoint's expected id |
+| `nim` | `"openai-compat"` + `modelDiscovery: "static"` | `meta/llama-3.1-8b-instruct` | [NVIDIA LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis) |
+| `openai` | `"openai-compat"` | `gpt-4o-mini` | [OpenAI models](https://platform.openai.com/docs/models) |
 
 For systematic provider and model testing, see the [Testing Playbooks](../testing/README.md).
 
@@ -181,6 +319,10 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 
 ```json
 {
+  "providers": [
+    { "id": "ollama", "endpoint": "ollama" },
+    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+  ],
   "agents": [
     {
       "id": "assistant",
@@ -204,8 +346,8 @@ With workers configured, the orchestrator can delegate subtasks using the built-
 
 **Key agent fields:**
 
-- `defaultProvider` / `defaultModel` — Which backend and model the agent uses.
-- `enabledProviders` — Which providers to poll for model discovery at startup. When omitted or empty, only the default provider is discovered.
+- `defaultProvider` / `defaultModel` — Which backend and model the agent uses. The `defaultProvider` must match a provider `id` in the `providers` array.
+- `enabledProviders` — Which providers to poll for model discovery at startup. Provider ids must match entries in the `providers` array. When omitted or empty, only the default provider is discovered.
 - `skillsEnabled` — Which skill packages to load for this agent. Omitted or empty means no skills.
 - `contextMode` — How skill content appears in the system context: `full` (inlined) or `readOnDemand` (compact list + `read_skill` tool).
 
@@ -275,18 +417,38 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 
 ### Providers
 
-| Field | Default | Override | Note |
-|-------|---------|----------|------|
-| `providers.ollama.baseUrl` | `http://127.0.0.1:11434` | - | Ollama client default when unset |
-| `providers.lms.baseUrl` | `http://127.0.0.1:1234/v1` | - | OpenAI-compatible LM Studio API |
-| `providers.vllm.baseUrl` | `http://127.0.0.1:8000/v1` | - | Include `/v1` |
-| `providers.vllm.apiKey` | - | `VLLM_API_KEY` | When server uses `--api-key` |
-| `providers.hf.baseUrl` | `http://127.0.0.1:8080/v1` | - | Set a real Inference Endpoint or TGI URL with `/v1` |
-| `providers.hf.apiKey` | - | `HF_API_KEY` | - |
-| `providers.nim.apiKey` | - | `NVIDIA_API_KEY` | Base URL is fixed (`https://integrate.api.nvidia.com/v1`) |
-| `providers.nim.extraModels` | - | - | NIM model id array; merged into gateway `nimModels` / desktop `status` |
-| `providers.openai.baseUrl` | `https://api.openai.com/v1` | - | Override for Azure or other compatible endpoints |
-| `providers.openai.apiKey` | - | `OPENAI_API_KEY` | - |
+The `providers` array contains provider definitions. Each provider has a unique `id` (referenced by agents) and an `endpoint` type.
+
+| Field | Type | Required | Default | Note |
+|-------|------|----------|---------|------|
+| `id` | `string` | Yes | — | Unique provider id referenced by agents. |
+| `endpoint` | `string` | Yes | — | One of: `"ollama"`, `"openai-compat"`, `"anthropic"`, `"google"`. |
+| `baseUrl` | `string` | No | Per-endpoint default | Override the endpoint type's default base URL. |
+| `apiKey` | `string` | No | Per-endpoint env var | API key override. Env var takes precedence when set. |
+| `defaultModel` | `string` | No | Per-endpoint default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
+| `modelDiscovery` | `string` | No | `"default"` | One of: `"default"`, `"lmstudio"`, `"static"`. |
+| `staticModels` | `string[]` | No | `[]` | Model list when `modelDiscovery: "static"`. |
+| `autoLoad` | `false` or `"lmstudio"` | No | `false` | Auto-load on "unloaded" error. |
+
+**Endpoint type defaults:**
+
+| Endpoint | Default `baseUrl` | Default `defaultModel` | Env var for API key |
+|----------|-------------------|------------------------|---------------------|
+| `"ollama"` | `http://127.0.0.1:11434` | `llama3.2:3b` | — |
+| `"openai-compat"` | `http://127.0.0.1:1234/v1` | `gpt-4o-mini` | — |
+| `"anthropic"` | `https://api.anthropic.com` | `claude-sonnet-4-20250514` | `ANTHROPIC_API_KEY` |
+| `"google"` | `https://generativelanguage.googleapis.com` | `gemini-2.5-flash` | `GOOGLE_API_KEY` |
+
+**Common provider configurations:**
+
+| Provider `id` | `endpoint` | `baseUrl` | `modelDiscovery` | `autoLoad` | Notes |
+|---------------|-----------|-----------|-------------------|-----------|-------|
+| `ollama` | `"ollama"` | (default) | (default) | `false` | Default localhost Ollama |
+| `lms` | `"openai-compat"` | (default) | `"lmstudio"` | `"lmstudio"` | LM Studio with auto-load |
+| `vllm` | `"openai-compat"` | `http://127.0.0.1:8000/v1` | (default) | `false` | Include `/v1` in `baseUrl` |
+| `hf` | `"openai-compat"` | Your endpoint `/v1` | (default) | `false` | Set `baseUrl` to your TGI/IE URL |
+| `nim` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | `false` | Set `staticModels` with your model list |
+| `openai` | `"openai-compat"` | `https://api.openai.com/v1` | (default) | `false` | Set `OPENAI_API_KEY` or `apiKey` |
 
 ### Agents
 
@@ -298,9 +460,9 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 |-------|------------------------------|----------------------------------|------|
 | `id` | Required in `agents` array | `orchestrator` | Unique per entry. Worker `id` is `delegate_task` `workerId`. |
 | `role` | Required in `agents` array | `orchestrator` | Must be `orchestrator` or `worker`. |
-| `defaultProvider` | Orchestrator: `ollama`. Worker: same as orchestrator | `ollama` | Unknown id → `ollama`. |
-| `defaultModel` | Orchestrator: provider fallback. Worker: worker string, else orchestrator string, then fallback | `llama3.2:3b` (built-in `defaultProvider` is `ollama`) | Fallbacks: `ollama` → `llama3.2:3b`; `lms` → `llama-3.2-3B-instruct`; `vllm` → `Qwen/Qwen2.5-7B-Instruct`; `nim` → `meta/llama-3.2-3b-instruct`; `openai` → `gpt-4o-mini`; `hf` → `meta-llama/Llama-3.1-8B-Instruct`. |
-| `enabledProviders` | Orchestrator: only `defaultProvider` polled. Worker: see Note | same | Orchestrator: `null` or `[]` → poll that provider only; non-empty → only those. Worker: `null` → no extra `delegate_task` restriction; `[]` → only default provider; non-empty → only listed providers. |
+| `defaultProvider` | Orchestrator: `ollama`. Worker: same as orchestrator | `ollama` | Must match a provider `id` in the `providers` array. Fallback: `ollama`. |
+| `defaultModel` | Orchestrator: provider fallback. Worker: worker string, else orchestrator string, then fallback | `llama3.2:3b` (built-in `defaultProvider` is `ollama`) | Fallbacks come from the endpoint type's `defaultModel`: `"ollama"` → `llama3.2:3b`; `"openai-compat"` → `gpt-4o-mini`; `"anthropic"` → `claude-sonnet-4-20250514`; `"google"` → `gemini-2.5-flash`. A provider's `defaultModel` field overrides the endpoint-type default. |
+| `enabledProviders` | Orchestrator: only `defaultProvider` polled. Worker: see Note | same | Provider ids must match entries in the `providers` array. Orchestrator: `null` or `[]` → poll that provider only; non-empty → only those. Worker: `null` → no extra `delegate_task` restriction; `[]` → only default provider; non-empty → only listed providers. |
 | `skillsEnabled` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
 | `contextMode` | `full` | same | `full` or `readOnDemand`. |
 | `maxSessionMessages` | All messages (no trim) | same | Orchestrator only. When set and `> 0`, only the last N messages are sent; full history stays in the session store. |
@@ -311,6 +473,7 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `delegateAllowedModels` | Only effective default (provider, model) for that scope | same | Non-empty: only listed `{ provider, model, local?, toolCapable? }`. A non-empty worker list overrides the orchestrator list for that `workerId`. |
 | `delegateBlockedProviders` | Nothing blocked | same | Orchestrator only. Non-empty: those provider ids disallowed for `delegate_task`. |
 | `delegationInstructionRoutes` | None | same | Orchestrator only. `{ instructionPrefix, workerId?, provider?, model? }`; first matching prefix fills missing `delegate_task` fields. |
+
 ### Environment Variables
 
 | Variable | Overrides | Description |
@@ -328,7 +491,5 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `MATRIX_PASSWORD` | `channels.matrix.password` | Password for `m.login.password`. |
 | `MATRIX_DEVICE_ID` | `channels.matrix.deviceId` | Device id for token session restore. |
 | `MATRIX_ROOM_ALLOWLIST` | `channels.matrix.roomIds` | Comma-separated room ids; replaces config allowlist when set and non-empty. |
-| `VLLM_API_KEY` | `providers.vllm.apiKey` | Bearer token for vLLM. |
-| `HF_API_KEY` | `providers.hf.apiKey` | Bearer token for Hugging Face endpoints. |
-| `NVIDIA_API_KEY` | `providers.nim.apiKey` | API key for NVIDIA NIM. |
-| `OPENAI_API_KEY` | `providers.openai.apiKey` | API key for OpenAI or compatible endpoint. |
+| `ANTHROPIC_API_KEY` | Provider `apiKey` with `endpoint: "anthropic"` | API key for Anthropic (Claude). |
+| `GOOGLE_API_KEY` | Provider `apiKey` with `endpoint: "google"` | API key for Google (Gemini). |

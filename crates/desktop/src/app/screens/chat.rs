@@ -249,27 +249,18 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                         .as_ref()
                         .and_then(|s| s.default_provider.as_deref())
                 })
+                .or_else(|| {
+                    app.gateway_status
+                        .as_ref()
+                        .and_then(|s| s.provider_info.keys().next().map(|k| k.as_str()))
+                })
                 .unwrap_or("ollama")
                 .to_string();
-            // Only models for the selected provider.
+            // Only models for the selected provider (from dynamic provider_info).
             let gateway_models: Vec<String> = app
                 .gateway_status
                 .as_ref()
-                .map(|s| {
-                    if effective_provider == "lms" {
-                        s.lms_models.clone()
-                    } else if effective_provider == "vllm" {
-                        s.vllm_models.clone()
-                    } else if effective_provider == "nim" {
-                        s.nim_models.clone()
-                    } else if effective_provider == "openai" {
-                        s.openai_models.clone()
-                    } else if effective_provider == "hf" {
-                        s.hf_models.clone()
-                    } else {
-                        s.ollama_models.clone()
-                    }
-                })
+                .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.models.clone()))
                 .unwrap_or_default();
             let effective_default_model = app
                 .gateway_status
@@ -277,9 +268,24 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 .and_then(|s| s.default_model.clone())
                 .or_else(|| app.default_model.clone());
 
+            // Determine if this provider is a hosted API (remote endpoint that may not support
+            // model discovery but still has models available). Local providers (ollama,
+            // openai-compat with local base URL) require a model list before sending; remote
+            // providers can be sent to with a default.
+            let endpoint_type = app
+                .gateway_status
+                .as_ref()
+                .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.endpoint.as_str()));
+            let is_hosted_api = matches!(endpoint_type, Some("anthropic") | Some("google"));
+            // OpenAI-compat providers with a remote base URL are also treated as hosted.
+            // Since we don't have the base URL here, check if the endpoint is openai-compat
+            // and the model list is empty — this covers remote OpenAI-compat providers.
+            // For local openai-compat (vLLM, LM Studio etc.), discovery typically succeeds.
+            let is_remote_compat = endpoint_type == Some("openai-compat") && gateway_models.is_empty();
+            let treat_as_hosted = is_hosted_api || is_remote_compat;
+
             // Model dropdown: only models for the selected provider. For hosted API providers, use default when list empty.
-            let is_hosted_api = matches!(effective_provider.as_str(), "nim" | "openai" | "hf");
-            let model_options: Vec<String> = if gateway_models.is_empty() && is_hosted_api {
+            let model_options: Vec<String> = if gateway_models.is_empty() && treat_as_hosted {
                 effective_default_model
                     .clone()
                     .map(|m| vec![m])
@@ -288,7 +294,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 gateway_models
             };
             // For hosted API providers, allow send even when the gateway has not yet returned a model list.
-            let model_available = !model_options.is_empty() || is_hosted_api;
+            let model_available = !model_options.is_empty() || treat_as_hosted;
             can_send = can_send && model_available;
 
             let mut send_now = false;

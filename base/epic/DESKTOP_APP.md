@@ -47,6 +47,8 @@ The desktop app is a **local control UI** bundled as **`chai-desktop`**. It does
 
 **2025-03-25 (follow-up 5)** — **Accessibility / readability**: **`dashboard::kv`** uses a fixed-width key column (**`KV_LABEL_COLUMN_WIDTH`**) so values line up; keys and values use default body text (no **weak** on keys). Removed **`small()`** from Config/Status summary content and view toggles; grid column headers use **strong**; secondary hints keep **weak** only where appropriate.
 
+**2025-06-03** — **First-turn session binding**: streamed tool calls and results now appear in real time on the first turn of a new chat session. Previously, `chat_session_id` and `selected_session_id` were only bound when the `run_agent_turn` RPC completed, causing the UI to render from the fallback `chat_messages` buffer (which lacked tool call events) until the full response arrived. Fix: early binding in `poll_session_events()` — when the first WebSocket session event arrives while `chat_session_id` is `None` and `pending_user_message` is `Some`, immediately bind both IDs. Added `chat_turn_is_new_session` flag to `ChaiApp` so `poll_chat_turn()` still correctly detects first-turn RPC completions.
+
 ## Scope
 
 ### In Scope

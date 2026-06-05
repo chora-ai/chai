@@ -1,8 +1,16 @@
 //! Shared OpenAI-compatible HTTP client (chat completions, streaming, list models).
-//! This module is the **wire implementation** used by several named providers (`lms`, `vllm`, `openai`, `hf`).
-//! It is **not** merged with [`super::openai::OpenAiClient`]: that crate module supplies OpenAI-specific defaults and the [`crate::providers::Provider`] impl; this module stays provider-agnostic so one implementation serves every OpenAI-shaped backend.
+//!
+//! This is the wire implementation for the `openai-compat` endpoint type. It supports
+//! configurable behaviors:
+//!
+//! - **Model discovery**: standard `GET /v1/models`, LM Studio native `GET /api/v1/models`,
+//!   or static model lists from config.
+//! - **Auto-load**: On "unloaded" error (LM Studio), call `POST /api/v1/models/load` and
+//!   retry the chat request once.
 
-use crate::providers::{ChatMessage, ChatResponse, FinishReason, ToolCall, ToolCallFunction, ToolDefinition, Usage};
+use crate::config::AutoLoad;
+use crate::providers::{ChatMessage, ChatResponse, FinishReason, Provider, ProviderError, ToolCall, ToolCallFunction, ToolDefinition, Usage};
+use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 
@@ -14,24 +22,20 @@ pub enum OpenAiCompatError {
     Api(String),
 }
 
-/// HTTP client for `POST /v1/chat/completions` and `GET /v1/models` (OpenAI-compatible servers).
+/// HTTP client for `POST /v1/chat/completions`, `GET /v1/models`, and optional LM Studio
+/// auto-load (`POST /api/v1/models/load`) and native model list (`GET /api/v1/models`).
 #[derive(Clone)]
 pub struct OpenAiCompatClient {
     base_url: String,
     client: reqwest::Client,
     api_key: Option<String>,
+    auto_load: AutoLoad,
 }
 
 impl OpenAiCompatClient {
-    pub fn new(
-        base_url: Option<String>,
-        default_base: &'static str,
-        api_key: Option<String>,
-    ) -> Self {
-        let base_url = base_url
-            .map(|u| u.trim_end_matches('/').to_string())
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| default_base.to_string());
+    /// Constructor that accepts auto-load config for LM Studio behavior.
+    pub fn new_with_auto_load(base_url: String, api_key: Option<String>, auto_load: AutoLoad) -> Self {
+        let base_url = base_url.trim_end_matches('/').to_string();
         let api_key = api_key
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty());
@@ -39,7 +43,13 @@ impl OpenAiCompatClient {
             base_url,
             client: reqwest::Client::new(),
             api_key,
+            auto_load,
         }
+    }
+
+    /// Constructor for direct use as an `openai-compat` endpoint type provider (no auto-load).
+    pub fn new_adapter(base_url: String, api_key: Option<String>) -> Self {
+        Self::new_with_auto_load(base_url, api_key, AutoLoad::None)
     }
 
     pub fn base_url(&self) -> &str {
@@ -57,7 +67,19 @@ impl OpenAiCompatClient {
         req
     }
 
-    /// GET `/v1/models` — OpenAI list models response (`data[].id`).
+    /// Root URL for the LM Studio server (no /v1 suffix). Used for `/api/v1/models` and
+    /// `/api/v1/models/load` (LM Studio native endpoints that sit outside /v1).
+    fn api_server_root(&self) -> String {
+        if self.base_url.ends_with("/v1") {
+            self.base_url.trim_end_matches("/v1").to_string()
+        } else {
+            self.base_url.to_string()
+        }
+    }
+
+    // --- Model discovery ---
+
+    /// `GET /v1/models` — OpenAI list models response (`data[].id`).
     pub async fn list_models_openai(&self) -> Result<Vec<String>, OpenAiCompatError> {
         let url = format!("{}/models", self.base_url);
         let req = self.client.get(&url);
@@ -76,7 +98,62 @@ impl OpenAiCompatClient {
             .collect())
     }
 
-    /// Non-streaming chat via `/v1/chat/completions`.
+    /// `GET /api/v1/models` — LM Studio native model list. Filters `type == "llm"` and
+    /// uses `key` as the model id (compatible with `/v1/chat/completions`).
+    pub async fn list_models_lmstudio(&self) -> Result<Vec<String>, OpenAiCompatError> {
+        let root = self.api_server_root();
+        let url = format!("{}/api/v1/models", root);
+        let res = self.client.get(&url).send().await?;
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            return Err(OpenAiCompatError::Api(format!("{} {}", status, body)));
+        }
+        let data: LmStudioNativeModelsResponse = res.json().await?;
+        Ok(data
+            .models
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|m| m.typ.as_deref() == Some("llm"))
+            .filter(|m| {
+                let k = m.key.as_deref().unwrap_or("").trim();
+                !k.is_empty() && !k.starts_with("text-embedding-")
+            })
+            .map(|m| m.key.unwrap_or_default().trim().to_string())
+            .collect())
+    }
+
+    // --- Auto-load ---
+
+    /// Ensure the model is loaded in LM Studio before chat. Calls `POST /api/v1/models/load`
+    /// with only the model id for compatibility.
+    async fn ensure_model_loaded(&self, model: &str) -> Result<(), OpenAiCompatError> {
+        let root = self.api_server_root();
+        let url = format!("{}/api/v1/models/load", root);
+        let body = serde_json::json!({ "model": model });
+        let res = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await?;
+        if !res.status().is_success() {
+            let status = res.status();
+            let body = res.text().await.unwrap_or_default();
+            return Err(OpenAiCompatError::Api(format!("{} {}", status, body)));
+        }
+        Ok(())
+    }
+
+    /// Returns true if the error message indicates an "unloaded" model (LM Studio).
+    fn is_unloaded_error(msg: &str) -> bool {
+        msg.to_lowercase().contains("unloaded")
+    }
+
+    // --- Chat ---
+
+    /// Non-streaming chat via `/v1/chat/completions`. When `autoLoad` is `"lmstudio"` and the
+    /// error indicates "unloaded", loads the model and retries once.
     pub async fn chat(
         &self,
         model: &str,
@@ -84,7 +161,17 @@ impl OpenAiCompatClient {
         _stream: bool,
         tools: Option<Vec<ToolDefinition>>,
     ) -> Result<ChatResponse, OpenAiCompatError> {
-        self.chat_openai(model, &messages, tools).await
+        match self.chat_openai(model, &messages, tools.clone()).await {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                if self.auto_load == AutoLoad::Lmstudio && Self::is_unloaded_error(&e.to_string()) {
+                    self.ensure_model_loaded(model).await?;
+                    self.chat_openai(model, &messages, tools).await
+                } else {
+                    Err(e)
+                }
+            }
+        }
     }
 
     async fn chat_openai(
@@ -112,7 +199,10 @@ impl OpenAiCompatClient {
         openai_response_to_chat_response(data)
     }
 
-    /// Streaming chat via `/v1/chat/completions` with `stream: true`.
+    /// Streaming chat via `/v1/chat/completions` with `stream: true`. When `autoLoad` is
+    /// `"lmstudio"` and the error indicates "unloaded", loads the model and retries once with
+    /// a single non-streaming call (to avoid invoking `on_chunk` twice if partial data was
+    /// already streamed).
     pub async fn chat_stream(
         &self,
         model: &str,
@@ -120,8 +210,35 @@ impl OpenAiCompatClient {
         tools: Option<Vec<ToolDefinition>>,
         on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
     ) -> Result<ChatResponse, OpenAiCompatError> {
+        match self.chat_stream_openai(model, &messages, tools.clone(), on_chunk).await {
+            Ok(r) => Ok(r),
+            Err(e) => {
+                if self.auto_load == AutoLoad::Lmstudio && Self::is_unloaded_error(&e.to_string()) {
+                    self.ensure_model_loaded(model).await?;
+                    // Retry with a single non-streaming call so we don't invoke on_chunk twice.
+                    let out = self.chat_openai(model, &messages, tools).await?;
+                    if let Some(ref m) = out.message {
+                        if !m.content.is_empty() {
+                            on_chunk(&m.content);
+                        }
+                    }
+                    Ok(out)
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    async fn chat_stream_openai(
+        &self,
+        model: &str,
+        messages: &[ChatMessage],
+        tools: Option<Vec<ToolDefinition>>,
+        on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ChatResponse, OpenAiCompatError> {
         let url = format!("{}/chat/completions", self.base_url);
-        let (openai_messages, _) = messages_to_openai(&messages);
+        let (openai_messages, _) = messages_to_openai(messages);
         let body = OpenAiChatRequest {
             model: model.to_string(),
             messages: openai_messages,
@@ -232,6 +349,22 @@ impl OpenAiCompatClient {
     }
 }
 
+// --- LM Studio native model list wire types ---
+
+#[derive(Debug, Deserialize)]
+struct LmStudioNativeModelsResponse {
+    models: Option<Vec<LmStudioNativeModelObject>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LmStudioNativeModelObject {
+    key: Option<String>,
+    #[serde(rename = "type")]
+    typ: Option<String>,
+}
+
+// --- OpenAI wire types ---
+
 #[derive(Debug, Deserialize)]
 struct OpenAiListModelsResponse {
     data: Option<Vec<OpenAiModelId>>,
@@ -241,8 +374,6 @@ struct OpenAiListModelsResponse {
 struct OpenAiModelId {
     id: String,
 }
-
-// --- OpenAI wire types (for /v1/chat/completions) ---
 
 #[derive(Debug, Serialize)]
 struct OpenAiChatRequest {
@@ -621,8 +752,6 @@ mod tests {
 
     #[test]
     fn openai_response_truncated_with_partial_tool_calls() {
-        // Simulates a truncated response: the model emitted one tool call but intended
-        // more — finish_reason: "length" signals truncation.
         let json = r#"{
             "choices":[{
                 "message":{
@@ -636,8 +765,44 @@ mod tests {
         let data: OpenAiChatResponse = serde_json::from_str(json).unwrap();
         let resp = openai_response_to_chat_response(data).unwrap();
         assert!(resp.is_truncated());
-        // The first tool call is present but the agent loop should see the truncation
-        // signal and know more may have been intended.
         assert_eq!(resp.tool_calls().len(), 1);
+    }
+
+    // --- AutoLoad ---
+
+    #[test]
+    fn is_unloaded_error_detects_unloaded() {
+        assert!(OpenAiCompatClient::is_unloaded_error("Model is unloaded"));
+        assert!(OpenAiCompatClient::is_unloaded_error("error: model Unloaded"));
+        assert!(!OpenAiCompatClient::is_unloaded_error("rate limit exceeded"));
+    }
+}
+
+// --- Provider trait impl for OpenAiCompatClient ---
+
+#[async_trait]
+impl Provider for OpenAiCompatClient {
+    async fn chat(
+        &self,
+        model: &str,
+        messages: Vec<ChatMessage>,
+        stream: bool,
+        tools: Option<Vec<ToolDefinition>>,
+    ) -> Result<ChatResponse, ProviderError> {
+        OpenAiCompatClient::chat(self, model, messages, stream, tools)
+            .await
+            .map_err(|e| ProviderError::Provider(e.to_string()))
+    }
+
+    async fn chat_stream(
+        &self,
+        model: &str,
+        messages: Vec<ChatMessage>,
+        tools: Option<Vec<ToolDefinition>>,
+        on_chunk: &mut (dyn for<'a> FnMut(&'a str) + Send),
+    ) -> Result<ChatResponse, ProviderError> {
+        OpenAiCompatClient::chat_stream(self, model, messages, tools, on_chunk)
+            .await
+            .map_err(|e| ProviderError::Provider(e.to_string()))
     }
 }

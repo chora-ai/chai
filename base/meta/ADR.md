@@ -1,6 +1,6 @@
 # ADR Conventions
 
-Architecture Decision Records document why significant technical choices were made. They live in `.agents/adr/` (e.g. `adr/PROGRAMMING_LANGUAGE.md`). ADRs are retrospective — they record decisions already made, not proposals for future work (use epics for that).
+Architecture Decision Records document why significant technical choices were made. They live in `base/adr/` (e.g. `adr/PROGRAMMING_LANGUAGE.md`). ADRs are retrospective — they record decisions already made, not proposals for future work (use epics for that).
 
 ## Frontmatter
 

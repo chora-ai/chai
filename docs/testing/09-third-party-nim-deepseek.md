@@ -19,9 +19,10 @@ The following models do not support tools:
 
 ## Setup
 
-- `agents.defaultProvider`: `nim`
+- Provider: `endpoint: "openai-compat"` with `modelDiscovery: "static"` and `baseUrl: "https://integrate.api.nvidia.com/v1"` (e.g. `{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }`)
+- `agents.defaultProvider`: provider `id` (e.g. `"nim"`)
 - `agents.defaultModel`: one model from the list above
-- `NVIDIA_API_KEY` or `providers.nim.apiKey`
+- `NVIDIA_API_KEY` or provider `apiKey`
 
 ## Procedure
 
@@ -30,4 +31,4 @@ Follow the shared protocol in [README.md](README.md): message sequence, expectat
 
 ## See Also
 
-- [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)

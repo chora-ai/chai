@@ -55,20 +55,13 @@ impl ChaiApp {
             .current_provider
             .as_deref()
             .or(details.default_provider.as_deref())
+            .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
             .unwrap_or("ollama");
-        let models: &[String] = if provider == "lms" {
-            &details.lms_models
-        } else if provider == "vllm" {
-            &details.vllm_models
-        } else if provider == "nim" {
-            &details.nim_models
-        } else if provider == "openai" {
-            &details.openai_models
-        } else if provider == "hf" {
-            &details.hf_models
-        } else {
-            &details.ollama_models
-        };
+        let models: &[String] = details
+            .provider_info
+            .get(provider)
+            .map(|info| info.models.as_slice())
+            .unwrap_or(&[]);
         if models.is_empty() {
             return;
         }
@@ -122,17 +115,39 @@ impl ChaiApp {
     }
 }
 
-fn provider_model_names(providers: Option<&serde_json::Value>, key: &str) -> Vec<String> {
-    providers
-        .and_then(|p| p.get(key))
-        .and_then(|o| o.get("models"))
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|o| o.get("name").and_then(|n| n.as_str()).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default()
+/// Parse the `providers` block from gateway status into per-provider info.
+/// The gateway now sends each provider as `{ "endpoint": "...", "discovery": bool, "models": [string, ...] }`
+/// keyed by provider id, instead of the old fixed-field format with `{"name": "..."}` model objects.
+fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collections::HashMap<String, super::super::ProviderStatusInfo> {
+    let Some(obj) = providers.and_then(|p| p.as_object()) else {
+        return std::collections::HashMap::new();
+    };
+    let mut map = std::collections::HashMap::new();
+    for (pid, val) in obj {
+        let endpoint = val.get("endpoint")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        let discovery = val.get("discovery")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        // Models are now flat strings (not {"name": "..."} objects).
+        let models = val.get("models")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default();
+        map.insert(pid.clone(), super::super::ProviderStatusInfo {
+            endpoint,
+            discovery,
+            models,
+        });
+    }
+    map
 }
 
 /// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
@@ -425,12 +440,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                         }
                     }
                 }
-                details.ollama_models = provider_model_names(providers_pl, "ollama");
-                details.lms_models = provider_model_names(providers_pl, "lms");
-                details.vllm_models = provider_model_names(providers_pl, "vllm");
-                details.nim_models = provider_model_names(providers_pl, "nim");
-                details.openai_models = provider_model_names(providers_pl, "openai");
-                details.hf_models = provider_model_names(providers_pl, "hf");
+                details.provider_info = parse_providers_block(providers_pl);
                 details.orchestration_catalog = agents_pl
                     .and_then(|a| a.get("orchestrationCatalog"))
                     .and_then(|v| v.as_array())

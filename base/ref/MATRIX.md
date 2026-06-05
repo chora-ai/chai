@@ -115,7 +115,7 @@ The **`matrix-probe`** binary performs **`m.login.password`** against **`/_matri
 
 ## User journey
 
-End-to-end test with Element or another client, an encrypted or unencrypted room, and the gateway: [`.journey/08-channel-matrix.md`](../../.journey/08-channel-matrix.md). For device verification without Element, use **`/matrix/verification/*`** as above.
+End-to-end test with Element or another client, an encrypted or unencrypted room, and the gateway: [`docs/journey/08-channel-matrix.md`](../../docs/journey/08-channel-matrix.md). For device verification without Element, use **`/matrix/verification/*`** as above.
 
 ## References
 

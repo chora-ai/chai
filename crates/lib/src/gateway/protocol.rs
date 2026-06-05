@@ -139,7 +139,7 @@ pub struct AgentParams {
     #[serde(default)]
     pub session_id: Option<String>,
     pub message: String,
-    /// Override provider for this turn (see `canonical_provider` in config): e.g. "ollama", "lms", "vllm", "nim", "openai", "hf". When set, the model is resolved within this provider.
+    /// Override provider for this turn (must reference a provider id from the `providers` array). When set, the model is resolved within this provider.
     #[serde(default)]
     pub provider: Option<String>,
     /// Override model for this turn. When provider is also set, must be a model id for that provider.

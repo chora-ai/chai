@@ -67,13 +67,6 @@ Always read the relevant convention file before adding or modifying a document i
 
 ### `/ref`
 
-#### Claw Ecosystem
-
-- **[CLAW_ECOSYSTEM.md](ref/CLAW_ECOSYSTEM.md)** — How OpenClaw, IronClaw, NemoClaw, and Chai relate.
-- **[OPENCLAW.md](ref/OPENCLAW.md)** — OpenClaw concepts and protocol for Chai alignment.
-- **[IRONCLAW.md](ref/IRONCLAW.md)** — IronClaw stack and how it compares to Chai.
-- **[NEMOCLAW.md](ref/NEMOCLAW.md)** — NemoClaw, OpenShell, and Nemotron-hosted inference.
-
 #### Channels (External APIs)
 
 - **[TELEGRAM.md](ref/TELEGRAM.md)** — Bot API: config, long-poll, webhook, and gateway wiring.
@@ -83,11 +76,11 @@ Always read the relevant convention file before adding or modifying a document i
 #### Providers (External APIs)
 
 - **[OLLAMA.md](ref/OLLAMA.md)** — Native Ollama chat, tags, and how Chai calls them.
+- **[OPENAI.md](ref/OPENAI.md)** — Official API, proxies, and mapping into `openai_compat`.
 - **[LM_STUDIO.md](ref/LM_STUDIO.md)** — OpenAI-compat chat and native `/api/v1/models` listing.
 - **[VLLM.md](ref/VLLM.md)** — OpenAI-compat `/v1` serving for self-hosted vLLM.
-- **[HUGGINGFACE.md](ref/HUGGINGFACE.md)** — `hf` provider: TGI, Inference Endpoints, OpenAI-shaped URLs.
-- **[NVIDIA_NIM.md](ref/NVIDIA_NIM.md)** — Hosted NIM: keys, quotas, privacy, static model list.
-- **[OPENAI.md](ref/OPENAI.md)** — Official API, proxies, and mapping into `openai_compat`.
+- **[HUGGINGFACE.md](ref/HUGGINGFACE.md)** — OpenAI-compat, TGI, Inference Endpoints.
+- **[NVIDIA_NIM.md](ref/NVIDIA_NIM.md)** — OpenAI-compat,: keys, quotas, privacy, static model list.
 
 ### `/spec`
 

@@ -1,6 +1,6 @@
 # Spec Conventions
 
-Specs are behavioral contracts that describe how the system works. They live in `.agents/spec/` (e.g. `spec/SKILL_FORMAT.md`). Specs are reference documents for the implementing agent — they define the behavior the code must produce, not the code itself.
+Specs are behavioral contracts that describe how the system works. They live in `base/spec/` (e.g. `spec/SKILL_FORMAT.md`). Specs are reference documents for the implementing agent — they define the behavior the code must produce, not the code itself.
 
 **Epics** in **`epic/`** propose and track work; **specs** document behavior. When epic-driven features land, the spec for that area should reflect the new behavior.
 

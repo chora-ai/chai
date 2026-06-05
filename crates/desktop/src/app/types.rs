@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::vec::Vec;
 
 /// Chat message used across the app (chat screen, session timelines, logs).
@@ -131,6 +131,17 @@ pub struct OrchestrationCatalogRow {
     pub(crate) tool_capable: Option<bool>,
 }
 
+/// Per-provider info parsed from the gateway status `providers` block.
+#[derive(Clone, Default)]
+pub struct ProviderStatusInfo {
+    /// Endpoint type string (e.g. `"ollama"`, `"openai-compat"`, `"anthropic"`, `"google"`).
+    pub(crate) endpoint: String,
+    /// Whether model discovery is enabled for this provider.
+    pub(crate) discovery: bool,
+    /// Discovered model names (empty if provider unreachable or discovery off).
+    pub(crate) models: Vec<String>,
+}
+
 /// Live gateway details from WebSocket `status` method.
 #[derive(Clone, Default)]
 pub struct GatewayStatusDetails {
@@ -144,25 +155,15 @@ pub struct GatewayStatusDetails {
     pub(crate) orchestrator_id: Option<String>,
     /// Orchestrator context directory from **`payload.agents.entries`** (**`role`** **`orchestrator`**, **`contextDirectory`**).
     pub(crate) orchestrator_context_dir: Option<String>,
-    /// Resolved default provider: "ollama", "lms", "vllm", "nim", "openai", or "hf".
+    /// Resolved default provider id (from config).
     pub(crate) default_provider: Option<String>,
     /// Resolved default model id (from config or provider fallback).
     pub(crate) default_model: Option<String>,
-    /// Canonical provider ids with discovery enabled (`payload.agents.enabledProviders`). `None` if the gateway omitted the field.
+    /// Provider ids with discovery enabled (`payload.agents.enabledProviders`). `None` if the gateway omitted the field.
     pub(crate) enabled_providers: Option<Vec<String>>,
-    /// Ollama model names from gateway discovery (empty if Ollama unreachable).
-    pub(crate) ollama_models: Vec<String>,
-    /// LM Studio model names from gateway discovery (empty if LM Studio unreachable).
-    pub(crate) lms_models: Vec<String>,
-    /// vLLM model ids from gateway discovery (GET /v1/models).
-    pub(crate) vllm_models: Vec<String>,
-    /// NIM model ids (static catalog; hosted API).
-    pub(crate) nim_models: Vec<String>,
-    /// OpenAI API model ids from GET /v1/models (empty if unreachable or key missing).
-    pub(crate) openai_models: Vec<String>,
-    /// Hugging Face endpoint model ids from GET /v1/models when supported.
-    pub(crate) hf_models: Vec<String>,
-    /// Full orchestrator static system context (same string as that agent’s **`payload.agents.entries[]`** row with **`role`** **`orchestrator`**).
+    /// Per-provider info (endpoint type, discovery, models) keyed by provider id, parsed from `payload.providers`.
+    pub(crate) provider_info: HashMap<String, ProviderStatusInfo>,
+    /// Full orchestrator static system context (same string as that agent's **`payload.agents.entries[]`** row with **`role`** **`orchestrator`**).
     pub(crate) system_context: Option<String>,
     /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents.entries[].systemContext`**.
     pub(crate) agent_system_contexts: BTreeMap<String, String>,
@@ -170,7 +171,7 @@ pub struct GatewayStatusDetails {
     pub(crate) skill_packages_discovery_root: Option<String>,
     /// **`payload.skillPackages.packagesDiscovered`**.
     pub(crate) skill_packages_discovered: Option<u64>,
-    /// **`payload.providers`** (discovery + models per backend).
+    /// **`payload.providers`** (full JSON block — kept for raw-json view).
     pub(crate) providers_block: Option<serde_json::Value>,
     /// Per-agent skill **`contextMode`** from **`payload.agents.entries[].skills`**.
     pub(crate) agent_context_modes: BTreeMap<String, String>,

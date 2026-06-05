@@ -1,8 +1,9 @@
 //! Configuration types and loading.
 //!
 //! Config is loaded from a JSON file under the active profile (e.g. `~/.chai/profiles/assistant/config.json`) and environment.
-//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (URLs/keys for model APIs), and `agents`
-//! (JSON array of `id` / `role` entries; omit the key for a single default orchestrator). Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
+//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (JSON array of `id` + `endpoint` entries
+//! for model APIs), and `agents` (JSON array of `id` / `role` entries; omit the key for a single default orchestrator).
+//! Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -21,9 +22,9 @@ pub struct Config {
     #[serde(default)]
     pub channels: ChannelsConfig,
 
-    /// Model provider connection settings (base URLs, API keys). Sibling to `channels`: integration points for model APIs.
-    #[serde(default)]
-    pub providers: Option<ProvidersConfig>,
+    /// Model provider definitions: JSON array of `id` + `endpoint` entries. Omit for default (single Ollama provider).
+    #[serde(default = "default_providers_config", with = "providers_config_serde")]
+    pub providers: ProvidersConfig,
 
     /// Agent definitions: JSON array of `id` + `role` (`orchestrator` \| `worker`). Omit for defaults (one orchestrator, id `orchestrator`).
     #[serde(default = "default_agents_config", with = "agents_config_de")]
@@ -208,7 +209,7 @@ pub struct ChannelsConfig {
     pub signal: SignalChannelConfig,
 }
 
-/// Signal channel: user-run signal-cli HTTP daemon (BYO). See `.agents/adr/SIGNAL_CLI_INTEGRATION.md`.
+/// Signal channel: user-run signal-cli HTTP daemon (BYO). See `base/adr/SIGNAL_CLI_INTEGRATION.md`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignalChannelConfig {
@@ -281,7 +282,7 @@ pub enum SkillContextMode {
 pub struct AgentsConfig {
     /// Orchestrator entry's `id` from config (defaults to `orchestrator` when `agents` is omitted).
     pub orchestrator_id: Option<String>,
-    /// Which default provider to use: "ollama", "lms", "vllm", or "nim". When absent, defaults to "ollama".
+    /// Which default provider to use (a provider `id` from the `providers` array). When absent, defaults to "ollama" (if configured) or the first configured provider.
     pub default_provider: Option<String>,
     /// Model id for the selected provider. Use the id format the provider expects (e.g. for Ollama `llama3.2:3b`; for LM Studio `llama-3.2-3B-instruct`; for NIM `meta/llama-3.2-3b-instruct`). Not used for routing—provider is chosen by defaultProvider.
     pub default_model: Option<String>,
@@ -371,10 +372,10 @@ pub struct DelegationInstructionRoute {
     pub model: Option<String>,
 }
 
-/// One allowed `(provider, model)` pair for delegation policy. Provider ids use the same canonical
-/// names as elsewhere: `ollama`, `lms`, `vllm`, `nim`. Model must match the resolved id exactly
-/// (after trim), including any `:` or `/` in the provider's model naming.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+/// One allowed `(provider, model)` pair for delegation policy. Provider ids reference the `id`
+/// field from a provider definition in the `providers` array. Model must match the resolved id
+/// exactly (after trim), including any `:` or `/` in the provider's model naming.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AllowedModelEntry {
     pub provider: String,
@@ -626,241 +627,310 @@ pub struct WorkerConfig {
     pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
 }
 
-/// Per-provider configuration (base URL, API key where applicable).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+/// Per-provider configuration: JSON array of provider definitions with `id`, `endpoint` type, and connection settings.
+///
+/// In `config.json`, **`providers`** is a JSON **array** of entries with `id`, `endpoint`, and
+/// optional connection settings. This type wraps `Vec<ProviderDefinition>` with custom serde
+/// so the wire format is a direct array (`"providers": [...]`) rather than an object with
+/// an `entries` field.
+///
+/// When the `providers` key is omitted or the array is empty, a single default Ollama provider
+/// is used (id `"ollama"`, endpoint `"ollama"`). This aligns with the default agent, which uses
+/// Ollama as its `defaultProvider`.
+#[derive(Debug, Clone)]
 pub struct ProvidersConfig {
-    pub ollama: Option<OllamaProviderEntry>,
-    /// JSON key **`lms`** (same string as **`agents.defaultProvider`** `"lms"`). LM Studio (OpenAI-compat).
-    pub lms: Option<LmsProviderEntry>,
-    pub nim: Option<NimProviderEntry>,
-    pub vllm: Option<VllmProviderEntry>,
-    /// OpenAI API (`https://api.openai.com/v1` by default). Optional base URL override (e.g. Azure OpenAI proxy).
-    pub openai: Option<OpenAiProviderEntry>,
-    /// Hugging Face Inference Endpoints or TGI with OpenAI-compatible routes; set **`baseUrl`** to the deployment URL including `/v1`.
-    pub hf: Option<HfProviderEntry>,
+    pub entries: Vec<ProviderDefinition>,
 }
 
-/// Ollama provider entry (e.g. base URL override).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OllamaProviderEntry {
-    pub base_url: Option<String>,
-}
-
-/// LM Studio provider entry (`lms`): base URL only. We always use the OpenAI-compatible API (with native chat fallback when the server rejects the model param) so tools are supported.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct LmsProviderEntry {
-    pub base_url: Option<String>,
-}
-
-/// NVIDIA NIM hosted API provider entry. API key from config or NVIDIA_API_KEY env. Not a privacy option; data is sent to NVIDIA.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct NimProviderEntry {
-    pub api_key: Option<String>,
-    /// Extra NIM model ids merged into gateway **`nimModels`** (and desktop) in addition to the built-in static catalog. Use exact ids from the NIM docs.
-    #[serde(default)]
-    pub extra_models: Option<Vec<String>>,
-}
-
-/// vLLM OpenAI-compatible server (`vllm serve`). Base URL should include `/v1` (e.g. `http://127.0.0.1:8000/v1`). Optional API key when the server uses `--api-key`.
-/// LocalAI in OpenAI-compat mode can use the same settings: set **`agents.defaultProvider`** to **`"vllm"`** and point **`baseUrl`** at LocalAI's `/v1` base (Ollama-compatible LocalAI mode uses **`"ollama"`** and **`providers.ollama.baseUrl`** instead).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VllmProviderEntry {
-    pub base_url: Option<String>,
-    pub api_key: Option<String>,
-}
-
-/// OpenAI API. API key: **`OPENAI_API_KEY`** env, else **`providers.openai.apiKey`**.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpenAiProviderEntry {
-    pub base_url: Option<String>,
-    pub api_key: Option<String>,
-}
-
-/// Hugging Face OpenAI-compatible endpoint. API key: **`HF_API_KEY`** env, else **`providers.hf.apiKey`**. Set **`baseUrl`** to your Inference Endpoint or TGI URL (include `/v1`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HfProviderEntry {
-    pub base_url: Option<String>,
-    pub api_key: Option<String>,
-}
-
-fn providers_config(config: &Config) -> Option<&ProvidersConfig> {
-    config.providers.as_ref()
-}
-
-/// Resolve Ollama base URL override: `providers.ollama.baseUrl` when set, else `None` (client default).
-pub fn resolve_ollama_base_url(config: &Config) -> Option<String> {
-    providers_config(config)?
-        .ollama
-        .as_ref()
-        .and_then(|e| e.base_url.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(|s| s.trim_end_matches('/').to_string())
-}
-
-/// Resolve NVIDIA NIM API key: NVIDIA_API_KEY env, else `providers.nim.apiKey`.
-pub fn resolve_nim_api_key(config: &Config) -> Option<String> {
-    // Follow the same pattern as resolve_telegram_token / resolve_gateway_token:
-    // environment variable takes precedence (easy to override at runtime),
-    // then fall back to config when env is unset or empty.
-    std::env::var("NVIDIA_API_KEY")
-        .ok()
-        .and_then(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() {
-                None
-            } else {
-                Some(t)
-            }
-        })
-        .or_else(|| {
-            providers_config(config)?
-                .nim
-                .as_ref()
-                .and_then(|e| e.api_key.as_ref())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-}
-
-/// Resolve LM Studio base URL: `providers.lms.baseUrl`, else default.
-pub fn resolve_lms_base_url(config: &Config) -> String {
-    providers_config(config)
-        .and_then(|b| b.lms.as_ref())
-        .and_then(|e| e.base_url.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "http://127.0.0.1:1234/v1".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-/// Resolve vLLM base URL: `providers.vllm.baseUrl`, else default `http://127.0.0.1:8000/v1`.
-pub fn resolve_vllm_base_url(config: &Config) -> String {
-    providers_config(config)
-        .and_then(|b| b.vllm.as_ref())
-        .and_then(|e| e.base_url.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "http://127.0.0.1:8000/v1".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-/// Resolve vLLM API key: VLLM_API_KEY env, else `providers.vllm.apiKey`.
-pub fn resolve_vllm_api_key(config: &Config) -> Option<String> {
-    std::env::var("VLLM_API_KEY")
-        .ok()
-        .and_then(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() {
-                None
-            } else {
-                Some(t)
-            }
-        })
-        .or_else(|| {
-            providers_config(config)?
-                .vllm
-                .as_ref()
-                .and_then(|e| e.api_key.as_ref())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-}
-
-/// Resolve OpenAI base URL: `providers.openai.baseUrl`, else `https://api.openai.com/v1`.
-pub fn resolve_openai_base_url(config: &Config) -> String {
-    providers_config(config)
-        .and_then(|b| b.openai.as_ref())
-        .and_then(|e| e.base_url.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "https://api.openai.com/v1".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-/// Resolve OpenAI API key: OPENAI_API_KEY env, else `providers.openai.apiKey`.
-pub fn resolve_openai_api_key(config: &Config) -> Option<String> {
-    std::env::var("OPENAI_API_KEY")
-        .ok()
-        .and_then(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() {
-                None
-            } else {
-                Some(t)
-            }
-        })
-        .or_else(|| {
-            providers_config(config)?
-                .openai
-                .as_ref()
-                .and_then(|e| e.api_key.as_ref())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-}
-
-/// Resolve Hugging Face OpenAI-compat base URL: `providers.hf.baseUrl`, else `http://127.0.0.1:8080/v1` (set a real endpoint for Inference Endpoints or TGI).
-pub fn resolve_hf_base_url(config: &Config) -> String {
-    providers_config(config)
-        .and_then(|b| b.hf.as_ref())
-        .and_then(|e| e.base_url.as_ref())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "http://127.0.0.1:8080/v1".to_string())
-        .trim_end_matches('/')
-        .to_string()
-}
-
-/// Resolve Hugging Face API key: HF_API_KEY env, else `providers.hf.apiKey`.
-pub fn resolve_hf_api_key(config: &Config) -> Option<String> {
-    std::env::var("HF_API_KEY")
-        .ok()
-        .and_then(|s| {
-            let t = s.trim().to_string();
-            if t.is_empty() {
-                None
-            } else {
-                Some(t)
-            }
-        })
-        .or_else(|| {
-            providers_config(config)?
-                .hf
-                .as_ref()
-                .and_then(|e| e.api_key.as_ref())
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
-}
-
-/// Canonical provider id: "ollama", "lms", "vllm", "nim", "openai", and "hf" are valid (trimmed, lowercased). Returns None for any other value.
-pub fn canonical_provider(s: &str) -> Option<&'static str> {
-    match s.trim().to_lowercase().as_str() {
-        "ollama" => Some("ollama"),
-        "lms" => Some("lms"),
-        "vllm" => Some("vllm"),
-        "nim" => Some("nim"),
-        "openai" => Some("openai"),
-        "hf" => Some("hf"),
-        _ => None,
+/// Default providers configuration: a single Ollama provider. Aligns with the default agent
+/// (orchestrator with `defaultProvider: "ollama"`).
+fn default_providers_config() -> ProvidersConfig {
+    ProvidersConfig {
+        entries: vec![ProviderDefinition {
+            id: "ollama".to_string(),
+            endpoint: EndpointType::Ollama,
+            base_url: None,
+            api_key: None,
+            default_model: None,
+            model_discovery: ModelDiscovery::Default,
+            static_models: Vec::new(),
+            auto_load: AutoLoad::None,
+        }],
     }
 }
 
-/// True if model discovery should run for the given provider. Opt-in: when agents.enabled_providers is absent or empty, only the default provider is discovered; when set, only providers in the list are discovered.
-pub fn provider_discovery_enabled(agents: &AgentsConfig, provider: &str) -> bool {
-    let provider_canonical = match canonical_provider(provider) {
-        Some(b) => b,
+impl Default for ProvidersConfig {
+    fn default() -> Self {
+        default_providers_config()
+    }
+}
+
+mod providers_config_serde {
+    use super::{default_providers_config, ProviderDefinition, ProvidersConfig};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(providers: &ProvidersConfig, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        providers.entries.serialize(serializer)
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<ProvidersConfig, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let opt = Option::<Vec<ProviderDefinition>>::deserialize(deserializer)?;
+        match opt {
+            None => Ok(default_providers_config()),
+            Some(entries) if entries.is_empty() => Ok(default_providers_config()),
+            Some(entries) => Ok(ProvidersConfig { entries }),
+        }
+    }
+}
+
+/// Wire protocol / API family for a provider. Determines which client implementation is used
+/// and which default base URL applies when `baseUrl` is unset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EndpointType {
+    /// Native Ollama API (`/api/chat`, `/api/tags`). Base URL default: `http://127.0.0.1:11434`.
+    Ollama,
+    /// OpenAI-compatible servers (`/v1/chat/completions`, `/v1/models`). Base URL default: `http://127.0.0.1:1234/v1`.
+    OpenaiCompat,
+    /// Anthropic Messages API (`POST /v1/messages`). Base URL default: `https://api.anthropic.com`.
+    Anthropic,
+    /// Google Gemini API (`generateContent`). Base URL default: `https://generativelanguage.googleapis.com`.
+    Google,
+}
+
+impl EndpointType {
+    /// Default base URL for this endpoint type when `baseUrl` is not configured.
+    pub fn default_base_url(&self) -> Option<&'static str> {
+        match self {
+            EndpointType::Ollama => Some("http://127.0.0.1:11434"),
+            EndpointType::OpenaiCompat => Some("http://127.0.0.1:1234/v1"),
+            EndpointType::Anthropic => Some("https://api.anthropic.com"),
+            EndpointType::Google => Some("https://generativelanguage.googleapis.com"),
+        }
+    }
+
+    /// Default model id for this endpoint type when neither `defaultModel` nor the agent's
+    /// `defaultModel` is set.
+    pub fn default_model(&self) -> &'static str {
+        match self {
+            EndpointType::Ollama => "llama3.2:3b",
+            EndpointType::OpenaiCompat => "gpt-4o-mini",
+            EndpointType::Anthropic => "claude-sonnet-4-20250514",
+            EndpointType::Google => "gemini-2.5-flash",
+        }
+    }
+
+    /// Environment variable name for the API key, when this endpoint type has a canonical one.
+    pub fn env_api_key_var(&self) -> Option<&'static str> {
+        match self {
+            EndpointType::Ollama => None,
+            EndpointType::OpenaiCompat => None, // generic; no single env var
+            EndpointType::Anthropic => Some("ANTHROPIC_API_KEY"),
+            EndpointType::Google => Some("GOOGLE_API_KEY"),
+        }
+    }
+
+    /// String identifier for this endpoint type (matches the serde value).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EndpointType::Ollama => "ollama",
+            EndpointType::OpenaiCompat => "openai-compat",
+            EndpointType::Anthropic => "anthropic",
+            EndpointType::Google => "google",
+        }
+    }
+}
+
+/// How a provider discovers its available models.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ModelDiscovery {
+    /// Use the endpoint type's standard discovery method (`GET /api/tags` for `ollama`,
+    /// `GET /v1/models` for `openai-compat`).
+    #[default]
+    Default,
+    /// LM Studio native model list: `GET /api/v1/models`, filter `type == "llm"`, use `key` as
+    /// model id. Applicable to `openai-compat` endpoint type only.
+    Lmstudio,
+    /// Use the `staticModels` config field. No polling. Works for any endpoint type.
+    Static,
+}
+
+/// Whether a failed chat request triggers a model-load retry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum AutoLoad {
+    /// No auto-load; errors are returned as-is.
+    #[default]
+    None,
+    /// On "unloaded" error, call `POST /api/v1/models/load` with the model id, then retry the
+    /// chat request once. Applicable to `openai-compat` endpoint type only (LM Studio).
+    Lmstudio,
+}
+
+mod auto_load_serde {
+    use super::AutoLoad;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(value: &AutoLoad, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match value {
+            AutoLoad::None => false.serialize(serializer),
+            AutoLoad::Lmstudio => "lmstudio".serialize(serializer),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<AutoLoad, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        use serde::de;
+
+        let value = serde_json::Value::deserialize(deserializer)?;
+        match value {
+            serde_json::Value::Bool(false) => Ok(AutoLoad::None),
+            serde_json::Value::String(s) if s == "lmstudio" => Ok(AutoLoad::Lmstudio),
+            _ => Err(de::Error::custom(
+                r#"autoLoad must be false or "lmstudio""#,
+            )),
+        }
+    }
+}
+
+/// One provider definition in the `providers` array.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderDefinition {
+    /// Unique provider id referenced by agents (`defaultProvider`, `enabledProviders`).
+    pub id: String,
+    /// Wire protocol / API family for this provider.
+    pub endpoint: EndpointType,
+    /// Base URL override. When unset, the endpoint type default is used.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// API key. When unset, the endpoint type's canonical environment variable is checked.
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Default model id for this provider. When unset, `endpoint.default_model()` is used.
+    #[serde(default)]
+    pub default_model: Option<String>,
+    /// How to discover available models for this provider.
+    #[serde(default)]
+    pub model_discovery: ModelDiscovery,
+    /// Static model list used when `modelDiscovery: "static"`. No polling.
+    #[serde(default)]
+    pub static_models: Vec<String>,
+    /// Auto-load behavior on "unloaded" error. `false` (default) or `"lmstudio"`.
+    #[serde(default, with = "auto_load_serde")]
+    pub auto_load: AutoLoad,
+}
+
+impl ProvidersConfig {
+    /// Look up a provider definition by id. Returns `None` if no provider with that id exists.
+    pub fn get(&self, id: &str) -> Option<&ProviderDefinition> {
+        let id_trimmed = id.trim();
+        self.entries.iter().find(|p| p.id.trim() == id_trimmed)
+    }
+
+    /// Return true if a provider with the given id exists in the array.
+    pub fn has(&self, id: &str) -> bool {
+        self.get(id).is_some()
+    }
+
+    /// Return the set of provider ids in this config.
+    pub fn ids(&self) -> Vec<String> {
+        self.entries.iter().map(|p| p.id.trim().to_string()).collect()
+    }
+
+    /// Validate: all ids are non-empty and unique.
+    pub fn validate(&self) -> Result<(), String> {
+        let mut seen = HashSet::new();
+        for p in &self.entries {
+            let id = p.id.trim().to_string();
+            if id.is_empty() {
+                return Err("provider id must not be empty".to_string());
+            }
+            if !seen.insert(id.clone()) {
+                return Err(format!("duplicate provider id: {id}"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Resolve the base URL for a provider. Falls back to the endpoint type default when `baseUrl`
+/// is unset or empty. Returns `None` when the provider id is not found in the config (all
+/// endpoint types now have default base URLs).
+pub fn resolve_provider_base_url(providers: &ProvidersConfig, id: &str) -> Option<String> {
+    let def = providers.get(id)?;
+    let base = def
+        .base_url
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .or_else(|| def.endpoint.default_base_url().map(|s| s.to_string()));
+    base.map(|s| s.trim_end_matches('/').to_string())
+}
+
+/// Resolve the API key for a provider. Environment variable takes precedence over config.
+pub fn resolve_provider_api_key(providers: &ProvidersConfig, id: &str) -> Option<String> {
+    let def = providers.get(id)?;
+    // Env var first (endpoint-specific canonical name).
+    if let Some(var) = def.endpoint.env_api_key_var() {
+        if let Ok(v) = std::env::var(var) {
+            let t = v.trim().to_string();
+            if !t.is_empty() {
+                return Some(t);
+            }
+        }
+    }
+    // Then config value.
+    def.api_key
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
+/// Resolve the default model for a provider. Returns the provider's `defaultModel` if set,
+/// otherwise the endpoint type default.
+pub fn resolve_provider_default_model(providers: &ProvidersConfig, id: &str) -> String {
+    if let Some(def) = providers.get(id) {
+        if let Some(ref m) = def.default_model {
+            let t = m.trim().to_string();
+            if !t.is_empty() {
+                return t;
+            }
+        }
+        return def.endpoint.default_model().to_string();
+    }
+    // Fallback when no provider matches (should not happen in normal use).
+    "llama3.2:3b".to_string()
+}
+
+/// Validate that a provider id references an existing provider in the config.
+/// Returns the trimmed id as Some if valid, None otherwise.
+pub fn canonical_provider_id(providers: &ProvidersConfig, s: &str) -> Option<String> {
+    let trimmed = s.trim().to_string();
+    if providers.has(&trimmed) {
+        Some(trimmed)
+    } else {
+        None
+    }
+}
+
+/// True if model discovery should run for the given provider. Opt-in: when agents.enabled_providers
+/// is absent or empty, only the default provider is discovered; when set, only providers in the
+/// list are discovered.
+pub fn provider_discovery_enabled(providers: &ProvidersConfig, agents: &AgentsConfig, provider_id: &str) -> bool {
+    let id = match canonical_provider_id(providers, provider_id) {
+        Some(id) => id,
         None => return false,
     };
     let use_default_only = match &agents.enabled_providers {
@@ -868,52 +938,56 @@ pub fn provider_discovery_enabled(agents: &AgentsConfig, provider: &str) -> bool
         Some(v) => v.is_empty(),
     };
     if use_default_only {
-        let default_canonical = agents
+        let default_id = agents
             .default_provider
             .as_deref()
-            .and_then(canonical_provider)
-            .unwrap_or("ollama");
-        return provider_canonical == default_canonical;
+            .and_then(|s| canonical_provider_id(providers, s))
+            .unwrap_or_else(|| {
+                // If the default provider string doesn't match any configured provider,
+                // fall back to "ollama" if it exists.
+                if providers.has("ollama") { "ollama".to_string() } else { String::new() }
+            });
+        return id == default_id;
     }
-    let list = agents.enabled_providers.as_ref().unwrap();
-    list.iter()
-        .filter_map(|b| canonical_provider(b))
-        .any(|b| b == provider_canonical)
+    agents
+        .enabled_providers
+        .as_ref()
+        .unwrap()
+        .iter()
+        .filter_map(|s| canonical_provider_id(providers, s))
+        .any(|p| p == id)
 }
 
-/// Canonical provider ids (`ollama`, `lms`, …) for which [`provider_discovery_enabled`] is true.
+/// Provider ids for which [`provider_discovery_enabled`] is true.
 /// Matches which backends run model discovery at gateway startup and which **`status`** includes `*Models` for.
-pub fn discovery_enabled_provider_ids(agents: &AgentsConfig) -> Vec<String> {
-    ["ollama", "lms", "vllm", "nim", "openai", "hf"]
-        .iter()
-        .copied()
-        .filter(|p| provider_discovery_enabled(agents, p))
-        .map(str::to_string)
+pub fn discovery_enabled_provider_ids(providers: &ProvidersConfig, agents: &AgentsConfig) -> Vec<String> {
+    providers
+        .ids()
+        .into_iter()
+        .filter(|id| provider_discovery_enabled(providers, agents, id))
         .collect()
 }
 
 /// Resolve effective default provider and model for display (e.g. in desktop when gateway status is not yet available).
-/// Returns (provider_id, model_id). Invalid provider values fall back to "ollama".
-pub fn resolve_effective_provider_and_model(agents: &AgentsConfig) -> (String, String) {
+/// Returns (provider_id, model_id). Invalid provider values fall back to the first configured provider
+/// or "ollama" defaults if no providers are configured.
+pub fn resolve_effective_provider_and_model(providers: &ProvidersConfig, agents: &AgentsConfig) -> (String, String) {
     let provider = agents
         .default_provider
         .as_deref()
-        .and_then(canonical_provider)
-        .unwrap_or("ollama");
+        .and_then(|s| canonical_provider_id(providers, s))
+        .or_else(|| {
+            // Fall back to first configured provider.
+            providers.entries.first().map(|p| p.id.trim().to_string())
+        })
+        .unwrap_or_else(|| "ollama".to_string());
     let model = agents
         .default_model
         .as_deref()
         .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let model = model.unwrap_or_else(|| match provider {
-        "lms" => "llama-3.2-3B-instruct".to_string(),
-        "vllm" => "Qwen/Qwen2.5-7B-Instruct".to_string(),
-        "nim" => "meta/llama-3.2-3b-instruct".to_string(),
-        "openai" => "gpt-4o-mini".to_string(),
-        "hf" => "meta-llama/Llama-3.1-8B-Instruct".to_string(),
-        _ => "llama3.2:3b".to_string(),
-    });
-    (provider.to_string(), model)
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| resolve_provider_default_model(providers, &provider));
+    (provider, model)
 }
 
 /// Orchestrator **agent context directory** (on-disk home for **`AGENT.md`**): `<profile_dir>/agents/<orchestratorId>/`.
@@ -1164,23 +1238,210 @@ mod tests {
     }
 
     #[test]
-    fn providers_lms_key_round_trips() {
-        let j = r#"{"providers":{"lms":{"baseUrl":"http://127.0.0.1:9999/v1"}}}"#;
+    fn providers_array_round_trips() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"},{"id":"lms","endpoint":"openai-compat","modelDiscovery":"lmstudio","autoLoad":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        let p = c.providers.as_ref().expect("providers");
-        let lm = p.lms.as_ref().expect("lms");
-        assert_eq!(lm.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
+        let lms = c.providers.get("lms").expect("lms");
+        assert_eq!(lms.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
+        assert_eq!(lms.endpoint, EndpointType::OpenaiCompat);
+        assert_eq!(lms.model_discovery, ModelDiscovery::Lmstudio);
+        assert_eq!(lms.auto_load, AutoLoad::Lmstudio);
         let out = serde_json::to_string(&c).expect("serialize");
         assert!(
             out.contains("\"lms\""),
-            "expected canonical key lms in {}",
+            "expected lms id in {}",
             out
         );
     }
 
     #[test]
-    fn providers_rejects_unknown_keys() {
-        let j = r#"{"providers":{"lmstudio":{"baseUrl":"http://example/v1"}}}"#;
+    fn providers_rejects_duplicate_ids() {
+        let j = r#"{"providers":[{"id":"dup","endpoint":"ollama"},{"id":"dup","endpoint":"openai-compat"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert!(c.providers.validate().is_err());
+    }
+
+    #[test]
+    fn providers_rejects_unknown_endpoint() {
+        let j = r#"{"providers":[{"id":"x","endpoint":"unknown"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
+    }
+
+    #[test]
+    fn providers_default_base_url() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_base_url(&c.providers, "ollama"),
+            Some("http://127.0.0.1:11434".to_string())
+        );
+    }
+
+    #[test]
+    fn providers_openai_compat_default_base_url() {
+        let j = r#"{"providers":[{"id":"my-openai","endpoint":"openai-compat"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_base_url(&c.providers, "my-openai"),
+            Some("http://127.0.0.1:1234/v1".to_string())
+        );
+    }
+
+    #[test]
+    fn providers_openai_compat_explicit_base_url() {
+        let j = r#"{"providers":[{"id":"my-openai","endpoint":"openai-compat","baseUrl":"https://api.openai.com/v1"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_base_url(&c.providers, "my-openai"),
+            Some("https://api.openai.com/v1".to_string())
+        );
+    }
+
+    #[test]
+    fn providers_resolve_api_key_from_env() {
+        // Test that env var is checked for endpoint types that have one.
+        let j = r#"{"providers":[{"id":"anthropic","endpoint":"anthropic"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("anthropic").expect("anthropic");
+        assert!(def.api_key.is_none());
+        assert_eq!(def.endpoint.env_api_key_var(), Some("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn providers_default_model_per_endpoint() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"},{"id":"lms","endpoint":"openai-compat"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_default_model(&c.providers, "ollama"),
+            "llama3.2:3b"
+        );
+        assert_eq!(
+            resolve_provider_default_model(&c.providers, "lms"),
+            "gpt-4o-mini"
+        );
+    }
+
+    #[test]
+    fn providers_custom_default_model() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama","defaultModel":"qwen3:8b"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_default_model(&c.providers, "ollama"),
+            "qwen3:8b"
+        );
+    }
+
+    #[test]
+    fn providers_model_discovery_default() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("ollama").expect("ollama");
+        assert_eq!(def.model_discovery, ModelDiscovery::Default);
+    }
+
+    #[test]
+    fn providers_model_discovery_lmstudio() {
+        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","modelDiscovery":"lmstudio"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("lms").expect("lms");
+        assert_eq!(def.model_discovery, ModelDiscovery::Lmstudio);
+    }
+
+    #[test]
+    fn providers_model_discovery_static() {
+        let j = r#"{"providers":[{"id":"custom","endpoint":"openai-compat","modelDiscovery":"static","staticModels":["a","b"]}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("custom").expect("custom");
+        assert_eq!(def.model_discovery, ModelDiscovery::Static);
+        assert_eq!(def.static_models, vec!["a", "b"]);
+    }
+
+    #[test]
+    fn providers_auto_load_default_is_none() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("ollama").expect("ollama");
+        assert_eq!(def.auto_load, AutoLoad::None);
+    }
+
+    #[test]
+    fn providers_auto_load_lmstudio() {
+        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","autoLoad":"lmstudio"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("lms").expect("lms");
+        assert_eq!(def.auto_load, AutoLoad::Lmstudio);
+    }
+
+    #[test]
+    fn providers_auto_load_false() {
+        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","autoLoad":false}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("lms").expect("lms");
+        assert_eq!(def.auto_load, AutoLoad::None);
+    }
+
+    #[test]
+    fn providers_rejects_unknown_auto_load() {
+        let j = r#"{"providers":[{"id":"x","endpoint":"openai-compat","autoLoad":"bogus"}]}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
+    }
+
+    #[test]
+    fn providers_nim_like_config() {
+        // A NIM-style provider using static model discovery.
+        let j = r#"{"providers":[
+            {"id":"nim","endpoint":"openai-compat","baseUrl":"https://integrate.api.nvidia.com/v1","apiKey":null,"modelDiscovery":"static","staticModels":["meta/llama-3.1-8b-instruct","meta/llama-3.1-70b-instruct"]}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let def = c.providers.get("nim").expect("nim");
+        assert_eq!(def.endpoint, EndpointType::OpenaiCompat);
+        assert_eq!(def.model_discovery, ModelDiscovery::Static);
+        assert_eq!(def.static_models.len(), 2);
+    }
+
+    #[test]
+    fn providers_rejects_lms_endpoint_type() {
+        let j = r#"{"providers":[{"id":"x","endpoint":"lms"}]}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
+    }
+
+
+    #[test]
+    fn providers_missing_key_uses_default_ollama() {
+        let c: Config = serde_json::from_str("{}").expect("parse");
+        assert_eq!(c.providers.entries.len(), 1);
+        assert_eq!(c.providers.entries[0].id, "ollama");
+        assert_eq!(c.providers.entries[0].endpoint, EndpointType::Ollama);
+    }
+
+    #[test]
+    fn providers_empty_array_uses_default_ollama() {
+        let j = r#"{"providers":[]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.providers.entries.len(), 1);
+        assert_eq!(c.providers.entries[0].id, "ollama");
+        assert_eq!(c.providers.entries[0].endpoint, EndpointType::Ollama);
+    }
+
+    #[test]
+    fn providers_default_has_ollama_resolveable() {
+        let c = Config::default();
+        assert!(c.providers.has("ollama"));
+        assert_eq!(
+            resolve_provider_base_url(&c.providers, "ollama"),
+            Some("http://127.0.0.1:11434".to_string())
+        );
+        assert_eq!(
+            resolve_provider_default_model(&c.providers, "ollama"),
+            "llama3.2:3b"
+        );
+    }
+
+    #[test]
+    fn providers_empty_json_resolves_effective() {
+        let c: Config = serde_json::from_str("{}").expect("parse");
+        let (provider, model) = resolve_effective_provider_and_model(&c.providers, &c.agents);
+        assert_eq!(provider, "ollama");
+        assert_eq!(model, "llama3.2:3b");
     }
 }

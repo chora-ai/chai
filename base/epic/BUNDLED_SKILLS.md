@@ -434,8 +434,8 @@ Context budget implication: `minimal`-tier skills should use `readOnDemand` cont
 ### Reference Documents
 
 **Source code:**
-- `~/Code/chora-ai/chai/.agents/spec/SKILL_FORMAT.md` — skill directory layout, frontmatter, metadata, context modes
-- `~/Code/chora-ai/chai/.agents/spec/TOOLS_SCHEMA.md` — `tools.json` schema: tools array, allowlist, execution mapping, arg kinds, `resolveCommand`, `writePath`
+- `~/Code/chora-ai/chai/base/spec/SKILL_FORMAT.md` — skill directory layout, frontmatter, metadata, context modes
+- `~/Code/chora-ai/chai/base/spec/TOOLS_SCHEMA.md` — `tools.json` schema: tools array, allowlist, execution mapping, arg kinds, `resolveCommand`, `writePath`
 - `~/Code/chora-ai/chai/crates/lib/config/skills/` — all bundled skills (14 sandbox-aligned skills)
 - `~/Code/chora-ai/chai/crates/cli/src/main.rs` — `chai skill` subcommand implementations
 
