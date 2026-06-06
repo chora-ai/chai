@@ -16,7 +16,7 @@ The sandbox directory lives under each profile:
 ~/.chai/profiles/<name>/sandbox/
 ```
 
-**`chai init`** creates an empty `sandbox/` for each default profile. The sandbox is per-profile — all agents within a profile share the same sandbox.
+**`chai init`** creates a `sandbox/` for each default profile, seeded with template files (`AGENTS.md`, `README.md`). The sandbox is per-profile — all agents within a profile share the same sandbox. Re-running `chai init` preserves existing sandbox files.
 
 ## Writable Roots
 

@@ -113,10 +113,10 @@
     },
     {
       "name": "files_write_lines",
-      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Use this instead of files_write_file for targeted edits to large files.",
+      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Returns a diff showing removed lines (-prefix), added lines (+prefix), and surrounding context so you can verify the edit. Use this instead of files_write_file for targeted edits to large files.",
       "parameters": {
         "type": "object",
-        "required": ["path", "start_line", "content"],
+        "required": ["path", "start_line", "original_content", "content"],
         "properties": {
           "path": {
             "type": "string",
@@ -130,27 +130,13 @@
             "type": "integer",
             "description": "Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement) if omitted."
           },
-          "content": {
+          "original_content": {
             "type": "string",
-            "description": "Replacement content for the specified line range"
-          }
-        }
-      }
-    },
-    {
-      "name": "files_append",
-      "description": "Append content to a file. Creates the file if it does not exist. Parent directories are created automatically if they do not exist.",
-      "parameters": {
-        "type": "object",
-        "required": ["path", "content"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
           },
           "content": {
             "type": "string",
-            "description": "Content to append to the file"
+            "description": "Replacement content for the specified line range"
           }
         }
       }
@@ -188,7 +174,7 @@
     "cat": [""],
     "ls": [""],
     "grep": ["", "-E"],
-    "chai": ["file write", "file delete", "file patch", "file read-lines", "file append", "file delete-dir"]
+    "chai": ["file write", "file delete", "file patch", "file read-lines", "file delete-dir"]
   },
   "execution": [
     {
@@ -275,19 +261,11 @@
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
         { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
+        { "param": "original_content", "kind": "flag", "flag": "original-content" },
         {
           "param": "content",
           "kind": "stdin"
         }
-      ]
-    },
-    {
-      "tool": "files_append",
-      "binary": "chai",
-      "subcommand": "file append",
-      "args": [
-        { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-        { "param": "content", "kind": "stdin" }
       ]
     },
     {

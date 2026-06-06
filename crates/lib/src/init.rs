@@ -152,11 +152,13 @@ pub fn init_chai_home() -> Result<PathBuf> {
     let skills_dir = chai_home.join("skills");
     std::fs::create_dir_all(&skills_dir)
         .with_context(|| format!("creating skills directory {}", skills_dir.display()))?;
-    // Always sync bundled skills so that updates to bundled skill content (e.g. new
-    // tool annotations, description changes) are applied on the next `chai init` rather
-    // than only on a fresh installation. The extraction is hash-based and idempotent:
-    // existing version snapshots are never re-written, and the active symlink is only
-    // moved when the bundled hash differs from the currently active version.
+    // Sync bundled skills so that updates to bundled skill content (e.g. new tool
+    // annotations, description changes) are available after `chai init`. The
+    // extraction is hash-based and idempotent: existing version snapshots are never
+    // re-written, and the active symlink is only set for fresh installations (no
+    // existing active version). Re-running `chai init` will create the new bundled
+    // version snapshot but will not change the active symlink, preserving any user
+    // customizations (rollbacks, edits via skills_write_skill_md).
     extract_bundled_skills_versioned(&skills_dir)?;
 
     profile::switch_active_profile(&chai_home, "assistant")?;
@@ -196,8 +198,8 @@ fn extract_bundled_skills_versioned(skills_dir: &Path) -> Result<()> {
 
         let skill_root = skills_dir.join(skill_name);
 
-        // Determine whether the active version is already at the bundled hash so we
-        // can emit the right log level and skip unnecessary disk writes.
+        // Resolve the currently active version (if any). Used to decide whether to
+        // update the active symlink and for log output.
         let active_hash = versioning::resolve_active_dir(&skill_root)
             .and_then(|d| d.file_name().map(|n| n.to_string_lossy().into_owned()));
         let already_active = active_hash.as_deref() == Some(hash.as_str());
@@ -228,18 +230,26 @@ fn extract_bundled_skills_versioned(skills_dir: &Path) -> Result<()> {
             }
         }
 
-        // Update the active symlink unconditionally — this is what upgrades an
-        // installation that was previously pinned to an older bundled version.
-        versioning::set_active_version(&skill_root, &hash)?;
-
-        if already_active {
-            log::debug!("skill '{}' already at bundled version {}", skill_name, hash);
-        } else {
+        // Only set the active symlink when one does not already exist. This preserves
+        // user customizations (manual rollbacks, edits via skills_write_skill_md) while
+        // still seeding the bundled version for fresh installations. The bundled version
+        // snapshot is always created above, so the user can switch to it manually if
+        // desired.
+        if active_hash.is_none() {
+            versioning::set_active_version(&skill_root, &hash)?;
             log::info!(
-                "skill '{}' → bundled version {} (was: {})",
+                "skill '{}' → bundled version {} (new)",
                 skill_name,
                 hash,
-                active_hash.as_deref().unwrap_or("none")
+            );
+        } else if already_active {
+            log::debug!("skill '{}' already at bundled version {}", skill_name, hash);
+        } else {
+            log::debug!(
+                "skill '{}' keeping active version {} (bundled: {})",
+                skill_name,
+                active_hash.as_deref().unwrap_or("none"),
+                hash,
             );
         }
     }

@@ -144,10 +144,17 @@ fn validate_write_paths(
     let mut has_sandboxed_path = false;
     let mut matched_root: Option<std::path::PathBuf> = None;
     let mut canonical_paths: HashMap<String, String> = HashMap::new();
+    // When a workingDir arg is validated, its canonical path becomes the
+    // working directory directly (not the sandbox root), because the path
+    // is NOT passed to argv — the process CWD is the only way git knows
+    // which repository to operate on.
+    let mut working_dir_arg: Option<std::path::PathBuf> = None;
 
     for arg in &spec.args {
         let is_write = arg.write_path == Some(true);
-        let is_read = arg.read_path == Some(true);
+        // workingDir args implicitly act as readPath for sandbox validation
+        // and working directory resolution.
+        let is_read = arg.read_path == Some(true) || arg.kind == ArgKind::WorkingDir;
         if !is_write && !is_read {
             continue;
         }
@@ -192,6 +199,20 @@ fn validate_write_paths(
             }
             ArgKind::FlagIfBoolean => continue,
             ArgKind::Stdin => continue,
+            ArgKind::WorkingDir => {
+                match obj.get(&arg.param) {
+                    Some(v) if !v.is_null() => json_value_to_string(v).ok_or_else(|| {
+                        format!("{} parameter {} must be a string", kind_label, arg.param)
+                    })?,
+                    _ => {
+                        if arg.optional == Some(true) && arg.resolve_command.is_some() {
+                            String::new()
+                        } else {
+                            continue;
+                        }
+                    }
+                }
+            }
         };
 
         has_sandboxed_path = true;
@@ -210,6 +231,11 @@ fn validate_write_paths(
             }
         })?;
 
+        // For workingDir args, the canonical path IS the working directory.
+        if arg.kind == ArgKind::WorkingDir {
+            working_dir_arg = Some(canonical.clone());
+        }
+
         canonical_paths.insert(
             arg.param.clone(),
             canonical.to_string_lossy().into_owned(),
@@ -223,6 +249,11 @@ fn validate_write_paths(
     }
 
     if has_sandboxed_path {
+        // workingDir takes precedence — the process CWD should be the
+        // resolved directory itself, not the sandbox root.
+        if let Some(ref dir) = working_dir_arg {
+            return Ok((Some(dir.clone()), canonical_paths));
+        }
         if let Some(root) = matched_root {
             return Ok((Some(root), canonical_paths));
         }
@@ -480,6 +511,17 @@ fn extract_stdin_content(
     Ok(None)
 }
 
+/// Format a flag name for argv: single-character names get a single-dash prefix
+/// (`-n`), multi-character names get a double-dash prefix (`--number`).
+/// This follows the universal CLI convention for short vs long flags.
+fn format_flag(flag: &str) -> String {
+    if flag.len() == 1 {
+        format!("-{}", flag)
+    } else {
+        format!("--{}", flag)
+    }
+}
+
 fn build_argv(
     spec: &ExecutionSpec,
     args: &serde_json::Value,
@@ -531,14 +573,14 @@ fn build_argv(
                             )
                         })?;
                         let flag = arg.flag.as_deref().unwrap_or(&arg.param);
-                        argv.push(format!("--{}", flag));
+                        argv.push(format_flag(flag));
                         argv.push(transform_param_value(s, arg, allowlist, skill_dir));
                     }
                     _ if arg.optional == Some(true) && arg.resolve_command.is_some() => {
                         let flag = arg.flag.as_deref().unwrap_or(&arg.param);
                         let resolved = transform_param_value(String::new(), arg, allowlist, skill_dir);
                         if !resolved.is_empty() {
-                            argv.push(format!("--{}", flag));
+                            argv.push(format_flag(flag));
                             argv.push(resolved);
                         }
                     }
@@ -546,6 +588,11 @@ fn build_argv(
                 }
             }
             ArgKind::Stdin => {
+                continue;
+            }
+            ArgKind::WorkingDir => {
+                // workingDir args set the process CWD via sandbox validation,
+                // not via argv — skip them here.
                 continue;
             }
             ArgKind::FlagIfBoolean => {
@@ -1208,5 +1255,205 @@ mod tests {
         let argv = build_argv(&spec, &args, &allowlist, None)
             .expect("build_argv should succeed");
         assert!(argv.is_empty());
+    }
+
+    // --- short flag vs long flag tests ---
+
+    #[test]
+    fn build_argv_single_char_flag_uses_single_dash() {
+        use crate::skills::{ArgMapping, ExecutionSpec};
+
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "git".to_string(),
+            subcommand: "log".to_string(),
+            args: vec![ArgMapping {
+                param: "count".to_string(),
+                kind: ArgKind::Flag,
+                flag: Some("n".to_string()),
+                optional: None,
+                resolve_command: None,
+                write_path: None,
+                read_path: None,
+                flag_if_true: None,
+                flag_if_false: None,
+                disambiguate_after_skipped_positionals: None,
+            }],
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "count": "5" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["-n", "5"],
+            "single-char flag 'n' should produce '-n', not '--n'");
+    }
+
+    #[test]
+    fn build_argv_multi_char_flag_uses_double_dash() {
+        use crate::skills::{ArgMapping, ExecutionSpec};
+
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "test".to_string(),
+            subcommand: "read".to_string(),
+            args: vec![ArgMapping {
+                param: "path".to_string(),
+                kind: ArgKind::Flag,
+                flag: Some("path".to_string()),
+                optional: None,
+                resolve_command: None,
+                write_path: None,
+                read_path: None,
+                flag_if_true: None,
+                flag_if_false: None,
+                disambiguate_after_skipped_positionals: None,
+            }],
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "path": "./chai" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["--path", "./chai"],
+            "multi-char flag 'path' should produce '--path'");
+    }
+
+    #[test]
+    fn build_argv_flag_defaults_to_param_name_long_form() {
+        use crate::skills::{ArgMapping, ExecutionSpec};
+
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "test".to_string(),
+            subcommand: "cmd".to_string(),
+            args: vec![ArgMapping {
+                param: "output".to_string(),
+                kind: ArgKind::Flag,
+                flag: None, // no explicit flag — uses param name
+                optional: None,
+                resolve_command: None,
+                write_path: None,
+                read_path: None,
+                flag_if_true: None,
+                flag_if_false: None,
+                disambiguate_after_skipped_positionals: None,
+            }],
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "output": "result.txt" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["--output", "result.txt"],
+            "flag with no explicit name should default to --paramname");
+    }
+
+    #[test]
+    fn build_argv_git_log_with_count_and_oneline() {
+        use crate::skills::{ArgMapping, ExecutionSpec};
+
+        // Simulates the git_log execution spec from tools.json
+        let spec = ExecutionSpec {
+            tool: "git_log".to_string(),
+            binary: "git".to_string(),
+            subcommand: "log".to_string(),
+            args: vec![
+                ArgMapping {
+                    param: "count".to_string(),
+                    kind: ArgKind::Flag,
+                    flag: Some("n".to_string()),
+                    optional: None,
+                    resolve_command: None,
+                    write_path: None,
+                    read_path: None,
+                    flag_if_true: None,
+                    flag_if_false: None,
+                    disambiguate_after_skipped_positionals: None,
+                },
+                ArgMapping {
+                    param: "oneline".to_string(),
+                    kind: ArgKind::FlagIfBoolean,
+                    flag: None,
+                    flag_if_true: Some("--oneline".to_string()),
+                    flag_if_false: None,
+                    optional: None,
+                    resolve_command: None,
+                    write_path: None,
+                    read_path: None,
+                    disambiguate_after_skipped_positionals: None,
+                },
+                ArgMapping {
+                    param: "path".to_string(),
+                    kind: ArgKind::WorkingDir,
+                    flag: None,
+                    flag_if_true: None,
+                    flag_if_false: None,
+                    optional: Some(true),
+                    resolve_command: None,
+                    write_path: None,
+                    read_path: None,
+                    disambiguate_after_skipped_positionals: None,
+                },
+            ],
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "count": "5", "oneline": true, "path": "/some/repo" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["-n", "5", "--oneline"],
+            "git_log with count=5 and oneline=true should produce '-n 5 --oneline'; workingdir arg should be excluded from argv");
+    }
+
+    #[test]
+    fn build_argv_git_commit_with_message() {
+        use crate::skills::{ArgMapping, ExecutionSpec};
+
+        // Simulates the git_commit execution spec from tools.json
+        let spec = ExecutionSpec {
+            tool: "git_commit".to_string(),
+            binary: "git".to_string(),
+            subcommand: "commit".to_string(),
+            args: vec![ArgMapping {
+                param: "message".to_string(),
+                kind: ArgKind::Flag,
+                flag: Some("m".to_string()),
+                optional: None,
+                resolve_command: None,
+                write_path: None,
+                read_path: None,
+                flag_if_true: None,
+                flag_if_false: None,
+                disambiguate_after_skipped_positionals: None,
+            }],
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "message": "Add search endpoint" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["-m", "Add search endpoint"],
+            "git_commit with message should produce '-m \"msg\"', not '--m \"msg\"'");
     }
 }

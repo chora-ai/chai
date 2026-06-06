@@ -74,6 +74,8 @@ agent's system context when the skill is enabled.
 |-------|----------|-------------|
 | `name` | No | Skill name (defaults to directory name). |
 | `description` | No | Short description for catalogs and prompts. |
+| `capability_tier` | No | Minimum model capability: `minimal` (pure schema, 7B target), `moderate` (some interpretation, 13B–30B), or `full` (judgment-tier, 70B+ or cloud). The gateway warns at startup when an enabled skill's tier exceeds the agent's likely model capability. |
+| `model_variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `model_variant_of: git`). The gateway warns when variant skills with overlapping tools are both enabled for the same agent. |
 | `metadata.requires.bins` | No | List of binary names (e.g. `["obsidian"]`). The skill is only loaded when every listed binary is on the system `PATH`. |
 
 When the gateway builds the agent's system context, it strips the frontmatter and inlines the body (see [Context Modes](#context-modes) below).
@@ -156,6 +158,49 @@ Set `contextMode` on the agent entry in `config.json`:
   "contextMode": "readOnDemand"
 }
 ```
+
+## Bundled Skills
+
+`chai init` extracts bundled skills from the application to `~/.chai/skills/` using content-addressed versioning. On re-run, new version snapshots are created but the `active` symlink for each skill is left unchanged — existing customizations are preserved. See [Configuration](03-configuration.md) for the full `chai init` behavior.
+
+Bundled skills cover common agent operations with no external binary dependencies beyond `git` and `curl`:
+
+| Skill | Tools | Tier | Description |
+|-------|-------|------|-------------|
+| `files-read` | 4 | minimal | Read-only file inspection (read, list, search, read lines) |
+| `files` | 9 | full | Full file operations including write, append, delete, and line-level patching |
+| `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
+| `git` | 8 | moderate | Local git operations (read + add, commit, branch create) |
+| `git-remote` | 12 | full | Full git operations including clone, pull, push, and remote |
+| `kb` | 6 | moderate | Knowledge base CRUD (read, write, append, delete, list, search) |
+| `kb-daily` | 3 | minimal | Daily note operations with date-based path resolution |
+| `kb-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for KB notes |
+| `kb-wikilink` | 4 | moderate | Wikilink discovery: backlinks, outlinks, tag search, broken link detection |
+| `kb-wikilink-write` | 1 | moderate | Rename KB notes with automatic wikilink updates |
+| `rss` | 2 | moderate | RSS feed monitoring via curl |
+| `skills` | 9 | full | Skill generation and management (discover, init, write, validate, delete) |
+| `skills-read` | 3 | minimal | Read-only skill inspection (read, list, validate) |
+| `skills-design` | 0 | minimal | Design principles for skill tools (context-only, no callable tools) |
+
+Additional skills are available in the [chai-examples](https://github.com/chora-ai/chai-examples) repository as reference implementations.
+
+## Skill Variants
+
+Several bundled skills come in **variants** — related skills that provide different capability tiers for the same domain. Variants share tool names, so enabling overlapping variants for the same agent creates redundant tool surfaces.
+
+| Domain | Variant | Tools | Tier | Best For |
+|--------|---------|-------|------|----------|
+| Files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
+| Files | `files` | 9 | full | Agents that need to write, patch, and delete files |
+| Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
+| Git | `git` | 8 | moderate | Local development (commit, branch) |
+| Git | `git-remote` | 12 | full | Open-source workflows (clone, push) |
+| Skills | `skills-read` | 3 | minimal | Inspection and validation only |
+| Skills | `skills` | 9 | full | Skill authoring and management |
+
+When you enable a variant skill, use its `model_variant_of` frontmatter to identify its parent. The gateway warns at startup when two variants share a `model_variant_of` relationship and are both enabled for the same agent — this usually indicates a configuration error.
+
+**Rule of thumb:** Enable one variant per domain per agent. Choose the variant with the lowest tier that covers the agent's needs.
 
 ## Creating a Skill
 
@@ -262,10 +307,12 @@ chai skill delete --skill-name my-skill
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
 | How do I enable a skill? | Add its name to the `skillsEnabled` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
+| What bundled skills are available? | 13 skills covering files, git, knowledge base, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
+| What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
 | How do I create a skill? | `chai skill init --name <name> --description "..."`, then customize the files. |
-|| How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
-|| Can I name a version directory arbitrarily? | No. Under `versions/`, the name must be the 12-hex content hash. |
-|| How do I roll back? | `chai skill lock` to save, `chai skill rollback <generation>` to restore. |
+| How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
+| Can I name a version directory arbitrarily? | No. Under `versions/`, the name must be the 12-hex content hash. |
+| How do I roll back? | `chai skill lock` to save, `chai skill rollback <generation>` to restore. |
 
 ## Try It
 

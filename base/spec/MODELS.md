@@ -8,7 +8,6 @@ Internal spec for **model identifiers** in Chai: examples per endpoint type, cro
 
 ## Relationship to Other Documents
 
-- **[API_ALIGNMENT.md](../epic/API_ALIGNMENT.md)** — Roadmap for backends and API families; this document is the canonical catalog of **named** model ids in this repository.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider `id`, `endpoint` types, discovery, and compatibility; pair with **MODELS.md** for **model** strings.
 - **Testing procedures** live under **`/docs/testing/`** and are operational runbooks; this spec remains the canonical model taxonomy and inventory.
 
@@ -81,16 +80,13 @@ Provider config: `endpoint: "openai-compat"`, `baseUrl: "https://api.openai.com/
 
 ## Model Families Across Providers
 
-Cross-reference by family. **Supported** columns include backends that are implemented today; **Planned** lists APIs not yet integrated as dedicated endpoint types.
+Cross-reference by family.
 
-| Family | `"ollama"` Endpoint | `"openai-compat"` Endpoint | Planned (`"anthropic"` / `"google"`) |
-|--------|---------------------|---------------------------|---------------------------------------|
-| **Llama** | `llama3.2:3b` | `llama-3.2-3B-instruct` (LM Studio), `meta/llama-3.2-3b-instruct` (NIM), `meta-llama/Llama-3.1-8B-Instruct` (HF) | — |
-| **Qwen** | `qwen3:8b` | Various via vLLM / HF | — |
-| **GPT** | — | `gpt-4o-mini`, etc. (`openai` provider) | — |
-| **Claude** | — | — | Anthropic models |
-| **Gemini** | — | — | Google models |
-
+| Family | `"ollama"` Endpoint | `"openai-compat"` Endpoint |
+|--------|---------------------|---------------------------|
+| **Llama** | `llama3.2:3b` | `llama-3.2-3B-instruct` (LM Studio), `meta/llama-3.2-3b-instruct` (NIM), `meta-llama/Llama-3.1-8B-Instruct` (HF) |
+| **Qwen** | `qwen3:8b` | Various via vLLM / HF |
+| **GPT** | — | `gpt-4o-mini`, etc. (`openai` provider) |
 When new providers or models are added, extend this table so that popular models and backends remain comparable in one place.
 
 ## Repository Model Inventory
@@ -112,13 +108,13 @@ For this document, **local** means a model that is **realistic to run on a typic
 | **`qwen3:8b`** | [OLLAMA.md](../ref/OLLAMA.md), [README.md](../../README.md), [Ollama Endpoint](#ollama--ollama-supported) |
 | **`gpt-oss-20b`** | LM Studio example in docs |
 | **`openai/gpt-oss-20b`** | [LM Studio](#lm-studio), [LM_STUDIO.md](../ref/LM_STUDIO.md), [README.md](../../README.md) |
-| **`ibm/granite-4-micro`** | [LM Studio](#lm-studio), [README.md](../../README.md), [ORCHESTRATION.md](../epic/ORCHESTRATION.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests |
+| **`ibm/granite-4-micro`** | [LM Studio](#lm-studio), [README.md](../../README.md), [ORCHESTRATION.md](ORCHESTRATION.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests |
 | **`granite`** | Short id in [`crates/lib/src/orchestration/policy.rs`](../../crates/lib/src/orchestration/policy.rs) tests only |
 | **`Qwen/Qwen2.5-7B-Instruct`** | vLLM fallback and docs: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs), [VLLM.md](../ref/VLLM.md), [README.md](../../README.md). |
 | **`meta-llama/Llama-3.1-8B-Instruct`** | HF fallback: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [HUGGINGFACE.md](../ref/HUGGINGFACE.md). |
 | **`gpt-4o-mini`**, **`gpt-4o`** | [OpenAI](#openai), [OPENAI.md](../ref/OPENAI.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | **`gpt-5.2`**, **`gpt-5.1`**, **`gpt-5.1-mini`**, **`gpt-5-mini`** | OpenAI test-matrix ids used in operational testing docs under `/docs/testing/`. |
-| **`llama3.2:latest`**, **`ibm/granite-4-micro`** (delegation) | Orchestrator/worker examples: [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests, [ORCHESTRATION.md](../epic/ORCHESTRATION.md) |
+| **`llama3.2:latest`**, **`ibm/granite-4-micro`** (delegation) | Orchestrator/worker examples: [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) tests, [ORCHESTRATION.md](ORCHESTRATION.md) |
 
 ### Master Table: Deployment Category and Chai Fit
 

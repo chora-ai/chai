@@ -8,6 +8,11 @@ use lib::orchestration::{
 const CHAT_INPUT_HEIGHT: f32 = 130.0;
 const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
 
+/// Blue border color used for delegation events and worker tool calls.
+const BLUE_BORDER: egui::Color32 = egui::Color32::from_rgb(70, 70, 90);
+/// Green border color used for orchestrator tool calls and assistant messages.
+const GREEN_BORDER: egui::Color32 = egui::Color32::from_rgb(70, 90, 70);
+
 /// Local account name for chat labels (`USER` / `USERNAME`), else a generic label.
 fn local_user_display_name() -> String {
     std::env::var("USER")
@@ -29,6 +34,12 @@ fn format_tool_content_display(content: &str) -> String {
         .unwrap_or_else(|| content.to_string())
 }
 
+/// Returns true when this message is a worker-sourced tool call or tool result
+/// (should use the blue border matching delegation events).
+fn is_worker_tool(m: &ChatMessage) -> bool {
+    m.source.as_deref() == Some("worker")
+}
+
 /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
 fn render_chat_message(
     ui: &mut egui::Ui,
@@ -44,11 +55,12 @@ fn render_chat_message(
     let is_delegation = m.delegation_event.is_some();
     let is_tool_call = m.role == "tool_call";
     let is_tool_result = m.role == "tool_result";
+    let is_worker = is_worker_tool(m);
 
     let frame = egui::Frame::none()
         .fill(if is_user {
             ui.style().visuals.extreme_bg_color
-        } else if is_delegation {
+        } else if is_delegation || is_worker {
             ui.style().visuals.faint_bg_color
         } else if is_tool_call || is_tool_result {
             ui.style().visuals.faint_bg_color
@@ -61,12 +73,12 @@ fn render_chat_message(
             1.0,
             if is_error {
                 egui::Color32::RED
-            } else if is_delegation {
-                egui::Color32::from_rgb(70, 70, 90)
+            } else if is_delegation || is_worker {
+                BLUE_BORDER
             } else if is_tool_call || is_tool_result {
-                egui::Color32::from_rgb(70, 90, 70)
+                GREEN_BORDER
             } else if is_assistant || is_assistant_progress {
-                egui::Color32::from_rgb(70, 90, 70)
+                GREEN_BORDER
             } else {
                 ui.style().visuals.widgets.noninteractive.bg_stroke.color
             },
@@ -94,7 +106,8 @@ fn render_chat_message(
             let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
             let has_result = m.tool_result.is_some();
             let status_icon = if has_result { "✅" } else { "⚙️" };
-            let label = format!("🔧 {} {}", tool_name, status_icon);
+            let prefix = if is_worker { "🔩" } else { "🔧" };
+            let label = format!("{} {} {}", prefix, tool_name, status_icon);
             egui::CollapsingHeader::new(label)
                 .id_source(format!("tool_call_{}_{}", index, m.tool_index.unwrap_or(index)))
                 .default_open(false)
@@ -132,9 +145,10 @@ fn render_chat_message(
             // Standalone tool result (shouldn't normally appear — results are
             // merged into the tool_call entry — but handle gracefully).
             let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
+            let prefix = if is_worker { "🔩" } else { "🔧" };
             ui.add_space(8.0);
             ui.label(
-                egui::RichText::new(format!("🔧 {} ✅", tool_name))
+                egui::RichText::new(format!("{} {} ✅", prefix, tool_name))
                     .small(),
             );
             if let Some(ref result) = m.tool_result {

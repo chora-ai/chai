@@ -203,6 +203,7 @@ impl ChaiApp {
                     m.role == "tool_call"
                         && m.tool_index == ev.tool_index
                         && m.tool_name == ev.tool_name
+                        && m.source == ev.source
                 });
                 log::debug!(
                     "tool_call event: session={}, name={:?}, index={:?}, is_dup={}, entry_len={}",
@@ -219,6 +220,7 @@ impl ChaiApp {
                         tool_args: ev.tool_args.clone(),
                         tool_result: None,
                         tool_index: ev.tool_index,
+                        source: ev.source.clone(),
                     });
                 }
                 self.session_meta
@@ -236,7 +238,10 @@ impl ChaiApp {
                 );
                 if let Some(idx) = ev.tool_index {
                     let found = entry.iter_mut().rev().find(|m| {
-                        m.role == "tool_call" && m.tool_index == Some(idx)
+                        m.role == "tool_call"
+                            && m.tool_index == Some(idx)
+                            && m.tool_name == ev.tool_name
+                            && m.source == ev.source
                     });
                     if let Some(tc) = found {
                         log::debug!(
@@ -271,6 +276,7 @@ impl ChaiApp {
                     tool_args: None,
                     tool_result: ev.tool_result.clone(),
                     tool_index: ev.tool_index,
+                    source: ev.source.clone(),
                 });
                 self.session_meta
                     .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
@@ -336,6 +342,7 @@ impl ChaiApp {
                 tool_args: ev.tool_args.clone(),
                 tool_result: ev.tool_result.clone(),
                 tool_index: ev.tool_index,
+                source: ev.source.clone(),
             };
             if ev.role == "assistant" && entry.iter().any(|m| m.role == "tool_call") {
                 ev_msg.tool_calls = None;
@@ -588,6 +595,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_args: None,
                                 tool_result: None,
                                 tool_index: None,
+                                source: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -623,6 +631,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_args: None,
                                 tool_result: None,
                                 tool_index: None,
+                                source: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -651,6 +660,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 .get("index")
                                 .and_then(|v| v.as_u64())
                                 .map(|i| i as usize);
+                            let source = data
+                                .get("source")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let role = if event_name == "session.tool_call" {
                                 "tool_call"
                             } else {
@@ -669,6 +682,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_args,
                                 tool_result,
                                 tool_index,
+                                source,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -705,6 +719,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_args: None,
                                 tool_result: None,
                                 tool_index: None,
+                                source: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();

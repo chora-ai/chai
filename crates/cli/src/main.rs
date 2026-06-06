@@ -267,7 +267,7 @@ enum FileCmd {
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
-    /// Patch a file by replacing a range of lines. Content is read from stdin when --content is ommitted.
+    /// Patch a file by replacing a range of lines. Content is read from stdin when --content is omitted.
     Patch {
         /// Absolute file path to patch
         #[arg(long)]
@@ -278,6 +278,11 @@ enum FileCmd {
         /// Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement).
         #[arg(long)]
         end_line: Option<usize>,
+        /// The content expected at [start_line, end_line] before the patch. If provided, the tool
+        /// verifies the file matches before applying the patch. Rejects the edit if the expected
+        /// content does not match what is actually in the file.
+        #[arg(long, allow_hyphen_values = true)]
+        original_content: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
         #[arg(long, allow_hyphen_values = true)]
@@ -430,7 +435,7 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             println!("appended {} bytes to {}", content.len(), target.display());
             Ok(())
         }
-        FileCmd::Patch { path, start_line, end_line, content } => {
+        FileCmd::Patch { path, start_line, end_line, original_content, content } => {
             let content = read_content_from_stdin_or(content)?;
             let target = std::path::Path::new(&path);
             if !target.exists() {
@@ -449,16 +454,33 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
 
             let original = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
+
+            if start_line > original.lines().count() {
+                anyhow::bail!(
+                    "start_line ({}) exceeds file length ({})",
+                    start_line,
+                    original.lines().count()
+                );
+            }
+
+            let effective_end = end_line.min(original.lines().count());
+
+            // Verify original_content if provided
+            if let Some(ref expected) = original_content {
+                verify_original(&original, start_line, effective_end, expected)?;
+            }
+
+            let diff = format_patch_diff(&original, start_line, Some(effective_end), &content);
             let result = patch_string(&original, start_line, Some(end_line), &content);
 
             std::fs::write(target, &result)
                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
-            let replacement_lines = content.lines().count();
-            let effective_end = end_line.min(original.lines().count());
+            let removed = effective_end - start_line + 1;
+            let added = content.lines().count();
             println!(
-                "patched {} lines {}-{} - {} line(s) in {}",
-                path, start_line, effective_end, replacement_lines, target.display()
+                "patched {} - removed {} line(s), added {} line(s)\n{}",
+                path, removed, added, diff
             );
             Ok(())
         }
@@ -648,6 +670,71 @@ fn patch_string(original: &str, start_line: usize, end_line: Option<usize>, repl
     result
 }
 
+/// Produce a contextual diff showing what changed in a patch operation.
+/// Shows the removed lines prefixed with `-` and the added lines prefixed with `+`,
+/// with line numbers for each. Also includes a few lines of context before and after
+/// the change to help the agent verify boundary alignment.
+fn format_patch_diff(
+    original: &str,
+    start_line: usize,
+    end_line: Option<usize>,
+    replacement: &str,
+) -> String {
+    let end_line = end_line.unwrap_or(start_line);
+    let lines: Vec<&str> = original.lines().collect();
+    let total_lines = lines.len();
+    let effective_end = end_line.min(total_lines);
+
+    let context = 3; // lines of context before/after
+    let ctx_start = start_line.saturating_sub(context + 1);
+    let ctx_end = (effective_end + context).min(total_lines);
+
+    let mut diff = String::new();
+
+    // Context lines before the change
+    for i in ctx_start..(start_line - 1) {
+        diff.push_str(&format!(" {}|{}\n", i + 1, lines[i]));
+    }
+
+    // Removed lines
+    for i in (start_line - 1)..effective_end {
+        diff.push_str(&format!("-{}|{}\n", i + 1, lines[i]));
+    }
+
+    // Added lines
+    let replacement_lines: Vec<&str> = replacement.lines().collect();
+    for (offset, line) in replacement_lines.iter().enumerate() {
+        diff.push_str(&format!("+{}|{}\n", start_line + offset, line));
+    }
+
+    // Context lines after the change
+    for i in effective_end..ctx_end {
+        diff.push_str(&format!(" {}|{}\n", i + 1, lines[i]));
+    }
+
+    diff
+}
+
+/// Verify that the content at [start_line, end_line] in `original` matches `expected`.
+/// Returns Ok(()) if they match, or an error message describing the mismatch.
+fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> anyhow::Result<()> {
+    let lines: Vec<&str> = original.lines().collect();
+    let effective_end = end_line.min(lines.len());
+    let actual_lines = &lines[start_line - 1..effective_end];
+    let actual: String = actual_lines.join("\n");
+    if actual == expected {
+        Ok(())
+    } else {
+        anyhow::bail!(
+            "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}",
+            start_line,
+            effective_end,
+            expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n"),
+            actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n"),
+        );
+    }
+}
+
 /// Extract YAML frontmatter from markdown content (between first `---` pair).
 /// Returns the YAML content without the `---` delimiters, or None if no
 /// frontmatter is found.
@@ -740,6 +827,9 @@ fn edit_frontmatter(content: &str, key: &str, value: &str) -> String {
 mod tests {
     use super::edit_frontmatter;
     use super::delete_frontmatter_key;
+    use super::patch_string;
+    use super::format_patch_diff;
+    use super::verify_original;
 
     #[test]
     fn edit_frontmatter_updates_existing_with_leading_newlines() {
@@ -787,6 +877,233 @@ mod tests {
         let out = delete_frontmatter_key(input, "author");
         assert!(out.contains("authorized: token"));
         assert!(!out.contains("author: remove-me"));
+    }
+
+    // --- patch_string tests ---
+
+    #[test]
+    fn patch_string_replaces_single_line() {
+        let input = "line1\nline2\nline3\n";
+        let out = patch_string(input, 2, None, "replaced");
+        assert_eq!(out, "line1\nreplaced\nline3\n");
+    }
+
+    #[test]
+    fn patch_string_replaces_range() {
+        let input = "a\nb\nc\nd\ne\n";
+        let out = patch_string(input, 2, Some(4), "x\ny");
+        assert_eq!(out, "a\nx\ny\ne\n");
+    }
+
+    #[test]
+    fn patch_string_expands_range() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 2, Some(2), "x\ny\nz");
+        assert_eq!(out, "a\nx\ny\nz\nc\n");
+    }
+
+    #[test]
+    fn patch_string_contracts_range() {
+        let input = "a\nb\nc\nd\ne\n";
+        let out = patch_string(input, 2, Some(4), "x");
+        assert_eq!(out, "a\nx\ne\n");
+    }
+
+    #[test]
+    fn patch_string_deletes_range_with_empty_replacement() {
+        let input = "a\nb\nc\nd\ne\n";
+        let out = patch_string(input, 2, Some(3), "");
+        assert_eq!(out, "a\nd\ne\n");
+    }
+
+    #[test]
+    fn patch_string_replaces_first_line() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 1, None, "x");
+        assert_eq!(out, "x\nb\nc\n");
+    }
+
+    #[test]
+    fn patch_string_replaces_last_line() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 3, None, "x");
+        assert_eq!(out, "a\nb\nx\n");
+    }
+
+    #[test]
+    fn patch_string_replaces_all_lines() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 1, Some(3), "x\ny");
+        assert_eq!(out, "x\ny\n");
+    }
+
+    #[test]
+    fn patch_string_start_line_past_end_returns_original() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 10, None, "x");
+        assert_eq!(out, input);
+    }
+
+    #[test]
+    fn patch_string_end_line_past_file_is_clamped() {
+        let input = "a\nb\nc\n";
+        // end_line=100 should be clamped to 3, replacing b and c
+        let out = patch_string(input, 2, Some(100), "x");
+        assert_eq!(out, "a\nx\n");
+    }
+
+    #[test]
+    fn patch_string_preserves_no_trailing_newline() {
+        let input = "a\nb\nc";
+        let out = patch_string(input, 2, None, "x");
+        assert_eq!(out, "a\nx\nc");
+    }
+
+    #[test]
+    fn patch_string_single_line_file() {
+        let input = "only\n";
+        let out = patch_string(input, 1, None, "replaced");
+        assert_eq!(out, "replaced\n");
+    }
+
+    #[test]
+    fn patch_string_replacement_without_trailing_newline() {
+        let input = "a\nb\nc\n";
+        // Replacement without trailing newline should still produce valid output
+        let out = patch_string(input, 2, Some(2), "x");
+        assert_eq!(out, "a\nx\nc\n");
+    }
+
+    #[test]
+    fn patch_string_replacement_with_trailing_newline() {
+        let input = "a\nb\nc\n";
+        let out = patch_string(input, 2, Some(2), "x\n");
+        assert_eq!(out, "a\nx\nc\n");
+    }
+
+    // --- format_patch_diff tests ---
+
+    #[test]
+    fn format_patch_diff_shows_removed_and_added() {
+        let input = "a\nb\nc\nd\ne\n";
+        let diff = format_patch_diff(input, 2, Some(3), "x\ny");
+        assert!(diff.contains("-2|b"), "should show removed line 2");
+        assert!(diff.contains("-3|c"), "should show removed line 3");
+        assert!(diff.contains("+2|x"), "should show added line");
+        assert!(diff.contains("+3|y"), "should show added line");
+    }
+
+    #[test]
+    fn format_patch_diff_shows_context_before() {
+        let input = "a\nb\nc\nd\ne\nf\ng\n";
+        let diff = format_patch_diff(input, 5, Some(5), "X");
+        // 3 lines of context before line 5: lines 1, 2, 3 (but only 3 lines back from 5 = lines 2,3,4)
+        assert!(diff.contains(" 4|d"), "should show context line 4");
+        assert!(!diff.contains(" 1|a"), "should not show context line 1 (too far)");
+    }
+
+    #[test]
+    fn format_patch_diff_shows_context_after() {
+        let input = "a\nb\nc\nd\ne\nf\ng\n";
+        let diff = format_patch_diff(input, 2, Some(2), "X");
+        // 3 lines of context after line 2: lines 3, 4, 5
+        assert!(diff.contains(" 3|c"), "should show context line 3");
+        assert!(diff.contains(" 4|d"), "should show context line 4");
+        assert!(diff.contains(" 5|e"), "should show context line 5");
+        assert!(!diff.contains(" 6|f"), "should not show context line 6 (too far)");
+    }
+
+    #[test]
+    fn format_patch_diff_handles_start_of_file() {
+        let input = "a\nb\nc\nd\ne\n";
+        let diff = format_patch_diff(input, 1, Some(1), "X");
+        // No context before, but should show context after
+        assert!(!diff.contains("-0"), "no line 0");
+        assert!(diff.contains(" 2|b"), "should show context line 2");
+    }
+
+    #[test]
+    fn format_patch_diff_handles_end_of_file() {
+        let input = "a\nb\nc\nd\ne\n";
+        let diff = format_patch_diff(input, 5, Some(5), "X");
+        // Context before but no context after
+        assert!(diff.contains(" 4|d"), "should show context line 4");
+        assert!(!diff.contains(" 6|"), "should not show line 6 (out of bounds)");
+    }
+
+    #[test]
+    fn format_patch_diff_single_line_replacement() {
+        let input = "a\nb\nc\n";
+        let diff = format_patch_diff(input, 2, None, "X");
+        assert!(diff.contains("-2|b"), "should show removed line 2");
+        assert!(diff.contains("+2|X"), "should show added line");
+    }
+
+    #[test]
+    fn format_patch_diff_deletion_shows_no_added() {
+        let input = "a\nb\nc\nd\n";
+        let diff = format_patch_diff(input, 2, Some(3), "");
+        assert!(diff.contains("-2|b"), "should show removed line 2");
+        assert!(diff.contains("-3|c"), "should show removed line 3");
+        assert!(!diff.contains("+"), "should not show any added lines");
+    }
+
+    // --- verify_original tests ---
+
+    #[test]
+    fn verify_original_matches_single_line() {
+        let input = "a\nb\nc\n";
+        assert!(verify_original(input, 2, 2, "b").is_ok());
+    }
+
+    #[test]
+    fn verify_original_matches_range() {
+        let input = "a\nb\nc\nd\ne\n";
+        assert!(verify_original(input, 2, 4, "b\nc\nd").is_ok());
+    }
+
+    #[test]
+    fn verify_original_rejects_mismatch() {
+        let input = "a\nb\nc\n";
+        let result = verify_original(input, 2, 2, "wrong");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("original_content mismatch"), "error should mention mismatch: {}", err);
+        assert!(err.contains("expected"), "error should show expected: {}", err);
+        assert!(err.contains("actual"), "error should show actual: {}", err);
+    }
+
+    #[test]
+    fn verify_original_rejects_partial_range_mismatch() {
+        let input = "a\nb\nc\nd\n";
+        // First line matches but second doesn't
+        let result = verify_original(input, 2, 3, "b\nwrong");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_original_matches_full_file() {
+        let input = "a\nb\nc\n";
+        assert!(verify_original(input, 1, 3, "a\nb\nc").is_ok());
+    }
+
+    #[test]
+    fn verify_original_matches_first_line() {
+        let input = "a\nb\nc\n";
+        assert!(verify_original(input, 1, 1, "a").is_ok());
+    }
+
+    #[test]
+    fn verify_original_matches_last_line() {
+        let input = "a\nb\nc\n";
+        assert!(verify_original(input, 3, 3, "c").is_ok());
+    }
+
+    #[test]
+    fn verify_original_clamps_end_line_past_file() {
+        let input = "a\nb\nc\n";
+        // end_line=100 should be clamped to 3, so "b\nc" is the actual range
+        assert!(verify_original(input, 2, 100, "b\nc").is_ok());
     }
 }
 

@@ -634,6 +634,8 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         observability: Some(DelegateObservability {
             event_tx: state.event_tx.clone(),
             session_id: Some(session_id.clone()),
+            source: Some("orchestrator".to_string()),
+            tool_index_offset: 0,
         }),
         session_store: Some(&state.session_store),
         session_id: Some(session_id.as_str()),
@@ -1784,6 +1786,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     observability: Some(DelegateObservability {
                         event_tx: state.event_tx.clone(),
                         session_id: Some(session_id.clone()),
+                        source: Some("orchestrator".to_string()),
+                        tool_index_offset: 0,
                     }),
                     session_store: Some(&state.session_store),
                     session_id: Some(session_id.as_str()),

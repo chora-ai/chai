@@ -8,7 +8,6 @@ Internal spec for **LLM backends** in Chai: provider array configuration, endpoi
 
 ## Relationship to Other Documents
 
-- **[API_ALIGNMENT.md](../epic/API_ALIGNMENT.md)** — Proposal and tracking for API alignment, message/tool mapping, and [Phase 2 (Anthropic/Google)](../epic/API_ALIGNMENT.md#phase-2-anthropic-and-google). This spec lists **which** backends exist and **how** to configure them; the epic defines **what "done" means** across backends.
 - **[MODELS.md](MODELS.md)** — Model ids, repository inventory, deployment categories, and Chai tool compatibility.
 
 ## Provider Configuration
@@ -26,8 +25,6 @@ Providers are configured as a **JSON array** of provider objects, each with an `
     { "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": null, "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"] },
     { "id": "openai", "endpoint": "openai-compat", "baseUrl": "https://api.openai.com/v1", "apiKey": null },
     { "id": "hf", "endpoint": "openai-compat", "baseUrl": "http://127.0.0.1:8080/v1", "apiKey": null },
-    { "id": "anthropic", "endpoint": "anthropic", "apiKey": null },
-    { "id": "gemini", "endpoint": "google", "apiKey": null },
     { "id": "my-custom", "endpoint": "openai-compat", "baseUrl": "http://my-server:8080/v1" }
   ],
   "agents": [
@@ -42,7 +39,7 @@ Providers are configured as a **JSON array** of provider objects, each with an `
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | `String` | Yes | — | Unique provider id referenced by agents (`defaultProvider`, `enabledProviders`). |
-| `endpoint` | `EndpointType` | Yes | — | Wire protocol / API family: `"ollama"`, `"openai-compat"`, `"anthropic"`, or `"google"`. |
+| `endpoint` | `EndpointType` | Yes | — | Wire protocol / API family: `"ollama"` or `"openai-compat"`. |
 | `baseUrl` | `String` | No | Per-endpoint default | Base URL override. When unset, the endpoint type default is used. |
 | `apiKey` | `String` | No | Per-endpoint env var | API key override. When unset, the endpoint type's canonical environment variable is checked. |
 | `defaultModel` | `String` | No | Per-endpoint default | Default model id fallback for this provider. |
@@ -66,8 +63,6 @@ An **endpoint type** describes the wire protocol — what HTTP routes to call an
 |----------|--------------|------------------|---------------|-------------------|---------|
 | `"ollama"` | Native Ollama: `POST /api/chat`, `GET /api/tags` | `http://127.0.0.1:11434` | `llama3.2:3b` | `GET /api/tags` | — |
 | `"openai-compat"` | OpenAI: `POST /v1/chat/completions`, `GET /v1/models` | `http://127.0.0.1:1234/v1` | `gpt-4o-mini` | `GET /v1/models` | — |
-| `"anthropic"` | Anthropic: `POST /v1/messages` | `https://api.anthropic.com` | `claude-sonnet-4-20250514` | Static catalog or documented | `ANTHROPIC_API_KEY` |
-| `"google"` | Gemini: `generateContent` / `contents` + `tools` | `https://generativelanguage.googleapis.com` | `gemini-2.5-flash` | Static catalog or listed | `GOOGLE_API_KEY` |
 
 Endpoint types are a **closed enum**, validated at config load time. Unknown endpoint values produce a clear error. The set is small and grows slowly — new endpoint types require a code change (new `Provider` impl) but new providers of an existing endpoint type are config-only.
 
@@ -204,12 +199,11 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 ## Status of Supported Providers
 
-| Category | Current Implementation | Planned / Future |
-|----------|------------------------|------------------|
-| **Local** (personal device) | **Ollama** (`"ollama"` endpoint), **LM Studio** (`"openai-compat"` + `modelDiscovery: "lmstudio"`) | — |
-| **Self-hosted** (on-prem / private cloud) | **vLLM** (`"openai-compat"` + custom `baseUrl`), **Hugging Face** (`"openai-compat"` + `baseUrl`), **LocalAI** (via `"ollama"` or `"openai-compat"` endpoints) | **llama.cpp** only via existing paths when OpenAI-compat (or Ollama-compatible) HTTP is enabled; no dedicated endpoint type |
-| **Hosted APIs** (privacy varies) | **NVIDIA NIM** (`"openai-compat"` + `modelDiscovery: "static"` + `staticModels`), **OpenAI** (`"openai-compat"` + `baseUrl`) | — |
-| **Third-party** | — | Claude (Anthropic `"anthropic"` endpoint), Gemini (Google `"google"` endpoint) |
+| Category | Current Implementation |
+|----------|------------------------|
+| **Local** (personal device) | **Ollama** (`"ollama"` endpoint), **LM Studio** (`"openai-compat"` + `modelDiscovery: "lmstudio"`) |
+| **Self-hosted** (on-prem / private cloud) | **vLLM** (`"openai-compat"` + custom `baseUrl`), **Hugging Face** (`"openai-compat"` + `baseUrl`), **LocalAI** (via `"ollama"` or `"openai-compat"` endpoints); **llama.cpp** via OpenAI-compat (or Ollama-compatible) HTTP when enabled (no dedicated endpoint type) |
+| **Hosted APIs** (privacy varies) | **NVIDIA NIM** (`"openai-compat"` + `modelDiscovery: "static"` + `staticModels`), **OpenAI** (`"openai-compat"` + `baseUrl`) |
 
 **Configuration:** Providers are defined in the `providers` array. Each provider has a unique `id` and an `endpoint` type. Agents reference providers by `id` in `defaultProvider` and `enabledProviders`. See [Provider Configuration](#provider-configuration) for the full field reference.
 
@@ -265,7 +259,7 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 ### Compatibility: LocalAI, llama.cpp, and Venice
 
-None of these uses a dedicated provider `id` or endpoint type in Chai; they are **compatibility** stories (see [API_ALIGNMENT.md](../epic/API_ALIGNMENT.md) — **Compatibility Targets**).
+None of these uses a dedicated provider `id` or endpoint type in Chai; they are **compatibility** stories.
 
 | Product | How to Use in Chai |
 |---------|-------------------|
@@ -281,7 +275,7 @@ Canonical comparison of what the gateway uses vs what each API offers. For endpo
 
 **Ollama: current usage vs full API vs hosted**
 
-| Area | Current | Ollama Full API | Hosted (OpenAI/Anthropic) |
+| Area | Current | Ollama Full API | Hosted (Cloud APIs) |
 |------|---------|-----------------|---------------------------|
 | **Base** | `OllamaClient`, default local URL | Same | Remote URL + API key |
 | **Chat** | `/api/chat` with model, messages, stream, tools | + options, keep_alive, format, think, logprobs | Different URL/params, similar roles/messages/tools |
@@ -306,5 +300,3 @@ Canonical comparison of what the gateway uses vs what each API offers. For endpo
 | **Hugging Face** | `hf` | `"openai-compat"` + `baseUrl` | Your endpoint | Supported |
 | **NVIDIA NIM** | `nim` | `"openai-compat"` + `modelDiscovery: "static"`, `staticModels` | NVIDIA | Supported |
 | **OpenAI** | `openai` | `"openai-compat"` + `baseUrl: "https://api.openai.com/v1"` | OpenAI | Supported |
-| **Claude** | `anthropic` | `"anthropic"` | Anthropic | Planned |
-| **Gemini** | `gemini` | `"google"` | Google | Planned |

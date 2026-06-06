@@ -4,7 +4,7 @@ status: stable
 
 # Context at Session Start
 
-This document describes the **context** the model receives for a turn, as implemented in `crates/lib` (gateway `server.rs`, `orchestration/workers_context.rs`, and skills loading). **Orchestrator** and **worker** turns use **separate** static strings and tool lists (per-agent **`AGENT.md`**, **`skillsEnabled`**, **`contextMode`**); see **[AGENT_ISOLATION.md](../epic/AGENT_ISOLATION.md)**. This spec is kept in sync with the code.
+This document describes the **context** the model receives for a turn, as implemented in `crates/lib` (gateway `server.rs`, `orchestration/workers_context.rs`, and skills loading). **Orchestrator** and **worker** turns use **separate** static strings and tool lists (per-agent **`AGENT.md`**, **`skillsEnabled`**, **`contextMode`**); see **[AGENTS.md](AGENTS.md)**. This spec is kept in sync with the code.
 
 ## Turn vs Session
 
@@ -17,6 +17,16 @@ This document describes the **context** the model receives for a turn, as implem
 - **Orchestrator static context** — Composed once in **`run_gateway`**: **`AGENT.md`** from the orchestrator **agent context directory** (**`orchestrator_context_dir`** → **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**), then optional **`## Workers`** roster from **`build_workers_context`**, then orchestrator skills via **`build_skill_context_full`** or **`build_skill_context_compact`** according to the **orchestrator** entry's **`contextMode`**. Stored in **`GatewayState.system_context`**. The gateway does **not** read **`workspace/AGENTS.md`** for any agent.
 - **Worker static context** — For each **`role: worker`** entry, a **`WorkerDelegateRuntime`** is built: **`AGENT.md`** from **`worker_context_dir`** (**`<profileRoot>/agents/<workerId>/`**), worker-filtered skills, and **no** **`## Workers`** block (**`build_worker_system_context`**). Cached per worker id until restart.
 - **Tools** — **Per agent** at startup: skill tools from **`tools.json`** for that agent's enabled packages; optional **`read_skill`** when that agent's **`contextMode`** is **`readOnDemand`** and at least one skill is enabled. The **orchestrator** list is merged with **`delegate_task`** via **`merge_delegate_task`** when workers exist. **Worker** lists omit **`delegate_task`**. The same prebuilt list is sent on every turn for that role.
+
+### Startup Validation
+
+After skill loading and config resolution, the gateway runs two validation passes before accepting the configuration:
+
+**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — For each enabled skill that has an entry in the profile's `skills.lock`, the gateway checks whether the `active` symlink target matches the locked hash. Behavior on mismatch is controlled by `skillLockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills (no entry in `skills.lock`) load normally.
+
+**Capability-tier validation** — For each agent's `skillsEnabled` list:
+- **Tier vs model** — Warn when an enabled skill's `capability_tier` assumes more capability than the agent's effective model is likely to provide (e.g., a `full` skill with a 7B local model). Informational warnings only; no strict mode yet.
+- **Variant overlap** — Warn when two enabled skills share a `model_variant_of` relationship (e.g., both `git` and `git-read` enabled for the same agent), creating redundant or overlapping tool surfaces.
 
 For a **new session**, when the user sends a message, the model receives:
 

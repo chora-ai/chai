@@ -46,6 +46,8 @@ This creates `~/.chai/` with:
 
 Each profile gets its own `config.json`, agent context directories, and state. The active profile is `assistant` by default.
 
+`chai init` is safe to re-run on an existing configuration — it never overwrites files that already exist and preserves user customizations to bundled skills. See [Configuration](03-configuration.md) for the full breakdown of re-run behavior.
+
 ## Your First Chat
 
 ### Start the Gateway

@@ -128,5 +128,5 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 - [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md) — BYO signal-cli; HTTP daemon; no bundling.
 - [SIMULATIONS.md](SIMULATIONS.md) — Simulation / harness (draft); relationship to **`crates/spike`**.
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec: gateway channel types, binding, **`process_inbound_message`**, shutdown.
-- [API_ALIGNMENT.md](API_ALIGNMENT.md) — LLM backends (orthogonal to messaging surfaces).
+- [PROVIDERS.md](../spec/PROVIDERS.md) — LLM backends and provider configuration (orthogonal to messaging surfaces).
 - [ORCHESTRATION.md](ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).

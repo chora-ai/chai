@@ -1,0 +1,45 @@
+---
+status: accepted
+---
+
+# Runtime Profiles
+
+Named runtime profiles under `~/.chai/profiles/` with one active profile at a time, a symlink-based persistent default, and restart-required switching.
+
+## Context
+
+Before runtime profiles, Chai used a single flat `~/.chai/config.json` with all state (config, pairing, device identity, channel stores) in one undifferentiated directory. Users who wanted different trust or capability boundaries for different tasks — for example, a personal assistant profile with sensitive context and local models versus a separate profile for skill experimentation with frontier models — had to manually swap config files or maintain separate machines. There was no first-class way to isolate pairing credentials, agent context, and channel history between independent operational contexts.
+
+## Decision
+
+Chai uses a NixOS-like switching model with **named runtime profiles**:
+
+- Each profile is a directory under `~/.chai/profiles/<name>/` containing `config.json`, `agents/<id>/` (on-disk agent context), `paired.json`, device identity, channel stores, and `.env`. Skill packages live in a **shared store** at `~/.chai/skills/` — profiles do not duplicate package trees; they differ by per-agent `skillsEnabled` lists and `contextMode` in that profile's `config.json`.
+- The **persistent active profile** is a symlink at `~/.chai/active` pointing to `profiles/<name>/`. The symlink is the canonical default — override precedence is CLI `--profile` (ephemeral) → `CHAI_PROFILE` environment variable → `~/.chai/active` symlink. When the symlink is missing, broken, or invalid, the runtime fails rather than silently defaulting.
+- **Switching profiles requires stopping the gateway.** `chai profile switch` rewrites the symlink only when no gateway is running (enforced via an advisory exclusive lock on `~/.chai/gateway.lock`). The desktop disables profile switching while the gateway is running.
+- `chai init` creates two default profiles (`assistant` and `developer`) with equivalent scaffolds and sets `active → profiles/assistant/`. The names are mnemonics, not different runtime policies.
+- **No backwards compatibility** — `CHAI_CONFIG_PATH` and flat `~/.chai/config.json` resolution are removed. There are no shims, no migration mode, and no deprecated callouts.
+
+## Alternatives Considered
+
+| Alternative | Why not |
+|-------------|---------|
+| **Flat `~/.chai/config.json`** (prior state) | No path isolation between operational contexts. Users must manually swap configs to separate trust boundaries. |
+| **Environment-variable-only switching** (no persistent symlink) | Inconvenient for day-to-day use. Every terminal and desktop launch needs the variable set. The symlink gives a persistent default with optional overrides. |
+| **Hot-reload / no-restart switching** | Significantly more complex: the gateway would need to tear down and rebuild all state (sessions, channels, provider clients, skill tools) atomically. The restart requirement is simple and auditable. May revisit for subsets later. |
+| **Per-profile skill trees** (each profile has its own `skills/` directory) | Duplicates packages that are typically shared. The shared store with per-agent enablement lists is cleaner and supports future pin/lockfile semantics across profiles. |
+| **OS-level sandboxing** between profiles (containers, VMs, seccomp) | Profiles are runtime and path isolation first. Stronger isolation is a possible follow-on, not a requirement for this design. |
+
+## Consequences
+
+- **Data isolation is first-class.** Pairing credentials, device identity, channel history, and agent context never cross profile boundaries.
+- **Operational simplicity.** The switching contract is clear: stop → switch → restart. No partial state or stale connections.
+- **Shared skill store.** Skill definitions are visible to all profiles; enablement is per-agent per-profile. Sensitive instructions belong in profile-local `AGENT.md` files, not in skill packages.
+- **No migration path from the flat layout.** Operators with existing flat installations must run `chai init` to adopt the profile layout and move any custom content manually.
+
+## References
+
+- [spec/PROFILES.md](../spec/PROFILES.md) — Behavioral contract for the profile system.
+- [spec/CONFIGURATION.md](../spec/CONFIGURATION.md) — On-disk `config.json` blocks and environment overrides.
+- [spec/AGENTS.md](../spec/AGENTS.md) — Per-agent context directories and skill configuration within profiles.
+- [adr/AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent context and skill decisions.

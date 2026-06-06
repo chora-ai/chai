@@ -61,7 +61,7 @@ pub fn build_workers_context(
     out.push_str("## Workers\n\n");
     out.push_str("You are the orchestrator agent. You have worker agents. You can:\n\n");
     out.push_str("- call `delegate_task` to delegate a task to a worker agent\n\n");
-    out.push_str("The worker agent will do the task following your instruction.\n\n");
+    out.push_str("The worker agent will perform the task following your instruction.\n\n");
     for w in workers {
         lines_for_worker(&mut out, providers, agents, w, &skill_by_name);
     }

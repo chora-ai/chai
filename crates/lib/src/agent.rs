@@ -9,7 +9,7 @@
 
 use crate::orchestration::{
     execute_delegate_task, parse_delegate_tool_calls, parse_delegate_tool_results, DelegateContext,
-    DELEGATE_TASK_TOOL_NAME,
+    DelegateObservability, DELEGATE_TASK_TOOL_NAME,
 };
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
@@ -155,6 +155,7 @@ pub async fn run_turn_with_messages<B: Provider>(
         tools,
         tool_executor,
         max_tool_loop_iterations,
+        None,
     )
     .await
 }
@@ -167,6 +168,7 @@ pub async fn run_turn_with_messages_dyn(
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     max_tool_loop_iterations: u32,
+    observability: Option<&DelegateObservability>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)> = None;
     execute_turn_worker(
@@ -178,6 +180,7 @@ pub async fn run_turn_with_messages_dyn(
         &mut on_chunk,
         None,
         max_tool_loop_iterations,
+        observability,
     )
     .await
 }
@@ -192,6 +195,7 @@ async fn execute_turn_worker(
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
     max_tool_loop_iterations: u32,
+    observability: Option<&DelegateObservability>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
@@ -322,9 +326,16 @@ async fn execute_turn_worker(
         }
 
         messages.push(assistant_msg);
-        for call in &last_tool_calls {
+        for (idx, call) in last_tool_calls.iter().enumerate() {
             let name = call.function.name.as_str();
             let args = &call.function.arguments;
+
+            // Emit session.tool_call event before execution so the desktop can
+            // render worker tool calls as separate timeline entries as they happen.
+            if let Some(ref obs) = observability {
+                obs.emit_tool_call(name, args, executed_tool_calls.len() + idx);
+            }
+
             let result = if name == DELEGATE_TASK_TOOL_NAME {
                 log::debug!("agent: delegate_task not available in worker turn");
                 "error: delegate_task is not available in this context".to_string()
@@ -344,6 +355,12 @@ async fn execute_turn_worker(
                 }
             };
             executed_tool_results.push(result.clone());
+
+            // Emit session.tool_result event after execution completes.
+            if let Some(ref obs) = observability {
+                obs.emit_tool_result(name, &result, executed_tool_calls.len() + idx);
+            }
+
             messages.push(ChatMessage {
                 role: "tool".to_string(),
                 content: result.clone(),
@@ -838,6 +855,7 @@ mod tests {
             None,
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -869,6 +887,7 @@ mod tests {
             None,
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -917,6 +936,7 @@ mod tests {
             None,
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -982,6 +1002,7 @@ mod tests {
             None,
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -1030,6 +1051,7 @@ mod tests {
             None,
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -1132,6 +1154,7 @@ mod tests {
             None,
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
         )
         .await
         .unwrap();
@@ -1190,6 +1213,7 @@ mod tests {
             None,
             None,
             3,
+            None,
         )
         .await
         .unwrap();

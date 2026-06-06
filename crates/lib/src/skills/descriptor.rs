@@ -141,10 +141,12 @@ pub struct ResolveCommandSpec {
 pub struct ArgMapping {
     /// JSON parameter name (e.g. "query").
     pub param: String,
-    /// How to pass it: "positional", "flag", "flagIfBoolean", or "stdin".
+    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", or "workingdir".
     #[serde(default)]
     pub kind: ArgKind,
-    /// For kind "flag", the flag name (e.g. "content" -> --content). If absent, uses param.
+    /// For kind "flag", the flag name. Single-character names produce short flags
+    /// (e.g. "n" -> `-n`); multi-character names produce long flags (e.g. "path" -> `--path`).
+    /// If absent, uses param (which will always produce a long flag).
     #[serde(default)]
     pub flag: Option<String>,
     /// For kind "flagIfBoolean", the flag to emit when the param value is true (e.g. "--overwrite").
@@ -183,12 +185,19 @@ pub enum ArgKind {
     /// Pass the value as a single positional argument.
     #[default]
     Positional,
-    /// Pass as --flag value. Uses `flag` if set, else `param`.
+    /// Pass as a flag. Single-character `flag` values produce `-x`; multi-character
+    /// values produce `--xx`. Uses `flag` if set, else `param` (always long form).
     Flag,
     /// Param is boolean: emit `flag_if_true` when true, `flag_if_false` when false (e.g. replace -> --overwrite | --append).
     FlagIfBoolean,
     /// Pipe the value to the process's stdin instead of adding it to argv.
     Stdin,
+    /// Set the process working directory to the resolved value. The value is
+    /// validated against the sandbox (like `readPath`) and used as `current_dir`
+    /// for the child process, but is NOT added to argv. When `resolveCommand`
+    /// is set, the resolver runs with an empty string when the param is omitted,
+    /// defaulting to the sandbox root.
+    WorkingDir,
 }
 
 impl ToolDescriptor {

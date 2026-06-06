@@ -17,32 +17,16 @@ File tools for inspecting, writing, and deleting files, listing directories, and
 ## Skill Directives
 
 - always use paths relative to the sandbox root (`.`) — use `./` prefix for all file operations
-- always set `recursive` to true when searching directories with `files_search_content` (this is the default — omit this parameter rather than setting it to false unless you intentionally want a shallow search)
 - always set `line_numbers` to true when searching for code patterns
 - never assume a file exists — use `files_list_dir` to verify first
 - never read binary files — check file type with `files_list_dir` before reading
 - always read a file with `files_read_file` before overwriting it with `files_write_file`
-- never write to or delete paths outside the configured sandbox
-- always verify a file exists with `files_list_dir` before deleting it
 - never delete files without confirming the action is intended
 - prefer `files_read_lines` over `files_read_file` when you only need specific lines, to reduce context usage
 - prefer `files_write_lines` over `files_write_file` for targeted edits to large files
-- always verify a directory is empty with `files_list_dir` before deleting it with `files_delete_dir`
-- always re-read or re-search a file to get fresh line numbers before each `files_write_lines` call — line numbers shift after any edit that adds or removes lines
+- always provide `original_content` when calling `files_write_lines` — use `files_read_lines` to get the exact content at the target range first
 - prefer rewriting an entire affected section (e.g. a struct + impl block) as a single `files_write_lines` call over making multiple small targeted edits to the same file
 - when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
-
-## Available Tools
-
-- `files_read_file`
-- `files_read_lines`
-- `files_list_dir`
-- `files_search_content`
-- `files_write_file`
-- `files_write_lines`
-- `files_append`
-- `files_delete_file`
-- `files_delete_dir`
 
 ## Tool Instructions
 
@@ -56,93 +40,53 @@ File tools for inspecting, writing, and deleting files, listing directories, and
 1. Call `files_read_lines` with `path` set to a `./`-relative file path, `start_line` set to the first line to read (1-indexed), and optionally `end_line` set to the last line to read.
 2. When `end_line` is omitted, only `start_line` is read (single line).
 3. Lines are returned with line numbers in the format `{line_number}|{content}`.
-4. Use this when you only need a portion of a file — it saves context compared to reading the whole file.
-5. After using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines.
+4. After using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines.
 
 ### List directory contents
 
 1. Call `files_list_dir` with `path` set to a `./`-relative directory path.
 2. Set `long` to true to see permissions, sizes, and dates.
 3. Set `all` to true to include hidden files (dotfiles).
-4. When an `AGENTS.md` file exists in the listed directory, its contents are automatically appended to the result as a context section (labeled with the filename). This is an automatic context-loading feature — it is not part of the `ls` output. The `AGENTS.md` content comes from the same directory being listed, and each path is surfaced at most once per session.
+4. When an `AGENTS.md` file exists in the listed directory, its contents are automatically appended to the result as a context section — this is not part of the `ls` output but an automatic context-loading feature.
 
 ### Search for content in files
 
 1. Call `files_search_content` with `pattern` and a `./`-relative `path`.
-2. Set `recursive` to true to search all files in subdirectories.
+2. Set `recursive` to true to search all files in subdirectories (default).
 3. Set `line_numbers` to true to include line numbers in output.
 4. Set `case_insensitive` to true for case-insensitive matching.
 5. Set `files_only` to true to get just the list of matching files without showing the matching lines.
 
-The `pattern` parameter supports **extended regex** (ERE) — `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping all work. This is the same syntax used by `grep -E`. When no matches are found, the tool returns an empty result (not an error).
-
-### Find files by content
-
-1. Call `files_search_content` with `pattern` set to the content to find, a `./`-relative `path`, `recursive` to true, and `files_only` to true.
-2. This returns only file paths that contain the pattern.
+The `pattern` parameter supports **extended regex** (ERE) — `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping all work. When no matches are found, the tool returns an empty result (not an error).
 
 ### Write a file
 
 1. Call `files_write_file` with `path` set to a `./`-relative file path and `content` set to the full file content.
 2. The file is created if it does not exist, or overwritten if it does.
-3. The parent directory must already exist.
+3. Parent directories are created automatically if they do not exist.
 
 ### Write specific lines to a file
 
-1. Call `files_write_lines` with `path`, `start_line`, and `content`.
-2. Set `end_line` to replace a multi-line range. When omitted, only `start_line` is replaced.
-3. Lines outside `[start_line, end_line]` are preserved unchanged.
-4. The replacement content can expand (more lines), contract (fewer lines), or delete (empty content) the range.
-5. Use this for targeted edits to large files instead of reading and rewriting the entire file.
+1. Use `files_read_lines` to read the exact content at the target range — this becomes the `original_content` parameter.
+2. Call `files_write_lines` with `path`, `start_line`, `original_content`, and `content`.
+3. Set `end_line` to replace a multi-line range. When omitted, only `start_line` is replaced.
+4. The tool verifies `original_content` matches the file before applying the patch. If it doesn't match, the edit is rejected — re-read the file and retry with fresh content.
+5. Lines outside `[start_line, end_line]` are preserved unchanged.
+6. The replacement content can expand (more lines), contract (fewer lines), or delete (empty content) the range.
+7. The tool returns a diff showing removed lines (`-` prefix), added lines (`+` prefix), and 3 lines of context before and after the change.
 
-**Caution: line numbers change after each edit.** A `files_write_lines` call that adds or removes lines shifts all subsequent line numbers in the file. When making multiple edits to the same file:
-- Always verify the exact content at your target lines immediately before each `files_write_lines` call by reading or searching — never assume line numbers from a prior read are still accurate.
-- When making several non-adjacent edits, work from bottom to top (highest line numbers first) so earlier edits don't shift the line numbers of later targets.
-- When deleting multiple fields or functions, prefer rewriting the entire affected section as a single `files_write_lines` call rather than making many small single-line deletions.
-
-### Append to a file
-
-1. Call `files_append` with `path` set to a `./`-relative file path and `content` set to the content to append.
-2. The file is created if it does not exist, or the content is appended to the end if it does.
-3. Parent directories are created automatically if they do not exist.
-4. Use this instead of `files_write_file` when adding to an existing file without reading and rewriting the entire content.
-
-### Update an existing file
-
-For small files or full rewrites:
-1. Call `files_read_file` to get the current content.
-2. Apply changes to the content.
-3. Call `files_write_file` with `path` and the updated `content`.
-4. Call `files_read_file` to verify the change.
-
-For targeted edits to large files:
-1. Call `files_search_content` with `line_numbers: true` to find the lines to change.
-2. Call `files_read_lines` to read the lines around the change (for context).
-3. Call `files_write_lines` with the replacement content for just those lines.
-4. Call `files_read_lines` to verify the change.
-
-**Important: preventing stale line number errors.** After any `files_write_lines` call that changes the line count (adds or removes lines), all line numbers below the edit shift. If you need to make another edit to the same file, you must re-read or re-search to get fresh line numbers before the next call — do not reuse line numbers from a previous read. Alternately, rewrite the entire affected section (e.g. a full struct + impl block) as a single `files_write_lines` call, which eliminates the stale-line-number problem entirely.
+**Line numbers shift after edits.** When making multiple edits, work from bottom to top and always re-read to get fresh line numbers and `original_content` before the next edit.
 
 ### Delete a file
 
-1. Call `files_list_dir` to verify the file exists.
-2. Call `files_delete_file` with `path` set to a `./`-relative file path.
-3. The file is deleted. Directories cannot be deleted with this tool.
+1. Call `files_delete_file` with `path` set to a `./`-relative file path.
+2. The file is deleted. Directories cannot be deleted with this tool.
 
 ### Delete an empty directory
 
-1. Call `files_list_dir` to verify the directory exists and is empty.
-2. Call `files_delete_dir` with `path` set to a `./`-relative directory path.
-3. The directory is deleted only if it is empty. Non-empty directories and files are refused.
-4. To delete a directory with contents, first delete all files and subdirectories inside it, then delete the empty directory.
-
-### Explore a codebase
-
-1. Call `files_list_dir` on the project root to see the structure.
-2. Drill into directories of interest with additional `files_list_dir` calls.
-3. Use `files_search_content` to find specific functions, classes, or patterns.
-4. Use `files_read_lines` to examine the lines around search results.
-5. Use `files_read_file` to read entire files when needed.
+1. Call `files_delete_dir` with `path` set to a `./`-relative directory path.
+2. The directory is deleted only if it is empty. Non-empty directories and files are refused.
+3. To delete a directory with contents, first delete all files and subdirectories inside it, then delete the empty directory.
 
 ## Examples
 
@@ -166,29 +110,21 @@ For targeted edits to large files:
 
 {"pattern": "fn main", "path": "./src", "recursive": true, "line_numbers": true}
 
-### files_search_content with alternation
-
-{"pattern": "TODO|FIXME", "path": "./src", "recursive": true, "line_numbers": true}
-
 ### files_write_file
 
 {"path": "./src/config.rs", "content": "pub struct Config {\n    pub port: u16,\n}"}
 
 ### files_write_lines (replace single line)
 
-{"path": "./src/config.rs", "start_line": 5, "content": "    pub host: String,"}
+{"path": "./src/config.rs", "start_line": 5, "original_content": "    pub name: String,", "content": "    pub host: String,"}
 
 ### files_write_lines (replace line range)
 
-{"path": "./src/config.rs", "start_line": 3, "end_line": 5, "content": "    pub name: String,\n    pub port: u16,\n    pub host: String,"}
+{"path": "./src/config.rs", "start_line": 3, "end_line": 5, "original_content": "    pub name: String,\n    pub port: u16,\n    pub host: String,", "content": "    pub name: String,\n    pub port: u16,\n    pub host: String,\n    pub active: bool,"}
 
 ### files_write_lines (delete lines by replacing with empty content)
 
-{"path": "./src/config.rs", "start_line": 8, "end_line": 10, "content": ""}
-
-### files_append
-
-{"path": "./src/log.txt", "content": "entry added at runtime\n"}
+{"path": "./src/config.rs", "start_line": 8, "end_line": 10, "original_content": "    // deprecated\n    pub legacy: bool,\n    pub old_field: i32,", "content": ""}
 
 ### files_delete_file
 

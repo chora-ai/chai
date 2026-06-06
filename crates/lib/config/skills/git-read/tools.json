@@ -6,7 +6,12 @@
       "parameters": {
         "type": "object",
         "required": [],
-        "properties": {}
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
       }
     },
     {
@@ -18,7 +23,7 @@
         "properties": {
           "count": {
             "type": "string",
-            "description": "Number of commits to show (e.g. '10'). Defaults to 20 if omitted."
+            "description": "Number of commits to show (e.g. '10'). Defaults to all if omitted."
           },
           "oneline": {
             "type": "boolean",
@@ -26,7 +31,11 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit log to commits affecting this file or directory path"
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Limit log to commits affecting this file or directory path within the repository"
           }
         }
       }
@@ -48,7 +57,11 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit diff to a specific file or directory path"
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Limit diff to a specific file or directory path within the repository"
           }
         }
       }
@@ -63,6 +76,10 @@
           "ref": {
             "type": "string",
             "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -77,6 +94,10 @@
           "all": {
             "type": "boolean",
             "description": "Include remote-tracking branches"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -90,7 +111,9 @@
       "tool": "git_status",
       "binary": "git",
       "subcommand": "status",
-      "args": []
+      "args": [
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+      ]
     },
     {
       "tool": "git_log",
@@ -99,7 +122,8 @@
       "args": [
         { "param": "count", "kind": "flag", "flag": "n" },
         { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
-        { "param": "path", "kind": "positional", "optional": true }
+        { "param": "file_path", "kind": "positional", "optional": true },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },
     {
@@ -109,12 +133,8 @@
       "args": [
         { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--cached" },
         { "param": "ref", "kind": "positional", "optional": true },
-        {
-          "param": "path",
-          "kind": "positional",
-          "optional": true,
-          "disambiguateAfterSkippedPositionals": true
-        }
+        { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },
     {
@@ -122,7 +142,8 @@
       "binary": "git",
       "subcommand": "show",
       "args": [
-        { "param": "ref", "kind": "positional" }
+        { "param": "ref", "kind": "positional" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },
     {
@@ -130,7 +151,8 @@
       "binary": "git",
       "subcommand": "branch",
       "args": [
-        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" }
+        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     }
   ]

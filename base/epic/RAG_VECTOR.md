@@ -34,7 +34,7 @@ Re-implementing core **`delegate_task`** orchestration (already shipped — see 
 
 ## Dependencies
 
-- **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [API_ALIGNMENT.md](API_ALIGNMENT.md) and reference documentation for supported or planned backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
+- **API alignment** — Embedding endpoints are backend-specific (Ollama, LM Studio, etc). See [PROVIDERS.md](../spec/PROVIDERS.md) and reference documentation for supported backend services; existing backend clients should be extended to support embedding (no need to create a separate client for embedding).
 - **Orchestration** — **`delegate_task`** and per-worker turns are **already** implemented ([ORCHESTRATION.md](ORCHESTRATION.md)). This epic adds RAG-specific tools and embedding/index flows on top of that stack; the worker embedding model would handle index build and query embedding while the orchestrator calls tools and consumes retrieved context (optionally via delegation).
 
 ## Design
@@ -213,4 +213,4 @@ These can be resolved during design or early implementation:
 ## Related Epics and Docs
 
 - [ORCHESTRATION.md](ORCHESTRATION.md) — Orchestrator–worker delegation (**shipped**). RAG builds on **`delegate_task`** and per-worker tools; per-project filesystem policy for workers remains future work (see **Design** in this epic).
-- [API_ALIGNMENT.md](API_ALIGNMENT.md) — Backend client alignment; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.
+- [PROVIDERS.md](../spec/PROVIDERS.md) — Backend client configuration; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.

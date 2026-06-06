@@ -38,11 +38,12 @@ This spec describes **blocks and policy**, not every optional key.
   "gateway": { },
   "channels": { },
   "providers": { },
-  "agents": [ ]
+  "agents": [ ],
+  "skillLockMode": "strict"
 }
 ```
 
-**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. There is **no** top-level **`skills`** object; per-agent **`skillsEnabled`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**.
+**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. There is **no** top-level **`skills`** object; per-agent **`skillsEnabled`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skillLockMode`** controls gateway startup behavior when the lockfile does not match active skill versions (see [PROFILES.md](PROFILES.md)).
 
 ---
 
@@ -51,13 +52,12 @@ This spec describes **blocks and policy**, not every optional key.
 Counterpart to the status blocks table in [GATEWAY_STATUS.md](GATEWAY_STATUS.md).
 
 | Block | Holds (summary) | Notes |
-|-------|-----------------|--------|
+|-------|-----------------|-------|
 | **`gateway`** | Listen **`bind`**, **`port`**; **`auth.mode`** (**`none`** \| **`token`**) and optional **`token`** (WebSocket connect). | Token may be overridden by **`CHAI_GATEWAY_TOKEN`**. Loopback-only semantics for **`none`** auth. |
 | **`channels`** | Telegram (bot token, webhook), Matrix (homeserver, credentials, room allowlist, store path, …), Signal (HTTP daemon URL, account). | Fields have **`resolve_*`** overrides (see **`config.rs`** and **`README.md`**). |
 | **`providers`** | Per-backend entries: **`ollama`**, **`lms`**, **`nim`**, **`vllm`**, **`openai`**, **`hf`** — base URLs and API keys where applicable. | Model API endpoints; not chat surfaces. Omitted when defaults or env suffice. |
 | **`agents`** | Orchestrator + workers: ids, roles, **`defaultProvider`** / **`defaultModel`**, **`enabledProviders`** (discovery scope), **`skillsEnabled`** (package names under the resolved skills root), **`contextMode`** (**`full`** \| **`readOnDemand`**), **`maxSessionMessages`**, **`maxToolLoopIterations`** (default 100; safety net for runaway tool loops), delegation policy (workers, allowlists, caps, routes, blocked providers). On-disk **`AGENT.md`** for each entry is **`<profileRoot>/agents/<id>/AGENT.md`**. | Exactly one orchestrator; workers use **`role: worker`**. Omit **`agents`** for the built-in default orchestrator only. Missing or empty **`skillsEnabled`** on an entry means no skills for that agent. Skill packages are loaded from the shared discovery root (see **`README.md`**); there is **no** top-level **`skills`** block. |
-
----
+| **`skillLockMode`** | **`"strict"`** (default) \| **`"warn"`** — how the gateway handles mismatches between the per-profile `skills.lock` and active skill versions at startup. | `"strict"` refuses to start; `"warn"` logs and continues. See [PROFILES.md](PROFILES.md). |
 
 ## Environment Overrides
 
@@ -72,4 +72,4 @@ Effective configuration combines the file with **`config.rs`** resolution: **`re
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Delegation policy and worker semantics.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery vs **`agents.enabledProviders`**.
 - **[CONTEXT.md](CONTEXT.md)** — Per-agent **`contextMode`** and **`skillsEnabled`** in context and tools.
-- **[RUNTIME_PROFILES.md](../epic/RUNTIME_PROFILES.md)** — **`profileRoot`** and **`<profileRoot>/agents/<id>/`**.
+- **[PROFILES.md](PROFILES.md)** — **`profileRoot`**, **`<profileRoot>/agents/<id>/`**, and profile directory structure.

@@ -18,6 +18,9 @@ pub struct ChatMessage {
     pub(crate) tool_result: Option<String>,
     /// Index of this tool call within the agent turn (for correlating tool_call → tool_result).
     pub(crate) tool_index: Option<usize>,
+    /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
+    /// tool calls with a blue border matching delegation events.
+    pub(crate) source: Option<String>,
 }
 
 impl ChatMessage {
@@ -32,6 +35,7 @@ impl ChatMessage {
             tool_args: None,
             tool_result: None,
             tool_index: None,
+            source: None,
         }
     }
 
@@ -46,6 +50,7 @@ impl ChatMessage {
             tool_args: None,
             tool_result: None,
             tool_index: None,
+            source: None,
         }
     }
 
@@ -64,6 +69,7 @@ impl ChatMessage {
             tool_args: None,
             tool_result: None,
             tool_index: None,
+            source: None,
         }
     }
 
@@ -78,6 +84,7 @@ impl ChatMessage {
             tool_args: None,
             tool_result: None,
             tool_index: None,
+            source: None,
         }
     }
 }
@@ -111,6 +118,9 @@ pub struct SessionEvent {
     pub(crate) tool_result: Option<String>,
     /// Index of this tool call within the agent turn.
     pub(crate) tool_index: Option<usize>,
+    /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
+    /// tool calls with a blue border matching delegation events.
+    pub(crate) source: Option<String>,
 }
 
 /// One worker row derived from gateway **`status`** `payload.agents.entries` (**`role`** **`worker`**): effective defaults for delegation.

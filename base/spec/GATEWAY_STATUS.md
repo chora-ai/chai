@@ -73,6 +73,8 @@ Shared skill store on disk (not per-agent):
 |-------|---------|
 | **`discoveryRoot`** | Directory the gateway scans for packages (resolved at startup; default layout under **`~/.chai`** — see **`README.md`**). |
 | **`packagesDiscovered`** | Package count on disk before per-agent **`skillsEnabled`** filtering. |
+| **`lockGeneration`** | Current generation number from the profile's `skills.lock`, or `null` when no lockfile exists. |
+| **`lockedSkills`** | Number of skills pinned in the lockfile (0 when no lockfile exists). |
 
 ### `agents`
 
@@ -113,7 +115,7 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 | **`channels`** | Active vs configured, transport hints | Tokens, passwords, Matrix access tokens |
 | **`providers`** | Discovery flag, model lists | API keys, URLs that embed credentials |
 | **`agents`** | Effective defaults, catalog, **`entries`** | Full raw **`config.json`** |
-| **`skillPackages`** | Store root path, disk package count | Full directory trees |
+| **`skillPackages`** | Store root path, disk package count, lockfile generation, locked skill count | Full directory trees |
 
 ---
 
@@ -123,7 +125,9 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 - **[CHANNELS.md](CHANNELS.md)** — Channel runtime behavior.
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Catalog and delegation.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery rules.
-- **[CONTEXT.md](CONTEXT.md)** — Context strings and skills mode.
+- **[PROFILES.md](PROFILES.md)** — Per-profile lockfile (`skills.lock`) and generation tracking.
+- **[SKILL_FORMAT.md](SKILL_FORMAT.md)** — Skill package versioned layout and frontmatter.
+- **[CONTEXT.md](CONTEXT.md)** — Context strings, skills mode, and startup validation.
 - **`crates/lib/src/gateway/protocol.rs`** — WebSocket protocol notes.
 
 ---

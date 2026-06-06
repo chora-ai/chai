@@ -6,12 +6,48 @@ The command-line interface and desktop application use the same configuration. T
 
 After installing, run `chai init` to create `~/.chai/`:
 
+```bash
+chai init
+```
+
+This creates:
+
 - Two default profiles: `assistant` and `developer`
 - An `active` symlink → `profiles/assistant/`
 - A shared `skills/` tree (bundled skills extracted from the application)
 - A `sandbox/` directory per profile for write-capable tools
 
 Each profile gets its own `config.json`, agent context directories, and local state. The active profile is `assistant` by default.
+
+### Re-Running `chai init`
+
+`chai init` is safe to run on an already-initialized configuration directory. It follows a strict non-destructive policy: existing files are never overwritten, and existing settings are preserved.
+
+**Profile files** — Each file is only written when it does not already exist:
+
+| File | Behavior |
+|------|----------|
+| `profiles/<name>/config.json` | Created with `{}` if absent; existing configuration is preserved |
+| `profiles/<name>/agents/orchestrator/AGENT.md` | Seeded from bundled template if absent; existing instructions are preserved |
+| `profiles/<name>/sandbox/AGENTS.md` | Seeded from bundled template if absent; existing content is preserved |
+| `profiles/<name>/sandbox/README.md` | Seeded from bundled template if absent; existing content is preserved |
+
+**Bundled skills** — Each bundled skill is extracted into `~/.chai/skills/<name>/` using content-addressed versioning:
+
+| Component | Behavior |
+|-----------|----------|
+| `versions/<hash>/` snapshot | Created if absent. Immutable — never re-written once created. |
+| `active` symlink | Set only when no active version exists (fresh installation). If the skill already has an `active` symlink pointing to a valid version, it is left unchanged — this preserves user customizations such as manual rollbacks or edits via `skills_write_skill_md`. The new bundled version snapshot is still written to disk, so the user can switch to it manually if desired. |
+
+**Profile `active` symlink** — `~/.chai/active` is set to `profiles/assistant/`. Unlike other components, this symlink is updated unconditionally on each `chai init` run, which resets the active profile to `assistant`. If you have switched to a different profile, you will need to run `chai profile switch <name>` again after re-initializing.
+
+### When to Re-Run
+
+Re-running `chai init` is useful when:
+
+- A new version of chai ships updated bundled skills — the new version snapshots will be created on disk (you can adopt them with `chai skill rollback` or by manually updating the `active` symlink)
+- A profile directory or `sandbox/` was accidentally deleted — the missing directories and template files will be re-created
+- You want to ensure the default profile scaffold is complete
 
 ## Profiles
 

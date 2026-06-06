@@ -43,14 +43,27 @@ pub const EVENT_ASSISTANT_PROGRESS: &str = "session.assistant_progress";
 pub struct DelegateObservability {
     pub event_tx: broadcast::Sender<String>,
     pub session_id: Option<String>,
+    /// Source label included in tool call/result events (e.g. `"orchestrator"` or `"worker"`)
+    /// so the desktop can style them differently.
+    pub source: Option<String>,
+    /// Offset added to tool call/result `index` values emitted by this observability instance.
+    /// Workers set this to the number of tool calls already executed by the orchestrator in the
+    /// current turn so that worker tool indices don't collide with orchestrator indices.
+    pub tool_index_offset: usize,
 }
 
 impl DelegateObservability {
     fn base_payload(&self) -> serde_json::Value {
-        match &self.session_id {
+        let mut base = match &self.session_id {
             Some(id) => json!({ "sessionId": id }),
             None => json!({}),
+        };
+        if let Some(obj) = base.as_object_mut() {
+            if let Some(ref s) = self.source {
+                obj.insert("source".to_string(), json!(s));
+            }
         }
+        base
     }
 
     fn merge_base(&self, extra: serde_json::Value) -> serde_json::Value {
@@ -108,10 +121,11 @@ impl DelegateObservability {
         tool_args: &serde_json::Value,
         index: usize,
     ) {
+        let effective_index = self.tool_index_offset + index;
         let payload = self.merge_base(json!({
             "toolName": tool_name,
             "toolArgs": tool_args,
-            "index": index,
+            "index": effective_index,
         }));
         self.send(EVENT_TOOL_CALL, payload);
     }
@@ -123,10 +137,11 @@ impl DelegateObservability {
         tool_result: &str,
         index: usize,
     ) {
+        let effective_index = self.tool_index_offset + index;
         let payload = self.merge_base(json!({
             "toolName": tool_name,
             "toolResult": tool_result,
-            "index": index,
+            "index": effective_index,
         }));
         self.send(EVENT_TOOL_RESULT, payload);
     }
@@ -548,8 +563,14 @@ pub async fn execute_delegate_task(
         format!("no client registered for provider '{}'", choice.as_str())
     })?;
     let max_iterations = crate::config::resolve_max_tool_loop_iterations(ctx.agents);
+    let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
+        event_tx: obs.event_tx.clone(),
+        session_id: obs.session_id.clone(),
+        source: Some("worker".to_string()),
+        tool_index_offset: 0,
+    });
     let result =
-        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations).await
+        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations, worker_obs.as_ref()).await
         {
             Ok(r) => r,
             Err(e) => {
@@ -775,6 +796,8 @@ mod tests {
         let obs = DelegateObservability {
             event_tx: tx,
             session_id: Some("sess-1".to_string()),
+            source: None,
+            tool_index_offset: 0,
         };
         obs.send(
             EVENT_DELEGATE_START,
@@ -787,6 +810,23 @@ mod tests {
         let merged = obs.merge_base(json!({ "provider": "ollama" }));
         assert_eq!(merged["sessionId"], "sess-1");
         assert_eq!(merged["provider"], "ollama");
+        // source is None — should not appear in the merged payload.
+        assert!(merged.get("source").is_none(), "source should be absent when None");
+    }
+
+    #[test]
+    fn delegate_observability_includes_source_in_payload() {
+        let (tx, _rx) = broadcast::channel::<String>(4);
+        let obs = DelegateObservability {
+            event_tx: tx,
+            session_id: Some("sess-2".to_string()),
+            source: Some("worker".to_string()),
+            tool_index_offset: 0,
+        };
+        let merged = obs.merge_base(json!({ "toolName": "read_file" }));
+        assert_eq!(merged["sessionId"], "sess-2");
+        assert_eq!(merged["source"], "worker");
+        assert_eq!(merged["toolName"], "read_file");
     }
 
     #[test]

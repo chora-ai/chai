@@ -11,7 +11,7 @@ Reference for the **vLLM** inference and serving stack: OpenAI-compatible HTTP A
 ## Purpose and How to Use
 
 - **Purpose:** Summarize vLLM's serving APIs relevant to chat agents, note behaviors that differ from plain OpenAI clients, and document how the gateway uses vLLM via the `"openai-compat"` endpoint type.
-- **How to use:** Configure a provider with `endpoint: "openai-compat"` and the vLLM base URL. Consult this doc alongside [LM_STUDIO.md](LM_STUDIO.md) (same request/response shapes for chat) and [API_ALIGNMENT.md](../epic/API_ALIGNMENT.md).
+- **How to use:** Configure a provider with `endpoint: "openai-compat"` and the vLLM base URL. Consult this doc alongside [LM_STUDIO.md](LM_STUDIO.md) (same request/response shapes for chat).
 
 ## Official vLLM Documentation
 
