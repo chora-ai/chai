@@ -52,5 +52,5 @@ status: accepted
 
 - ADRs are generally stable after writing — they record a point-in-time decision
 - If a decision is reversed or replaced, set `status: superseded` and add a note linking to the new decision
-- When code or product reality **changes the consequences** of an accepted decision (without a full reversal), update the ADR: amend **Consequences**, add a short dated note under **Decision** or **Context**, or write a new ADR and **supersede** the old one if the narrative is cleaner
+- When code or product reality **changes the consequences** of an accepted decision (without a full reversal), update the ADR: amend **Consequences**, add a short dated note, or write a new ADR and **supersede** the old one if the narrative is cleaner
 - Touching related code is a good moment to re-read the ADR and fix drift so **`accepted`** stays truthful

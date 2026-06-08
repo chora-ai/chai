@@ -1,16 +1,11 @@
 ---
-name: skills-read
 description: Inspect and validate Chai skill packages (read-only).
+capability_tier: minimal
+model_variant_of: skills
 metadata:
   requires:
     bins: ["chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: minimal
-model_variant_of: skills
 ---
-
 # Skills (Read-Only)
 
 Inspect and validate Chai skill packages. This skill provides read-only access to installed skills for conformance checking, structural validation, and inventory reporting.
@@ -55,11 +50,11 @@ Inspect and validate Chai skill packages. This skill provides read-only access t
 
 1. Call `skills_read` with `skill_name` and `file` set to `skill_md`.
 2. Verify:
-   - Frontmatter includes `name`, `description`, and `metadata.requires.bins`.
+   - Frontmatter includes `description`, `capability_tier`, and `metadata.requires.bins`.
+   - `capability_tier` is one of `minimal`, `moderate`, or `full`.
    - If the skill has tools, the body lists them in an "Available Tools" section.
    - Tool names in SKILL.md match the names in tools.json.
    - Instructions reference only tools that exist in tools.json.
-3. If `generated_from` metadata is present, verify `capability_tier` is one of `minimal`, `moderate`, or `full`.
 
 ### Cross-validate a skill
 

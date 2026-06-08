@@ -21,6 +21,9 @@ pub struct ChatMessage {
     /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
     /// tool calls with a blue border matching delegation events.
     pub(crate) source: Option<String>,
+    /// Tool calls that were generated but not executed because the loop limit was reached.
+    /// Set on `tool_loop_limit` role messages.
+    pub(crate) pending_tool_calls: Option<Vec<serde_json::Value>>,
 }
 
 impl ChatMessage {
@@ -36,6 +39,7 @@ impl ChatMessage {
             tool_result: None,
             tool_index: None,
             source: None,
+            pending_tool_calls: None,
         }
     }
 
@@ -51,6 +55,7 @@ impl ChatMessage {
             tool_result: None,
             tool_index: None,
             source: None,
+            pending_tool_calls: None,
         }
     }
 
@@ -70,6 +75,7 @@ impl ChatMessage {
             tool_result: None,
             tool_index: None,
             source: None,
+            pending_tool_calls: None,
         }
     }
 
@@ -85,6 +91,31 @@ impl ChatMessage {
             tool_result: None,
             tool_index: None,
             source: None,
+            pending_tool_calls: None,
+        }
+    }
+
+    /// Tool loop iteration limit reached; the listed tool calls were not executed.
+    pub(crate) fn tool_loop_limit(
+        content: impl Into<String>,
+        pending_tool_calls: Vec<serde_json::Value>,
+    ) -> Self {
+        Self {
+            role: "tool_loop_limit".to_string(),
+            content: content.into(),
+            tool_calls: None,
+            tool_results: None,
+            delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
+            source: None,
+            pending_tool_calls: if pending_tool_calls.is_empty() {
+                None
+            } else {
+                Some(pending_tool_calls)
+            },
         }
     }
 }
@@ -96,6 +127,10 @@ pub struct AgentReply {
     pub(crate) reply: String,
     pub(crate) tool_calls: Vec<serde_json::Value>,
     pub(crate) tool_results: Vec<String>,
+    /// Whether the agent loop hit its iteration limit while the model was still generating tool calls.
+    pub(crate) loop_limit_reached: bool,
+    /// Tool calls that were generated but not executed because the loop limit was reached.
+    pub(crate) pending_tool_calls: Vec<serde_json::Value>,
 }
 
 /// Event emitted by the gateway for session timelines.
@@ -121,6 +156,9 @@ pub struct SessionEvent {
     /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
     /// tool calls with a blue border matching delegation events.
     pub(crate) source: Option<String>,
+    /// Tool calls that were generated but not executed because the loop limit was reached.
+    /// Set on `session.tool_loop_limit` events.
+    pub(crate) pending_tool_calls: Option<Vec<serde_json::Value>>,
 }
 
 /// One worker row derived from gateway **`status`** `payload.agents.entries` (**`role`** **`worker`**): effective defaults for delegation.
@@ -137,14 +175,12 @@ pub struct OrchestrationCatalogRow {
     pub(crate) provider: String,
     pub(crate) model: String,
     pub(crate) discovered: bool,
-    pub(crate) local: Option<bool>,
-    pub(crate) tool_capable: Option<bool>,
 }
 
 /// Per-provider info parsed from the gateway status `providers` block.
 #[derive(Clone, Default)]
 pub struct ProviderStatusInfo {
-    /// Endpoint type string (e.g. `"ollama"`, `"openai-compat"`, `"anthropic"`, `"google"`).
+    /// Endpoint type string (e.g. `"ollama"`, `"openai-compat"`).
     pub(crate) endpoint: String,
     /// Whether model discovery is enabled for this provider.
     pub(crate) discovery: bool,
@@ -201,8 +237,25 @@ pub struct GatewayStatusDetails {
     pub(crate) orchestration_catalog: Vec<OrchestrationCatalogRow>,
     /// Worker rows from **`payload.agents.entries`** (**`role`** **`worker`**).
     pub(crate) workers: Vec<StatusWorkerRow>,
+    /// Per-agent skill runtime data from **`payload.agents.entries[].skills`**, keyed by agent id.
+    pub(crate) agent_skills: BTreeMap<String, AgentSkillsRuntime>,
     /// Pretty-printed JSON for the full WebSocket **`res`** to the `status` request (type, id, ok, payload).
     pub(crate) status_response_json: Option<String>,
     /// Full **`payload.channels`** (active, configured, transport, errors, Matrix verification summary, …).
     pub(crate) channels_block: Option<serde_json::Value>,
+}
+
+/// Per-agent skill runtime data parsed from **`payload.agents.entries[].skills`**.
+#[derive(Clone, Default)]
+pub struct AgentSkillsRuntime {
+    /// Skill package names loaded for this agent.
+    pub(crate) enabled_skills: Vec<String>,
+    /// Skill context mode: "full" or "readOnDemand".
+    pub(crate) context_mode: Option<String>,
+    /// Skills portion of system context (full or compact per context mode).
+    pub(crate) skills_context: Option<String>,
+    /// Full skill content for display (always full; use for UI when present).
+    pub(crate) skills_context_full: Option<String>,
+    /// Skill bodies only (no overview). Set when context mode is readOnDemand.
+    pub(crate) skills_context_bodies: Option<String>,
 }

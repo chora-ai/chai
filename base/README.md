@@ -41,7 +41,7 @@ Always read the relevant convention file before adding or modifying a document i
 
 ### `/epic`
 
-- **[DESKTOP_APP.md](epic/DESKTOP_APP.md)** — (in-progress) egui console for gateway, status, chat; editing and UX still in flight.
+- **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (in-progress) File explorer and constrained file editing for Chai config, agent context, and skill files.
 - **[MSG_CHANNELS.md](epic/MSG_CHANNELS.md)** — (in-progress) Telegram, Matrix, Signal wired; logging and hardening remain.
 - **[RAG_VECTOR.md](epic/RAG_VECTOR.md)** — (draft) pgvector retrieval and embeddings; unbuilt; ties to future projects.
 - **[SIMULATIONS.md](epic/SIMULATIONS.md)** — (draft) Fixture harness someday; `spike` crates stay small live probes.
@@ -64,12 +64,10 @@ Always read the relevant convention file before adding or modifying a document i
 
 #### Providers (External APIs)
 
-- **[OLLAMA.md](ref/OLLAMA.md)** — Native Ollama chat, tags, and how Chai calls them.
-- **[OPENAI.md](ref/OPENAI.md)** — Official API, proxies, and mapping into `openai_compat`.
+- **[OLLAMA.md](ref/OLLAMA.md)** — Ollama endpoint type: native chat, tags, and how Chai calls them.
+- **[OPENAI.md](ref/OPENAI.md)** — OpenAI-compatible endpoint type: wire protocol, model discovery, auto-load, and provider patterns (LM Studio, NearAI, NVIDIA NIM).
 - **[LM_STUDIO.md](ref/LM_STUDIO.md)** — OpenAI-compat chat and native `/api/v1/models` listing.
-- **[VLLM.md](ref/VLLM.md)** — OpenAI-compat `/v1` serving for self-hosted vLLM.
-- **[HUGGINGFACE.md](ref/HUGGINGFACE.md)** — OpenAI-compat, TGI, Inference Endpoints.
-- **[NVIDIA_NIM.md](ref/NVIDIA_NIM.md)** — OpenAI-compat,: keys, quotas, privacy, static model list.
+- **[NVIDIA_NIM.md](ref/NVIDIA_NIM.md)** — OpenAI-compat: keys, quotas, privacy, static model list.
 
 ### `/spec`
 
@@ -83,9 +81,13 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[AGENTS.md](spec/AGENTS.md)** — Per-agent context dirs, skill configuration, system context, and tool lists.
 - **[CONTEXT.md](spec/CONTEXT.md)** — System string, workers roster, skills modes, tools, startup validation (lockfile verification, capability-tier and variant overlap warnings).
-- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill package versioned layout (`versions/<hash>/`, `active` symlink), frontmatter (`capability_tier`, `model_variant_of`, `generated_from`), derivation metadata, CLI lock/rollback commands.
+- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill package versioned layout (`versions/<hash>/`, `active` symlink), frontmatter (`description`, `capability_tier`, `model_variant_of`, `metadata.requires.bins`), CLI lock/rollback commands.
 - **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — Declarative tools, allowlist, argv mapping, scripts, resolvers.
 - **[SANDBOX.md](spec/SANDBOX.md)** — Write-path enforcement, writable roots, symlink-as-authorization.
+
+#### Desktop
+
+- **[DESKTOP.md](spec/DESKTOP.md)** — Current state of the desktop application: screens, data sources, interactions, known gaps.
 
 #### Channels and Orchestration
 
@@ -96,3 +98,13 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, URLs and keys, discovery, native vs OpenAI-compat paths.
 - **[MODELS.md](spec/MODELS.md)** — Model strings, families, repo inventory, tool-calling expectations.
+
+### Root (Working Notes)
+
+- **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills.
+- **[FEAT_DESKTOP_UX.md](FEAT_DESKTOP_UX.md)** — Desktop UX polish and quality-of-life improvements.
+- **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Cargo skill for agent-driven code verification.
+- **[FEAT_SKILL_LOGS.md](FEAT_SKILL_LOGS.md)** — Logs skill for agent access to diagnostic output.
+- **[FEAT_USER_GUIDES.md](FEAT_USER_GUIDES.md)** — User guides improvement.
+- **[FEAT_USER_JOURNEY.md](FEAT_USER_JOURNEY.md)** — User journeys improvement.
+- **[FEAT_USER_TESTING.md](FEAT_USER_TESTING.md)** — User testing playbooks improvement.

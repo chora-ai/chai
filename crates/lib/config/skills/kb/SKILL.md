@@ -1,13 +1,9 @@
 ---
-name: kb
 description: Read, write, append, delete, list, and search knowledge base notes.
+capability_tier: moderate
 metadata:
   requires:
     bins: ["cat", "ls", "grep", "chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: moderate
 ---
 
 # Knowledge Base

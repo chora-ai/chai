@@ -18,7 +18,7 @@ pub struct SkillEntry {
     pub content: String,
     /// When the skill dir contains tools.json, parsed descriptor (tools, allowlist, execution mapping).
     pub tool_descriptor: Option<ToolDescriptor>,
-    /// Capability tier from SKILL.md frontmatter (`minimal`, `moderate`, `full`).
+    /// Capability tier from SKILL.md frontmatter (`minimal`, `moderate`, `full`). Now parsed from top-level field (was previously nested inside `generated_from`).
     pub capability_tier: Option<String>,
     /// Parent skill this is a variant of (e.g. `git-read` is a variant of `git`).
     pub model_variant_of: Option<String>,
@@ -32,19 +32,20 @@ pub struct Skill {
     pub content: String,
 }
 
-/// Frontmatter parsed from SKILL.md (minimal).
+/// Frontmatter parsed from SKILL.md — only runtime-consumed fields.
+/// Directory name is the authoritative skill name; `name` is not parsed from frontmatter.
+/// Derivation metadata (`generated_from`) has been removed; `capability_tier` is now top-level.
 #[derive(Debug, Default, Deserialize)]
 struct SkillFrontmatter {
-    name: Option<String>,
     description: Option<String>,
+    /// Minimum model capability: `minimal`, `moderate`, or `full`.
     #[serde(default)]
-    metadata: Option<SkillMetadata>,
-    /// Derivation metadata recording what produced this skill revision.
-    #[serde(default)]
-    generated_from: Option<GeneratedFrom>,
+    capability_tier: Option<String>,
     /// Parent skill this is a model-tier variant of (e.g. `git-read` → `git`).
     #[serde(default)]
     model_variant_of: Option<String>,
+    #[serde(default)]
+    metadata: Option<SkillMetadata>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -57,12 +58,6 @@ struct SkillMetadata {
 struct Requires {
     #[serde(default)]
     bins: Option<Vec<String>>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct GeneratedFrom {
-    #[serde(default)]
-    capability_tier: Option<String>,
 }
 
 /// Load all skill packages under `skills_root` (e.g. `~/.chai/skills`): each immediate subdirectory
@@ -173,6 +168,7 @@ struct ParsedFrontmatter {
 }
 
 fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontmatter {
+    // Directory name is the authoritative skill name; frontmatter `name` is not parsed.
     let name_from_path = fallback_path
         .file_name()
         .and_then(|n| n.to_str())
@@ -190,28 +186,22 @@ fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontma
         if let Some(end) = content[3..].find("---") {
             let yaml = content[3..3 + end].trim();
             if let Ok(fm) = serde_yaml::from_str::<SkillFrontmatter>(yaml) {
-                if let Some(n) = fm.name {
-                    parsed.name = n;
-                }
                 if let Some(d) = fm.description {
                     parsed.description = d;
                 }
+                parsed.capability_tier = fm.capability_tier;
+                parsed.model_variant_of = fm.model_variant_of;
                 if let Some(ref meta) = fm.metadata {
                     if let Some(ref req) = meta.requires {
                         parsed.required_bins = req.bins.clone();
                     }
                 }
-                if let Some(ref gen) = fm.generated_from {
-                    parsed.capability_tier = gen.capability_tier.clone();
-                }
-                parsed.model_variant_of = fm.model_variant_of;
             }
         }
     }
 
     parsed
 }
-
 impl From<SkillEntry> for Skill {
     fn from(e: SkillEntry) -> Self {
         Skill {

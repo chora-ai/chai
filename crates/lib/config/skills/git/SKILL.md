@@ -1,15 +1,9 @@
 ---
-name: git
 description: Inspect Git repository state, history, and diffs. Stage files, create commits, and manage branches.
+capability_tier: moderate
 metadata:
   requires:
     bins: ["git"]
-generated_from:
-  cli: git
-  cli_version: "2.43.0"
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: moderate
 ---
 
 # Git

@@ -174,7 +174,13 @@
     "cat": [""],
     "ls": [""],
     "grep": ["", "-E"],
-    "chai": ["file write", "file delete", "file patch", "file read-lines", "file delete-dir"]
+    "chai": [
+      "file write",
+      "file delete",
+      "file patch",
+      "file read-lines",
+      "file delete-dir"
+    ]
   },
   "execution": [
     {
@@ -190,7 +196,12 @@
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true }
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        }
       ]
     },
     {
@@ -260,8 +271,17 @@
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
-        { "param": "original_content", "kind": "flag", "flag": "original-content" },
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        },
+        {
+          "param": "original_content",
+          "kind": "envvar",
+          "envVar": "CHAI_ORIGINAL_CONTENT"
+        },
         {
           "param": "content",
           "kind": "stdin"

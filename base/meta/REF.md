@@ -1,6 +1,6 @@
 # Reference Document Conventions
 
-Reference documents summarize external systems, APIs, and projects for agent use during implementation. They live in `base/ref/` (e.g. `ref/OLLAMA.md`). Reference docs exist so the implementing agent has the context it needs without fetching external documentation mid-session.
+Reference documents summarize external systems, APIs, and projects for agent use during implementation. They live in `base/ref/` (e.g. `ref/OLLAMA.md`). Reference docs exist so the implementing agent has the context it needs without fetching external documentation.
 
 ## Frontmatter
 

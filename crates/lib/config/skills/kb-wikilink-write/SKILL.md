@@ -1,13 +1,9 @@
 ---
-name: kb-wikilink-write
 description: Rename knowledge base notes with automatic wikilink updates.
+capability_tier: moderate
 metadata:
   requires:
     bins: ["chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: moderate
 ---
 
 # Knowledge Base Wikilink Write

@@ -5,7 +5,7 @@ use crate::app::{ChaiApp, ConfigViewMode};
 
 pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     app.invalidate_enabled_providers_cache();
-    let Ok((config, paths)) = lib::config::load_config(None) else {
+    let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
         crate::app::ui_screen(ui, "Config", None, |ui| {
             ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
         });
@@ -213,8 +213,6 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             let endpoint_label = match def.endpoint {
                 lib::config::EndpointType::Ollama => "Ollama",
                 lib::config::EndpointType::OpenaiCompat => "OpenAI-Compatible",
-                lib::config::EndpointType::Anthropic => "Anthropic",
-                lib::config::EndpointType::Google => "Google",
             };
             ui.label(egui::RichText::new(format!("{} ({})", def.id, endpoint_label)).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
@@ -358,131 +356,6 @@ fn config_summary_right_column(
             ui.add_space(spacing::LINE);
         }
 
-        if let Some(ref v) = config.agents.delegate_blocked_providers {
-            if !v.is_empty() {
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new("Delegation blocked providers"));
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.horizontal_wrapped(|ui| {
-                    for p in v {
-                        ui.add(egui::Label::new(egui::RichText::new(p)));
-                    }
-                });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            }
-        }
-
-        if let Some(ref allowed) = config.agents.delegate_allowed_models {
-            if !allowed.is_empty() {
-                ui.add_space(spacing::COLLAPSING_HEADER_BEFORE);
-                egui::CollapsingHeader::new(format!(
-                    "Delegate allowed models ({} models)",
-                    allowed.len()
-                ))
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                    egui::Grid::new("config_allowed_models_grid")
-                        .num_columns(2)
-                        .striped(true)
-                        .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                        .show(ui, |ui| {
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Provider"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Model"));
-                            });
-                            ui.end_row();
-                            for e in allowed {
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(&e.provider)));
-                                });
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(&e.model)));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            }
-        }
-
-        if let Some(ref routes) = config.agents.delegation_instruction_routes {
-            if !routes.is_empty() {
-                ui.add_space(spacing::COLLAPSING_HEADER_BEFORE);
-                egui::CollapsingHeader::new(format!(
-                    "Delegation instruction routes ({} routes)",
-                    routes.len()
-                ))
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                    egui::Grid::new("config_delegation_routes_grid")
-                        .num_columns(4)
-                        .striped(true)
-                        .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                        .show(ui, |ui| {
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Prefix"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Worker"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Provider"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "Model"));
-                            });
-                            ui.end_row();
-                            for r in routes {
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(
-                                        r.instruction_prefix.trim(),
-                                    )));
-                                });
-
-                                let worker_id = r
-                                    .worker_id
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("—");
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(worker_id)));
-                                });
-
-                                let provider = r
-                                    .provider
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("—");
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(provider)));
-                                });
-
-                                let model = r
-                                    .model
-                                    .as_deref()
-                                    .map(str::trim)
-                                    .filter(|s| !s.is_empty())
-                                    .unwrap_or("—");
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(model)));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            }
-        }
-
         if let Some(ref workers) = config.agents.workers {
             for w in workers {
                 let wid = w.id.trim();
@@ -495,8 +368,6 @@ fn config_summary_right_column(
                 let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.providers, &config.agents, w);
                 dashboard::kv(ui, "Default provider", wp.as_str());
                 dashboard::kv(ui, "Default model", wm.as_str());
-                let w_ep = enabled_providers_display(&w.enabled_providers);
-                dashboard::kv(ui, "enabledProviders", w_ep.as_str());
                 let w_dir = lib::config::worker_context_dir(w, profile_dir);
                 dashboard::kv(
                     ui,

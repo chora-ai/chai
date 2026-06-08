@@ -280,7 +280,9 @@ enum FileCmd {
         end_line: Option<usize>,
         /// The content expected at [start_line, end_line] before the patch. If provided, the tool
         /// verifies the file matches before applying the patch. Rejects the edit if the expected
-        /// content does not match what is actually in the file.
+        /// content does not match what is actually in the file. When the CHAI_ORIGINAL_CONTENT
+        /// environment variable is set, it takes precedence over this flag — this avoids CLI
+        /// argument encoding issues for content that must match file content byte-for-byte.
         #[arg(long, allow_hyphen_values = true)]
         original_content: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
@@ -437,6 +439,13 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
         }
         FileCmd::Patch { path, start_line, end_line, original_content, content } => {
             let content = read_content_from_stdin_or(content)?;
+            // Environment variable takes precedence over the CLI flag for
+            // original_content. This avoids CLI argument encoding issues for
+            // content that must match the file byte-for-byte (e.g. backticks,
+            // middle dots, ampersands in markdown documentation).
+            let original_content = std::env::var("CHAI_ORIGINAL_CONTENT")
+                .ok()
+                .or(original_content);
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -717,6 +726,8 @@ fn format_patch_diff(
 
 /// Verify that the content at [start_line, end_line] in `original` matches `expected`.
 /// Returns Ok(()) if they match, or an error message describing the mismatch.
+/// When the strings differ only in invisible characters (same length but different
+/// bytes), shows byte offsets to aid diagnosis.
 fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> anyhow::Result<()> {
     let lines: Vec<&str> = original.lines().collect();
     let effective_end = end_line.min(lines.len());
@@ -725,12 +736,39 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     if actual == expected {
         Ok(())
     } else {
+        let expected_fmt = expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+        let actual_fmt = actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+
+        // When the strings are the same length but differ, include byte-level
+        // diff info so invisible character mismatches can be diagnosed.
+        let byte_hint = if actual.len() == expected.len() {
+            let first_diff = actual.bytes().zip(expected.bytes())
+                .position(|(a, e)| a != e);
+            match first_diff {
+                Some(pos) => format!(
+                    "\n  hint: same length ({} bytes) but differ at byte offset {}; expected byte 0x{:02x}, actual byte 0x{:02x}",
+                    expected.len(),
+                    pos,
+                    expected.as_bytes().get(pos).copied().unwrap_or(0),
+                    actual.as_bytes().get(pos).copied().unwrap_or(0),
+                ),
+                None => String::new(),
+            }
+        } else {
+            format!(
+                "\n  hint: different lengths — expected {} bytes, actual {} bytes",
+                expected.len(),
+                actual.len(),
+            )
+        };
+
         anyhow::bail!(
-            "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}",
+            "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}",
             start_line,
             effective_end,
-            expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n"),
-            actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n"),
+            expected_fmt,
+            actual_fmt,
+            byte_hint,
         );
     }
 }

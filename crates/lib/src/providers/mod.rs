@@ -68,11 +68,5 @@ pub fn build_provider_client(
             })?;
             Ok(Arc::new(OpenAiCompatClient::new_with_auto_load(base, api_key, def.auto_load)))
         }
-        EndpointType::Anthropic => {
-            Err("anthropic endpoint type is not yet implemented".to_string())
-        }
-        EndpointType::Google => {
-            Err("google endpoint type is not yet implemented".to_string())
-        }
     }
 }

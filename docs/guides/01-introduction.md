@@ -14,16 +14,16 @@ The gateway is a single HTTP/WebSocket server that orchestrates everything. It l
 
 ### Providers
 
-A **provider** is a model backend — where the inference happens. Chai supports six providers:
+A **provider** is a model backend — where the inference happens. Chai supports two endpoint types, with four common provider configurations:
 
-| Provider | Where it runs | Protocol | Needs API key |
-|----------|---------------|----------|---------------|
-| **Ollama** (`ollama`) | Your machine | Native Ollama API | No |
-| **LM Studio** (`lms`) | Your machine | OpenAI-compatible | No |
-| **vLLM** (`vllm`) | Your infrastructure | OpenAI-compatible | Optional |
-| **Hugging Face** (`hf`) | Your infrastructure or cloud | OpenAI-compatible | Optional |
-| **NVIDIA NIM** (`nim`) | NVIDIA cloud | NVIDIA catalog API | Yes |
-| **OpenAI** (`openai`) | OpenAI cloud | OpenAI HTTP API | Yes |
+| Provider | Where it runs | Endpoint | Special behavior | Needs API key |
+|----------|---------------|----------|------------------|---------------|
+| **Ollama** (`ollama`) | Your machine | `"ollama"` | — | No |
+| **LM Studio** (`lms`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"` | No |
+| **NearAI** (`nearai`) | NearAI cloud | `"openai-compat"` | — | Yes |
+| **NVIDIA NIM** (`nim`) | NVIDIA cloud | `"openai-compat"` | `modelDiscovery: "static"`, `staticModels` | Yes |
+
+Any other OpenAI-compatible server (vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, etc.) can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`.
 
 The default provider is Ollama — local-first, no API key required.
 
@@ -49,7 +49,7 @@ Each profile has a **write sandbox** that restricts where skill tools may write 
 
 ## How the Pieces Fit Together
 
-```
+```text
 Channels (Telegram, Matrix, Signal, WebSocket, Desktop)
   │
   ▼
@@ -74,5 +74,9 @@ The gateway loads configuration at startup, discovers model providers and skill 
 
 - [Getting Started](02-getting-started.md) — Install chai and send your first message.
 - [Configuration](03-configuration.md) — Customize providers, agents, channels, and more.
+- [Choosing a Provider and Model](10-choosing-a-provider.md) — Decision guide for local vs. cloud providers.
+- [CLI Reference](08-cli-reference.md) — Every `chai` command with flags and examples.
+- [Desktop App](09-desktop.md) — GUI usage, screens, and device pairing.
+- [Troubleshooting](11-troubleshooting.md) — Common errors and how to resolve them.
 - [User Journeys](../journey/README.md) — Step-by-step hands-on walkthroughs for each feature (gateway, desktop, channels, skills).
 - [Testing Playbooks](../testing/README.md) — Systematic model and provider comparison procedures.

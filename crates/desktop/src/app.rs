@@ -11,7 +11,7 @@ mod state;
 mod types;
 mod ui;
 
-pub use types::{AgentReply, ChatMessage, GatewayStatusDetails, ProviderStatusInfo, SessionEvent};
+pub use types::{AgentReply, AgentSkillsRuntime, ChatMessage, GatewayStatusDetails, ProviderStatusInfo, SessionEvent};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Screen {
@@ -66,6 +66,9 @@ pub struct ChaiApp {
     frames_since_status: u32,
     /// Last successful gateway status (protocol, port, bind, auth). Cleared when gateway stops responding.
     gateway_status: Option<GatewayStatusDetails>,
+    /// True once a status fetch has completed with an error since the gateway was last detected.
+    /// Used to suppress `need_immediate` so failed fetches don't trigger a tight retry loop.
+    status_fetch_ever_failed: bool,
     /// Current chat session id (created on first agent call).
     chat_session_id: Option<String>,
     /// In-memory chat transcript for the current session.
@@ -122,6 +125,14 @@ pub struct ChaiApp {
     profile_switch_error: Option<String>,
     /// When true, next frame reloads profile list and active name from disk.
     profiles_need_refresh: bool,
+    /// `CHAI_PROFILE` environment variable value (set once at startup). When present, the profile
+    /// selector is disabled and the header shows an amber hint.
+    env_profile: Option<String>,
+    /// Profile name read from `gateway.lock` while a gateway is running (refreshed each frame).
+    gateway_lock_profile: Option<String>,
+    /// Previous frame's `gateway_lock_profile`; used to detect when the effective profile changes
+    /// so config-dependent caches (providers, model) can be invalidated.
+    prev_gateway_lock_profile: Option<String>,
     /// Cached skill entries loaded from the skills directory (refreshed on status interval).
     cached_skills: Option<Vec<lib::skills::SkillEntry>>,
     /// When Some, a skills fetch is in flight; we read the result here.
@@ -174,6 +185,7 @@ impl Default for ChaiApp {
             status_receiver: None,
             frames_since_status: 0,
             gateway_status: None,
+            status_fetch_ever_failed: false,
             chat_session_id: None,
             chat_messages: Vec::new(),
             chat_input: String::new(),
@@ -202,6 +214,9 @@ impl Default for ChaiApp {
             profile_active: String::new(),
             profile_switch_error: None,
             profiles_need_refresh: true,
+            env_profile: std::env::var("CHAI_PROFILE").ok().filter(|s| !s.trim().is_empty()),
+            gateway_lock_profile: None,
+            prev_gateway_lock_profile: None,
             cached_skills: None,
             skills_fetch_receiver: None,
             frames_since_skills_fetch: 0,
@@ -215,12 +230,27 @@ impl ChaiApp {
     /// Space between the bottom of the content and the window edge on full‑screen panels.
     const SCREEN_FOOTER_SPACING: f32 = 48.0;
 
+    /// Returns the CLI profile override that should be passed to `load_config` so the desktop
+    /// connects to the same profile the gateway is using. Resolution order:
+    /// 1. `CHAI_PROFILE` env var (set at desktop startup)
+    /// 2. Profile from `gateway.lock` (when an external gateway is detected)
+    /// 3. `None` (use `~/.chai/active` symlink)
+    fn effective_profile_override(&self) -> Option<&str> {
+        if let Some(ref env) = self.env_profile {
+            Some(env.as_str())
+        } else if let Some(ref gw) = self.gateway_lock_profile {
+            Some(gw.as_str())
+        } else {
+            None
+        }
+    }
+
     /// Returns the list of enabled providers for the chat dropdown. Cached until the Config screen is shown.
     pub fn enabled_providers(&mut self) -> Vec<String> {
         if let Some(ref list) = self.cached_enabled_providers {
             return list.clone();
         }
-        let config = lib::config::load_config(None)
+        let config = lib::config::load_config(self.effective_profile_override())
             .map(|(c, _)| c)
             .unwrap_or_default();
         // Start from enabledProviders when set; otherwise fall back to the effective default provider.
@@ -404,65 +434,102 @@ impl ChaiApp {
                                 }
                             }
                         }
-                        let mut assistant_msg = ChatMessage::assistant(
-                            reply.reply.clone(),
-                            if reply.tool_calls.is_empty() {
-                                None
+                        let reply_is_empty = reply.reply.trim().is_empty();
+                        // When the tool loop limit was reached, skip the assistant message when:
+                        // (1) content is empty — the tool_loop_limit banner already communicates
+                        //     what happened, and an empty frame adds no useful information.
+                        // (2) an assistant_progress with the same content already exists — the
+                        //     progress message shows the intermediate text and the banner
+                        //     explains the interruption; a duplicate assistant frame is redundant.
+                        let skip_assistant = if reply.loop_limit_reached {
+                            if reply_is_empty {
+                                true
                             } else {
-                                Some(reply.tool_calls.clone())
-                            },
-                            if reply.tool_calls.is_empty() {
-                                None
-                            } else {
-                                Some(reply.tool_results.clone())
-                            },
-                        );
-                        // If streamed tool_call entries already exist for this turn,
-                        // clear tool_calls/tool_results on the assistant message so the
-                        // inline fallback rendering doesn't produce duplicates.
-                        let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
-                        if has_streamed_tools {
-                            assistant_msg.tool_calls = None;
-                            assistant_msg.tool_results = None;
-                        }
-                        let last_is_same = state::chat::last_non_delegation(entry.as_slice())
-                            .map(|m| {
-                                state::chat::is_duplicate_assistant_row(
-                                    m,
-                                    &assistant_msg.role,
-                                    &assistant_msg.content,
-                                    &assistant_msg.tool_calls,
-                                )
-                            })
-                            .unwrap_or(false);
-                        log::debug!(
-                            "poll_chat_turn: session={}, was_new_session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
-                            reply.session_id,
-                            was_new_session,
-                            last_is_same,
-                            entry.len(),
-                            entry.last().map(|m| m.role.as_str()),
-                            state::chat::last_non_delegation(entry.as_slice()).map(|m| m.role.as_str()),
-                        );
-                        if last_is_same {
-                            // Prefer the agent response's tool_calls (source of truth for this turn),
-                            // unless streamed tool events already exist.
-                            let last = entry.last_mut().unwrap();
-                            log::debug!(
-                                "poll_chat_turn dedup: overwriting last entry role={:?}, tool_calls={:?}, tool_results={:?}",
-                                last.role,
-                                last.tool_calls.as_ref().map(|v| v.len()),
-                                last.tool_results.as_ref().map(|v| v.len()),
-                            );
-                            last.tool_calls = assistant_msg.tool_calls;
-                            last.tool_results = assistant_msg.tool_results;
-                            // Clear inline tool calls when streamed events exist.
-                            if has_streamed_tools {
-                                last.tool_calls = None;
-                                last.tool_results = None;
+                                entry.iter().any(|m| {
+                                    m.role == "assistant_progress" && m.content == reply.reply
+                                })
                             }
                         } else {
-                            entry.push(assistant_msg);
+                            false
+                        };
+                        if !skip_assistant {
+                            let mut assistant_msg = ChatMessage::assistant(
+                                reply.reply.clone(),
+                                if reply.tool_calls.is_empty() {
+                                    None
+                                } else {
+                                    Some(reply.tool_calls.clone())
+                                },
+                                if reply.tool_calls.is_empty() {
+                                    None
+                                } else {
+                                    Some(reply.tool_results.clone())
+                                },
+                            );
+                            // Check dedup before clearing tool_calls so the comparison
+                            // matches against WebSocket entries that still have tool_calls.
+                            let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
+                            let last_is_same = state::chat::last_non_delegation(entry.as_slice())
+                                .map(|m| {
+                                    state::chat::is_duplicate_assistant_row(
+                                        m,
+                                        &assistant_msg.role,
+                                        &assistant_msg.content,
+                                        &assistant_msg.tool_calls,
+                                    )
+                                })
+                                .unwrap_or(false);
+                            log::debug!(
+                                "poll_chat_turn: session={}, was_new_session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
+                                reply.session_id,
+                                was_new_session,
+                                last_is_same,
+                                entry.len(),
+                                entry.last().map(|m| m.role.as_str()),
+                                state::chat::last_non_delegation(entry.as_slice()).map(|m| m.role.as_str()),
+                            );
+                            if last_is_same {
+                                // Find the actual assistant entry (not necessarily last — a
+                                // tool_loop_limit banner or delegation row may have been appended after it).
+                                if let Some(existing) = entry.iter_mut().find(|m| {
+                                    m.role == "assistant" && m.content == assistant_msg.content
+                                }) {
+                                    log::debug!(
+                                        "poll_chat_turn dedup: overwriting assistant entry tool_calls={:?}, tool_results={:?}",
+                                        existing.tool_calls.as_ref().map(|v| v.len()),
+                                        existing.tool_results.as_ref().map(|v| v.len()),
+                                    );
+                                    existing.tool_calls = assistant_msg.tool_calls;
+                                    existing.tool_results = assistant_msg.tool_results;
+                                    // Clear inline tool calls when streamed events exist.
+                                    if has_streamed_tools {
+                                        existing.tool_calls = None;
+                                        existing.tool_results = None;
+                                    }
+                                }
+                            } else {
+                                // Clear tool_calls/tool_results on the assistant message so the
+                                // inline fallback rendering doesn't produce duplicates alongside streamed events.
+                                if has_streamed_tools {
+                                    assistant_msg.tool_calls = None;
+                                    assistant_msg.tool_results = None;
+                                }
+                                entry.push(assistant_msg);
+                            }
+                        }
+                        // When the tool loop iteration limit was reached, add a banner
+                        // message so the user knows what happened. The WebSocket event
+                        // may have already added one, but dedup is handled by the
+                        // tool_loop_limit event handler; the RPC fallback ensures the
+                        // banner appears even when the event was missed or arrived early.
+                        if reply.loop_limit_reached {
+                            let already_has_banner = entry.iter().any(|m| m.role == "tool_loop_limit");
+                            if !already_has_banner {
+                                entry.push(ChatMessage::tool_loop_limit(
+                                    "tool loop iteration limit reached",
+                                    reply.pending_tool_calls.clone(),
+                                ));
+                            }
                         }
                         // Retain only the most recent pre-session error so it doesn't disappear
                         // when we switch to the new session, without piling every past failure
@@ -526,7 +593,7 @@ impl ChaiApp {
 
     fn start_gateway(&mut self) {
         self.gateway_error = None;
-        let (config, _) = match lib::config::load_config(None) {
+        let (config, _) = match lib::config::load_config(self.effective_profile_override()) {
             Ok(pair) => pair,
             Err(e) => {
                 self.gateway_error = Some(format!("failed to load config: {}", e));
@@ -548,6 +615,12 @@ impl ChaiApp {
             .stderr(Stdio::piped());
         if std::env::var_os("RUST_LOG").is_none() {
             cmd.env("RUST_LOG", "info");
+        }
+        // Propagate the effective profile override so the spawned gateway uses the
+        // same profile as the desktop. Use --profile flag which is unambiguous (vs
+        // env var which may affect child processes differently).
+        if let Some(profile) = self.effective_profile_override() {
+            cmd.arg("--profile").arg(profile);
         }
         let child = cmd.spawn();
         match child {
@@ -662,9 +735,10 @@ impl ChaiApp {
                 .and_then(|s| s.default_provider.clone())
         });
         let model = self.current_model.clone();
+        let profile_override = self.effective_profile_override().map(String::from);
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = state::gateway::run_agent_turn(session_id, message, provider, model);
+            let result = state::gateway::run_agent_turn(profile_override.as_deref(), session_id, message, provider, model);
             let _ = tx.send(result);
         });
         self.chat_turn_receiver = Some(rx);
@@ -676,9 +750,10 @@ impl ChaiApp {
 impl eframe::App for ChaiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_gateway_probe();
-        self.poll_status_fetch();
-        self.poll_skills_fetch();
-        // Drain WebSocket session + delegation events before applying the RPC turn result so timeline order matches gateway order (user → delegation → assistant).
+
+        // Resolve running state and gateway profile before any fetch/listener
+        // that uses effective_profile_override(), so they get the correct profile
+        // on the same frame where the gateway is first detected.
         let owned = self.gateway_owned();
         let running = owned || self.gateway_responds;
         if self.was_gateway_running && !running {
@@ -686,17 +761,38 @@ impl eframe::App for ChaiApp {
             self.invalidate_skills_cache();
             self.profile_switch_error = None;
             self.profiles_need_refresh = true;
+            self.status_fetch_ever_failed = false;
         }
         self.was_gateway_running = running;
+
+        // Resolve the gateway's profile from gateway.lock when a gateway is running.
+        // Must happen before poll_status_fetch / poll_skills_fetch / ensure_session_events_listener
+        // so that effective_profile_override() returns the correct profile on the same frame.
+        self.gateway_lock_profile = if running {
+            lib::profile::chai_home()
+                .ok()
+                .and_then(|h| lib::profile::read_gateway_lock_profile(&h))
+        } else {
+            None
+        };
+
+        // Invalidate config-dependent caches when the effective profile changes
+        // (e.g. gateway started externally with CHAI_PROFILE and we now detect it
+        // via gateway.lock, or gateway stopped and profile reverts to persistent).
+        if self.gateway_lock_profile != self.prev_gateway_lock_profile {
+            self.invalidate_enabled_providers_cache();
+            self.invalidate_skills_cache();
+            self.default_model = None;
+            self.prev_gateway_lock_profile = self.gateway_lock_profile.clone();
+        }
 
         if self.profiles_need_refresh {
             self.refresh_profiles_from_disk();
         }
 
-        let profile_switch_locked = lib::profile::chai_home()
-            .map(|h| lib::profile::gateway_is_running(&h))
-            .unwrap_or(true);
-        let profile_dropdown_enabled = !profile_switch_locked;
+        // Now that gateway_lock_profile is up-to-date, poll for status and events.
+        self.poll_status_fetch();
+        self.poll_skills_fetch();
         self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
         self.poll_chat_turn();
@@ -704,8 +800,47 @@ impl eframe::App for ChaiApp {
         // Layout-level UI components
         let mut start_gateway = false;
         let mut stop_gateway = false;
+        let mut switch_profile_to: Option<String> = None;
         let profile_names = self.profile_names.clone();
-        let profile_active = self.profile_active.clone();
+        let profile_switch_locked = lib::profile::chai_home()
+            .map(|h| lib::profile::gateway_is_running(&h))
+            .unwrap_or(true);
+        let profile_dropdown_enabled = !profile_switch_locked;
+        // The effective profile is: env override > gateway lock profile > persistent symlink.
+        let effective_profile = self
+            .env_profile
+            .as_deref()
+            .or(self.gateway_lock_profile.as_deref())
+            .unwrap_or(self.profile_active.as_str());
+        // Compute a profile-mismatch hint label when the running gateway uses a
+        // different profile than the desktop's effective profile.
+        let profile_mismatch_label = if self.env_profile.is_some() {
+            // CHAI_PROFILE is set in the desktop's environment.
+            if let Some(ref gw_profile) = self.gateway_lock_profile {
+                if gw_profile != effective_profile {
+                    Some(format!(
+                        "gateway using profile {} (CHAI_PROFILE={})",
+                        gw_profile, effective_profile
+                    ))
+                } else {
+                    Some(format!("gateway using CHAI_PROFILE={}", effective_profile))
+                }
+            } else {
+                Some(format!("gateway using CHAI_PROFILE={}", effective_profile))
+            }
+        } else if let Some(ref gw_profile) = self.gateway_lock_profile {
+            // Gateway lock profile differs from the persistent symlink.
+            if *gw_profile != self.profile_active {
+                Some(format!(
+                    "gateway using profile {} (CHAI_PROFILE={})",
+                    gw_profile, gw_profile
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let profile_error = self.profile_switch_error.clone();
         ui::header::header(
             ctx,
@@ -713,11 +848,12 @@ impl eframe::App for ChaiApp {
             owned,
             self.gateway_probe_completed,
             &profile_names,
-            profile_active.as_str(),
+            effective_profile,
             profile_dropdown_enabled,
             profile_error.as_deref(),
+            profile_mismatch_label.as_deref(),
             |name| {
-                self.switch_profile_to(name);
+                switch_profile_to = Some(name);
             },
             || {
                 start_gateway = true;
@@ -726,6 +862,9 @@ impl eframe::App for ChaiApp {
                 stop_gateway = true;
             },
         );
+        if let Some(name) = switch_profile_to {
+            self.switch_profile_to(name);
+        }
         if start_gateway {
             self.start_gateway();
         }

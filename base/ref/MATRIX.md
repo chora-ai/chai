@@ -113,10 +113,6 @@ Fields live on **`MatrixChannelConfig`** (**`channels.matrix`**, **`camelCase`**
 
 The **`matrix-probe`** binary performs **`m.login.password`** against **`/_matrix/client/v3/login`**, then one **`GET /_matrix/client/v3/sync`**, and prints **`m.room.message`** **`m.text`** events as **`room_id<TAB>body`**. That confirms **room id** as a natural **`conversation_id`** for Chai. Run **`cargo run -p chai-spike --bin matrix-probe`** with **`MATRIX_HOMESERVER`**, **`MATRIX_USER`**, **`MATRIX_PASSWORD`** (see **`crates/spike/README.md`**). A production client would persist **`next_batch`** and use a longer-lived sync loop.
 
-## User journey
-
-End-to-end test with Element or another client, an encrypted or unencrypted room, and the gateway: [`docs/journey/08-channel-matrix.md`](../../docs/journey/08-channel-matrix.md). For device verification without Element, use **`/matrix/verification/*`** as above.
-
 ## References
 
 - Matrix — https://matrix.org/

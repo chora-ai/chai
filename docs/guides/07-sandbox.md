@@ -75,4 +75,4 @@ When a write-path tool runs, the executor sets the command's working directory t
 
 ## Try It
 
-The journey [Desktop — start/stop gateway and detection](../journey/04-desktop-start-stop-gateway.md) exercises the desktop app's gateway management, including how the sandbox directory is laid out under `~/.chai/profiles/<name>/`.
+The journey [Desktop — start/stop gateway and detection](../journey/03-desktop-start-stop-gateway.md) exercises the desktop app's gateway management, including how the sandbox directory is laid out under `~/.chai/profiles/<name>/`.

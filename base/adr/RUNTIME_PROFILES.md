@@ -18,7 +18,6 @@ Chai uses a NixOS-like switching model with **named runtime profiles**:
 - The **persistent active profile** is a symlink at `~/.chai/active` pointing to `profiles/<name>/`. The symlink is the canonical default — override precedence is CLI `--profile` (ephemeral) → `CHAI_PROFILE` environment variable → `~/.chai/active` symlink. When the symlink is missing, broken, or invalid, the runtime fails rather than silently defaulting.
 - **Switching profiles requires stopping the gateway.** `chai profile switch` rewrites the symlink only when no gateway is running (enforced via an advisory exclusive lock on `~/.chai/gateway.lock`). The desktop disables profile switching while the gateway is running.
 - `chai init` creates two default profiles (`assistant` and `developer`) with equivalent scaffolds and sets `active → profiles/assistant/`. The names are mnemonics, not different runtime policies.
-- **No backwards compatibility** — `CHAI_CONFIG_PATH` and flat `~/.chai/config.json` resolution are removed. There are no shims, no migration mode, and no deprecated callouts.
 
 ## Alternatives Considered
 
@@ -26,7 +25,7 @@ Chai uses a NixOS-like switching model with **named runtime profiles**:
 |-------------|---------|
 | **Flat `~/.chai/config.json`** (prior state) | No path isolation between operational contexts. Users must manually swap configs to separate trust boundaries. |
 | **Environment-variable-only switching** (no persistent symlink) | Inconvenient for day-to-day use. Every terminal and desktop launch needs the variable set. The symlink gives a persistent default with optional overrides. |
-| **Hot-reload / no-restart switching** | Significantly more complex: the gateway would need to tear down and rebuild all state (sessions, channels, provider clients, skill tools) atomically. The restart requirement is simple and auditable. May revisit for subsets later. |
+| **Hot-reload / no-restart switching** | Significantly more complex: the gateway would need to tear down and rebuild all state (sessions, channels, provider clients, skill tools) atomically. The restart requirement is simple and auditable. |
 | **Per-profile skill trees** (each profile has its own `skills/` directory) | Duplicates packages that are typically shared. The shared store with per-agent enablement lists is cleaner and supports future pin/lockfile semantics across profiles. |
 | **OS-level sandboxing** between profiles (containers, VMs, seccomp) | Profiles are runtime and path isolation first. Stronger isolation is a possible follow-on, not a requirement for this design. |
 
@@ -35,7 +34,6 @@ Chai uses a NixOS-like switching model with **named runtime profiles**:
 - **Data isolation is first-class.** Pairing credentials, device identity, channel history, and agent context never cross profile boundaries.
 - **Operational simplicity.** The switching contract is clear: stop → switch → restart. No partial state or stale connections.
 - **Shared skill store.** Skill definitions are visible to all profiles; enablement is per-agent per-profile. Sensitive instructions belong in profile-local `AGENT.md` files, not in skill packages.
-- **No migration path from the flat layout.** Operators with existing flat installations must run `chai init` to adopt the profile layout and move any custom content manually.
 
 ## References
 

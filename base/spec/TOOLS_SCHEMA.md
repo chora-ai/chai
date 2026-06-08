@@ -37,8 +37,8 @@ Each element:
 
 ### `allowlist` (object)
 
-- **Keys**: Binary name (e.g. `notesmd-cli`, `obsidian`).
-- **Values**: Array of allowed subcommand strings (e.g. `["search", "search-content", "create"]`).
+- **Keys**: Binary name (e.g. `chai`).
+- **Values**: Array of allowed subcommand strings (e.g. `["file read", "file write"]`).
 
 Only (binary, subcommand) pairs listed here may be executed. The safe exec layer enforces this.
 
@@ -49,8 +49,8 @@ Each element:
 | Field | Type | Description |
 |-------|------|-------------|
 | `tool` | string | Tool name (must match a `tools[].name`). |
-| `binary` | string | Binary to run (e.g. `notesmd-cli`). Must be a key in `allowlist`. |
-| `subcommand` | string | Subcommand (e.g. `search`). Must be in `allowlist[binary]`. The value is split by whitespace and each token is prepended before the `args` list when building the command. This allows fixed flags to be encoded as part of the subcommand (e.g. `"-E"` for `grep -E`). |
+| `binary` | string | Binary to run (e.g. `chai`). Must be a key in `allowlist`. |
+| `subcommand` | string | Subcommand (e.g. `files read`). Must be in `allowlist[binary]`. The value is split by whitespace and each token is prepended before the `args` list when building the command. This allows fixed flags to be encoded as part of the subcommand (e.g. `"-E"` for `grep -E`). |
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
 | `successExitCodes` | array of integers (optional) | Exit codes to treat as success (in addition to 0). Use when a non-zero exit is a normal result, not an error (e.g. `[0, 1]` for `grep` where exit 1 means no matches). Exit codes not in this list (and not 0) surface as tool errors. Default: only exit 0 is success. |
 | `postProcess` | object (optional) | Post-process the command's stdout through a script before returning the result to the model. See below. Default: not set. |
@@ -80,7 +80,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-daily-path"` → `scripts/resolve-daily-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
+| `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-feed-path"` → `scripts/resolve-feed-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
 | `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill's allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
 | `args` | array of strings | Arguments; `"$param"` is replaced by the current param value. |
@@ -170,7 +170,7 @@ Appends a file's contents to the tool result when the file exists. After the mai
 }
 ```
 
-## Example (minimal)
+## Example
 
 One tool, one positional argument:
 
@@ -178,26 +178,46 @@ One tool, one positional argument:
 {
   "tools": [
     {
-      "name": "notesmd_search",
-      "description": "Search notes by name.",
+      "name": "files_read_lines",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
       "parameters": {
         "type": "object",
-        "required": ["query"],
+        "required": ["path", "start_line"],
         "properties": {
-          "query": { "type": "string", "description": "Search query for note names" }
+          "path": {
+            "type": "string",
+            "description": "File path relative to the sandbox root (use ./ prefix)"
+          },
+          "start_line": {
+            "type": "integer",
+            "description": "Line number to start reading at (1-indexed, inclusive)"
+          },
+          "end_line": {
+            "type": "integer",
+            "description": "Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read) if omitted."
+          }
         }
       }
     }
   ],
   "allowlist": {
-    "notesmd-cli": ["search", "search-content", "create", "daily", "print", "print-default"]
+    "chai": [ "file read-lines"]
   },
   "execution": [
     {
-      "tool": "notesmd_search",
-      "binary": "notesmd-cli",
-      "subcommand": "search",
-      "args": [{ "param": "query", "kind": "positional" }]
+      "tool": "files_read_lines",
+      "binary": "chai",
+      "subcommand": "file read-lines",
+      "args": [
+        { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
+        { "param": "start_line", "kind": "flag", "flag": "start-line" },
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        }
+      ]
     }
   ]
 }

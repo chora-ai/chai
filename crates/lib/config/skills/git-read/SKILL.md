@@ -1,16 +1,10 @@
 ---
-name: git-read
 description: Inspect Git repository state, history, diffs, and branches (read-only).
+capability_tier: minimal
+model_variant_of: git
 metadata:
   requires:
     bins: ["git"]
-generated_from:
-  cli: git
-  cli_version: "2.43.0"
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: minimal
-model_variant_of: git
 ---
 
 # Git (Read-Only)

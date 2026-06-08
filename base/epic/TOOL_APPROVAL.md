@@ -179,9 +179,7 @@ Chai's approval mechanism would need to generalize across its gateway/session mo
 
 ## Related Epics and Docs
 
-- [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — Where **`config.json`** and trust boundaries live; approval policy should follow the same per-profile model when implemented.
-- [VISION.md](../../VISION.md) — Long-term security and privacy direction.
-- [ORCHESTRATION.md](ORCHESTRATION.md) — Delegation and agent configuration.
+- [PROFILES.md](../spec/PROFILES.md) — Where **`config.json`** and trust boundaries live; approval policy should follow the same per-profile model when implemented.
+- [ORCHESTRATION.md](../spec/ORCHESTRATION.md) — Delegation and agent configuration.
 - [MSG_CHANNELS.md](MSG_CHANNELS.md) — Channel surfaces and shared inbound path.
-- [AGENTS.md](../../AGENTS.md) — Repository guidelines (logging style, architecture).
 - Implementation touchpoints (when/if built): **`crates/lib/src/agent.rs`** (`ToolExecutor`, tool loop), **`crates/lib/src/gateway/server.rs`**, **`crates/lib/src/config.rs`**, channel **`InboundMessage`** handling, **`crates/desktop`** for UI.

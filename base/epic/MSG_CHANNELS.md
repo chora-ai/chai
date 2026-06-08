@@ -22,7 +22,7 @@ Chai started with Telegram as its only messaging surface, which limits operator 
 
 - **Implemented:** **Telegram** — Bot API via **`getUpdates`** (long-poll) or **`setWebhook`** + **`POST /telegram/webhook`**; outbound **`sendMessage`**. **Matrix** — **[matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk)** in **`crates/adapters/matrix`** (SQLite + E2EE); **`lib`** wraps it behind the **`matrix`** Cargo feature (opt-in on **`cli`** / **`desktop`**: **`--features matrix`**). Omit Matrix by building without that feature (e.g. **`cargo install --path crates/cli`**). **`sync_once`** loop; **`m.room.message`** / **`m.text`** inbound; outbound **`room.send`** (Megolm when the room is encrypted). Optional **room allowlist** (**`channels.matrix.roomIds`**, **`MATRIX_ROOM_ALLOWLIST`**). **E2EE verification (SAS)** without Element: gateway HTTP under **`/matrix/verification/*`** (see [MATRIX.md](../ref/MATRIX.md)). **Signal** — User-run signal-cli **HTTP** daemon: **`GET /api/v1/events`** (SSE) + JSON-RPC **`send`**. All map to **`InboundMessage`** (`channel_id`, `conversation_id`, `text`) and the same session/agent path.
 - **Configuration:** **`channels.telegram`**; **`channels.matrix`**; **`channels.signal`** (`httpBase`, optional **`account`**); env **`TELEGRAM_BOT_TOKEN`**, **`MATRIX_*`** (including **`MATRIX_ROOM_ALLOWLIST`**), **`SIGNAL_CLI_HTTP`**, **`SIGNAL_CLI_ACCOUNT`** (see [README.md](../../README.md)).
-- **References:** [TELEGRAM.md](../ref/TELEGRAM.md), [MATRIX.md](../ref/MATRIX.md), [SIGNAL.md](../ref/SIGNAL.md), [CHANNELS.md](../spec/CHANNELS.md), [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md). User journeys: [`docs/journey/05-channel-telegram.md`](../../docs/journey/05-channel-telegram.md), [`docs/journey/08-channel-matrix.md`](../../docs/journey/08-channel-matrix.md), [`docs/journey/09-channel-signal.md`](../../docs/journey/09-channel-signal.md).
+- **References:** [TELEGRAM.md](../ref/TELEGRAM.md), [MATRIX.md](../ref/MATRIX.md), [SIGNAL.md](../ref/SIGNAL.md), [CHANNELS.md](../spec/CHANNELS.md), [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md). User journeys: [`docs/journey/04-channel-telegram.md`](../../docs/journey/04-channel-telegram.md), [`docs/journey/08-channel-matrix.md`](../../docs/journey/08-channel-matrix.md), [`docs/journey/09-channel-signal.md`](../../docs/journey/09-channel-signal.md).
 - **Probes (non-gateway):** **`crates/spike`** — **`matrix-probe`**, **`signal-probe`**; see **`crates/spike/README.md`**.
 
 ## Scope
@@ -49,18 +49,6 @@ Chai started with Telegram as its only messaging surface, which limits operator 
 |---------|----------------|---------------|-------------------------|
 | **Signal** | First-wave (**shipped** in `crates/lib`) | Strong E2EE on Signal clients; Chai uses **signal-cli** (BYO) over HTTP | [signal-cli](https://github.com/AsamK/signal-cli); [SIGNAL.md](../ref/SIGNAL.md), [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md) |
 | **Matrix / Element** | First-wave (**shipped** in `crates/lib`) | **E2EE** via matrix-sdk for encrypted rooms | **Federation** and **self-hosted homeservers**; [Element](https://matrix.org/ecosystem/clients/element/) |
-
-### Additional Options Under Consideration (Not Committed)
-
-Before the epic is finalized, the following may be evaluated for a later wave or rejected explicitly:
-
-- **WhatsApp / Meta stacks** — Huge reach; different trust and API constraints; often poor fit for privacy-first positioning.
-- **Discord / Slack** — Common for teams; typically centralized; weaker privacy story for sensitive workflows.
-- **XMPP** — Mature federation; smaller ecosystem than Matrix in many communities; could appeal to minimal or legacy deployments.
-- **IRC / Mattermost / Zulip / others** — Niche or self-hosted team chat; useful for specific operators.
-- **Session / SimpleX / other "metadata-light" messengers** — May align with privacy goals; API and automation maturity varies.
-
-Criteria for inclusion in a future wave should be documented here when the epic leaves draft: **API or bridge stability**, **license compatibility**, **operational burden** (daemon, keys, registration), and **overlap** with Matrix vs Signal.
 
 ### Technical Direction (High Level)
 
@@ -129,4 +117,4 @@ Criteria for inclusion in a future wave should be documented here when the epic 
 - [SIMULATIONS.md](SIMULATIONS.md) — Simulation / harness (draft); relationship to **`crates/spike`**.
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec: gateway channel types, binding, **`process_inbound_message`**, shutdown.
 - [PROVIDERS.md](../spec/PROVIDERS.md) — LLM backends and provider configuration (orthogonal to messaging surfaces).
-- [ORCHESTRATION.md](ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).
+- [ORCHESTRATION.md](../spec/ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).

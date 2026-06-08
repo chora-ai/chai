@@ -68,62 +68,47 @@ For lockfile schema and generation tracking, see [PROFILES.md](PROFILES.md).
 
 ## Frontmatter
 
+Frontmatter contains only fields consumed at runtime. The directory name is the authoritative skill name; a `name` field is not needed.
+
 | Field | Required | Description |
 |-------|----------|-------------|
-| `name` | No | Skill name (defaults to directory name). Display/documentation only; directory name is authoritative. |
-| `description` | No | Short description for catalogs and prompts. |
-| `metadata` | No | Optional structured metadata (see below). |
+| `description` | No | Short description for catalogs and system context display. |
 | `capability_tier` | No | Minimum model capability: `minimal` (pure schema, 7B target), `moderate` (some interpretation, 13B–30B), `full` (judgment-tier, capable cloud or 70B+). Used by gateway startup validation to warn when an enabled skill's tier exceeds the agent's likely model capability. Also informs context budget: `minimal`-tier skills should default to `readOnDemand` context mode to preserve limited context windows. |
 | `model_variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `model_variant_of: git`). Used by startup validation to warn when variant skills with overlapping tool surfaces are both enabled for the same agent. |
-| `recommended_models` | No | Array of model identifiers empirically tested against this skill's schema (e.g., `["qwen2.5:7b", "llama3.1:8b"]`). Informational only — not enforced at runtime. Populated by simulation results rather than guesswork. |
-| `generated_from` | No | Derivation metadata recording what produced this skill revision (see below). |
+| `metadata` | No | Optional structured metadata (see below). |
+
+### Minimal Example
+
+```yaml
+---
+description: Monitor RSS and Atom feeds for new content.
+capability_tier: moderate
+metadata:
+  requires:
+    bins: ["curl", "cat"]
+---
+```
+
+### Variant Example
+
+```yaml
+---
+description: Inspect Git repository state, history, diffs, and branches (read-only).
+capability_tier: minimal
+model_variant_of: git
+metadata:
+  requires:
+    bins: ["git"]
+---
+```
 
 ## Metadata (project-neutral)
 
 This project uses a **project-neutral** metadata shape so skills can be shared across runtimes without tying them to a single product.
 
-- **`metadata.requires.bins`** — Optional list of binary names (e.g. `["obsidian"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
+- **`metadata.requires.bins`** — Optional list of binary names (e.g. `["cat", "ls", "grep", "chai"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
 
-**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`skillsEnabled`** array in **`config.json`**. Missing or empty **`skillsEnabled`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["notesmd"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when binaries are missing—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
-
-Example:
-
-```yaml
----
-name: my-skill
-description: Does something that needs a CLI.
-metadata:
-  requires:
-    bins: ["some-cli", "another-tool"]
----
-```
-
-## Derivation Metadata
-
-A skill package is a **derived** artifact — produced from specific inputs. The `generated_from` block in `SKILL.md` frontmatter records what produced each skill revision, connecting package revisions to reproducibility.
-
-```yaml
-generated_from:
-  cli: notesmd-cli
-  cli_version: "0.3.0"
-  spec_version: "1.0"
-  generator_model: claude-opus
-  capability_tier: minimal
-```
-
-| Field | Description |
-|-------|-------------|
-| `cli` | CLI binary that the skill wraps |
-| `cli_version` | Version of the CLI the skill was generated from |
-| `spec_version` | Version of the skill format spec used |
-| `generator_model` | Model used to generate the skill |
-| `capability_tier` | Target capability tier for the generated skill |
-
-Model-specific variants follow naturally: the same CLI source, cross-compiled for different capability tiers, produces different build outputs. The `model_variant_of` field makes variant relationships explicit (e.g., `notesmd-daily` with `capability_tier: minimal` and `model_variant_of: notesmd` is a variant of the same derivation targeting a smaller model).
-
-## Differences from Other Formats
-
-- **OpenClaw / AgentSkills**: Some ecosystems use `metadata.openclaw` (or similar product-namespaced keys) with nested fields such as `metadata.openclaw.requires.bins`, plus extra keys (e.g. `emoji`, `install`). This project does **not** use or parse those namespaced keys. We use only the neutral form above: `metadata.requires.bins`. If you import skills written for OpenClaw (or another framework), update the frontmatter to the neutral shape described here; product-specific keys are ignored by this loader.
+**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`skillsEnabled`** array in **`config.json`**. Missing or empty **`skillsEnabled`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["files", "git-read"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when binaries are missing—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
 
 ## Bundled Skills
 

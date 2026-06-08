@@ -61,10 +61,11 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
             let context_text = effective_system_context(gs, selected_id.as_str());
 
+            // Determine context mode: prefer gateway status, fall back to config.
             let is_read_on_demand_orch = if let Some(mode) = gs.context_mode.as_deref() {
                 mode == "readOnDemand"
             } else {
-                let config = lib::config::load_config(None)
+                let config = lib::config::load_config(app.effective_profile_override())
                     .map(|(c, _)| c)
                     .unwrap_or_default();
                 matches!(
@@ -74,25 +75,48 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             };
 
             let is_read_on_demand_worker = if !is_orchestrator_view {
-                lib::config::load_config(None)
-                    .ok()
-                    .and_then(|(config, _)| {
-                        config.agents.workers.as_ref().and_then(|ws| {
-                            ws.iter().find(|w| w.id == selected_id).map(|w| {
-                                matches!(
-                                    lib::config::worker_context_mode(w),
-                                    lib::config::SkillContextMode::ReadOnDemand
-                                )
+                // Prefer per-agent context mode from gateway status.
+                if let Some(mode) = gs
+                    .agent_skills
+                    .get(&selected_id)
+                    .and_then(|rt| rt.context_mode.as_deref())
+                {
+                    mode == "readOnDemand"
+                } else {
+                    lib::config::load_config(app.effective_profile_override())
+                        .ok()
+                        .and_then(|(config, _)| {
+                            config.agents.workers.as_ref().and_then(|ws| {
+                                ws.iter().find(|w| w.id == selected_id).map(|w| {
+                                    matches!(
+                                        lib::config::worker_context_mode(w),
+                                        lib::config::SkillContextMode::ReadOnDemand
+                                    )
+                                })
                             })
                         })
-                    })
-                    .unwrap_or(false)
+                        .unwrap_or(false)
+                }
             } else {
                 false
             };
 
             let use_read_on_demand_two_columns = (is_orchestrator_view && is_read_on_demand_orch)
                 || (!is_orchestrator_view && is_read_on_demand_worker);
+
+            // Extract skill context strings from gateway status before entering
+            // any closures that also borrow `app`. These are used to prefer
+            // gateway data over disk reads (parity with running gateway).
+            let status_bodies = gs
+                .agent_skills
+                .get(&selected_id)
+                .and_then(|rt| rt.skills_context_bodies.clone())
+                .filter(|s| !s.is_empty());
+            let status_full = gs
+                .agent_skills
+                .get(&selected_id)
+                .and_then(|rt| rt.skills_context_full.clone())
+                .filter(|s| !s.is_empty());
 
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), total_height),
@@ -129,88 +153,149 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                 ui_left.label("No context loaded.");
                             }
 
-                            if let Ok((config, _paths)) = lib::config::load_config(None) {
-                                let (skill_names, right_title): (&[String], &'static str) =
-                                    if is_orchestrator_view {
-                                        (
-                                            lib::config::orchestrator_skills_enabled_list(
-                                                &config.agents,
-                                            ),
-                                            "Skill bodies (orchestrator)",
-                                        )
-                                    } else if let Some(w) = config
-                                        .agents
-                                        .workers
-                                        .as_ref()
-                                        .and_then(|ws| ws.iter().find(|w| w.id == selected_id))
-                                    {
-                                        (
-                                            lib::config::worker_skills_enabled_list(w),
-                                            "Skill bodies (worker)",
-                                        )
-                                    } else {
-                                        (&[], "Skill bodies")
-                                    };
-
-                                if !skill_names.is_empty() {
-                                    if let Some(ref cached) = app.cached_skills {
-                                        let mut entries: Vec<_> = cached
-                                            .iter()
-                                            .filter(|e| {
-                                                skill_names.iter().any(|n| n == &e.name)
+                            if let Some(bodies_text) = &status_bodies {
+                                // Gateway is running and has skill bodies — use them directly.
+                                let right_title = if is_orchestrator_view {
+                                    "Skill bodies (orchestrator)"
+                                } else {
+                                    "Skill bodies (worker)"
+                                };
+                                ui_right.label(egui::RichText::new(right_title).strong());
+                                ui_right.add_space(spacing::LINE);
+                                let scroll_id = if is_orchestrator_view {
+                                    "context_skills_scroll"
+                                } else {
+                                    "context_worker_skills_scroll"
+                                };
+                                egui::ScrollArea::vertical()
+                                    .id_source(scroll_id)
+                                    .max_height(ui_right.available_height())
+                                    .show(ui_right, |ui| {
+                                        let mut buf = bodies_text.to_string();
+                                        egui::TextEdit::multiline(&mut buf)
+                                            .code_editor()
+                                            .desired_width(ui.available_width())
+                                            .interactive(false)
+                                            .show(ui);
+                                    });
+                            } else if let Some(full_text) = &status_full {
+                                // Full mode — show the full skills context from gateway.
+                                let right_title = if is_orchestrator_view {
+                                    "Skills context (orchestrator)"
+                                } else {
+                                    "Skills context (worker)"
+                                };
+                                ui_right.label(egui::RichText::new(right_title).strong());
+                                ui_right.add_space(spacing::LINE);
+                                let scroll_id = if is_orchestrator_view {
+                                    "context_skills_scroll"
+                                } else {
+                                    "context_worker_skills_scroll"
+                                };
+                                egui::ScrollArea::vertical()
+                                    .id_source(scroll_id)
+                                    .max_height(ui_right.available_height())
+                                    .show(ui_right, |ui| {
+                                        let mut buf = full_text.to_string();
+                                        egui::TextEdit::multiline(&mut buf)
+                                            .code_editor()
+                                            .desired_width(ui.available_width())
+                                            .interactive(false)
+                                            .show(ui);
+                                    });
+                            } else {
+                                // No gateway status skill data — fall back to disk reads.
+                                if let Ok((config, _paths)) =
+                                    lib::config::load_config(app.effective_profile_override())
+                                {
+                                    let (skill_names, right_title): (&[String], &'static str) =
+                                        if is_orchestrator_view {
+                                            (
+                                                lib::config::orchestrator_skills_enabled_list(
+                                                    &config.agents,
+                                                ),
+                                                "Skill bodies (orchestrator)",
+                                            )
+                                        } else if let Some(w) = config
+                                            .agents
+                                            .workers
+                                            .as_ref()
+                                            .and_then(|ws| {
+                                                ws.iter().find(|w| w.id == selected_id)
                                             })
-                                            .cloned()
-                                            .collect();
-                                        if entries.is_empty() {
-                                            ui_right.label("No enabled skills were loaded.");
+                                        {
+                                            (
+                                                lib::config::worker_skills_enabled_list(w),
+                                                "Skill bodies (worker)",
+                                            )
                                         } else {
-                                            entries.sort_by(|a, b| a.name.cmp(&b.name));
-                                            ui_right.label(
-                                                egui::RichText::new(right_title).strong(),
-                                            );
-                                            ui_right.add_space(spacing::LINE);
-                                            let scroll_id = if is_orchestrator_view {
-                                                "context_skills_scroll"
+                                            (&[], "Skill bodies")
+                                        };
+
+                                    if !skill_names.is_empty() {
+                                        if let Some(ref cached) = app.cached_skills {
+                                            let mut entries: Vec<_> = cached
+                                                .iter()
+                                                .filter(|e| {
+                                                    skill_names.iter().any(|n| n == &e.name)
+                                                })
+                                                .cloned()
+                                                .collect();
+                                            if entries.is_empty() {
+                                                ui_right
+                                                    .label("No enabled skills were loaded.");
                                             } else {
-                                                "context_worker_skills_scroll"
-                                            };
-                                            egui::ScrollArea::vertical()
-                                                .id_source(scroll_id)
-                                                .max_height(ui_right.available_height())
-                                                .show(ui_right, |ui| {
-                                                    for entry in &entries {
-                                                        let body = strip_skill_frontmatter(
-                                                            &entry.content,
-                                                        );
-                                                        let has_body = !body.trim().is_empty();
+                                                entries.sort_by(|a, b| a.name.cmp(&b.name));
+                                                ui_right.label(
+                                                    egui::RichText::new(right_title).strong(),
+                                                );
+                                                ui_right.add_space(spacing::LINE);
+                                                let scroll_id = if is_orchestrator_view {
+                                                    "context_skills_scroll"
+                                                } else {
+                                                    "context_worker_skills_scroll"
+                                                };
+                                                egui::ScrollArea::vertical()
+                                                    .id_source(scroll_id)
+                                                    .max_height(ui_right.available_height())
+                                                    .show(ui_right, |ui| {
+                                                        for entry in &entries {
+                                                            let body = strip_skill_frontmatter(
+                                                                &entry.content,
+                                                            );
+                                                            let has_body =
+                                                                !body.trim().is_empty();
 
-                                                        ui.label(
-                                                            egui::RichText::new(&entry.name)
-                                                                .strong(),
-                                                        );
-                                                        ui.add_space(spacing::LINE);
+                                                            ui.label(
+                                                                egui::RichText::new(&entry.name)
+                                                                    .strong(),
+                                                            );
+                                                            ui.add_space(spacing::LINE);
 
-                                                        if has_body {
-                                                            let mut buf = body.to_string();
-                                                            egui::TextEdit::multiline(&mut buf)
+                                                            if has_body {
+                                                                let mut buf = body.to_string();
+                                                                egui::TextEdit::multiline(
+                                                                    &mut buf,
+                                                                )
                                                                 .code_editor()
                                                                 .desired_width(
                                                                     ui.available_width(),
                                                                 )
                                                                 .interactive(false)
                                                                 .show(ui);
-                                                        }
+                                                            }
 
-                                                        ui.add_space(spacing::SUBSECTION);
-                                                    }
-                                                });
+                                                            ui.add_space(spacing::SUBSECTION);
+                                                        }
+                                                    });
+                                            }
+                                        } else {
+                                            ui_right.label("Loading skills...");
                                         }
                                     } else {
-                                        ui_right.label("Loading skills...");
+                                        ui_right.label(egui::RichText::new(right_title).weak());
+                                        ui_right.label("No skills enabled for this agent.");
                                     }
-                                } else {
-                                    ui_right.label(egui::RichText::new(right_title).weak());
-                                    ui_right.label("No skills enabled for this agent.");
                                 }
                             }
                         });

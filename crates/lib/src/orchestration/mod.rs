@@ -1,11 +1,11 @@
-//! Orchestration: orchestrator and worker flows (see `base/epic/ORCHESTRATION.md`).
+//! Orchestration: orchestrator and worker flows (see `base/adr/ORCHESTRATION.md`).
 //!
 //! **Worker / delegation primitive** — [`crate::agent::run_turn_with_messages`] with explicit messages.
 //!
 //! **Provider dispatch** — [`ProviderChoice`], [`ProviderClients`], and [`resolve_model`]
 //! centralize "which client" + default model resolution for the gateway and future orchestrator code.
 //!
-//! **Orchestestrator loop** — [`DELEGATE_TASK_TOOL_NAME`], [`merge_delegate_task`], [`execute_delegate_task`]:
+//! **Orchestrator loop** — [`DELEGATE_TASK_TOOL_NAME`], [`merge_delegate_task`], [`execute_delegate_task`]:
 //! when workers are configured, the orchestrator may delegate via `delegate_task`; the worker uses a per-worker system context and skill tools when
 //! `workerId` is set (nested `delegate_task` disabled). Gateway inbound and WebSocket `agent` both pass [`DelegateContext`].
 
@@ -24,14 +24,11 @@ pub use delegate::{
     worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
     EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START, EVENT_TOOL_CALL,
     DELEGATE_TASK_TOOL_NAME, EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE,
-    EVENT_TOOL_RESULT,
+    EVENT_TOOL_RESULT, EVENT_TOOL_LOOP_LIMIT,
 };
 pub use dispatch::ProviderClients;
 pub use model::{resolve_model, DEFAULT_MODEL_FALLBACK};
-pub use policy::{
-    apply_delegation_instruction_routes, assert_delegate_provider_not_blocked,
-    assert_delegation_pair_allowed, assert_session_delegation_limits,
-};
+pub use policy::{apply_delegation_bracket_match, assert_session_delegation_limits};
 
 pub use catalog::{build_orchestration_catalog, OrchestrationCatalogEntry};
 pub use workers_context::{build_workers_context, effective_worker_defaults};

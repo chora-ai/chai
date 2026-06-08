@@ -141,7 +141,7 @@ pub struct ResolveCommandSpec {
 pub struct ArgMapping {
     /// JSON parameter name (e.g. "query").
     pub param: String,
-    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", or "workingdir".
+    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", "workingdir", or "envvar".
     #[serde(default)]
     pub kind: ArgKind,
     /// For kind "flag", the flag name. Single-character names produce short flags
@@ -149,6 +149,10 @@ pub struct ArgMapping {
     /// If absent, uses param (which will always produce a long flag).
     #[serde(default)]
     pub flag: Option<String>,
+    /// For kind "envvar", the environment variable name. If absent, the param name
+    /// is converted to SCREAMING_SNAKE_CASE (e.g. "original_content" -> "ORIGINAL_CONTENT").
+    #[serde(default)]
+    pub env_var: Option<String>,
     /// For kind "flagIfBoolean", the flag to emit when the param value is true (e.g. "--overwrite").
     #[serde(default)]
     pub flag_if_true: Option<String>,
@@ -179,6 +183,24 @@ pub struct ArgMapping {
     pub disambiguate_after_skipped_positionals: Option<bool>,
 }
 
+impl Default for ArgMapping {
+    fn default() -> Self {
+        Self {
+            param: String::new(),
+            kind: ArgKind::default(),
+            flag: None,
+            env_var: None,
+            flag_if_true: None,
+            flag_if_false: None,
+            resolve_command: None,
+            write_path: None,
+            read_path: None,
+            optional: None,
+            disambiguate_after_skipped_positionals: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ArgKind {
@@ -198,6 +220,12 @@ pub enum ArgKind {
     /// is set, the resolver runs with an empty string when the param is omitted,
     /// defaulting to the sandbox root.
     WorkingDir,
+    /// Set as an environment variable on the child process. Uses `envVar` if set,
+    /// else converts the param name to SCREAMING_SNAKE_CASE. The value is NOT
+    /// added to argv. Prefer this over `flag` for content that must match file
+    /// content byte-for-byte (e.g. original_content for patch verification),
+    /// since CLI flag parsing can introduce subtle mismatches.
+    EnvVar,
 }
 
 impl ToolDescriptor {

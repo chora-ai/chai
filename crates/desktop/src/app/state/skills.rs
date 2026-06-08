@@ -23,8 +23,9 @@ impl ChaiApp {
         if need_immediate || self.frames_since_skills_fetch >= STATUS_INTERVAL_FRAMES {
             self.frames_since_skills_fetch = 0;
             let (tx, rx) = mpsc::channel();
+            let profile_override = self.effective_profile_override().map(String::from);
             std::thread::spawn(move || {
-                let result = fetch_skills();
+                let result = fetch_skills(profile_override.as_deref());
                 let _ = tx.send(result);
             });
             self.skills_fetch_receiver = Some(rx);
@@ -38,8 +39,8 @@ impl ChaiApp {
 }
 
 /// Load skills from the default skills directory. Runs in a background thread.
-fn fetch_skills() -> Result<Vec<lib::skills::SkillEntry>, String> {
-    let (_, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+fn fetch_skills(profile_override: Option<&str>) -> Result<Vec<lib::skills::SkillEntry>, String> {
+    let (_, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let chai_home = &paths.chai_home;
     let skills_root = lib::config::default_skills_dir(chai_home);
     lib::skills::load_skills(skills_root.as_path()).map_err(|e| e.to_string())

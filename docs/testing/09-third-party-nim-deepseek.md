@@ -4,6 +4,16 @@
 
 Third-party NVIDIA NIM API runs for DeepSeek-family models.
 
+## Setup
+
+Follow the [NVIDIA NIM setup](PROVIDER_SETUP.md#nvidia-nim) instructions, then set `agents.defaultModel` to one of the models below.
+
+Example configuration:
+
+```json
+{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }
+```
+
 ## Models
 
 The following models support tools:
@@ -14,21 +24,15 @@ The following models support tools:
 
 The following models do not support tools:
 
-- (excluded from list) `deepseek-ai/deepseek-r1-distill-llama-8b` - [source (NVIDIA)](https://build.nvidia.com/deepseek-ai/deepseek-r1-distill-llama-8b)
-- (excluded from list) `deepseek-ai/deepseek-r1-distill-qwen-7b` - [source (NVIDIA)](https://build.nvidia.com/deepseek-ai/deepseek-r1-distill-qwen-7b)
+- `deepseek-ai/deepseek-r1-distill-llama-8b` - [source (NVIDIA)](https://build.nvidia.com/deepseek-ai/deepseek-r1-distill-llama-8b)
+- `deepseek-ai/deepseek-r1-distill-qwen-7b` - [source (NVIDIA)](https://build.nvidia.com/deepseek-ai/deepseek-r1-distill-qwen-7b)
 
-## Setup
-
-- Provider: `endpoint: "openai-compat"` with `modelDiscovery: "static"` and `baseUrl: "https://integrate.api.nvidia.com/v1"` (e.g. `{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }`)
-- `agents.defaultProvider`: provider `id` (e.g. `"nim"`)
-- `agents.defaultModel`: one model from the list above
-- `NVIDIA_API_KEY` or provider `apiKey`
+> **Note:** Models without tool support should be tested with [20-conversation-no-tools.md](20-conversation-no-tools.md) instead of the shared tool-use message sequence.
 
 ## Procedure
 
-Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure.
-
+Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure — or use the [non-tool conversation playbook](20-conversation-no-tools.md) for models that lack tool support.
 
 ## See Also
 
-- [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md#nvidia-nim) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)

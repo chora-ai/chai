@@ -8,7 +8,7 @@ use lib::orchestration::{
 const CHAT_INPUT_HEIGHT: f32 = 130.0;
 const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
 
-/// Blue border color used for delegation events and worker tool calls.
+/// Blue border color used for delegation events, worker tool calls, and worker replies.
 const BLUE_BORDER: egui::Color32 = egui::Color32::from_rgb(70, 70, 90);
 /// Green border color used for orchestrator tool calls and assistant messages.
 const GREEN_BORDER: egui::Color32 = egui::Color32::from_rgb(70, 90, 70);
@@ -40,6 +40,9 @@ fn is_worker_tool(m: &ChatMessage) -> bool {
     m.source.as_deref() == Some("worker")
 }
 
+/// Amber border color used for tool loop limit warnings.
+const AMBER_BORDER: egui::Color32 = egui::Color32::from_rgb(90, 70, 30);
+
 /// Renders a single chat message in the same style as the chat screen (frame, role-based fill, content, tool calls).
 fn render_chat_message(
     ui: &mut egui::Ui,
@@ -51,16 +54,28 @@ fn render_chat_message(
     let is_user = m.role == "user";
     let is_assistant = m.role == "assistant";
     let is_assistant_progress = m.role == "assistant_progress";
+    let is_worker_reply = m.role == "worker";
     let is_error = m.role == "error";
     let is_delegation = m.delegation_event.is_some();
     let is_tool_call = m.role == "tool_call";
     let is_tool_result = m.role == "tool_result";
+    let is_tool_loop_limit = m.role == "tool_loop_limit";
     let is_worker = is_worker_tool(m);
+
+    // Skip assistant and assistant_progress messages with empty content — they
+    // render as an empty frame with just the orchestrator label, which adds no
+    // useful information (e.g. when the tool loop limit is reached and the model
+    // only produced tool calls without text).
+    if (is_assistant || is_assistant_progress) && m.content.trim().is_empty() {
+        return;
+    }
 
     let frame = egui::Frame::none()
         .fill(if is_user {
             ui.style().visuals.extreme_bg_color
-        } else if is_delegation || is_worker {
+        } else if is_tool_loop_limit {
+            ui.style().visuals.faint_bg_color
+        } else if is_delegation || is_worker || is_worker_reply {
             ui.style().visuals.faint_bg_color
         } else if is_tool_call || is_tool_result {
             ui.style().visuals.faint_bg_color
@@ -73,7 +88,9 @@ fn render_chat_message(
             1.0,
             if is_error {
                 egui::Color32::RED
-            } else if is_delegation || is_worker {
+            } else if is_tool_loop_limit {
+                AMBER_BORDER
+            } else if is_delegation || is_worker || is_worker_reply {
                 BLUE_BORDER
             } else if is_tool_call || is_tool_result {
                 GREEN_BORDER
@@ -89,25 +106,30 @@ fn render_chat_message(
     frame.show(ui, |ui| {
         if is_delegation {
             let accent = match m.delegation_event.as_deref() {
-                Some(s) if s == EVENT_DELEGATE_COMPLETE => egui::Color32::from_rgb(60, 140, 90),
-                Some(s) if s == EVENT_DELEGATE_ERROR => egui::Color32::from_rgb(180, 60, 60),
-                Some(s) if s == EVENT_DELEGATE_REJECTED => egui::Color32::from_rgb(180, 120, 40),
                 Some(s) if s == EVENT_DELEGATE_START => egui::Color32::from_rgb(70, 110, 180),
+                Some(s) if s == EVENT_DELEGATE_COMPLETE => egui::Color32::from_rgb(60, 140, 90),
+                Some(s) if s == EVENT_DELEGATE_REJECTED => egui::Color32::from_rgb(180, 120, 40),
+                Some(s) if s == EVENT_DELEGATE_ERROR => egui::Color32::from_rgb(180, 60, 60),
                 _ => ui.style().visuals.weak_text_color(),
             };
             ui.label(
                 egui::RichText::new(&m.content)
-                    .small()
                     .italics()
                     .color(accent),
             );
+        } else if is_worker_reply {
+            // Worker reply — rendered as a first-class chat line showing the
+            // worker's response text directly, not buried inside a tool result.
+            let worker_id = m.source.as_deref().unwrap_or("worker");
+            ui.label(egui::RichText::new(worker_id).small().weak());
+            ui.add_space(8.0);
+            ui.label(&m.content);
         } else if is_tool_call {
             // Streamed tool call — rendered as a separate timeline entry.
             let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
             let has_result = m.tool_result.is_some();
-            let status_icon = if has_result { "✅" } else { "⚙️" };
-            let prefix = if is_worker { "🔩" } else { "🔧" };
-            let label = format!("{} {} {}", prefix, tool_name, status_icon);
+            let status_icon = if has_result { "✅" } else { "⚙" };
+            let label = format!("🔧 {} {}", tool_name, status_icon);
             egui::CollapsingHeader::new(label)
                 .id_source(format!("tool_call_{}_{}", index, m.tool_index.unwrap_or(index)))
                 .default_open(false)
@@ -145,10 +167,9 @@ fn render_chat_message(
             // Standalone tool result (shouldn't normally appear — results are
             // merged into the tool_call entry — but handle gracefully).
             let tool_name = m.tool_name.as_deref().unwrap_or("unknown");
-            let prefix = if is_worker { "🔩" } else { "🔧" };
             ui.add_space(8.0);
             ui.label(
-                egui::RichText::new(format!("{} {} ✅", prefix, tool_name))
+                egui::RichText::new(format!("🔧 {} ✅", tool_name))
                     .small(),
             );
             if let Some(ref result) = m.tool_result {
@@ -160,7 +181,12 @@ fn render_chat_message(
             // Intermediate message from the model during tool loop iterations.
             // This is content the model produced alongside tool calls that would
             // otherwise be invisible to the user.
-            ui.label(egui::RichText::new(orchestrator_id).small().weak());
+            let label = if is_worker {
+                m.source.as_deref().unwrap_or("worker")
+            } else {
+                orchestrator_id
+            };
+            ui.label(egui::RichText::new(label).small().weak());
             ui.add_space(8.0);
             ui.label(&m.content);
         } else if is_user {
@@ -174,6 +200,53 @@ fn render_chat_message(
                 egui::RichText::new(&m.content)
                     .strong()
                     .color(egui::Color32::RED),
+            );
+        } else if is_tool_loop_limit {
+            // Tool loop iteration limit banner — amber-bordered warning.
+            let amber = egui::Color32::from_rgb(200, 150, 50);
+            ui.label(
+                egui::RichText::new("⚠ tool loop iteration limit reached")
+                    .strong()
+                    .color(amber),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "The agent's last tool call was not executed. Send another message \
+                     to continue the session and ask the agent to retry.",
+                )
+                .small(),
+            );
+            if let Some(ref pending) = m.pending_tool_calls {
+                if !pending.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(
+                        egui::RichText::new("Tool calls not executed:").small().weak(),
+                    );
+                    ui.add_space(4.0);
+                    for call in pending {
+                        let name = call
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .and_then(|n| n.as_str())
+                            .unwrap_or("unknown");
+                        ui.label(
+                            egui::RichText::new(format!("  ⏸ {}", name))
+                                .small()
+                                .monospace()
+                                .color(amber),
+                        );
+                    }
+                }
+            }
+            ui.add_space(6.0);
+            ui.label(
+                egui::RichText::new(
+                    "Adjust maxToolLoopIterations in config.json to change the limit \
+                     (default: 100 per agent).",
+                )
+                .small()
+                .weak(),
             );
         } else if is_assistant {
             // Assistant message — show text content only.
@@ -255,6 +328,8 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
         })
         .show(&mut row_ui, |ui| {
             // Right-to-left layout: first added = rightmost. Left-to-right: Provider, Model, /help, /new, Send.
+            // Compute enabled providers list first so it can inform the effective provider fallback.
+            let enabled_providers_list = app.enabled_providers();
             let effective_provider = app
                 .current_provider
                 .as_deref()
@@ -268,6 +343,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                         .as_ref()
                         .and_then(|s| s.provider_info.keys().next().map(|k| k.as_str()))
                 })
+                .or_else(|| enabled_providers_list.first().map(|s| s.as_str()))
                 .unwrap_or("ollama")
                 .to_string();
             // Only models for the selected provider (from dynamic provider_info).
@@ -290,13 +366,11 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                 .gateway_status
                 .as_ref()
                 .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.endpoint.as_str()));
-            let is_hosted_api = matches!(endpoint_type, Some("anthropic") | Some("google"));
             // OpenAI-compat providers with a remote base URL are also treated as hosted.
             // Since we don't have the base URL here, check if the endpoint is openai-compat
             // and the model list is empty — this covers remote OpenAI-compat providers.
             // For local openai-compat (vLLM, LM Studio etc.), discovery typically succeeds.
-            let is_remote_compat = endpoint_type == Some("openai-compat") && gateway_models.is_empty();
-            let treat_as_hosted = is_hosted_api || is_remote_compat;
+            let treat_as_hosted = endpoint_type == Some("openai-compat") && gateway_models.is_empty();
 
             // Model dropdown: only models for the selected provider. For hosted API providers, use default when list empty.
             let model_options: Vec<String> = if gateway_models.is_empty() && treat_as_hosted {
@@ -345,7 +419,6 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
 
             // Provider dropdown: only show enabled providers (from config, cached).
             ui.add_space(8.0);
-            let enabled_providers_list = app.enabled_providers();
             if !enabled_providers_list.is_empty() {
                 let selected = if enabled_providers_list.contains(&effective_provider) {
                     effective_provider.clone()

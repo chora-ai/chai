@@ -1,12 +1,9 @@
-//! Built-in `delegate_task` tool: run a worker turn on another provider/model (see `base/epic/ORCHESTRATION.md`).
+//! Built-in `delegate_task` tool: run a worker turn on the worker's single `(provider, model)` pair (see `base/adr/ORCHESTRATION.md`).
 
 use super::choice::ProviderChoice;
 use super::dispatch::ProviderClients;
 use super::model::resolve_model;
-use super::policy::{
-    apply_delegation_instruction_routes, assert_delegate_provider_not_blocked,
-    assert_delegation_pair_allowed, assert_session_delegation_limits,
-};
+use super::policy::{apply_delegation_bracket_match, assert_session_delegation_limits};
 use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
 use crate::config::{
     canonical_provider_id, provider_discovery_enabled, AgentsConfig, ProvidersConfig,
@@ -38,6 +35,8 @@ pub const EVENT_TOOL_CALL: &str = "session.tool_call";
 pub const EVENT_TOOL_RESULT: &str = "session.tool_result";
 /// WebSocket event name: intermediate assistant message content during tool loop iterations.
 pub const EVENT_ASSISTANT_PROGRESS: &str = "session.assistant_progress";
+/// WebSocket event name: tool loop iteration limit reached, some tool calls were not executed.
+pub const EVENT_TOOL_LOOP_LIMIT: &str = "session.tool_loop_limit";
 /// Optional broadcast of structured orchestration events to gateway WebSocket clients (`type`: `event`).
 #[derive(Clone)]
 pub struct DelegateObservability {
@@ -156,6 +155,17 @@ impl DelegateObservability {
         }));
         self.send(EVENT_ASSISTANT_PROGRESS, payload);
     }
+
+    /// Emits [`EVENT_TOOL_LOOP_LIMIT`] when the tool loop iteration limit is reached
+    /// and some tool calls were not executed. Includes the pending tool calls so
+    /// connected clients can inform the user what was interrupted.
+    pub fn emit_tool_loop_limit(&self, pending_tool_calls: &[crate::providers::ToolCall]) {
+        let pending = serde_json::to_value(pending_tool_calls).unwrap_or_else(|_| json!([]));
+        let payload = self.merge_base(json!({
+            "pendingToolCalls": pending,
+        }));
+        self.send(EVENT_TOOL_LOOP_LIMIT, payload);
+    }
 }
 
 fn optional_worker_id_from_args(args: &serde_json::Value) -> Option<String> {
@@ -217,22 +227,10 @@ pub fn delegate_task_tool_definition() -> ToolDefinition {
         typ: "function".to_string(),
         function: ToolFunctionDefinition {
             name: DELEGATE_TASK_TOOL_NAME.to_string(),
-            description: Some("delegate a task to a worker".to_string()),
+            description: Some("Delegate a subtask to a worker agent. Use this when the task benefits from a different model, separate context, or specialized skills. Start your instruction with the worker's bracket prefix to target that worker. The worker runs one turn with your instruction and returns the result.".to_string()),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "workerId": {
-                        "type": "string",
-                        "description": "the id of the worker"
-                    },
-                    "provider": {
-                        "type": "string",
-                        "description": "the provider to use"
-                    },
-                    "model": {
-                        "type": "string",
-                        "description": "the model to use"
-                    },
                     "instruction": {
                         "type": "string",
                         "description": "the instructions for the worker"
@@ -330,18 +328,6 @@ fn resolve_delegate_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    let provider_raw = obj
-        .get("provider")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
-
-    let model_param = obj
-        .get("model")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
-
     // Default to the first configured provider or "ollama".
     let global_default_provider = agents
         .default_provider
@@ -357,31 +343,11 @@ fn resolve_delegate_target(
             .and_then(|ws| ws.iter().find(|w| w.id == worker_id.as_str()))
             .ok_or_else(|| format!("unknown workerId: {}", worker_id))?;
 
-        let default_provider = worker
+        let provider_id = worker
             .default_provider
             .as_deref()
             .and_then(|s| canonical_provider_id(providers, s))
             .unwrap_or(global_default_provider.clone());
-
-        let provider_id = match provider_raw {
-            Some(p) => canonical_provider_id(providers, p).ok_or_else(|| format!("unknown provider: {}", p))?,
-            None => default_provider.clone(),
-        };
-
-        let allowed = match &worker.enabled_providers {
-            None => true,
-            Some(list) if list.is_empty() => provider_id == default_provider,
-            Some(list) => list
-                .iter()
-                .filter_map(|s| canonical_provider_id(providers, s))
-                .any(|p| p == provider_id),
-        };
-        if !allowed {
-            return Err(format!(
-                "provider {} is not enabled for workerId {} (workers.enabledProviders)",
-                provider_id, worker_id
-            ));
-        }
 
         if !provider_discovery_enabled(providers, agents, &provider_id) {
             return Err(format!(
@@ -395,13 +361,10 @@ fn resolve_delegate_target(
             .default_model
             .as_deref()
             .or(agents.default_model.as_deref());
-        let model = resolve_model(providers, config_model, model_param, &provider_choice);
+        let model = resolve_model(providers, config_model, None, &provider_choice);
         (provider_id, model)
     } else {
-        let provider_id = match provider_raw {
-            Some(p) => canonical_provider_id(providers, p).ok_or_else(|| format!("unknown provider: {}", p))?,
-            None => global_default_provider,
-        };
+        let provider_id = global_default_provider;
 
         if !provider_discovery_enabled(providers, agents, &provider_id) {
             return Err(format!(
@@ -414,15 +377,11 @@ fn resolve_delegate_target(
         let model = resolve_model(
             providers,
             agents.default_model.as_deref(),
-            model_param,
+            None,
             &provider_choice,
         );
         (provider_id, model)
     };
-
-    assert_delegate_provider_not_blocked(providers, agents, &provider_id)?;
-
-    assert_delegation_pair_allowed(providers, agents, worker_id.as_deref(), &provider_id, &model)?;
 
     let provider_choice = ProviderChoice::new(&provider_id);
     Ok(DelegateTarget {
@@ -437,7 +396,7 @@ pub async fn execute_delegate_task(
     ctx: &DelegateContext<'_>,
     args: &serde_json::Value,
 ) -> Result<String, String> {
-    let merged = apply_delegation_instruction_routes(ctx.agents, args);
+    let merged = apply_delegation_bracket_match(ctx.agents, args);
     let obj = merged
         .as_object()
         .ok_or_else(|| "arguments must be an object".to_string())?;
@@ -602,6 +561,7 @@ pub async fn execute_delegate_task(
             "model": model,
             "workerToolCalls": result.tool_calls.len(),
             "workerToolResults": result.tool_results.len(),
+            "reply": result.content,
         });
         if let Some(w) = optional_worker_id_from_args(&merged) {
             extra["workerId"] = json!(w);
@@ -621,7 +581,7 @@ pub async fn execute_delegate_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{AllowedModelEntry, ProviderDefinition, WorkerConfig, EndpointType};
+    use crate::config::{ProviderDefinition, WorkerConfig, EndpointType};
     use crate::providers::ToolCallFunction;
     use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
@@ -709,14 +669,14 @@ mod tests {
             vec![tool_call],
             vec!["tool output".to_string()],
             "ollama",
-            "llama3.2:latest",
+            "llama3.2:3b",
         );
 
         let v: serde_json::Value = serde_json::from_str(&payload).expect("valid json");
         assert_eq!(v["reply"], "worker reply");
         assert_eq!(v["toolCalls"].as_array().unwrap().len(), 1);
         assert_eq!(v["worker"]["provider"], "ollama");
-        assert_eq!(v["worker"]["model"], "llama3.2:latest");
+        assert_eq!(v["worker"]["model"], "llama3.2:3b");
         assert_eq!(v["toolResults"].as_array().unwrap().len(), 1);
         assert_eq!(v["toolResults"].as_array().unwrap()[0], "tool output");
     }
@@ -737,7 +697,7 @@ mod tests {
             vec![tool_call.clone()],
             vec!["tool output".to_string()],
             "ollama",
-            "llama3.2:latest",
+            "llama3.2:3b",
         );
 
         let out = parse_delegate_tool_calls(&payload).expect("parsed");
@@ -753,7 +713,7 @@ mod tests {
             vec![],
             vec!["tool output 1".to_string(), "tool output 2".to_string()],
             "ollama",
-            "llama3.2:latest",
+            "llama3.2:3b",
         );
 
         let out = parse_delegate_tool_results(&payload).expect("parsed");
@@ -772,10 +732,8 @@ mod tests {
                 id: "fast".to_string(),
                 default_provider: Some("lms".to_string()),
                 default_model: Some("worker-model".to_string()),
-                enabled_providers: None,
                 skills_enabled: None,
                 context_mode: None,
-                delegate_allowed_models: None,
             }]),
             ..AgentsConfig::default()
         };
@@ -830,55 +788,40 @@ mod tests {
     }
 
     #[test]
-    fn resolve_delegate_target_rejects_disallowed_delegate_pair() {
-        let providers = test_providers(&["ollama", "lms"]);
-        let agents = AgentsConfig {
-            default_provider: Some("ollama".to_string()),
-            default_model: Some("global-default".to_string()),
-            enabled_providers: Some(vec!["ollama".to_string(), "lms".to_string()]),
-            delegate_allowed_models: Some(vec![AllowedModelEntry {
-                provider: "ollama".to_string(),
-                model: "allowed-only".to_string(),
-                local: false,
-                tool_capable: None,
-            }]),
-            ..AgentsConfig::default()
+    fn delegate_complete_payload_includes_reply() {
+        let (tx, mut rx) = broadcast::channel::<String>(4);
+        let obs = DelegateObservability {
+            event_tx: tx,
+            session_id: Some("sess-3".to_string()),
+            source: None,
+            tool_index_offset: 0,
         };
-        let args = json!({
-            "provider": "lms",
-            "model": "some-model",
-            "instruction": "do the thing"
-        });
-        let err = resolve_delegate_target(&providers, &agents, &args).expect_err("should reject pair");
-        assert!(err.contains("delegateAllowedModels"), "{}", err);
+        obs.send(
+            EVENT_DELEGATE_COMPLETE,
+            obs.merge_base(json!({
+                "provider": "ollama",
+                "model": "llama3.2:3b",
+                "workerToolCalls": 0,
+                "workerToolResults": 0,
+                "reply": "the worker's text response",
+            })),
+        );
+        let frame = rx.try_recv().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&frame).unwrap();
+        assert_eq!(v["event"], EVENT_DELEGATE_COMPLETE);
+        let payload = &v["payload"];
+        assert_eq!(payload["reply"], "the worker's text response");
+        assert_eq!(payload["provider"], "ollama");
+        assert_eq!(payload["workerToolCalls"], 0);
     }
 
     #[test]
-    fn resolve_delegate_target_enforces_worker_enabled_providers() {
-        let providers = test_providers(&["ollama", "lms"]);
-        let agents = AgentsConfig {
-            default_provider: Some("ollama".to_string()),
-            default_model: Some("global-default".to_string()),
-            enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
-            workers: Some(vec![WorkerConfig {
-                id: "strict".to_string(),
-                default_provider: Some("lms".to_string()),
-                default_model: Some("worker-model".to_string()),
-                enabled_providers: Some(vec!["lms".to_string()]),
-                skills_enabled: None,
-                context_mode: None,
-                delegate_allowed_models: None,
-            }]),
-            ..AgentsConfig::default()
-        };
-
-        let args = json!({
-            "workerId": "strict",
-            "provider": "ollama",
-            "instruction": "do the thing"
-        });
-
-        let err = resolve_delegate_target(&providers, &agents, &args).expect_err("should reject provider");
-        assert!(err.contains("workers.enabledProviders"));
+    fn delegate_task_tool_has_no_provider_or_model_params() {
+        let def = delegate_task_tool_definition();
+        let params = &def.function.parameters;
+        let props = params.get("properties").expect("properties");
+        assert!(props.get("instruction").is_some(), "instruction param should exist");
+        assert!(props.get("provider").is_none(), "provider param should not exist");
+        assert!(props.get("model").is_none(), "model param should not exist");
     }
 }

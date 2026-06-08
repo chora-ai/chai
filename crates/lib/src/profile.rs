@@ -201,6 +201,19 @@ pub fn switch_active_profile(chai_home: &Path, profile_name: &str) -> Result<()>
     set_active_symlink(chai_home, profile_name)
 }
 
+/// Read the profile name from `gateway.lock` without acquiring the lock.
+/// Returns `None` if the file doesn't exist, can't be read, or has unexpected content.
+pub fn read_gateway_lock_profile(chai_home: &Path) -> Option<String> {
+    let path = gateway_lock_path(chai_home);
+    let content = std::fs::read_to_string(&path).ok()?;
+    let name = content.lines().next()?.trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
 /// True if another process holds an exclusive lock on `gateway.lock` (a gateway is running).
 pub fn gateway_is_running(chai_home: &Path) -> bool {
     let path = gateway_lock_path(chai_home);

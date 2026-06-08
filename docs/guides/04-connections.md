@@ -6,7 +6,9 @@ Clients connect at `ws://<bind>:<port>/ws` (from `gateway.bind` and `gateway.por
 
 When `gateway.bind` is not loopback, use `gateway.auth` with `mode` `token` and a secret (or `CHAI_GATEWAY_TOKEN`). See [Configuration](03-configuration.md#securing-the-gateway) for the security setup.
 
-**Try it:** [Gateway (CLI) — health and WebSocket connect](../journey/01-gateway-cli-health-and-ws.md) · [Gateway WebSocket — agent](../journey/02-gateway-ws-agent.md) · [Gateway WebSocket — send](../journey/03-gateway-ws-send.md)
+**Device pairing and token fallback:** the desktop pairs with the gateway using a device identity and signature, then receives a `device_token` for subsequent connections. If a paired `device_token` becomes stale (e.g., the gateway's `paired.json` was deleted), the gateway rejects the connect with `"invalid device token"`. The desktop deletes the stale token and falls back to the device identity + signature flow to re-pair automatically.
+
+**Try it:** [Gateway (CLI) — health and WebSocket connect](../journey/01-gateway-cli-health-and-ws.md) · [Gateway WebSocket — agent & send](../journey/02-gateway-ws-agent.md)
 
 ## Telegram
 
@@ -14,7 +16,7 @@ When `gateway.bind` is not loopback, use `gateway.auth` with `mode` `token` and 
 
 **Webhook** — Telegram POSTs updates to your URL; better for a public gateway. Set `channels.telegram.webhookUrl` and optionally `channels.telegram.webhookSecret` (or `TELEGRAM_WEBHOOK_SECRET`).
 
-**Try it:** [Telegram — receive message and reply](../journey/05-channel-telegram.md)
+**Try it:** [Telegram — receive message and reply](../journey/04-channel-telegram.md)
 
 ## Signal
 

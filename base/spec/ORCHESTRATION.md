@@ -15,7 +15,7 @@ This document describes how **orchestrator** and **worker** entries in **`config
 
 ## Configuration Quick Reference
 
-Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`** (see [README.md](../../README.md), [PROVIDERS.md](PROVIDERS.md), and [MODELS.md](MODELS.md)).
+Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`nearai`**, **`nim`** (see [README.md](../../README.md), [PROVIDERS.md](PROVIDERS.md), and [MODELS.md](MODELS.md)). Users can configure any other `openai-compat` provider with a custom `id`.
 
 ### Orchestrator entry
 
@@ -26,51 +26,57 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
 | **`skillsEnabled`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** — how orchestrator skill text appears in system context (and whether **`read_skill`** is offered). |
-| **`delegateAllowedModels`** | Optional allowlist of **`{ "provider", "model" }`**; optional **`local`**, **`toolCapable`** hints. When **non-empty**, every resolved **`delegate_task`** target (without **`workerId`**) must match a pair. When **omitted** or **`empty`**, only the orchestrator effective default **`provider`** / **`model`** is allowed for those delegations. |
 | **`maxSessionMessages`** | When set and **`> 0`**, only the last N messages are sent per turn; full history stays in the session store. |
-| **`maxToolLoopIterations`** | Maximum LLM round-trips per turn (default 100). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. |
+| **`maxToolLoopIterations`** | Maximum LLM round-trips per turn (default 100). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached on the orchestrator turn, the gateway emits a **`session.tool_loop_limit`** event with the pending tool calls and includes **`loopLimitReached`** + **`pendingToolCalls`** in the `agent` RPC response, so clients can show the interrupted state. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
 | **`maxDelegationsPerSession`** | Cap on **successful** delegations per persisted session (requires session id on the gateway path). |
 | **`maxDelegationsPerProvider`** | Per-session caps keyed by canonical provider id. |
-| **`delegateBlockedProviders`** | Hard deny: **`delegate_task`** cannot target these providers. |
-| **`delegationInstructionRoutes`** | Prefix-based defaults for **`instruction`**; see below. |
 
 ### Worker entry
 
 | Key | Purpose |
 |-----|---------|
-| **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`** | Same ideas as orchestrator; **`id`** is **`workerId`**. |
+| **`id`**, **`role`** | Identity; **`id`** is **`workerId`**. |
+| **`defaultProvider`**, **`defaultModel`** | Worker's single `(provider, model)` pair. Falls back to orchestrator defaults when omitted. |
 | **`skillsEnabled`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
-| **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker’s skill presentation and tools. |
-| **`delegateAllowedModels`** | When non-empty, narrows targets for delegations that use this **`workerId`**. When omitted or empty, only that worker's effective default **`provider`** / **`model`** is allowed. |
+| **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker's skill presentation and tools. |
 
-## Delegation Tool (`delegate_task`; formerly `chai_delegate`)
+A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**. Workers do not have their own `enabledProviders` field.
 
-The orchestrator may call **`delegate_task`** to run a **subtask** on another provider and/or model:
+## Delegation Tool (`delegate_task`)
+
+The orchestrator may call **`delegate_task`** to run a **subtask** on a worker's provider and model:
 
 | Argument | Role |
 |----------|------|
-| **`instruction`** | Required (non-empty after trim). User text for the worker turn. |
-| **`workerId`** | Optional. Must match a **`role: worker`** entry; that worker’s defaults and allowlists apply unless overridden. |
-| **`provider`** / **`model`** | Optional overrides for backend and model id after resolution. |
+| **`instruction`** | Required (non-empty after trim). User text for the worker turn. Start with **`[workerId]`** to target a specific worker. |
 
-**Instruction routing (`delegationInstructionRoutes`)**
+**Worker targeting (bracket-prefix matching)**
 
-- Array of **`{ "instructionPrefix", "workerId"?, "provider"?, "model"? }`** on the **orchestrator** entry only.
-- The first entry whose **`instructionPrefix`** matches the start of **`instruction`** (after trim) supplies any missing **`workerId`** / **`provider`** / **`model`** fields before resolution.
+- Every worker with a non-empty **`id`** gets an automatic delegation prefix **`[workerId]`**. The system matches **`[`** + worker ID + **`]`** at the start of the **`instruction`** (full bracket form from opening to closing bracket), injects the **`workerId`** internally, and strips the bracketed prefix from the instruction before passing it to the worker.
+- When no bracket prefix matches, delegation uses the orchestrator's effective defaults (no worker selected).
+- Bracket matching avoids prefix subsumption: workers named **`code`** and **`code-review`** produce prefixes **`[code]`** and **`[code-review]`**, which are unambiguous because the matcher requires the closing bracket.
 
-## Allowlists (`delegateAllowedModels`)
-
-- On the **orchestrator** entry, when **non-empty**, every successful **`delegate_task`** resolution must match one **`{ "provider", "model" }`** pair exactly (after defaulting). Optional **`local`** and **`toolCapable`** are hints for catalog and UX only.
-- On a **worker** entry, **`delegateAllowedModels`** narrows delegations that use that **`workerId`**. When **omitted** or **empty**, only that worker's resolved default **`provider`** / **`model`** is allowed.
-- Empty or omitted orchestrator **`delegateAllowedModels`** restricts delegations **without** **`workerId`** to the orchestrator default pair only (in addition to **`enabledProviders`** and other policy).
+**Steering semantics:** Bracket prefixes are **steering hints**, not triggers. They only operate when the orchestrator calls **`delegate_task`**; they cannot cause delegation to happen. If the orchestrator answers directly (no **`delegate_task`** call), the prefix has no effect.
 
 ## Worker Turn Behavior
 
-- The worker receives **its own** static system string: **that worker’s** **`AGENT.md`**, **that worker’s** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
-- **Tool list** — Skill tools (and optional **`read_skill`**) match the worker’s enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
+- The worker receives **its own** static system string: **that worker's** **`AGENT.md`**, **that worker's** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
+- **Tool list** — Skill tools (and optional **`read_skill`**) match the worker's enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
 - **Messages** — The worker turn is **not** the main session transcript: **`execute_delegate_task`** builds **`[system?, user(instruction)]`** only (see **`delegate.rs`**). Delegation limits may still use the parent **`sessionId`** for caps.
 - Implementation: **`DelegateContext.worker_runtimes`** and **`crates/lib/src/orchestration/delegate.rs`**.
+
+### Response Flow
+
+After a worker turn completes, the response path is:
+
+1. The worker turn produces a `TurnResult` (text reply, tool calls, tool results).
+2. `format_delegate_result` packages these into a JSON string: `{"reply": "...", "toolCalls": [...], "toolResults": [...], "worker": {...}}`.
+3. This JSON becomes the `delegate_task` **tool result** in the orchestrator's message history.
+4. The orchestrator model is called again — it sees the tool result and generates its own response.
+5. The loop continues until the orchestrator produces no more tool calls. That final text is what the user receives.
+
+The orchestrator **mediates** the worker's response — the user sees the orchestrator's synthesis, not the worker's raw text. However, the `orchestration.delegate.complete` event includes a `reply` field with the worker's text, allowing clients to display the worker's response as a distinct chat line alongside the orchestrator's final reply.
 
 ## Gateway Events
 
@@ -79,8 +85,8 @@ While connected to the gateway WebSocket, clients receive **`type`: `event`** fr
 | Event | Meaning |
 |-------|---------|
 | **`orchestration.delegate.start`** | Worker turn is about to run; payload includes resolved **`provider`**, **`model`**, optional **`workerId`**, **`sessionId`** when known. |
-| **`orchestration.delegate.complete`** | Worker turn finished successfully. |
-| **`orchestration.delegate.error`** | Resolution failed (e.g. unknown worker, allowlist) or the worker turn failed; payload may include **`error`**, optional **`workerId`**. |
+| **`orchestration.delegate.complete`** | Worker turn finished successfully; payload includes **`provider`**, **`model`**, optional **`workerId`**, **`workerToolCalls`** count, **`workerToolResults`** count, and **`reply`** (the worker's text response). |
+| **`orchestration.delegate.error`** | Resolution failed (e.g. unknown worker, provider not enabled) or the worker turn failed; payload may include **`error`**, optional **`workerId`**. |
 | **`orchestration.delegate.rejected`** | Delegation not started due to a **limit**; payload includes **`reason`** (see below), optional **`maxDelegationsPerTurn`**, **`workerId`**, **`sessionId`**. |
 
 ### Turn Streaming Events
@@ -92,6 +98,7 @@ Tool calls, results, and intermediate thinking are streamed as separate events, 
 | **`session.tool_call`** | A tool is about to execute. Payload includes **`toolName`**, **`toolArgs`**, **`index`**, **`sessionId`**. |
 | **`session.tool_result`** | A tool execution completed. Payload includes **`toolName`**, **`toolResult`**, **`index`**, **`sessionId`**. |
 | **`session.assistant_progress`** | Intermediate content from the model during a tool loop iteration. Payload includes **`content`**, **`iteration`**, **`sessionId`**. Emitted when the model produces non-empty text alongside tool calls; without this event, that content would be invisible since only the final iteration's content is sent as the assistant reply. |
+| **`session.tool_loop_limit`** | The **`maxToolLoopIterations`** limit was reached during an orchestrator turn. Payload includes **`pendingToolCalls`** (array of tool calls generated by the model but not executed) and **`sessionId`**. Worker turns do not emit this event — only the orchestrator turn faces the user. Clients should display an indication that the turn was interrupted and the user must send another message to continue. |
 
 The **`index`** on tool events is a running count within the current agent turn (across all loop iterations of a single `run_turn_dyn` call). It resets when a new turn starts (new user message). Clients matching `tool_result` to `tool_call` entries should search in reverse to find the most recent entry with a given index, since indices may collide across turns.
 
@@ -107,15 +114,11 @@ Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs
 
 ## Gateway `status` — `orchestrationCatalog`
 
-The **`status`** WebSocket payload includes **`agents.orchestrationCatalog`**: a merged array of **`{ provider, model, discovered, local?, toolCapable? }`** from per-provider discovery plus any **`delegateAllowedModels`** pairs not present in discovery (**`discovered: false`**). Hints attach when the pair matches an allowlist entry. See **`crates/lib/src/orchestration/catalog.rs`**.
+The **`status`** WebSocket payload includes **`agents.orchestrationCatalog`**: a merged array of **`{ provider, model, discovered }`** from per-provider discovery. See **`crates/lib/src/orchestration/catalog.rs`**.
 
 ## Gateway `status` — worker rows
 
-The gateway does **not** emit a top-level **`workers`** key on **`status`**. Worker runtime is represented as **`payload.agents.entries`** objects with **`role`**: **`"worker"`** (after the orchestrator row), each including **`id`**, **`defaultProvider`**, and **`defaultModel`** using the same effective **`(provider, model)`** resolution as **`delegate_task`** when **`provider`** / **`model`** are omitted (see **`crates/lib/src/orchestration/workers_context.rs`**). **Chai Desktop** builds an in-memory list of **`{ id, defaultProvider, defaultModel }`** from those entries for the **Status** screen under **Agents** (see **`crates/desktop/src/app/state/gateway.rs`**).
-
-## Out of Scope for This Spec
-
-Interactive **human approval** queues, **sandboxing**, and **arbitrary exec approval** are not described here; configuration supports **deny** and **caps** instead. New **provider backends** are tracked in [PROVIDERS.md](PROVIDERS.md).
+The gateway does **not** emit a top-level **`workers`** key on **`status`**. Worker runtime is represented as **`payload.agents.entries`** objects with **`role`**: **`"worker"`** (after the orchestrator row), each including **`id`**, **`defaultProvider`**, and **`defaultModel`** using the same effective **`(provider, model)`** resolution as **`delegate_task`** defaults (see **`crates/lib/src/orchestration/workers_context.rs`**). **Chai Desktop** builds an in-memory list of **`{ id, defaultProvider, defaultModel }`** from those entries for the **Status** screen under **Agents** (see **`crates/desktop/src/app/state/gateway.rs`**).
 
 ## Related Documents
 

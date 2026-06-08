@@ -4,6 +4,16 @@
 
 Third-party NVIDIA NIM API runs for Qwen-family models.
 
+## Setup
+
+Follow the [NVIDIA NIM setup](PROVIDER_SETUP.md#nvidia-nim) instructions, then set `agents.defaultModel` to one of the models below.
+
+Example configuration:
+
+```json
+{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }
+```
+
 ## Models
 
 The following models support tools:
@@ -13,22 +23,10 @@ The following models support tools:
 - `qwen/qwen3-next-80b-a3b-thinking` - [source (NVIDIA)](https://build.nvidia.com/qwen/qwen3-next-80b-a3b-thinking)
 - `qwen/qwen3.5-122b-a10b` - [source (NVIDIA)](https://build.nvidia.com/qwen/qwen3.5-122b-a10b)
 
-The following models do not support tools:
-
-- NA
-
-## Setup
-
-- Provider: `endpoint: "openai-compat"` with `modelDiscovery: "static"` and `baseUrl: "https://integrate.api.nvidia.com/v1"` (e.g. `{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }`)
-- `agents.defaultProvider`: provider `id` (e.g. `"nim"`)
-- `agents.defaultModel`: one model from the list above
-- `NVIDIA_API_KEY` or provider `apiKey`
-
 ## Procedure
 
 Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure.
 
-
 ## See Also
 
-- [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md#nvidia-nim) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)

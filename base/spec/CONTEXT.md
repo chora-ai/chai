@@ -14,7 +14,7 @@ This document describes the **context** the model receives for a turn, as implem
 ## When It Is Built
 
 - **Skill discovery** — At gateway startup, packages are loaded from **`~/.chai/skills`** only (see **`config::default_skills_dir`** / **`skills::load_skills`**). **Enablement** is **not** global: each agent entry's **`skillsEnabled`** list selects which discovered packages apply to **that** agent. Missing or empty **`skillsEnabled`** ⇒ **no** skill tools and **no** skill-derived inlined context for that agent.
-- **Orchestrator static context** — Composed once in **`run_gateway`**: **`AGENT.md`** from the orchestrator **agent context directory** (**`orchestrator_context_dir`** → **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**), then optional **`## Workers`** roster from **`build_workers_context`**, then orchestrator skills via **`build_skill_context_full`** or **`build_skill_context_compact`** according to the **orchestrator** entry's **`contextMode`**. Stored in **`GatewayState.system_context`**. The gateway does **not** read **`workspace/AGENTS.md`** for any agent.
+- **Orchestrator static context** — Composed once in **`run_gateway`**: **`AGENT.md`** from the orchestrator **agent context directory** (**`orchestrator_context_dir`** → **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**), then optional **`## Workers`** roster from **`build_workers_context`**, then orchestrator skills via **`build_skill_context_full`** or **`build_skill_context_compact`** according to the **orchestrator** entry's **`contextMode`**. Stored in **`GatewayState.system_context`**.
 - **Worker static context** — For each **`role: worker`** entry, a **`WorkerDelegateRuntime`** is built: **`AGENT.md`** from **`worker_context_dir`** (**`<profileRoot>/agents/<workerId>/`**), worker-filtered skills, and **no** **`## Workers`** block (**`build_worker_system_context`**). Cached per worker id until restart.
 - **Tools** — **Per agent** at startup: skill tools from **`tools.json`** for that agent's enabled packages; optional **`read_skill`** when that agent's **`contextMode`** is **`readOnDemand`** and at least one skill is enabled. The **orchestrator** list is merged with **`delegate_task`** via **`merge_delegate_task`** when workers exist. **Worker** lists omit **`delegate_task`**. The same prebuilt list is sent on every turn for that role.
 
@@ -42,7 +42,7 @@ For a **new session**, when the user sends a message, the model receives:
 
 1. **Agent context** — Contents of **`AGENT.md`** at **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**. Trimmed. Omitted if missing or empty.
 2. **`"\n\n"`** — Only if agent context was non-empty.
-3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog)`** appends a **`## Workers`** section: orchestrator id, short bullet list (delegate via **`delegate_task`**, complete without worker, offer workers to the user), then **`Available worker agents (id — providers — models):`** with one line per worker: **`workerId`**, **effective** provider, **effective** model (same resolution as **`delegate_task`** when **`provider`** / **`model`** are omitted—see **`effective_worker_defaults`** in **`workers_context.rs`**). Omitted entirely when there are no workers.
+3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog)`** appends a **`## Workers`** section (see [Workers Section](#workers-section-build_workers_context) below). Omitted entirely when there are no workers.
 4. **`"\n\n"`** — Only if the workers section was non-empty.
 5. **Skills** — From **`build_skill_context_full`** (**`full`**) or **`build_skill_context_compact`** (**`readOnDemand`**) using **only** packages whose names are in the **orchestrator** **`skillsEnabled`** list, or empty if that list is missing/empty or none match disk.
 
@@ -54,7 +54,7 @@ For a **new session**, when the user sends a message, the model receives:
 ### Skill Context Mode
 
 - **`full`** — Each enabled skill is inlined under a shared **`## Skills`** header with guidance bullets (call **`read_skill`**, share skills/tools, ask the user to choose), then **`### <skill name>`** per skill: optional description, then **`SKILL.md`** body with frontmatter stripped (**`strip_skill_frontmatter`**).
-- **`readOnDemand`** — Same **`## Skills`** header and guidance bullets, then **`Available skills (name — description):`** with one line per skill: **`- \`<name>\` — <description>`** (no full bodies in system message). The model uses the **`read_skill`** tool to load full **`SKILL.md`** when needed.
+- **`readOnDemand`** — Same **`## Skills`** header and guidance bullets, then **`Available skills:`** with one line per skill: **`- \`<name>\` — <description>`** (no full bodies in system message). The model uses the **`read_skill`** tool to load full **`SKILL.md`** when needed.
 
 ### Skill Context — Full Mode (`build_skill_context_full`)
 
@@ -64,12 +64,16 @@ For a **new session**, when the user sends a message, the model receives:
 ### Skill Context — Read-on-Demand Mode (`build_skill_context_compact`)
 
 - If there are no skills, returns an empty string.
-- Otherwise: **`## Skills`**, guidance bullets, **`Available skills (name — description):`**, then for each skill: **`- \`<name>\` — `** + description or **`(no description)`**.
+- Otherwise: **`## Skills`**, guidance bullets, **`Available skills:`**, then for each skill: **`- \`<name>\` — `** + description or **`(no description)`**.
 
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
-- Otherwise: **`## Workers`**, orchestrator line (**`You are \`<orchestrator id>\` — the orchestrator agent...`**), capability bullets, **`Available worker agents (id — providers — models):`**, then per worker **`- \`<id>\` — \`<provider>\` — \`<model>\`** (effective defaults).
+- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents. You can:`**), blank line, bullet (**`- call \`delegate_task\` to delegate a task to a worker agent`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker can perform the task.`**), blank line, then per worker (via **`lines_for_worker`**):
+  - **`### <id>`** heading.
+  - Skill descriptions from **`skill_catalog`** (**`This worker can perform the following tasks:`** + one **`- <description>`** per enabled skill; omitted if no skills enabled).
+  - Bracket prefix line (**`Start your instruction with \`[<id>]\` to delegate to this worker.`**).
+  - Example (**`{ "instruction": "[<id>] List your skills" }`**).
 
 ### `strip_skill_frontmatter(content)`
 
@@ -82,32 +86,39 @@ The **static** portion is cached at gateway startup.
 #### Full mode (orchestrator or worker entry: **`contextMode`**: **`full`**)
 
 ```
-
 <contents of AGENT.md>
 
 ## Workers
 
-You are `hermes` — the orchestrator agent. You can:
+You are the orchestrator agent. You have worker agents. You can:
 
-- delegate a task to a worker agent (`delegate_task`)
-- complete a task without a worker agent (use your skills)
-- share available worker agents and ask the user to choose
+- call `delegate_task` to delegate a task to a worker agent
 
-Available worker agents (id — providers — models):
+Only delegate a task to a worker if the worker can perform the task.
 
-- `apollo` — `ollama` — `llama3.2:latest`
+### read-only
+
+This worker can perform the following tasks:
+
+- Read files, list directories, and search file contents (read-only).
+
+Start your instruction with `[read-only]` to delegate to this worker.
+
+Example:
+
+{ "instruction": "[read-only] List your skills" }
 
 ## Skills
 
 You have skills. Skills have tools.
 
-### notesmd
+### files
 
-Create, read, search, update, and delete notes.
+Read files, list directories, search file contents, write files, and delete files and directories.
 
 --- SKILL.md (BOF) ---
 
-<body of notesmd/SKILL.md, frontmatter stripped>
+<body of files/SKILL.md, frontmatter stripped>
 
 --- SKILL.md (EOF) ---
 ```
@@ -129,7 +140,7 @@ You have skills. Skills have tools. You can:
 
 Available skills:
 
-- `notesmd-daily` — Create, read, and update daily notes.
+- `files` — Read files, list directories, search file contents, write files, and delete files and directories.
 
 ```
 
@@ -145,7 +156,7 @@ The **`read_skill`** tool (plus skill tools from **`tools.json`**) is included i
 
 - **Skill tools** — From **`tools.json`** descriptors for **that turn's role**: only packages in that agent's **`skillsEnabled`** list (**`ToolDescriptor::to_tool_definitions()`**). Executed by the generic executor (and **`ReadOnDemandExecutor`** when that agent's **`contextMode`** is **`readOnDemand`**, which handles **`read_skill`** in-process).
 - **`read_skill`** — Included only for agents using **`readOnDemand`** with at least one enabled skill. Resolves against **that** agent's enabled set and the shared discovery roots. Tool description in code: **`read a skill by name`**; parameters: **`skill_name`** (exact name from the list).
-- **`delegate_task`** — Merged at the **front** of the **orchestrator** tool list via **`merge_delegate_task`** when workers exist. Worker tool lists **omit** **`delegate_task`** (nested delegation disabled). See **`orchestration/delegate.rs`** for the current schema and descriptions.
+- **`delegate_task`** — Merged at the **front** of the **orchestrator** tool list via **`merge_delegate_task`** when workers exist. Worker tool lists **omit** **`delegate_task`** (nested delegation disabled). Parameters: **`instruction`** (required). No **`workerId`**, **`provider`**, or **`model`** parameters; worker targeting is done via bracket prefix in the instruction, and the worker always runs on its single `(defaultProvider, defaultModel)` pair (see [ORCHESTRATION.md](ORCHESTRATION.md)).
 
 See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) for **`tools.json`** execution shape.
 
@@ -155,7 +166,7 @@ See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) for **`tools.json`** execution shape.
 |--------|----------------|------------|---------------------|
 | Agent context (orchestrator) | **`<profileRoot>/agents/<orchestratorId>/AGENT.md`** | Gateway startup | Trimmed file text, then optional **`## Workers`**, then orchestrator skills block. |
 | Agent context (worker) | **`<profileRoot>/agents/<workerId>/AGENT.md`** | Gateway startup | Trimmed file text + worker skills only (no workers roster). |
-| Workers roster | `config.json` **`agents`** (`role: worker` entries) | Composed at startup **into orchestrator static context only** | **`## Workers`** with orchestrator id, bullets, effective provider/model per **`workerId`**. |
+| Workers roster | `config.json` **`agents`** (`role: worker` entries) | Composed at startup **into orchestrator static context only** | **`## Workers`** with intro text, per-worker skill descriptions, bracket prefix guidance, and example. |
 | Skill content | **`~/.chai/skills`**; **`SKILL.md`** per package | Discovery at startup; **subset** per agent | Per agent **`skillsEnabled`**: **full** ⇒ **`## Skills`** + **`###`** bodies; **readOnDemand** ⇒ compact list + **`read_skill`**. |
 | Session messages | Session store | Every turn | History for **`session_id`** (optional cap via **`agents.maxSessionMessages`**). |
 | Tools | Per-agent skill descriptors + optional **`read_skill`** + orchestrator-only **`delegate_task`** | Startup | Sent on each provider request for that role. |

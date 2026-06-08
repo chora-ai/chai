@@ -58,7 +58,7 @@ Per integration: **`telegram`**, **`matrix`**, **`signal`**. Each value includes
 
 ### `providers`
 
-Keys: **`ollama`**, **`lms`**, **`vllm`**, **`nim`**, **`openai`**, **`hf`**. Each value:
+Keys: provider ids from the `providers` array (e.g. **`ollama`**, **`lms`**, **`nearai`**, **`nim`**). Each value:
 
 | Field | Meaning |
 |-------|---------|
@@ -80,7 +80,7 @@ Shared skill store on disk (not per-agent):
 
 | Field | Meaning |
 |-------|---------|
-| **`orchestrationCatalog`** | Merged allowlist + discovery rows (**`{ provider, model, discovered, local?, toolCapable? }`**). |
+| **`orchestrationCatalog`** | Merged discovery rows (**`{ provider, model, discovered }`**). |
 | **`entries`** | Per-agent runtime rows (below). Orchestrator first (**`role`**: **`orchestrator`**), then workers sorted by **`id`**. |
 
 #### `agents.entries[]`
@@ -129,9 +129,3 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 - **[SKILL_FORMAT.md](SKILL_FORMAT.md)** — Skill package versioned layout and frontmatter.
 - **[CONTEXT.md](CONTEXT.md)** — Context strings, skills mode, and startup validation.
 - **`crates/lib/src/gateway/protocol.rs`** — WebSocket protocol notes.
-
----
-
-## Open Questions
-
-- **Wire versioning:** When **`gateway.protocol`** should increment, how breaking changes are announced, and how clients (desktop, CLI, scripts) should behave on mismatch — policy TBD outside this payload spec.

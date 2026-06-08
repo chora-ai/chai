@@ -12,7 +12,7 @@ Each logical agent has its own identity, context directory, and skill configurat
 
 ## Agent Entries
 
-Agents are defined in `config.json` as an `agents` array. Each entry is an object with an `id`, a `role`, and additional fields. There is no top-level `skills` object in `config.json`.
+Agents are defined in `config.json` as an `agents` array. Each entry is an object with an `id`, a `role`, and additional fields.
 
 ### Orchestrator
 
@@ -27,11 +27,8 @@ Exactly one entry with `"role": "orchestrator"`. The orchestrator runs the main 
 | `skillsEnabled` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` — how this agent's skill text appears in system context |
 | `maxSessionMessages` | When set and > 0, only the last N messages are sent per turn |
-| `maxToolLoopIterations` | Maximum LLM round-trips per turn (default 100). Safety net against runaway loops. Applies to both orchestrator and worker turns. |
+| `maxToolLoopIterations` | Maximum LLM round-trips per turn (default 100). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
 | `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider` | Delegation caps |
-| `delegateBlockedProviders` | Hard deny for `delegate_task` |
-| `delegateAllowedModels` | Optional allowlist of `{ "provider", "model" }` pairs |
-| `delegationInstructionRoutes` | Prefix-based defaults for `instruction` |
 
 ### Workers
 
@@ -41,11 +38,11 @@ Zero or more entries with `"role": "worker"`. Each has an `id` used as `workerId
 |-------|---------|
 | `id` | Worker identifier — used as `workerId` in `delegate_task` |
 | `role` | Must be `"worker"` |
-| `defaultProvider`, `defaultModel` | Worker's defaults |
-| `enabledProviders` | Discovery scope for this worker |
+| `defaultProvider`, `defaultModel` | Worker's single `(provider, model)` pair. Falls back to orchestrator defaults when omitted. |
 | `skillsEnabled` | Skill package names for this worker only. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` for this worker's skill presentation |
-| `delegateAllowedModels` | When non-empty, narrows targets for delegations using this `workerId` |
+
+A worker's `defaultProvider` must be enabled at the orchestrator level via `enabledProviders`. Workers do not have their own `enabledProviders` field; the worker's single provider is its `defaultProvider`, which must already be an enabled provider at the orchestrator level.
 
 ## Agent Context Directories
 
@@ -58,7 +55,6 @@ Each agent has its own on-disk context directory under the active profile:
 - The gateway reads `AGENT.md` for each agent at startup and includes its contents in that agent's system context string.
 - `chai init` creates `agents/orchestrator/AGENT.md` for each default profile.
 - When workers are defined in `config.json`, operators add `agents/<workerId>/AGENT.md` with worker-specific instructions.
-- `workspace/AGENTS.md` is **not** read by the gateway for any agent. `chai init` does not create it.
 
 ## Per-Agent Skill Configuration
 
@@ -66,7 +62,7 @@ Skill enablement and presentation mode are configured **per agent** in `config.j
 
 | Field | Behavior |
 |-------|----------|
-| `skillsEnabled` | Array of skill package names (e.g., `["notesmd", "files"]`). The agent receives tools and context only for listed packages. Missing or empty ⇒ no skill tools and no skill-derived context for that agent. |
+| `skillsEnabled` | Array of skill package names (e.g., `["files", "git-read"]`). The agent receives tools and context only for listed packages. Missing or empty ⇒ no skill tools and no skill-derived context for that agent. |
 | `contextMode` | `full` — each enabled skill's full `SKILL.md` body (frontmatter stripped) is inlined under `## Skills` in the system context. `readOnDemand` — a compact skill list is inlined, and a `read_skill` tool is offered so the model can load full `SKILL.md` content on demand. |
 
 There is **no** top-level `skills` object in `config.json`. Skill packages are discovered from `~/.chai/skills/` only (no configurable discovery paths). Per-agent `skillsEnabled` selects which discovered packages apply to each agent.
@@ -78,7 +74,7 @@ The gateway builds **separate** static system context strings for each agent at 
 ### Orchestrator Build Order
 
 1. **Agent context** — Contents of `<profileRoot>/agents/<orchestratorId>/AGENT.md`. Trimmed. Omitted if missing or empty.
-2. **Workers roster** — If any workers are defined, a `## Workers` section: orchestrator id, capability bullets (`delegate_task`, complete without worker, share workers with user), then one line per worker: `workerId` — effective provider — effective model. Omitted when there are no workers.
+2. **Workers roster** — If any workers are defined, a `## Workers` section is rendered by `build_workers_context` (see [CONTEXT.md](CONTEXT.md)). Omitted when there are no workers.
 3. **Skills** — From enabled packages for the orchestrator: either `full` (inlined bodies) or `readOnDemand` (compact list + `read_skill` tool).
 
 ### Worker Build Order
@@ -113,9 +109,10 @@ The same prebuilt list is sent on every turn for that agent.
 
 ## Delegation and Worker Runtimes
 
-When the orchestrator calls `delegate_task` with a `workerId`:
+When the orchestrator calls `delegate_task` with a bracket prefix `[workerId]` in the instruction:
 
-- The gateway selects the matching `WorkerDelegateRuntime` by `workerId`.
+- The gateway matches the bracket prefix, injects `workerId`, strips the prefix from the instruction, and selects the matching `WorkerDelegateRuntime` by `workerId`.
+- The worker turn runs on the worker's single `(defaultProvider, defaultModel)` pair.
 - The worker turn receives the worker's own system context, tools, and executor (no orchestrator context or tools leak through).
 - The worker turn message structure is `[system?, user(instruction)]` — not the main session transcript.
 

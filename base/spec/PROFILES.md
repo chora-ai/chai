@@ -12,34 +12,30 @@ Each profile is a directory under `~/.chai/profiles/<name>/` containing all trus
 
 ```text
 ~/.chai/
+├── active -> profiles/assistant/     # persistent active profile symlink
 ├── profiles/
 │   ├── assistant/                    # profile directory
 │   │   ├── agents/
 │   │   │   └── orchestrator/
 │   │   │       └── AGENT.md
-│   │   ├── .env
-│   │   ├── config.json
-│   │   ├── device.json
+│   │   ├── sandbox/
 │   │   ├── .env
 │   │   ├── config.json
 │   │   ├── device.json
 │   │   ├── device_token
 │   │   ├── paired.json
-│   │   ├── sandbox/
-│   │   └── skills.lock               # skill version lockfile
+│   │   └── skills.lock
 │   └── developer/                    # profile directory
 │       ├── agents/
 │       │   └── orchestrator/
 │       │       └── AGENT.md
+│       ├── sandbox/
 │       ├── .env
 │       ├── config.json
 │       ├── device.json
 │       ├── device_token
-│       ├── paired.json
-│       └── sandbox/
-├── skills/                           # shared skill package store
-│   └── <skill-name>/
-└── active -> profiles/assistant/     # persistent active profile symlink
+│       └── paired.json
+└── skills/                           # shared skill package store
 ```
 
 ### Per-Profile Resources
@@ -48,13 +44,13 @@ The following resources are **isolated per profile** — each profile has its ow
 
 | Resource | Location under profile | Notes |
 |----------|----------------------|-------|
-| Configuration | `config.json` | Agent entries, providers, channels, gateway settings |
 | Agent context | `agents/<agentId>/AGENT.md` | On-disk instructions per agent (see [AGENTS.md](AGENTS.md)) |
-| Pairing | `paired.json` | Pairing state for this profile's trust domain |
+| Write sandbox | `sandbox/` | Per-profile write boundary (see [SANDBOX.md](SANDBOX.md)) |
+| Secrets | `.env` | Optional profile-local environment file |
+| Configuration | `config.json` | Agent entries, providers, channels, gateway settings |
 | Device identity | `device.json`, `device_token` | Signing keys and device material |
 | Channel stores | (varies by channel) | Matrix store default, etc. |
-| Secrets | `.env` | Optional profile-local environment file |
-| Write sandbox | `sandbox/` | Per-profile write boundary (see [SANDBOX.md](SANDBOX.md)) |
+| Pairing | `paired.json` | Pairing state for this profile's trust domain |
 | Skill lockfile | `skills.lock` | Pinned skill versions for reproducible restarts (see Skill Lockfile below) |
 
 ### Shared Resources
@@ -63,9 +59,9 @@ The following resources are **shared across all profiles**:
 
 | Resource | Location | Notes |
 |----------|----------|-------|
+| Active symlink | `~/.chai/active` | Points to the persistent default profile |
 | Skill packages | `~/.chai/skills/` | Only package store; per-agent enablement selects subsets (see [AGENTS.md](AGENTS.md)) |
 | Gateway lock | `~/.chai/gateway.lock` | Advisory lock file (see Gateway Lock below) |
-| Active symlink | `~/.chai/active` | Points to the persistent default profile |
 
 ## Active Profile Resolution
 
@@ -116,7 +112,7 @@ Each profile has a **per-profile lockfile** at `profiles/<name>/skills.lock` tha
 }
 ```
 
-- **Skill identity** — keyed by **directory name** (not frontmatter `name`). Directory name is authoritative; frontmatter `name` is display/documentation only.
+- **Skill identity** — keyed by **directory name** (authoritative). No frontmatter `name` field exists; directory name is the sole identity.
 - **Generation** — monotonic integer incremented on each lock update. The lockfile itself is the generation; the integer provides ordering.
 
 ### Strictness
@@ -161,6 +157,8 @@ Switching the active profile requires **stopping the gateway** and **restarting*
 
 The desktop header shows the persistent active profile name. A ComboBox allows switching `~/.chai/active` when the gateway is **not** running (same lock rule as CLI). Profile switching is **disabled** when the gateway is running.
 
+When the gateway is running, the desktop resolves the **effective profile** using the same precedence as CLI (`CHAI_PROFILE` → `gateway.lock` → `~/.chai/active`). If the effective profile differs from the persistent symlink, the ComboBox is disabled and an amber label indicates which profile the gateway is using. When the desktop spawns the gateway, the effective profile is passed via `--profile` so both use the same configuration.
+
 ## Initialization
 
 `chai init` creates the profile layout:
@@ -193,6 +191,6 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 | [adr/RUNTIME_PROFILES.md](../adr/RUNTIME_PROFILES.md) | Architectural decision for the profile model |
 | [CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks, `skillLockMode`, and environment overrides |
 | [AGENTS.md](AGENTS.md) | Per-agent context and skill configuration within profiles |
-| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill package versioned layout, frontmatter, and derivation metadata |
+| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill package versioned layout and frontmatter |
 | [SANDBOX.md](SANDBOX.md) | Write sandbox under each profile |
 | [CONTEXT.md](CONTEXT.md) | Capability-tier and variant validation at gateway startup |

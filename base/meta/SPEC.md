@@ -4,8 +4,6 @@ Specs are behavioral contracts that describe how the system works. They live in 
 
 **Epics** in **`epic/`** propose and track work; **specs** document behavior. When epic-driven features land, the spec for that area should reflect the new behavior.
 
-**Same base name as an epic** (e.g. `ORCHESTRATION.md` in both **`epic/`** and **`spec/`**) — The **spec** is the runtime contract; the **epic** is roadmap, phases, and rationale. In prose, say **orchestration spec** vs **orchestration epic** (or **spec `ORCHESTRATION`** vs **epic `ORCHESTRATION`**) so readers follow the correct link.
-
 ## Frontmatter
 
 Every spec must include YAML frontmatter with the following fields:

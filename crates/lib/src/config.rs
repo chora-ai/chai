@@ -304,27 +304,14 @@ pub struct AgentsConfig {
 
     /// Worker presets for `delegate_task` `workerId` (from array entries with `role: worker`).
     ///
-    /// Worker presets let you constrain which provider targets are allowed and provide per-worker
-    /// default provider/model selections.
+    /// Worker presets provide per-worker `defaultProvider` / `defaultModel` selections.
     pub workers: Option<Vec<WorkerConfig>>,
-
-    /// Optional allowlist of `(provider, model)` pairs permitted for **`delegate_task`** when no
-    /// worker-specific non-empty [`WorkerConfig::delegate_allowed_models`] applies. Omitted or empty
-    /// means only the orchestrator effective default provider/model pair is allowed (see
-    /// [`resolve_effective_provider_and_model`]).
-    pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
 
     /// Max successful **`delegate_task`** calls per session (orchestrator only). Omitted = no limit.
     pub max_delegations_per_session: Option<usize>,
 
     /// Optional per-provider caps on successful delegations per session (`nim` → 5). Canonical provider ids as keys.
     pub max_delegations_per_provider: Option<HashMap<String, usize>>,
-
-    /// Providers delegation cannot target (canonical: `ollama`, `lms`, `vllm`, `nim`).
-    pub delegate_blocked_providers: Option<Vec<String>>,
-
-    /// When **`instruction`** starts with a route's prefix, merge missing **`workerId`** / **`provider`** / **`model`** from that route (first match wins).
-    pub delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
 
     /// Maximum number of agent loop iterations (LLM round-trips) per turn. Each iteration is one
     /// call to the provider followed by tool call execution. The loop exits naturally when the model
@@ -344,11 +331,8 @@ impl Default for AgentsConfig {
             context_mode: None,
             max_delegations_per_turn: None,
             workers: None,
-            delegate_allowed_models: None,
             max_delegations_per_session: None,
             max_delegations_per_provider: None,
-            delegate_blocked_providers: None,
-            delegation_instruction_routes: None,
             max_tool_loop_iterations: None,
         }
     }
@@ -356,36 +340,6 @@ impl Default for AgentsConfig {
 
 fn default_agents_config() -> AgentsConfig {
     AgentsConfig::default()
-}
-
-/// Route **`delegate_task`** by **`instruction`** prefix (orchestrator policy). First matching prefix wins.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct DelegationInstructionRoute {
-    /// When **`instruction`** starts with this string (after trim), apply the optional overrides below.
-    pub instruction_prefix: String,
-    #[serde(default)]
-    pub worker_id: Option<String>,
-    #[serde(default)]
-    pub provider: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-}
-
-/// One allowed `(provider, model)` pair for delegation policy. Provider ids reference the `id`
-/// field from a provider definition in the `providers` array. Model must match the resolved id
-/// exactly (after trim), including any `:` or `/` in the provider's model naming.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AllowedModelEntry {
-    pub provider: String,
-    pub model: String,
-    /// Hint for policy UIs: model is expected to run locally or self-hosted.
-    #[serde(default)]
-    pub local: bool,
-    /// Hint: model supports tool calling well enough for worker turns.
-    #[serde(default)]
-    pub tool_capable: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -408,15 +362,9 @@ struct AgentDefinition {
     #[serde(default)]
     max_delegations_per_turn: Option<usize>,
     #[serde(default)]
-    delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
-    #[serde(default)]
     max_delegations_per_session: Option<usize>,
     #[serde(default)]
     max_delegations_per_provider: Option<HashMap<String, usize>>,
-    #[serde(default)]
-    delegate_blocked_providers: Option<Vec<String>>,
-    #[serde(default)]
-    delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
     #[serde(default)]
     max_tool_loop_iterations: Option<u32>,
 }
@@ -444,11 +392,8 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
         context_mode: agents.context_mode,
         max_session_messages: agents.max_session_messages,
         max_delegations_per_turn: agents.max_delegations_per_turn,
-        delegate_allowed_models: agents.delegate_allowed_models.clone(),
         max_delegations_per_session: agents.max_delegations_per_session,
         max_delegations_per_provider: agents.max_delegations_per_provider.clone(),
-        delegate_blocked_providers: agents.delegate_blocked_providers.clone(),
-        delegation_instruction_routes: agents.delegation_instruction_routes.clone(),
         max_tool_loop_iterations: agents.max_tool_loop_iterations,
     }];
     if let Some(ws) = &agents.workers {
@@ -458,16 +403,13 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
                 role: AgentRole::Worker,
                 default_provider: w.default_provider.clone(),
                 default_model: w.default_model.clone(),
-                enabled_providers: w.enabled_providers.clone(),
+                enabled_providers: None,
                 skills_enabled: w.skills_enabled.clone(),
                 context_mode: w.context_mode,
                 max_session_messages: None,
                 max_delegations_per_turn: None,
-                delegate_allowed_models: w.delegate_allowed_models.clone(),
                 max_delegations_per_session: None,
                 max_delegations_per_provider: None,
-                delegate_blocked_providers: None,
-                delegation_instruction_routes: None,
                 max_tool_loop_iterations: None,
             });
         }
@@ -485,11 +427,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         context_mode: Option<SkillContextMode>,
         max_session_messages: Option<usize>,
         max_delegations_per_turn: Option<usize>,
-        delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
         max_delegations_per_session: Option<usize>,
         max_delegations_per_provider: Option<HashMap<String, usize>>,
-        delegate_blocked_providers: Option<Vec<String>>,
-        delegation_instruction_routes: Option<Vec<DelegationInstructionRoute>>,
         max_tool_loop_iterations: Option<u32>,
     }
 
@@ -520,11 +459,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     context_mode: e.context_mode,
                     max_session_messages: e.max_session_messages,
                     max_delegations_per_turn: e.max_delegations_per_turn,
-                    delegate_allowed_models: e.delegate_allowed_models,
                     max_delegations_per_session: e.max_delegations_per_session,
                     max_delegations_per_provider: e.max_delegations_per_provider,
-                    delegate_blocked_providers: e.delegate_blocked_providers,
-                    delegation_instruction_routes: e.delegation_instruction_routes,
                     max_tool_loop_iterations: e.max_tool_loop_iterations,
                 });
             }
@@ -533,10 +469,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     id,
                     default_provider: e.default_provider,
                     default_model: e.default_model,
-                    enabled_providers: e.enabled_providers,
                     skills_enabled: e.skills_enabled,
                     context_mode: e.context_mode,
-                    delegate_allowed_models: e.delegate_allowed_models,
                 });
             }
         }
@@ -560,11 +494,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         } else {
             Some(worker_rows)
         },
-        delegate_allowed_models: o.delegate_allowed_models,
         max_delegations_per_session: o.max_delegations_per_session,
         max_delegations_per_provider: o.max_delegations_per_provider,
-        delegate_blocked_providers: o.delegate_blocked_providers,
-        delegation_instruction_routes: o.delegation_instruction_routes,
         max_tool_loop_iterations: o.max_tool_loop_iterations,
     })
 }
@@ -594,22 +525,21 @@ mod agents_config_de {
 
 /// Worker preset definition for delegation (`delegate_task`).
 ///
-/// The main model can delegate to `workerId` to get per-worker defaults and an allowlist of enabled providers.
+/// Each worker has a single `(defaultProvider, defaultModel)` pair. The worker's `defaultProvider`
+/// must be enabled at the orchestrator level via `agents.enabledProviders`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkerConfig {
     /// Stable worker id used as `workerId` in the `delegate_task` tool call.
     pub id: String,
-    /// Which default provider to use when the worker is selected and `provider` is omitted in the tool call.
+    /// Which default provider to use when the worker is selected. Falls back to the
+    /// orchestrator's `defaultProvider` when omitted. Must be enabled at the orchestrator
+    /// level via `agents.enabledProviders`.
     #[serde(default)]
     pub default_provider: Option<String>,
-    /// Model id for the selected provider. Not used for routing.
+    /// Model id for the selected provider. Falls back to the orchestrator's `defaultModel`
+    /// when omitted.
     pub default_model: Option<String>,
-    /// Providers allowed for this worker when delegating.
-    ///
-    /// If omitted or empty, the global `agents.enabledProviders` rules apply.
-    #[serde(default)]
-    pub enabled_providers: Option<Vec<String>>,
 
     /// Skill package names enabled for this worker. Omitted or empty ⇒ no skills.
     #[serde(default)]
@@ -617,14 +547,6 @@ pub struct WorkerConfig {
     /// How this worker's skill docs are inlined vs `read_skill`.
     #[serde(default)]
     pub context_mode: Option<SkillContextMode>,
-
-    /// Optional allowlist of `(provider, model)` for **`delegate_task`** when **`workerId`** matches
-    /// this worker. When **non-empty**, only these pairs are allowed for that worker (orchestrator
-    /// [`AgentsConfig::delegate_allowed_models`] is not applied for that worker). When omitted or
-    /// empty, only this worker's effective default provider/model pair is allowed (same resolution
-    /// as runtime `delegate_task` defaults).
-    #[serde(default)]
-    pub delegate_allowed_models: Option<Vec<AllowedModelEntry>>,
 }
 
 /// Per-provider configuration: JSON array of provider definitions with `id`, `endpoint` type, and connection settings.
@@ -698,10 +620,6 @@ pub enum EndpointType {
     Ollama,
     /// OpenAI-compatible servers (`/v1/chat/completions`, `/v1/models`). Base URL default: `http://127.0.0.1:1234/v1`.
     OpenaiCompat,
-    /// Anthropic Messages API (`POST /v1/messages`). Base URL default: `https://api.anthropic.com`.
-    Anthropic,
-    /// Google Gemini API (`generateContent`). Base URL default: `https://generativelanguage.googleapis.com`.
-    Google,
 }
 
 impl EndpointType {
@@ -710,8 +628,6 @@ impl EndpointType {
         match self {
             EndpointType::Ollama => Some("http://127.0.0.1:11434"),
             EndpointType::OpenaiCompat => Some("http://127.0.0.1:1234/v1"),
-            EndpointType::Anthropic => Some("https://api.anthropic.com"),
-            EndpointType::Google => Some("https://generativelanguage.googleapis.com"),
         }
     }
 
@@ -720,19 +636,7 @@ impl EndpointType {
     pub fn default_model(&self) -> &'static str {
         match self {
             EndpointType::Ollama => "llama3.2:3b",
-            EndpointType::OpenaiCompat => "gpt-4o-mini",
-            EndpointType::Anthropic => "claude-sonnet-4-20250514",
-            EndpointType::Google => "gemini-2.5-flash",
-        }
-    }
-
-    /// Environment variable name for the API key, when this endpoint type has a canonical one.
-    pub fn env_api_key_var(&self) -> Option<&'static str> {
-        match self {
-            EndpointType::Ollama => None,
-            EndpointType::OpenaiCompat => None, // generic; no single env var
-            EndpointType::Anthropic => Some("ANTHROPIC_API_KEY"),
-            EndpointType::Google => Some("GOOGLE_API_KEY"),
+            EndpointType::OpenaiCompat => "llama-3.2-3B-instruct",
         }
     }
 
@@ -741,8 +645,6 @@ impl EndpointType {
         match self {
             EndpointType::Ollama => "ollama",
             EndpointType::OpenaiCompat => "openai-compat",
-            EndpointType::Anthropic => "anthropic",
-            EndpointType::Google => "google",
         }
     }
 }
@@ -815,7 +717,10 @@ pub struct ProviderDefinition {
     /// Base URL override. When unset, the endpoint type default is used.
     #[serde(default)]
     pub base_url: Option<String>,
-    /// API key. When unset, the endpoint type's canonical environment variable is checked.
+    /// API key. A literal key string, an environment variable reference in `<VAR_NAME>` form
+    /// (resolved at runtime via `std::env::var`), or unset. When the value matches `<...>`,
+    /// the named environment variable is read; if it is unset or empty, the key resolves to
+    /// `None`. When `apiKey` is absent entirely, no key is sent.
     #[serde(default)]
     pub api_key: Option<String>,
     /// Default model id for this provider. When unset, `endpoint.default_model()` is used.
@@ -879,23 +784,40 @@ pub fn resolve_provider_base_url(providers: &ProvidersConfig, id: &str) -> Optio
     base.map(|s| s.trim_end_matches('/').to_string())
 }
 
-/// Resolve the API key for a provider. Environment variable takes precedence over config.
+/// Resolve the API key for a provider. If the `apiKey` config value uses the `<VAR_NAME>`
+/// syntax, the named environment variable is read at runtime. Literal key strings are returned
+/// as-is. Returns `None` when the provider is not found, `apiKey` is unset, the env var
+/// reference points to an unset/empty variable, or the resolved value is empty.
 pub fn resolve_provider_api_key(providers: &ProvidersConfig, id: &str) -> Option<String> {
     let def = providers.get(id)?;
-    // Env var first (endpoint-specific canonical name).
-    if let Some(var) = def.endpoint.env_api_key_var() {
-        if let Ok(v) = std::env::var(var) {
-            let t = v.trim().to_string();
-            if !t.is_empty() {
-                return Some(t);
-            }
-        }
-    }
-    // Then config value.
     def.api_key
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+        .map(|s| resolve_env_ref(&s))
+        .filter(|s| !s.is_empty())
+}
+
+/// Resolve a `<VAR_NAME>` environment variable reference. If `s` starts with `<` and ends
+/// with `>`, the content between the angle brackets is treated as an environment variable
+/// name and its value is returned (trimmed, non-empty). Otherwise `s` is returned unchanged.
+fn resolve_env_ref(s: &str) -> String {
+    if s.starts_with('<') && s.ends_with('>') && s.len() > 2 {
+        let var_name = &s[1..s.len() - 1];
+        match std::env::var(var_name) {
+            Ok(v) => {
+                let t = v.trim().to_string();
+                if !t.is_empty() {
+                    return t;
+                }
+            }
+            Err(_) => {}
+        }
+        // Env var not set or empty — nothing to send as a key.
+        String::new()
+    } else {
+        s.to_string()
+    }
 }
 
 /// Resolve the default model for a provider. Returns the provider's `defaultModel` if set,
@@ -1011,7 +933,7 @@ pub fn worker_context_dir(worker: &WorkerConfig, profile_dir: &Path) -> Option<P
     Some(agent_context_dir(profile_dir, wid))
 }
 
-/// `<profile_dir>/agents/<agent_id>/` — directory for that agent’s on-disk context (**`AGENT.md`**).
+/// `<profile_dir>/agents/<agent_id>/` — directory for that agent's on-disk context (**`AGENT.md`**).
 fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
     profile_dir.join("agents").join(agent_id)
 }
@@ -1049,8 +971,22 @@ pub fn worker_skills_enabled_list(worker: &WorkerConfig) -> &[String] {
 
 /// Load config for the resolved profile (`CHAI_PROFILE`, `chai gateway --profile`, or `~/.chai/active`).
 /// Missing `config.json` in the profile => default config.
+///
+/// If a `.env` file exists in the profile directory, variables from it are loaded into the
+/// process environment (existing variables are not overwritten). This allows `apiKey` values
+/// using the `<VAR_NAME>` syntax to resolve against profile-local environment variables.
 pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile::ChaiPaths)> {
     let paths = crate::profile::resolve_profile_dir(cli_profile)?;
+
+    // Load `.env` from the profile directory (does not overwrite existing env vars).
+    let env_path = paths.profile_dir.join(".env");
+    if env_path.is_file() {
+        match dotenvy::from_path(&env_path) {
+            Ok(_) => log::debug!("loaded .env from {}", env_path.display()),
+            Err(e) => log::warn!("failed to load .env at {}: {}", env_path.display(), e),
+        }
+    }
+
     let path = &paths.config_path;
     let config = if !path.exists() {
         log::debug!("config file not found, using defaults: {}", path.display());
@@ -1102,10 +1038,8 @@ mod tests {
             id: "w1".to_string(),
             default_provider: None,
             default_model: None,
-            enabled_providers: None,
             skills_enabled: None,
             context_mode: None,
-            delegate_allowed_models: None,
         };
         assert_eq!(
             worker_context_dir(&w, prof),
@@ -1174,31 +1108,6 @@ mod tests {
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "fast");
         assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
-    }
-
-    #[test]
-    fn agents_delegate_allowed_models_round_trips() {
-        let j = r#"{"agents":[
-            {"id":"main","role":"orchestrator","defaultProvider":"ollama","defaultModel":"m",
-             "delegateAllowedModels":[{"provider":"ollama","model":"llama3.2:latest","local":true}]},
-            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"w",
-             "delegateAllowedModels":[{"provider":"lms","model":"ibm/granite-4-micro"}]}
-        ]}"#;
-        let c: Config = serde_json::from_str(j).expect("parse");
-        let orch = c
-            .agents
-            .delegate_allowed_models
-            .as_ref()
-            .expect("orch catalog");
-        assert_eq!(orch.len(), 1);
-        assert_eq!(orch[0].provider, "ollama");
-        assert_eq!(orch[0].model, "llama3.2:latest");
-        assert!(orch[0].local);
-        let w = &c.agents.workers.as_ref().expect("workers")[0];
-        let wl = w.delegate_allowed_models.as_ref().expect("worker catalog");
-        assert_eq!(wl[0].model, "ibm/granite-4-micro");
-        let out = serde_json::to_string(&c).expect("serialize");
-        assert!(out.contains("delegateAllowedModels"));
     }
 
     #[test]
@@ -1298,16 +1207,6 @@ mod tests {
     }
 
     #[test]
-    fn providers_resolve_api_key_from_env() {
-        // Test that env var is checked for endpoint types that have one.
-        let j = r#"{"providers":[{"id":"anthropic","endpoint":"anthropic"}]}"#;
-        let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("anthropic").expect("anthropic");
-        assert!(def.api_key.is_none());
-        assert_eq!(def.endpoint.env_api_key_var(), Some("ANTHROPIC_API_KEY"));
-    }
-
-    #[test]
     fn providers_default_model_per_endpoint() {
         let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"},{"id":"lms","endpoint":"openai-compat"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
@@ -1317,7 +1216,7 @@ mod tests {
         );
         assert_eq!(
             resolve_provider_default_model(&c.providers, "lms"),
-            "gpt-4o-mini"
+            "llama-3.2-3B-instruct"
         );
     }
 
@@ -1443,5 +1342,146 @@ mod tests {
         let (provider, model) = resolve_effective_provider_and_model(&c.providers, &c.agents);
         assert_eq!(provider, "ollama");
         assert_eq!(model, "llama3.2:3b");
+    }
+
+    // --- resolve_env_ref tests ---
+
+    #[test]
+    fn resolve_env_ref_literal_key() {
+        assert_eq!(resolve_env_ref("sk-abc123"), "sk-abc123");
+    }
+
+    #[test]
+    fn resolve_env_ref_env_var_set() {
+        struct EnvGuard {
+            key: String,
+            previous: Option<std::ffi::OsString>,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.previous {
+                    Some(v) => std::env::set_var(&self.key, v),
+                    None => std::env::remove_var(&self.key),
+                }
+            }
+        }
+        let key = "CHAI_TEST_RESOLVE_ENV_REF";
+        let guard = EnvGuard {
+            key: key.to_string(),
+            previous: std::env::var_os(key),
+        };
+        std::env::set_var(key, "resolved-key-value");
+        assert_eq!(resolve_env_ref(&format!("<{}>", key)), "resolved-key-value");
+        drop(guard);
+    }
+
+    #[test]
+    fn resolve_env_ref_env_var_unset_returns_empty() {
+        let key = "CHAI_TEST_DEFINITELY_NOT_SET_XYZ";
+        let _guard = {
+            struct G(String, Option<std::ffi::OsString>);
+            impl Drop for G {
+                fn drop(&mut self) {
+                    match &self.1 {
+                        Some(v) => std::env::set_var(&self.0, v),
+                        None => std::env::remove_var(&self.0),
+                    }
+                }
+            }
+            let prev = std::env::var_os(key);
+            std::env::remove_var(key);
+            G(key.to_string(), prev)
+        };
+        assert_eq!(resolve_env_ref(&format!("<{}>", key)), "");
+    }
+
+    #[test]
+    fn resolve_env_ref_empty_angle_brackets_untouched() {
+        // `<>` is too short to be an env ref — treated as literal.
+        assert_eq!(resolve_env_ref("<>"), "<>");
+    }
+
+    #[test]
+    fn resolve_env_ref_partial_angle_brackets_untouched() {
+        // Starts with `<` but does not end with `>` — not an env ref.
+        assert_eq!(resolve_env_ref("<not-a-ref"), "<not-a-ref");
+    }
+
+    // --- resolve_provider_api_key with <ENV_VAR> ---
+
+    #[test]
+    fn resolve_provider_api_key_env_ref_resolves() {
+        struct EnvGuard {
+            key: String,
+            previous: Option<std::ffi::OsString>,
+        }
+        impl Drop for EnvGuard {
+            fn drop(&mut self) {
+                match &self.previous {
+                    Some(v) => std::env::set_var(&self.key, v),
+                    None => std::env::remove_var(&self.key),
+                }
+            }
+        }
+        let key = "CHAI_TEST_API_KEY_RESOLVE";
+        let guard = EnvGuard {
+            key: key.to_string(),
+            previous: std::env::var_os(key),
+        };
+        std::env::set_var(key, "sk-from-env");
+
+        let j = format!(
+            r#"{{"providers":[{{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
+            key
+        );
+        let c: Config = serde_json::from_str(&j).expect("parse");
+        assert_eq!(
+            resolve_provider_api_key(&c.providers, "nearai"),
+            Some("sk-from-env".to_string())
+        );
+        drop(guard);
+    }
+
+    #[test]
+    fn resolve_provider_api_key_env_ref_unset_returns_none() {
+        let key = "CHAI_TEST_API_KEY_NOT_SET";
+        let _guard = {
+            struct G(String, Option<std::ffi::OsString>);
+            impl Drop for G {
+                fn drop(&mut self) {
+                    match &self.1 {
+                        Some(v) => std::env::set_var(&self.0, v),
+                        None => std::env::remove_var(&self.0),
+                    }
+                }
+            }
+            let prev = std::env::var_os(key);
+            std::env::remove_var(key);
+            G(key.to_string(), prev)
+        };
+
+        let j = format!(
+            r#"{{"providers":[{{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
+            key
+        );
+        let c: Config = serde_json::from_str(&j).expect("parse");
+        assert_eq!(resolve_provider_api_key(&c.providers, "nearai"), None);
+    }
+
+    #[test]
+    fn resolve_provider_api_key_literal_value_still_works() {
+        let j = r#"{"providers":[{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"sk-literal-123"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(
+            resolve_provider_api_key(&c.providers, "nearai"),
+            Some("sk-literal-123".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_provider_api_key_none_when_omitted() {
+        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(resolve_provider_api_key(&c.providers, "ollama"), None);
     }
 }

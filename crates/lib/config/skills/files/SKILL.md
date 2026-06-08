@@ -1,13 +1,9 @@
 ---
-name: files
 description: Read files, list directories, search file contents, write files, and delete files and directories.
+capability_tier: full
 metadata:
   requires:
     bins: ["cat", "ls", "grep", "chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: full
 ---
 
 # File Tools

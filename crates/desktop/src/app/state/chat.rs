@@ -16,20 +16,21 @@ use super::super::{ChaiApp, ChatMessage, SessionEvent};
 /// Last timeline row that is not an orchestration delegation line, tool event, or assistant thinking row
 /// (used so RPC + WebSocket do not duplicate the same assistant turn).
 pub(crate) fn last_non_delegation(messages: &[ChatMessage]) -> Option<&ChatMessage> {
-    messages.iter().rev().find(|m| m.role != "delegation" && m.role != "tool_call" && m.role != "tool_result" && m.role != "assistant_progress")
+    messages.iter().rev().find(|m| !matches!(m.role.as_str(), "delegation" | "tool_call" | "tool_result" | "assistant_progress" | "tool_loop_limit"))
 }
 
-/// Same assistant turn as already shown (same content and tool_calls), ignoring delegation rows in between.
+/// Same assistant turn as already shown (same content), ignoring delegation rows in between.
+/// Tool calls are not compared because one side may have cleared them when streamed
+/// tool_call entries exist. Content alone is sufficient to identify a duplicate.
 pub(crate) fn is_duplicate_assistant_row(
     prev: &ChatMessage,
     role: &str,
     content: &str,
-    tool_calls: &Option<Vec<serde_json::Value>>,
+    _tool_calls: &Option<Vec<serde_json::Value>>,
 ) -> bool {
     role == "assistant"
         && prev.role == "assistant"
         && prev.content == content
-        && prev.tool_calls.as_ref() == tool_calls.as_ref()
 }
 
 /// Human-readable line for a gateway `orchestration.delegate.*` payload.
@@ -221,6 +222,7 @@ impl ChaiApp {
                         tool_result: None,
                         tool_index: ev.tool_index,
                         source: ev.source.clone(),
+                        pending_tool_calls: ev.pending_tool_calls.clone(),
                     });
                 }
                 self.session_meta
@@ -277,7 +279,21 @@ impl ChaiApp {
                     tool_result: ev.tool_result.clone(),
                     tool_index: ev.tool_index,
                     source: ev.source.clone(),
+                    pending_tool_calls: ev.pending_tool_calls.clone(),
                 });
+                self.session_meta
+                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.move_session_to_front(&session_id);
+                continue;
+            }
+            // Handle tool loop limit event: add a banner message to the session.
+            if ev.role == "tool_loop_limit" {
+                let pending = ev.pending_tool_calls.clone().unwrap_or_default();
+                let msg = crate::app::ChatMessage::tool_loop_limit(
+                    "tool loop iteration limit reached",
+                    pending,
+                );
+                entry.push(msg);
                 self.session_meta
                     .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
                 self.move_session_to_front(&session_id);
@@ -293,17 +309,32 @@ impl ChaiApp {
                 }
             }
             // Assistant from session.message broadcast can duplicate the RPC reply when delegation
-            // rows were appended in between (last != assistant). Match against last non-delegation row.
+            // rows were appended in between (last != assistant). Also skip when the tool loop
+            // limit was reached and an assistant_progress with matching content already shows
+            // the intermediate text — the tool_loop_limit banner explains the interruption and
+            // a duplicate assistant frame would be redundant.
             if ev.role == "assistant" && ev.delegation_event.is_none() {
+                let has_loop_limit = entry.iter().any(|m| m.role == "tool_loop_limit");
+                if has_loop_limit
+                    && entry.iter().any(|m| {
+                        m.role == "assistant_progress" && m.content == ev.content
+                    })
+                {
+                    self.session_meta
+                        .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                    self.move_session_to_front(&session_id);
+                    continue;
+                }
                 // If streamed tool_call entries already exist for this turn,
                 // clear tool_calls/tool_results so the inline fallback doesn't duplicate.
                 let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
                 if let Some(prev) = last_non_delegation(entry.as_slice()) {
                     if is_duplicate_assistant_row(prev, &ev.role, &ev.content, &ev.tool_calls) {
+                        // Find by content only (tool_calls may have been cleared on the
+                        // existing entry when streamed tool events are present).
                         if let Some(existing) = entry.iter_mut().find(|m| {
                             m.role == "assistant"
                                 && m.content == ev.content
-                                && m.tool_calls == ev.tool_calls
                         }) {
                             let fill_results = existing
                                 .tool_results
@@ -343,6 +374,7 @@ impl ChaiApp {
                 tool_result: ev.tool_result.clone(),
                 tool_index: ev.tool_index,
                 source: ev.source.clone(),
+                pending_tool_calls: ev.pending_tool_calls.clone(),
             };
             if ev.role == "assistant" && entry.iter().any(|m| m.role == "tool_call") {
                 ev_msg.tool_calls = None;
@@ -366,13 +398,14 @@ impl ChaiApp {
         if self.session_events_receiver.is_none() && self.gateway_responds {
             let (tx, rx) = mpsc::channel();
             let tx_clone = tx.clone();
+            let profile_override = self.effective_profile_override().map(String::from);
             std::thread::spawn(move || {
                 // Wait a bit for gateway to be fully ready
                 std::thread::sleep(Duration::from_secs(1));
                 // Retry loop: if connection fails, wait a bit and retry
                 let mut retry_count = 0;
                 loop {
-                    match run_session_events_loop(tx_clone.clone(), ctx.clone()) {
+                    match run_session_events_loop(tx_clone.clone(), ctx.clone(), profile_override.as_deref()) {
                         Err(e) => {
                             retry_count += 1;
                             // Exponential backoff, max 10 seconds
@@ -401,8 +434,8 @@ impl ChaiApp {
 
 /// Listen for session.message events from the gateway and forward them via an mpsc channel.
 /// After forwarding each event, requests a UI repaint via `ctx` so the desktop shows updates immediately.
-fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -> Result<(), String> {
-    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, profile_override: Option<&str>) -> Result<(), String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -431,55 +464,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) =
-            lib::device::load_device_token_from(&paths.device_token_path())
-        {
-            serde_json::json!({ "auth": { "deviceToken": device_token } })
-        } else {
-            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
-                .or_else(|| {
-                    let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&paths.device_json());
-                    Some(id)
-                })
-                .ok_or("failed to load or create device identity")?;
-            let signed_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let token_str = token.as_deref().unwrap_or("");
-            let scopes: Vec<String> = vec!["operator.read".into()];
-            let payload_str = lib::device::build_connect_payload(
-                &identity.device_id,
-                "chai-desktop",
-                "operator",
-                "operator",
-                &scopes,
-                signed_at,
-                token_str,
-                &nonce,
-            );
-            let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
-            let mut params = serde_json::json!({
-                "client": { "id": "chai-desktop", "mode": "operator" },
-                "role": "operator",
-                "scopes": scopes,
-                "device": {
-                    "id": identity.device_id,
-                    "publicKey": identity.public_key,
-                    "signature": signature,
-                    "signedAt": signed_at,
-                    "nonce": nonce
-                }
-            });
-            if let Some(ref t) = token {
-                params["auth"] = serde_json::json!({ "token": t });
-            } else {
-                params["auth"] = serde_json::json!({});
-            }
-            params
-        };
-
+        let connect_params = super::gateway::build_connect_params(&paths, token.as_deref(), &nonce)?;
         let connect_req = serde_json::json!({
             "type": "req",
             "id": "1",
@@ -510,7 +495,16 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
             .and_then(|v| v.as_bool())
             .unwrap_or(false)
         {
-            return Err("hello-ok not ok".to_string());
+            let err = hello_val
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("hello-ok not ok");
+            // If the device token was rejected, delete it so the next attempt
+            // falls back to device identity + signature.
+            if err == "invalid device token" {
+                let _ = std::fs::remove_file(paths.device_token_path());
+            }
+            return Err(err.to_string());
         }
         // Persist device token from hello-ok, if provided, so future connects can
         // reuse it instead of regenerating device identity every time.
@@ -596,6 +590,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_result: None,
                                 tool_index: None,
                                 source: None,
+                                pending_tool_calls: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -618,6 +613,43 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 continue;
                             };
                             let content = format_delegation_line(event_name, data);
+
+                            // When delegation completes with a reply, emit the worker message
+                            // row *before* the delegation event so the worker response appears
+                            // above the "Delegation finished" system line in the chat timeline.
+                            if event_name == EVENT_DELEGATE_COMPLETE {
+                                if let Some(reply) = data
+                                    .get("reply")
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| s.trim())
+                                    .filter(|s| !s.is_empty())
+                                {
+                                    let _worker_id = data
+                                        .get("workerId")
+                                        .and_then(|v| v.as_str())
+                                        .map(|s| s.trim())
+                                        .filter(|s| !s.is_empty())
+                                        .unwrap_or("worker");
+                                    let worker_ev = SessionEvent {
+                                        session_id: session_id.to_string(),
+                                        role: "worker".to_string(),
+                                        content: reply.to_string(),
+                                        channel_id: None,
+                                        conversation_id: None,
+                                        tool_calls: None,
+                                        tool_results: None,
+                                        delegation_event: None,
+                                        tool_name: None,
+                                        tool_args: None,
+                                        tool_result: None,
+                                        tool_index: None,
+                                        source: Some("worker".to_string()),
+                                        pending_tool_calls: None,
+                                    };
+                                    let _ = tx.send(worker_ev);
+                                }
+                            }
+
                             let ev = SessionEvent {
                                 session_id: session_id.to_string(),
                                 role: "delegation".to_string(),
@@ -632,8 +664,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_result: None,
                                 tool_index: None,
                                 source: None,
+                                pending_tool_calls: None,
                             };
                             let _ = tx.send(ev);
+
                             ctx.request_repaint();
                         }
                     } else if event_name == "session.tool_call" || event_name == "session.tool_result" {
@@ -683,6 +717,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_result,
                                 tool_index,
                                 source,
+                                pending_tool_calls: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -706,6 +741,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                             if content.trim().is_empty() {
                                 continue;
                             }
+                            let source = data
+                                .get("source")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id: session_id.to_string(),
                                 role: "assistant_progress".to_string(),
@@ -719,7 +758,42 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context) -
                                 tool_args: None,
                                 tool_result: None,
                                 tool_index: None,
+                                source,
+                                pending_tool_calls: None,
+                            };
+                            let _ = tx.send(ev);
+                            ctx.request_repaint();
+                        }
+                    } else if event_name == "session.tool_loop_limit" {
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let Some(session_id) = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                            else {
+                                continue;
+                            };
+                            let pending_tool_calls = data
+                                .get("pendingToolCalls")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| arr.clone());
+                            let ev = SessionEvent {
+                                session_id: session_id.to_string(),
+                                role: "tool_loop_limit".to_string(),
+                                content: String::new(),
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
                                 source: None,
+                                pending_tool_calls,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();

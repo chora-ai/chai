@@ -354,7 +354,6 @@ fn build_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
-    providers: &config::ProvidersConfig,
     agents: &config::AgentsConfig,
     skill_catalog: &[SkillEntry],
 ) -> String {
@@ -366,7 +365,7 @@ fn build_system_context(
             out.push_str("\n\n");
         }
     }
-    let workers_ctx = build_workers_context(providers, agents, skill_catalog);
+    let workers_ctx = build_workers_context(agents, skill_catalog);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
         out.push_str("\n");
@@ -825,7 +824,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         agent_ctx.as_deref(),
         &skills,
         orch_ctx_mode,
-        &config.providers,
         &config.agents,
         &all_entries,
     );
@@ -960,9 +958,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                                 }
                             });
                         }
-                        config::EndpointType::Anthropic | config::EndpointType::Google => {
-                            log::debug!("{} model discovery not available for endpoint type {:?}", provider_id, def.endpoint);
-                        }
                     }
                 }
                 config::ModelDiscovery::Lmstudio => {
@@ -1003,19 +998,14 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         if let Some(def) = config.providers.get(default_choice.as_str()) {
             match def.endpoint {
                 config::EndpointType::OpenaiCompat => {
-                    // Only warn for known hosted endpoints, not local openai-compat servers.
                     let base = crate::config::resolve_provider_base_url(&config.providers, default_choice.as_str());
-                    if base.as_ref().map(|u| u.contains("openai.com")).unwrap_or(false) {
+                    if base.as_ref().map(|u| u.contains("localhost")).unwrap_or(false) {
                         log::warn!(
-                            "OpenAI API is enabled; requests and data are sent to OpenAI (not a local-first option)."
+                            "a resolver or hosts file could change what \"localhost\" points to; 127.0.0.1 is recommended"
                         );
-                        let api_key = crate::config::resolve_provider_api_key(&config.providers, &default_choice.as_str());
-                        if api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
-                            log::warn!("{} provider selected but no API key set. Requests will fail until a key is configured.", default_choice);
-                        }
-                    } else if base.as_ref().map(|u| u.contains("nvidia.com")).unwrap_or(false) {
-                        log::warn!(
-                            "NVIDIA NIM hosted API is enabled; this is not a privacy-preserving option. Requests and data are sent to NVIDIA servers. Free tier is rate-limited (~40 requests/min)."
+                    }
+                    if base.as_ref().map(|u| !(u.contains("localhost") || u.contains("127.0.0.1"))).unwrap_or(false) {                        log::warn!(
+                            "a non-local provider is enabled; requests and data will be sent to a non-local API"
                         );
                         let api_key = crate::config::resolve_provider_api_key(&config.providers, &default_choice.as_str());
                         if api_key.as_ref().map(|k| k.is_empty()).unwrap_or(true) {
@@ -1343,6 +1333,7 @@ async fn ws_handler(State(state): State<GatewayState>, ws: WebSocketUpgrade) -> 
 
 async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
     let mut sent_hello = false;
+    let mut connect_attempted = false;
     let mut event_rx = state.event_tx.subscribe();
 
     let nonce = uuid::Uuid::new_v4().to_string();
@@ -1385,6 +1376,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
 
                 match req.method.as_str() {
             "connect" => {
+                connect_attempted = true;
                 let params: ConnectParams = match serde_json::from_value(req.params.clone()) {
                     Ok(p) => p,
                     Err(_) => {
@@ -1858,12 +1850,18 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             result.tool_calls.len(),
                             session_id
                         );
-                        let payload = json!({
+                        let mut payload = json!({
                             "reply": result.content,
                             "sessionId": session_id,
                             "toolCalls": tool_calls_payload,
-                            "toolResults": tool_results_payload
+                            "toolResults": tool_results_payload,
+                            "loopLimitReached": result.loop_limit_reached,
                         });
+                        if result.loop_limit_reached && !result.pending_tool_calls.is_empty() {
+                            let pending = serde_json::to_value(&result.pending_tool_calls)
+                                .unwrap_or_else(|_| json!([]));
+                            payload["pendingToolCalls"] = pending;
+                        }
                         let res = WsResponse::ok(&req.id, payload);
                         let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
                     }
@@ -1883,6 +1881,10 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
     }
 
     if !sent_hello {
-        log::debug!("ws client disconnected before sending connect");
+        if connect_attempted {
+            log::debug!("ws client connect rejected, client disconnected");
+        } else {
+            log::debug!("ws client disconnected before sending connect");
+        }
     }
 }

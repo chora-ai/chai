@@ -318,5 +318,6 @@ chai skill delete --skill-name my-skill
 
 For hands-on skill walkthroughs, see the user journeys:
 
-- [Skill NotesMD CLI](../journey/06-skill-notesmd.md) — Test the notesmd skill with an Obsidian vault.
-- [Skill Obsidian (official CLI)](../journey/07-skill-obsidian.md) — Test the official Obsidian CLI skill.
+- [Skill: Files](../journey/05-skill-files.md) — Test the files skill: read, write, patch, search, and delete.
+- [Skill: Knowledge Base](../journey/06-skill-kb.md) — Test the kb skill and its extensions.
+- [Skill: Skills](../journey/07-skill-skills.md) — Test the skills skill: inspect, validate, and create skill packages.

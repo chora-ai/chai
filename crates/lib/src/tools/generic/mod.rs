@@ -95,6 +95,8 @@ impl ToolExecutor for GenericToolExecutor {
 
         let stdin_content = extract_stdin_content(spec, effective_args, allowlist, skill_dir.as_deref())?;
 
+        let env_vars = build_env_vars(spec, effective_args, allowlist, skill_dir.as_deref())?;
+
         let success_codes = spec.success_exit_codes.as_deref().unwrap_or(&[]);
         let result = if let Some(ref content) = stdin_content {
             allowlist.run_with_stdin_with_codes(
@@ -103,6 +105,7 @@ impl ToolExecutor for GenericToolExecutor {
                 &argv,
                 working_dir.as_deref(),
                 content.as_bytes(),
+                &env_vars,
                 success_codes,
             )?
         } else {
@@ -111,6 +114,7 @@ impl ToolExecutor for GenericToolExecutor {
                 &spec.subcommand,
                 &argv,
                 working_dir.as_deref(),
+                &env_vars,
                 success_codes,
             )?
         };
@@ -199,6 +203,7 @@ fn validate_write_paths(
             }
             ArgKind::FlagIfBoolean => continue,
             ArgKind::Stdin => continue,
+            ArgKind::EnvVar => continue,
             ArgKind::WorkingDir => {
                 match obj.get(&arg.param) {
                     Some(v) if !v.is_null() => json_value_to_string(v).ok_or_else(|| {
@@ -335,7 +340,7 @@ fn resolve_value(
     }
 
     if let (Some(ref binary), Some(ref subcommand)) = (&cmd.binary, &cmd.subcommand) {
-        match allowlist.run(binary, subcommand, &argv, None) {
+        match allowlist.run(binary, subcommand, &argv, None, &[]) {
             Ok(out) => {
                 let s = out.trim();
                 return if s.is_empty() {
@@ -511,6 +516,65 @@ fn extract_stdin_content(
     Ok(None)
 }
 
+/// Extract environment variable key-value pairs from args with kind `EnvVar`.
+fn build_env_vars(
+    spec: &ExecutionSpec,
+    args: &serde_json::Value,
+    allowlist: &Allowlist,
+    skill_dir: Option<&Path>,
+) -> Result<Vec<(String, String)>, String> {
+    use crate::skills::ArgKind;
+    let obj = match args.as_object() {
+        Some(o) => o,
+        None => return Ok(Vec::new()),
+    };
+    let mut env_vars = Vec::new();
+    for arg in &spec.args {
+        if arg.kind != ArgKind::EnvVar {
+            continue;
+        }
+        let value = match obj.get(&arg.param) {
+            Some(v) if !v.is_null() => {
+                match json_value_to_string(v) {
+                    Some(s) => s,
+                    None => {
+                        if arg.optional == Some(true) {
+                            continue;
+                        }
+                        return Err(format!(
+                            "envVar parameter '{}' must be a string, number, or boolean",
+                            arg.param
+                        ));
+                    }
+                }
+            }
+            _ => {
+                if arg.optional == Some(true) {
+                    continue;
+                }
+                return Err(format!(
+                    "missing required parameter: {}",
+                    arg.param
+                ));
+            }
+        };
+        // Use explicit env_var if set; otherwise derive SCREAMING_SNAKE_CASE from
+        // the param name (replace hyphens/dots with underscores, uppercase).
+        let key = arg.env_var.as_deref().map_or_else(
+            || {
+                arg.param
+                    .replace('-', "_")
+                    .replace('.', "_")
+                    .to_uppercase()
+            },
+            String::from,
+        );
+        let resolved = transform_param_value(value, arg, allowlist, skill_dir);
+        env_vars.push((key, resolved));
+    }
+    Ok(env_vars)
+}
+
 /// Format a flag name for argv: single-character names get a single-dash prefix
 /// (`-n`), multi-character names get a double-dash prefix (`--number`).
 /// This follows the universal CLI convention for short vs long flags.
@@ -595,6 +659,11 @@ fn build_argv(
                 // not via argv — skip them here.
                 continue;
             }
+            ArgKind::EnvVar => {
+                // envVar args are set as environment variables via build_env_vars,
+                // not via argv — skip them here.
+                continue;
+            }
             ArgKind::FlagIfBoolean => {
                 let value = obj.get(&arg.param);
                 let flag = match parse_bool(value) {
@@ -666,6 +735,7 @@ mod tests {
                 param: "content".to_string(),
                 kind: ArgKind::Stdin,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -697,6 +767,7 @@ mod tests {
                 param: "content".to_string(),
                 kind: ArgKind::Stdin,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -731,6 +802,7 @@ mod tests {
                 param: "content".to_string(),
                 kind: ArgKind::Stdin,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -761,6 +833,7 @@ mod tests {
                 param: "content".to_string(),
                 kind: ArgKind::Stdin,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -1022,6 +1095,7 @@ mod tests {
                 read_path: Some(true),
                 write_path: None,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -1082,6 +1156,7 @@ mod tests {
                 read_path: Some(true),
                 write_path: None,
                 flag: None,
+                env_var: None,
                 flag_if_true: None,
                 flag_if_false: None,
                 resolve_command: None,
@@ -1136,6 +1211,7 @@ mod tests {
                     param: "date".to_string(),
                     kind: ArgKind::Flag,
                     flag: Some("path".to_string()),
+                    env_var: None,
                     optional: Some(true),
                     resolve_command: Some(ResolveCommandSpec {
                         script: Some("resolve-path".to_string()),
@@ -1153,6 +1229,7 @@ mod tests {
                     param: "content".to_string(),
                     kind: ArgKind::Stdin,
                     flag: None,
+                    env_var: None,
                     flag_if_true: None,
                     flag_if_false: None,
                     resolve_command: None,
@@ -1198,6 +1275,7 @@ mod tests {
                 param: "optional_flag".to_string(),
                 kind: ArgKind::Flag,
                 flag: Some("opt".to_string()),
+                env_var: None,
                 optional: Some(true),
                 resolve_command: None,
                 write_path: None,
@@ -1236,6 +1314,7 @@ mod tests {
                 param: "required_flag".to_string(),
                 kind: ArgKind::Flag,
                 flag: Some("req".to_string()),
+                env_var: None,
                 optional: None,
                 resolve_command: None,
                 write_path: None,
@@ -1271,6 +1350,7 @@ mod tests {
                 param: "count".to_string(),
                 kind: ArgKind::Flag,
                 flag: Some("n".to_string()),
+                env_var: None,
                 optional: None,
                 resolve_command: None,
                 write_path: None,
@@ -1305,6 +1385,7 @@ mod tests {
                 param: "path".to_string(),
                 kind: ArgKind::Flag,
                 flag: Some("path".to_string()),
+                env_var: None,
                 optional: None,
                 resolve_command: None,
                 write_path: None,
@@ -1339,6 +1420,7 @@ mod tests {
                 param: "output".to_string(),
                 kind: ArgKind::Flag,
                 flag: None, // no explicit flag — uses param name
+                env_var: None,
                 optional: None,
                 resolve_command: None,
                 write_path: None,
@@ -1375,6 +1457,7 @@ mod tests {
                     param: "count".to_string(),
                     kind: ArgKind::Flag,
                     flag: Some("n".to_string()),
+                    env_var: None,
                     optional: None,
                     resolve_command: None,
                     write_path: None,
@@ -1387,6 +1470,7 @@ mod tests {
                     param: "oneline".to_string(),
                     kind: ArgKind::FlagIfBoolean,
                     flag: None,
+                    env_var: None,
                     flag_if_true: Some("--oneline".to_string()),
                     flag_if_false: None,
                     optional: None,
@@ -1399,6 +1483,7 @@ mod tests {
                     param: "path".to_string(),
                     kind: ArgKind::WorkingDir,
                     flag: None,
+                    env_var: None,
                     flag_if_true: None,
                     flag_if_false: None,
                     optional: Some(true),
@@ -1435,6 +1520,7 @@ mod tests {
                 param: "message".to_string(),
                 kind: ArgKind::Flag,
                 flag: Some("m".to_string()),
+                env_var: None,
                 optional: None,
                 resolve_command: None,
                 write_path: None,

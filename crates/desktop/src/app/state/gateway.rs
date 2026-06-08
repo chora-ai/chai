@@ -7,7 +7,8 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::super::{
-    AgentReply, ChaiApp, GatewayStatusDetails, PROBE_INTERVAL_FRAMES, STATUS_INTERVAL_FRAMES,
+    AgentReply, AgentSkillsRuntime, ChaiApp, GatewayStatusDetails, PROBE_INTERVAL_FRAMES,
+    STATUS_INTERVAL_FRAMES,
 };
 
 impl ChaiApp {
@@ -27,8 +28,9 @@ impl ChaiApp {
         if self.probe_receiver.is_none() && self.frames_since_probe >= PROBE_INTERVAL_FRAMES {
             self.frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
+            let profile_override = self.effective_profile_override().map(String::from);
             std::thread::spawn(move || {
-                let Ok((config, _paths)) = lib::config::load_config(None) else {
+                let Ok((config, _paths)) = lib::config::load_config(profile_override.as_deref()) else {
                     let _ = tx.send(false);
                     return;
                 };
@@ -48,6 +50,10 @@ impl ChaiApp {
 
     /// When gateway status is received, ensure current model is in the available list for the effective provider; if not, switch to gateway default or first available.
     pub(crate) fn reconcile_model_with_status(&mut self) {
+        if self.gateway_status.is_none() {
+            return;
+        }
+        let enabled = self.enabled_providers();
         let Some(ref details) = self.gateway_status else {
             return;
         };
@@ -56,6 +62,7 @@ impl ChaiApp {
             .as_deref()
             .or(details.default_provider.as_deref())
             .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
+            .or_else(|| enabled.first().map(|s| s.as_str()))
             .unwrap_or("ollama");
         let models: &[String] = details
             .provider_info
@@ -87,8 +94,11 @@ impl ChaiApp {
         self.frames_since_status = STATUS_INTERVAL_FRAMES;
     }
 
-    /// Poll for status fetch result and optionally start a new fetch when gateway is running. Call each frame.
+    /// Poll for status fetch result and optionally start a new fetch when gateway is running.
     /// When the gateway has just come back up (responding but no status yet), fetch immediately so the context layout updates without delay.
+    /// When the previous fetch failed (gateway_status is None but a fetch already completed this
+    /// session), wait for the normal STATUS_INTERVAL_FRAMES cadence instead of retrying
+    /// every frame to avoid a tight reconnect loop.
     pub(crate) fn poll_status_fetch(&mut self) {
         if let Some(rx) = &self.status_receiver {
             if let Ok(result) = rx.try_recv() {
@@ -96,18 +106,31 @@ impl ChaiApp {
                 self.reconcile_dashboard_agent_selection();
                 self.reconcile_model_with_status();
                 self.status_receiver = None;
+                if self.gateway_status.is_none() {
+                    // Previous fetch failed — reset the frame counter so the next
+                    // attempt waits for the full interval rather than retrying
+                    // immediately (which would create a tight loop of WS connects).
+                    self.frames_since_status = 0;
+                    self.status_fetch_ever_failed = true;
+                } else {
+                    self.status_fetch_ever_failed = false;
+                }
             }
         }
         if !self.gateway_responds || self.status_receiver.is_some() {
             return;
         }
-        let need_immediate = self.gateway_status.is_none();
+        // Only fetch immediately on the very first detection (gateway_status has never
+        // been set AND no previous fetch has failed). Once a fetch has failed, let the
+        // normal interval cadence apply to avoid a tight retry loop of WebSocket connects.
+        let need_immediate = self.gateway_status.is_none() && !self.status_fetch_ever_failed;
         self.frames_since_status = self.frames_since_status.saturating_add(1);
         if need_immediate || self.frames_since_status >= STATUS_INTERVAL_FRAMES {
             self.frames_since_status = 0;
             let (tx, rx) = mpsc::channel();
+            let profile_override = self.effective_profile_override().map(String::from);
             std::thread::spawn(move || {
-                let result = fetch_gateway_status();
+                let result = fetch_gateway_status(profile_override.as_deref());
                 let _ = tx.send(result);
             });
             self.status_receiver = Some(rx);
@@ -151,8 +174,8 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
 }
 
 /// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
-pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
-    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<GatewayStatusDetails, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -180,54 +203,7 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) =
-            lib::device::load_device_token_from(&paths.device_token_path())
-        {
-            serde_json::json!({ "auth": { "deviceToken": device_token } })
-        } else {
-            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
-                .or_else(|| {
-                    let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&paths.device_json());
-                    Some(id)
-                })
-                .ok_or("failed to load or create device identity")?;
-            let signed_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let token_str = token.as_deref().unwrap_or("");
-            let scopes: Vec<String> = vec!["operator.read".into(), "operator.write".into()];
-            let payload_str = lib::device::build_connect_payload(
-                &identity.device_id,
-                "chai-desktop",
-                "operator",
-                "operator",
-                &scopes,
-                signed_at,
-                token_str,
-                &nonce,
-            );
-            let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
-            let mut params = serde_json::json!({
-                "client": { "id": "chai-desktop", "mode": "operator" },
-                "role": "operator",
-                "scopes": scopes,
-                "device": {
-                    "id": identity.device_id,
-                    "publicKey": identity.public_key,
-                    "signature": signature,
-                    "signedAt": signed_at,
-                    "nonce": nonce
-                }
-            });
-            if let Some(ref t) = token {
-                params["auth"] = serde_json::json!({ "token": t });
-            } else {
-                params["auth"] = serde_json::json!({});
-            }
-            params
-        };
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
 
         let connect_req = serde_json::json!({
             "type": "req",
@@ -253,6 +229,12 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                         .get("error")
                         .and_then(|v| v.as_str())
                         .unwrap_or("connect failed");
+                    // If the device token was rejected, delete it and retry with
+                    // device identity + signature so the next attempt doesn't loop
+                    // on the same stale token.
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -357,12 +339,43 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                             details.agent_tools.insert(id.clone(), t.to_string());
                         }
 
-                        if let Some(mode) = entry
-                            .get("skills")
-                            .and_then(|sk| sk.get("contextMode"))
-                            .and_then(|v| v.as_str())
-                            .map(str::trim)
-                            .filter(|s| !s.is_empty())
+                        // Parse per-agent skills runtime data from `entry.skills`.
+                        let sk = entry.get("skills");
+                        let mut agent_rt = AgentSkillsRuntime::default();
+                        if let Some(sk_obj) = sk.and_then(|v| v.as_object()) {
+                            agent_rt.enabled_skills = sk_obj
+                                .get("enabledSkills")
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter()
+                                        .filter_map(|v| v.as_str().map(String::from))
+                                        .collect()
+                                })
+                                .unwrap_or_default();
+                            agent_rt.context_mode = sk_obj
+                                .get("contextMode")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            agent_rt.skills_context = sk_obj
+                                .get("skillsContext")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            agent_rt.skills_context_full = sk_obj
+                                .get("skillsContextFull")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                            agent_rt.skills_context_bodies = sk_obj
+                                .get("skillsContextBodies")
+                                .and_then(|v| v.as_str())
+                                .map(String::from);
+                        }
+                        details.agent_skills.insert(id.clone(), agent_rt);
+
+                        // Backfill agent_context_modes from per-agent runtime data.
+                        if let Some(mode) = details
+                            .agent_skills
+                            .get(&id)
+                            .and_then(|rt| rt.context_mode.as_deref())
                         {
                             details
                                 .agent_context_modes
@@ -399,23 +412,13 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                                     .get("systemContext")
                                     .and_then(|v| v.as_str())
                                     .map(String::from);
-                                let sk = entry.get("skills");
-                                details.skills_context = sk
-                                    .and_then(|s| s.get("skillsContext"))
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                details.skills_context_full = sk
-                                    .and_then(|s| s.get("skillsContextFull"))
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                details.skills_context_bodies = sk
-                                    .and_then(|s| s.get("skillsContextBodies"))
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                details.context_mode = sk
-                                    .and_then(|s| s.get("contextMode"))
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
+                                // Top-level orchestrator shortcuts (mirror from agent_skills).
+                                if let Some(rt) = details.agent_skills.get(&id) {
+                                    details.skills_context = rt.skills_context.clone();
+                                    details.skills_context_full = rt.skills_context_full.clone();
+                                    details.skills_context_bodies = rt.skills_context_bodies.clone();
+                                    details.context_mode = rt.context_mode.clone();
+                                }
                                 details.tools = entry
                                     .get("tools")
                                     .and_then(|v| v.as_str())
@@ -469,8 +472,6 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
                                         .get("discovered")
                                         .and_then(|v| v.as_bool())
                                         .unwrap_or(false),
-                                    local: o.get("local").and_then(|v| v.as_bool()),
-                                    tool_capable: o.get("toolCapable").and_then(|v| v.as_bool()),
                                 })
                             })
                             .collect()
@@ -484,6 +485,61 @@ pub(crate) fn fetch_gateway_status() -> Result<GatewayStatusDetails, String> {
 }
 
 /// Resolve the chai CLI binary: same directory as this executable, or "chai" from PATH.
+/// Build WebSocket connect params using device token (if available) or device identity + signature.
+/// Shared by `fetch_gateway_status`, `run_agent_turn`, and `run_session_events_loop`.
+pub(crate) fn build_connect_params(
+    paths: &lib::profile::ChaiPaths,
+    gateway_token: Option<&str>,
+    nonce: &str,
+) -> Result<serde_json::Value, String> {
+    if let Some(device_token) = lib::device::load_device_token_from(&paths.device_token_path()) {
+        Ok(serde_json::json!({ "auth": { "deviceToken": device_token } }))
+    } else {
+        let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
+            .or_else(|| {
+                let id = lib::device::DeviceIdentity::generate().ok()?;
+                let _ = id.save(&paths.device_json());
+                Some(id)
+            })
+            .ok_or("failed to load or create device identity")?;
+        let signed_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let token_str = gateway_token.unwrap_or("");
+        let scopes: Vec<String> = vec!["operator.read".into(), "operator.write".into()];
+        let payload_str = lib::device::build_connect_payload(
+            &identity.device_id,
+            "chai-desktop",
+            "operator",
+            "operator",
+            &scopes,
+            signed_at,
+            token_str,
+            nonce,
+        );
+        let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
+        let mut params = serde_json::json!({
+            "client": { "id": "chai-desktop", "mode": "operator" },
+            "role": "operator",
+            "scopes": scopes,
+            "device": {
+                "id": identity.device_id,
+                "publicKey": identity.public_key,
+                "signature": signature,
+                "signedAt": signed_at,
+                "nonce": nonce
+            }
+        });
+        if let Some(t) = gateway_token {
+            params["auth"] = serde_json::json!({ "token": t });
+        } else {
+            params["auth"] = serde_json::json!({});
+        }
+        Ok(params)
+    }
+}
+
 pub(crate) fn resolve_chai_binary() -> Option<PathBuf> {
     let exe = std::env::current_exe().ok()?;
     let dir = exe.parent()?;
@@ -498,12 +554,13 @@ pub(crate) fn resolve_chai_binary() -> Option<PathBuf> {
 
 /// Run one agent turn against the gateway: connect, send message, return reply and session id.
 pub(crate) fn run_agent_turn(
+    profile_override: Option<&str>,
     session_id: Option<String>,
     message: String,
     provider: Option<String>,
     model: Option<String>,
 ) -> Result<AgentReply, String> {
-    let (config, paths) = lib::config::load_config(None).map_err(|e| e.to_string())?;
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
     let token = lib::config::resolve_gateway_token(&config);
@@ -531,54 +588,7 @@ pub(crate) fn run_agent_turn(
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
 
-        let connect_params = if let Some(device_token) =
-            lib::device::load_device_token_from(&paths.device_token_path())
-        {
-            serde_json::json!({ "auth": { "deviceToken": device_token } })
-        } else {
-            let identity = lib::device::DeviceIdentity::load(paths.device_json().as_path())
-                .or_else(|| {
-                    let id = lib::device::DeviceIdentity::generate().ok()?;
-                    let _ = id.save(&paths.device_json());
-                    Some(id)
-                })
-                .ok_or("failed to load or create device identity")?;
-            let signed_at = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_millis() as u64)
-                .unwrap_or(0);
-            let token_str = token.as_deref().unwrap_or("");
-            let scopes: Vec<String> = vec!["operator.read".into(), "operator.write".into()];
-            let payload_str = lib::device::build_connect_payload(
-                &identity.device_id,
-                "chai-desktop",
-                "operator",
-                "operator",
-                &scopes,
-                signed_at,
-                token_str,
-                &nonce,
-            );
-            let signature = identity.sign(&payload_str).map_err(|e| e.to_string())?;
-            let mut params = serde_json::json!({
-                "client": { "id": "chai-desktop", "mode": "operator" },
-                "role": "operator",
-                "scopes": scopes,
-                "device": {
-                    "id": identity.device_id,
-                    "publicKey": identity.public_key,
-                    "signature": signature,
-                    "signedAt": signed_at,
-                    "nonce": nonce
-                }
-            });
-            if let Some(ref t) = token {
-                params["auth"] = serde_json::json!({ "token": t });
-            } else {
-                params["auth"] = serde_json::json!({});
-            }
-            params
-        };
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
 
         let connect_req = serde_json::json!({
             "type": "req",
@@ -603,6 +613,9 @@ pub(crate) fn run_agent_turn(
                         .get("error")
                         .and_then(|v| v.as_str())
                         .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -677,11 +690,22 @@ pub(crate) fn run_agent_turn(
                             .collect::<Vec<_>>()
                     })
                     .unwrap_or_default();
+                let loop_limit_reached = payload
+                    .get("loopLimitReached")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let pending_tool_calls = payload
+                    .get("pendingToolCalls")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| arr.clone())
+                    .unwrap_or_default();
                 return Ok(AgentReply {
                     session_id,
                     reply,
                     tool_calls,
                     tool_results,
+                    loop_limit_reached,
+                    pending_tool_calls,
                 });
             }
         }

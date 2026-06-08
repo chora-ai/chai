@@ -83,10 +83,6 @@ See [CHANNELS.md](../spec/CHANNELS.md#shutdown). Telegram-specific: if **`telegr
 
 **`crates/desktop/src/app/screens/config.rs`** — Shows whether Telegram is configured (token or webhook URL). New channels will need parallel UI if the desktop should display them.
 
-## User-Facing Verification
-
-See [`docs/journey/05-channel-telegram.md`](../../docs/journey/05-channel-telegram.md) for end-to-step confirmation.
-
 ## See Also
 
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec for gateway channel behavior; read before implementing another channel.

@@ -1,14 +1,10 @@
 ---
-name: files-read
 description: Read files, list directories, and search file contents (read-only).
+capability_tier: minimal
+model_variant_of: files
 metadata:
   requires:
     bins: ["cat", "ls", "grep", "chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: minimal
-model_variant_of: files
 ---
 
 # File Tools (Read-Only)

@@ -58,7 +58,7 @@ fn skills_enabled_for_agent<'a>(
 }
 
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
-    let Ok((config, paths)) = lib::config::load_config(None) else {
+    let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
         crate::app::ui_screen(ui, "Skills", None, |ui| {
             ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
         });
@@ -75,10 +75,27 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
         .as_deref()
         .unwrap_or(orch_id.as_str())
         .to_string();
-    let enabled: Vec<String> = skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
-        .iter()
-        .cloned()
-        .collect();
+
+    // Prefer `enabledSkills` from gateway status when the gateway is running,
+    // to maintain parity with the running gateway. Fall back to config when
+    // the gateway is down or status hasn't been fetched yet.
+    let enabled: Vec<String> = if let Some(ref gs) = app.gateway_status {
+        gs.agent_skills
+            .get(&selected_id)
+            .map(|rt| rt.enabled_skills.clone())
+            .filter(|list| !list.is_empty())
+            .unwrap_or_else(|| {
+                skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
+                    .iter()
+                    .cloned()
+                    .collect()
+            })
+    } else {
+        skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
+            .iter()
+            .cloned()
+            .collect()
+    };
 
     let Some(ref cached) = app.cached_skills else {
         let subtitle = format!("Values below are loaded from {}", skills_root.display());
@@ -110,10 +127,16 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
         .filter(|e| !enabled_set.contains(e.name.as_str()))
         .collect();
 
+    let source_label = if app.gateway_status.is_some() {
+        "gateway status"
+    } else {
+        "config"
+    };
     let subtitle = format!(
-        "Packages from {}; enabled/disabled for agent \"{}\" (from config).",
+        "Packages from {}; enabled/disabled for agent \"{}\" (from {}).",
         skills_root.display(),
-        selected_id
+        selected_id,
+        source_label
     );
 
     crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {

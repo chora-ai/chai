@@ -4,13 +4,13 @@ status: draft
 
 # Epic: RAG with Vector Database
 
-**Summary** — Enable the assistant to pull knowledge from a local knowledge base backed by a vector database (pgvector) and a dedicated embedding model, so the orchestrator can use retrieved context for chat and completion. This epic should align with a future **projects** model (named roots on disk, opt-in per agent, read vs read-write) so indexing sources and retrieval scope are not duplicated in a separate parallel config.
+**Summary** — Enable the agent to pull knowledge from a local knowledge base backed by a vector database (pgvector) and a dedicated embedding model, so the orchestrator can use retrieved context for chat and completion. This epic should align with a future **projects** model (named roots on disk, opt-in per agent, read vs read-write) so indexing sources and retrieval scope are not duplicated in a separate parallel config.
 
 **Status** — Proposed (not implemented).
 
 ## Problem Statement
 
-Skills provide vault and file access via tool calls, but search is lexical only — the model decides what to search and how to phrase it, with no semantic retrieval. Embedding models are available on supported providers but the endpoints are not integrated. There is no pre-indexed vector store, so the assistant cannot find relevant content by meaning similarity, and long-tail or vague queries cannot be answered by "everything relevant." This epic addresses the missing semantic retrieval layer.
+Skills provide vault and file access via tool calls, but search is lexical only — the model decides what to search and how to phrase it, with no semantic retrieval. Embedding models are available on supported providers but the endpoints are not integrated. There is no pre-indexed vector store, so the agent cannot find relevant content by meaning similarity, and long-tail or vague queries cannot be answered by "everything relevant." This epic addresses the missing semantic retrieval layer.
 
 ## Goal
 
@@ -20,7 +20,7 @@ Provide a **local-first** retrieval-augmented flow: content (e.g. from a markdow
 
 - **Skills and tools** — Notes and vault access are provided by skills that expose tools. The model decides when to call these tools and receives results in the conversation; there is no semantic search or pre-indexed vector store.
 - **Embeddings** — Not used. Current providers support embedding models but the endpoints are not yet integrated.
-- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [ORCHESTRATION.md](ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator or another worker requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
+- **Orchestration** — **`delegate_task`** exists for delegated worker turns; see [ORCHESTRATION.md](../spec/ORCHESTRATION.md). The RAG flow would use a worker (embedding model) for index build and query embedding; the orchestrator or another worker requests retrieval and consumes the result. **Per-worker** filesystem or RAG tool policy is not implemented yet (see [Design: Projects, Permissions, and Retrieval](#projects-permissions-and-retrieval)).
 
 ## Scope
 
@@ -30,7 +30,7 @@ Vector store using **pgvector** (local Postgres or compatible) for portability a
 
 ### Out of Scope
 
-Re-implementing core **`delegate_task`** orchestration (already shipped — see [ORCHESTRATION.md](ORCHESTRATION.md)); replacing or removing existing skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
+Re-implementing core **`delegate_task`** orchestration (already shipped — see [ORCHESTRATION.md](../spec/ORCHESTRATION.md)); replacing or removing existing skills (they can coexist). Supabase integration (using same pgvector schema and usage patterns).
 
 ## Dependencies
 
@@ -161,7 +161,7 @@ That is the **flywheel**: the orchestrator uses **tools and delegation** to main
 - [ ] **Embedding support on existing backends** — Extend existing backend clients (Ollama, LM Studio, or other) to support embedding: call each provider's embed endpoint and expose a common "embed(texts) → vectors" interface (e.g. trait or shared type); config for which backend and model to use for the worker embedding model. This worker model is used for both index build and query embedding.
 - [ ] **Indexing pipeline** — Ingest documents from configured sources (e.g. markdown from vault or workspace), chunk them (size/overlap strategy), embed chunks via the (extended) backend client, and write to the vector store. Triggered by an **index-build** tool (e.g. (re)build knowledge base), not necessarily automatic.
 - [ ] **Retrieval** — Given a query string, embed the query with the same worker model, run similarity search in the vector store, return top-k chunks (and optional metadata) in a form the agent can consume (e.g. tool result).
-- [ ] **Agent tools** — (1) **Index build** — Tool (e.g. `index_knowledge_base`) to (re)build the knowledge base from configured sources (when to run is up to the user or model). (2) **Query** — Tool (e.g. `query_knowledge_base`) so the main assistant can request retrieval and receive chunks for its reply.
+- [ ] **Agent tools** — (1) **Index build** — Tool (e.g. `index_knowledge_base`) to (re)build the knowledge base from configured sources (when to run is up to the user or model). (2) **Query** — Tool (e.g. `query_knowledge_base`) so the agent can request retrieval and receive chunks for its reply.
 - [ ] **Config and sources** — Config for knowledge-base source path(s), chunking options, embedding backend/model, and vector store connection (local Postgres); document sources to index (e.g. Obsidian vault path, workspace directory).
 
 ## Technical Reference
@@ -212,5 +212,5 @@ These can be resolved during design or early implementation:
 
 ## Related Epics and Docs
 
-- [ORCHESTRATION.md](ORCHESTRATION.md) — Orchestrator–worker delegation (**shipped**). RAG builds on **`delegate_task`** and per-worker tools; per-project filesystem policy for workers remains future work (see **Design** in this epic).
+- [ORCHESTRATION.md](../spec/ORCHESTRATION.md) — Orchestrator–worker delegation. RAG builds on **`delegate_task`** and per-worker tools; per-project filesystem policy for workers remains future work.
 - [PROVIDERS.md](../spec/PROVIDERS.md) — Backend client configuration; existing Ollama and LM Studio clients should be extended here to support embedding endpoints before or alongside this epic.

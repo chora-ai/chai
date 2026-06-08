@@ -3,16 +3,16 @@
 use std::collections::HashMap;
 
 use crate::config::{
-    canonical_provider_id, provider_discovery_enabled, worker_skills_enabled_list, AgentsConfig,
-    ProvidersConfig, WorkerConfig,
+    canonical_provider_id, worker_skills_enabled_list, AgentsConfig, ProvidersConfig, WorkerConfig,
 };
 use crate::skills::SkillEntry;
 
 use super::choice::ProviderChoice;
 use super::model::resolve_model;
 
-/// Effective `(provider, model)` when `delegate_task` omits `provider` and `model` for this worker
-/// (mirrors runtime resolution in `orchestration/delegate.rs`).
+/// Effective `(provider, model)` for this worker — resolves `defaultProvider` / `defaultModel`,
+/// falling back to the orchestrator's defaults when omitted (mirrors runtime resolution in
+/// `orchestration/delegate.rs`).
 pub fn effective_worker_defaults(
     providers: &ProvidersConfig,
     agents: &AgentsConfig,
@@ -40,10 +40,12 @@ pub fn effective_worker_defaults(
     (provider_id, model)
 }
 
-/// Renders worker ids, default provider/model, enabled skills (with descriptions from `skill_catalog`), and
-/// allowed `(provider, model)` pairs for `delegate_task` (same rules as runtime delegation). Empty when there are no workers.
+/// Renders worker ids and enabled skills (with descriptions from `skill_catalog`)
+/// for `delegate_task`. Empty when there are no workers. Provider/model pairs are
+/// not included — the orchestrator cannot act on that information (there is no
+/// override mechanism on `delegate_task`), and omitting it keeps worker context
+/// minimal for smaller model support.
 pub fn build_workers_context(
-    providers: &ProvidersConfig,
     agents: &AgentsConfig,
     skill_catalog: &[SkillEntry],
 ) -> String {
@@ -61,84 +63,11 @@ pub fn build_workers_context(
     out.push_str("## Workers\n\n");
     out.push_str("You are the orchestrator agent. You have worker agents. You can:\n\n");
     out.push_str("- call `delegate_task` to delegate a task to a worker agent\n\n");
-    out.push_str("The worker agent will perform the task following your instruction.\n\n");
+    out.push_str("Only delegate a task to a worker if the worker can perform the task.\n\n");
     for w in workers {
-        lines_for_worker(&mut out, providers, agents, w, &skill_by_name);
+        lines_for_worker(&mut out, w, &skill_by_name);
     }
     out
-}
-
-fn provider_delegation_blocked(agents: &AgentsConfig, provider_id: &str) -> bool {
-    let Some(ref list) = agents.delegate_blocked_providers else {
-        return false;
-    };
-    list.iter().any(|p| p.trim() == provider_id)
-}
-
-/// Worker may target this provider in `delegate_task` (mirrors `resolve_delegate_target` gates).
-fn worker_may_use_provider(
-    providers: &ProvidersConfig,
-    agents: &AgentsConfig,
-    w: &WorkerConfig,
-    provider_id: &str,
-) -> bool {
-    if !provider_discovery_enabled(providers, agents, provider_id) {
-        return false;
-    }
-    if provider_delegation_blocked(agents, provider_id) {
-        return false;
-    }
-    let global_default_provider = agents
-        .default_provider
-        .as_deref()
-        .and_then(|s| canonical_provider_id(providers, s))
-        .or_else(|| providers.entries.first().map(|p| p.id.trim().to_string()))
-        .unwrap_or_else(|| "ollama".to_string());
-    let default_provider = w
-        .default_provider
-        .as_deref()
-        .and_then(|s| canonical_provider_id(providers, s))
-        .unwrap_or(global_default_provider);
-    match &w.enabled_providers {
-        None => true,
-        Some(list) if list.is_empty() => provider_id == default_provider,
-        Some(list) => list
-            .iter()
-            .filter_map(|s| canonical_provider_id(providers, s))
-            .any(|p| p == provider_id),
-    }
-}
-
-/// `(provider, model)` pairs the orchestrator may use for this worker via `delegate_task` (mirrors `assert_delegation_pair_allowed` for a worker id).
-fn usable_delegate_pairs_for_worker(
-    providers: &ProvidersConfig,
-    agents: &AgentsConfig,
-    w: &WorkerConfig,
-) -> Vec<(String, String)> {
-    if let Some(ref list) = w.delegate_allowed_models {
-        if !list.is_empty() {
-            let mut pairs: Vec<(String, String)> = list
-                .iter()
-                .filter_map(|e| {
-                    let p = canonical_provider_id(providers, &e.provider)?;
-                    let m = e.model.trim();
-                    if m.is_empty() || !worker_may_use_provider(providers, agents, w, &p) {
-                        return None;
-                    }
-                    Some((p, m.to_string()))
-                })
-                .collect();
-            pairs.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-            pairs.dedup();
-            return pairs;
-        }
-    }
-    let (def_p, def_m) = effective_worker_defaults(providers, agents, w);
-    if worker_may_use_provider(providers, agents, w, &def_p) {
-        vec![(def_p, def_m)]
-    } else {
-        Vec::new()
-    }
 }
 
 fn single_line_skill_description(description: &str) -> String {
@@ -151,8 +80,6 @@ fn single_line_skill_description(description: &str) -> String {
 
 fn lines_for_worker(
     out: &mut String,
-    providers: &ProvidersConfig,
-    agents: &AgentsConfig,
     w: &WorkerConfig,
     skill_by_name: &HashMap<&str, &SkillEntry>,
 ) {
@@ -163,32 +90,11 @@ fn lines_for_worker(
     out.push_str("### ");
     out.push_str(id);
     out.push_str("\n\n");
-    out.push_str("workerId: `");
-    out.push_str(id);
-    out.push_str("`\n\n");
-
-    let pairs = usable_delegate_pairs_for_worker(providers, agents, w);
-    for (i, (p, m)) in pairs.iter().enumerate() {
-        if i > 0 {
-            out.push_str("\n");
-        }
-        out.push_str("This worker has the following provider/model pairs:\n\n");
-        out.push_str("- provider: `");
-        out.push_str(p);
-        out.push_str("` / ");
-        out.push_str("model: `");
-        out.push_str(m);
-        out.push_str("`");
-    }
-    out.push_str("\n\n");
 
     let names = worker_skills_enabled_list(w);
     if !names.is_empty() {
-        for (i, name) in names.iter().enumerate() {
-            if i > 0 {
-                out.push_str("\n");
-            }
-            out.push_str("This worker can perform the following tasks:\n\n");
+        out.push_str("This worker can perform the following tasks:\n\n");
+        for name in names.iter() {
             out.push_str("- ");
             match skill_by_name.get(name.as_str()) {
                 Some(entry) => {
@@ -198,40 +104,24 @@ fn lines_for_worker(
                     out.push_str("(this skill is missing a description)");
                 }
             }
+            out.push_str("\n");
         }
         out.push_str("\n");
     }
+
+    out.push_str("Start your instruction with `[");
+    out.push_str(id);
+    out.push_str("]` to delegate to this worker.\n\n");
+    out.push_str("Example:\n\n");
+    out.push_str("{ \"instruction\": \"[");
+    out.push_str(id);
+    out.push_str("] List your skills\" }\n");
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{EndpointType, ProviderDefinition, WorkerConfig};
-
-    fn test_providers(ids: &[&str]) -> ProvidersConfig {
-        ProvidersConfig {
-            entries: ids.iter().map(|id| {
-                let endpoint = match *id {
-                    "ollama" => EndpointType::Ollama,
-                    _ => EndpointType::OpenaiCompat,
-                };
-                ProviderDefinition {
-                    id: id.to_string(),
-                    endpoint,
-                    base_url: if endpoint == EndpointType::OpenaiCompat {
-                        Some(format!("http://localhost/{}", id))
-                    } else {
-                        None
-                    },
-                    api_key: None,
-                    default_model: None,
-                    model_discovery: Default::default(),
-                    static_models: Vec::new(),
-                    auto_load: Default::default(),
-                }
-            }).collect(),
-        }
-    }
+    use crate::config::WorkerConfig;
 
     fn sample_agents() -> AgentsConfig {
         let mut a = AgentsConfig::default();
@@ -239,95 +129,70 @@ mod tests {
         a.workers = Some(vec![WorkerConfig {
             id: "bob".to_string(),
             default_provider: Some("ollama".to_string()),
-            default_model: Some("llama3.2:latest".to_string()),
-            enabled_providers: None,
+            default_model: Some("llama3.2:3b".to_string()),
             skills_enabled: None,
             context_mode: None,
-            delegate_allowed_models: None,
         }]);
         a
     }
 
     #[test]
     fn no_workers_yields_empty() {
-        let providers = test_providers(&["ollama"]);
         let a = AgentsConfig::default();
-        assert!(build_workers_context(&providers, &a, &[]).is_empty());
+        assert!(build_workers_context(&a, &[]).is_empty());
     }
 
     #[test]
     fn empty_worker_list_yields_empty() {
-        let providers = test_providers(&["ollama"]);
         let mut a = AgentsConfig::default();
         a.workers = Some(vec![]);
-        assert!(build_workers_context(&providers, &a, &[]).is_empty());
+        assert!(build_workers_context(&a, &[]).is_empty());
     }
 
     #[test]
     fn includes_orchestrator_and_worker() {
-        let providers = test_providers(&["ollama"]);
-        let s = build_workers_context(&providers, &sample_agents(), &[]);
+        let s = build_workers_context(&sample_agents(), &[]);
         assert!(s.contains("You are the orchestrator agent"));
         assert!(s.contains("bob"));
-        assert!(s.contains("ollama"));
-        assert!(s.contains("provider: `ollama` / model: `llama3.2:latest`"));
+        assert!(s.contains("### bob"));
+        assert!(!s.contains("provider"));
     }
 
     #[test]
-    fn worker_without_defaults_inherits_orchestrator() {
-        let providers = test_providers(&["ollama"]);
+    fn worker_without_defaults_still_rendered() {
         let mut a = AgentsConfig::default();
         a.orchestrator_id = Some("alice".to_string());
         a.default_provider = Some("ollama".to_string());
-        a.default_model = Some("llama3.2:latest".to_string());
+        a.default_model = Some("llama3.2:3b".to_string());
         a.workers = Some(vec![WorkerConfig {
             id: "bob".to_string(),
             default_provider: None,
             default_model: None,
-            enabled_providers: None,
             skills_enabled: None,
             context_mode: None,
-            delegate_allowed_models: None,
         }]);
-        let s = build_workers_context(&providers, &a, &[]);
+        let s = build_workers_context(&a, &[]);
         assert!(s.contains("bob"));
-        assert!(s.contains("ollama"));
-        assert!(s.contains("llama3.2:latest"));
+        assert!(s.contains("### bob"));
+        assert!(s.contains("Start your instruction with `[bob]`"));
     }
 
     #[test]
     fn worker_skill_lists_description_from_catalog() {
-        use crate::config::AllowedModelEntry;
         use std::path::PathBuf;
 
-        let providers = test_providers(&["ollama", "lms"]);
         let mut a = AgentsConfig::default();
         a.orchestrator_id = Some("orch".to_string());
         a.default_provider = Some("ollama".to_string());
-        a.default_model = Some("llama3.2:latest".to_string());
+        a.default_model = Some("llama3.2:3b".to_string());
         a.workers = Some(vec![WorkerConfig {
             id: "w1".to_string(),
             default_provider: None,
             default_model: None,
-            enabled_providers: None,
             skills_enabled: Some(vec!["my-skill".to_string()]),
             context_mode: None,
-            delegate_allowed_models: Some(vec![
-                AllowedModelEntry {
-                    provider: "ollama".to_string(),
-                    model: "m-a".to_string(),
-                    local: false,
-                    tool_capable: None,
-                },
-                AllowedModelEntry {
-                    provider: "lms".to_string(),
-                    model: "m-b".to_string(),
-                    local: false,
-                    tool_capable: None,
-                },
-            ]),
         }]);
-        a.enabled_providers = Some(vec!["ollama".to_string(), "lms".to_string()]);
+        a.enabled_providers = Some(vec!["ollama".to_string()]);
 
         let catalog = vec![SkillEntry {
             name: "my-skill".to_string(),
@@ -338,9 +203,21 @@ mod tests {
             capability_tier: None,
             model_variant_of: None,
         }];
-        let s = build_workers_context(&providers, &a, &catalog);
-        assert!(s.contains("provider: `ollama` / model: `m-a`"));
-        assert!(s.contains("provider: `lms` / model: `m-b`"));
+        let s = build_workers_context(&a, &catalog);
+        assert!(!s.contains("provider"));
         assert!(s.contains("- does a thing"));
+    }
+
+    #[test]
+    fn bracket_prefix_rendered_per_worker() {
+        let s = build_workers_context(&sample_agents(), &[]);
+        assert!(s.contains("Start your instruction with `[bob]`"));
+    }
+
+    #[test]
+    fn no_provider_model_in_context() {
+        let s = build_workers_context(&sample_agents(), &[]);
+        assert!(!s.contains("provider"));
+        assert!(!s.contains("model"));
     }
 }

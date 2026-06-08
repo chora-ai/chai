@@ -1,13 +1,9 @@
 ---
-name: kb-daily
 description: Read, write, and append to daily notes with date-based path resolution.
+capability_tier: minimal
 metadata:
   requires:
     bins: ["cat", "chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: minimal
 ---
 
 # Knowledge Base Daily Notes

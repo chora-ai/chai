@@ -64,41 +64,100 @@ These findings may apply to multiple or all bundled skills.
 
 ### 5. Frontmatter: what serves what purpose, and who maintains it
 
-**Background**: The frontmatter in `SKILL.md` currently carries a mix of fields serving different audiences and lifecycles. An audit of all 14 bundled skills reveals the following usage:
+**Resolved.** The frontmatter has been simplified to include only runtime-consumed fields. The `name` field, `generated_from` block, and `recommended_models` have been removed. `capability_tier` has been promoted from inside `generated_from` to a top-level field.
 
-| Field | Present in | Purpose | Set by |
-|-------|-----------|---------|--------|
-| `name` | All 14 | Display/documentation; directory name is authoritative | Skill author |
-| `description` | All 14 | Catalog and prompt description | Skill author |
-| `metadata.requires.bins` | All 14 | Binaries the skill's allowlist needs | Skill author |
-| `capability_tier` | All 14 | Minimum model capability for context budget and startup warnings | Skill author |
-| `model_variant_of` | 4 (`files-read`, `git-read`, `git-remote`, `skills-read`) | Links variant skills to their full-tier counterpart | Skill author |
-| `generated_from.spec_version` | All 14 | Format version used to produce this skill | Generator |
-| `generated_from.generator_model` | All 14 | Model that produced this skill | Generator |
-| `generated_from.cli` / `cli_version` | 3 (`git`, `git-read`, `git-remote`) | CLI source and version for derivation tracking | Generator |
-| `recommended_models` | 0 of 14 | Models empirically tested against this skill's schema | Simulation |
+**Resolution summary**:
 
-**Questions to resolve**:
+| Decision | Rationale |
+|----------|-----------|
+| Removed `name` | Directory name is authoritative; no code path requires it from frontmatter |
+| Removed `generated_from` block (all sub-fields) | No sub-field was consumed at runtime: `spec_version`, `generator_model`, `cli`, and `cli_version` were parsed but never read; `capability_tier` was the only consumed sub-field and has been promoted to top-level |
+| Promoted `capability_tier` to top-level | Was buried inside a "derivation metadata" block despite being the only field consumed at runtime (for startup validation warnings). The spec already defined it as a top-level field; the actual data was in the wrong place |
+| Removed `recommended_models` from spec | Zero skills populated it; no code parsed it; no runtime behavior depended on it. If simulation infrastructure arrives later, add it then |
+| Kept `description`, `capability_tier`, `model_variant_of`, `metadata.requires.bins` | All are consumed at runtime by the loader, gateway, or validation code |
 
-1. **Which fields are the skill author's concern vs. derived metadata?** The `generated_from` block is clearly derived — it records what produced the skill, not what the skill *is*. But `capability_tier` is a judgment call that sits at the boundary: the author sets it based on experience, but runtime behavior (context mode inference, startup warnings) depends on it. Should runtime behavior infer tier from the skill's tool surface instead, making the frontmatter field informational?
+**Code changes**: Updated `SkillFrontmatter` struct in `loader.rs` (removed `name` and `generated_from` fields, added top-level `capability_tier`). Updated `parse_skill_frontmatter` to read `capability_tier` from top-level instead of from `generated_from`. Removed `GeneratedFrom` struct entirely.
 
-2. **Is `recommended_models` worth keeping?** It's in the spec but not populated in any bundled skill. It's informational only — no runtime behavior gates on it. If it's never populated and never consumed, it's dead weight in the spec and in context. Conversely, if simulation infrastructure arrives later, it could become valuable. What's the threshold for keeping an unpopulated field?
+**Spec changes**: Updated `spec/SKILL_FORMAT.md` frontmatter table to reflect only the four runtime fields. Added examples showing the minimal and variant frontmatter shapes. Removed the "Derivation Metadata" section.
 
-3. **Is `generated_from` serving its purpose?** Every bundled skill has this block, but the information is only useful during skill generation/derivation — not at runtime, not for the agent, and not for skill authors modifying existing skills. It consumes frontmatter lines on every context load. Could this be moved to a sidecar file or a manifest that's not loaded into the agent's context?
+**Skill changes**: Updated all 14 bundled skill SKILL.md frontmatters. Updated `skills` and `skills-read` SKILL.md body content to reference the new frontmatter shape. Added "Frontmatter Conventions" section to `skills-design/SKILL.md`.
 
-4. **How should frontmatter be maintained across the skill lifecycle?** When a skill author edits `SKILL.md` content, should they also update `generated_from`? When `chai init` extracts a bundled skill, does it overwrite the author's frontmatter or preserve it? There's no documented convention for this.
+**Source**: This finding was originally tracked as `FEAT_SKILL_MODE_FRONTMATTER.md`, which focused narrowly on adding `recommended_models` and verifying `capability_tier`/`model_variant_of` parsing. It has been absorbed here because the broader frontmatter question — what fields serve what purpose, who maintains them, and whether they belong in the agent's context at all — subsumed that narrower feature request.
 
-5. **Context cost of frontmatter**: Frontmatter is loaded into the LLM's context on every turn (it's part of `SKILL.md`). Fields that serve the runtime loader (like `metadata.requires.bins`, `capability_tier`) or the agent (like `description`) justify their cost. Fields that serve only the build/distribution pipeline (like `generated_from`) may not. Should frontmatter be split — a runtime-facing subset in `SKILL.md`, a build-facing subset in a separate file?
+### 6. Content-passing channel audit: `flag` vs `stdin` vs `envvar`
 
-**Action**: Resolve these questions as part of the audit. When conventions become concrete, document them in `skills-design/SKILL.md` and update `spec/SKILL_FORMAT.md` accordingly. Remove `recommended_models` from the spec if it remains unpopulated after the audit, or populate it if simulation results are available.
+**Background**: The bug that broke `files_write_lines` for content containing backticks, middle dots, and ampersands was caused by passing `original_content` as a CLI flag. CLI arguments are subject to environment-specific interpretation (shell quoting, encoding) that can introduce byte-level mismatches with the original JSON value. The fix introduced `ArgKind::EnvVar`, which passes the value as an environment variable instead — bypassing the shell argument layer entirely.
 
-**Source**: This finding was originally tracked as `FEAT_SKILL_MODE_FRONTMATTER.md`, which focused narrowly on adding `recommended_models` and verifying `capability_tier`/`model_variant_of` parsing. It has been absorbed here because the broader frontmatter question — what fields serve what purpose, who maintains them, and whether they belong in the agent's context at all — subsumes that narrower feature request.
+**Principle**: Content-rich parameters — those carrying arbitrary text, multi-line values, or text likely to contain special characters (backticks, quotes, ampersands, unicode) — should never be passed as CLI flags. The available channels, in order of reliability for content:
+
+1. **`stdin`** — most reliable for arbitrary content; no encoding or length limits from the OS; already used for `content` in `files_write_file`, `files_write_lines`, and `skills` write tools.
+2. **`envvar`** — reliable for large or special-character content; avoids shell argument interpretation; subject to OS environment variable size limits (typically ≥128KB on Linux, may be smaller on other platforms).
+3. **`flag`** — only safe for short, controlled values (paths, identifiers, booleans, numbers); vulnerable to quoting and encoding issues in the LLM JSON → gateway → CLI → OS chain.
+
+**Affected tools currently passing content as `flag`**:
+
+| Skill | Tool | Parameter | Risk | Recommended channel |
+|-------|------|-----------|------|---------------------|
+| `kb` | `kb_write` | `content` | **High** — arbitrary file content; will contain markdown, code, special chars | `stdin` |
+| `kb` | `kb_append` | `content` | **High** — same as `kb_write` | `stdin` |
+| `kb-daily` | `kb_daily_write` | `content` | **High** — same as `kb_write` | `stdin` |
+| `kb-daily` | `kb_daily_append` | `content` | **High** — same as `kb_write` | `stdin` |
+| `git` | `git_commit` | `message` | **Medium** — commit messages can contain quotes, backticks, ampersands | `envvar` or `stdin` (via `git -F -`) |
+| `git-remote` | `git_commit` | `message` | **Medium** — same as `git` | `envvar` or `stdin` (via `git -F -`) |
+| `kb-frontmatter` | `kb_frontmatter_edit` | `value` | **Low–Medium** — frontmatter values are typically short strings but can contain URLs with special chars | `envvar` |
+| `skills` | `skills_init` | `description` | **Low** — short descriptive string, unlikely to contain problem chars | `flag` (acceptable) |
+
+**Action**:
+- Migrate `kb_write`/`kb_append` and `kb_daily_write`/`kb_daily_append` `content` from `flag` to `stdin`, matching the pattern already used by `files_write_file` and `files_write_lines`. This requires updating both `tools.json` and the CLI subcommands (`chai file write`, `chai file append`) to read content from stdin.
+- Migrate `git_commit` `message` from `flag` (`-m`) to either `envvar` (`CHAI_COMMIT_MESSAGE`) or `stdin` (using `git commit -F -`). The `envvar` approach is simpler; the `stdin` approach pipes the message via `git commit -F -` which reads from stdin.
+- Consider migrating `kb_frontmatter_edit` `value` to `envvar` as a lower-priority improvement.
+- ~~Add guidance to `skills-design/SKILL.md` about choosing the correct content-passing channel when authoring tools.~~ **Done** — added "Content-Passing Channel Selection" section.
+
+### 7. Unbounded tool output can exceed context length and terminate sessions
+
+**Principle**: Tool invocations that return arbitrarily large results (e.g. searching across a large codebase) can produce output that exceeds the model's context window, causing the session to crash. This is a "tools over inference" issue — the tool should enforce bounds rather than relying on the agent to predict result sizes and pre-limit queries.
+
+**Observed**: A `files_search_content` call with a broad pattern against a large directory tree returned enough matching lines to exceed the context window, terminating the session with no opportunity for recovery. The agent had no way to anticipate the result size before making the call.
+
+**Affected tools**:
+
+| Skill | Tool | Risk | Notes |
+|-------|------|------|-------|
+| `files` | `files_search_content` | **High** — recursive grep across a large tree with a broad pattern can return thousands of lines | No result limit exists today |
+| `files` | `files_read_file` | **Medium** — reading a very large file could exceed context | No size limit exists today |
+| `kb` | `kb_read` | **Low–Medium** — knowledge base entries are typically sized by authors, but could be large | Depends on entry size |
+| `kb` | `kb_search` | **Medium** — same class of risk as `files_search_content` | No result limit exists today |
+
+**Mitigation options**:
+
+1. **Hard result cap**: Tools that return unbounded output should enforce a maximum number of result lines (e.g. 200 lines for search tools, 500 lines for file reads). When the cap is hit, the tool returns the truncated results plus a message indicating truncation — allowing the agent to narrow its query or read specific line ranges.
+2. **Advisory parameters**: Add optional `max_lines` or `max_results` parameters so the agent can request a limit. However, this alone is insufficient — an agent won't think to set it until it's been burned by an oversized result. A hard cap is needed as a safety net.
+3. **Pre-flight size check**: For file reads, the tool could check file size before reading and refuse or truncate files above a threshold. This is a tool-enforceable version of the "never read binary files" and "never assume a file exists" directives — make the tool protect itself.
+4. **Result truncation with continuation**: Return the first N lines plus a continuation token or hint (e.g. "results truncated at line 200 of 1,847; use `files_search_content` with a narrower path or pattern, or use `files_read_lines` for specific ranges").
+
+**Action**:
+- Implement a hard result cap for `files_search_content` (highest risk tool). Start with a sensible default (e.g. 200 lines of output) and return a truncation notice when exceeded.
+- Evaluate hard caps for `files_read_file` (files above a size threshold should require `files_read_lines` instead).
+- ~~Add guidance to `skills-design/SKILL.md`: tools returning potentially unbounded output must enforce a result cap and communicate truncation to the agent.~~ **Done** — added "Unbounded Output Protection" section.
+- Classify any existing "preference" directives about result size as tool-enforceable, and migrate them into tool behavior.
 
 ## Skill-Specific Findings
 
 ### `files`
 
-Audited during hands-on testing of `files_write_lines` verification (`original_content` check confirmed working; the resolved bug that implemented it was formerly tracked in this directory).
+Audited during hands-on testing of `files_write_lines` verification (`original_content` check confirmed working; the resolved bug was formerly tracked as `BUG_WRITE_LINES_BACKTICK_MISMATCH.md` in this directory, then deleted after manual verification confirmed the fix).
+
+#### Unicode normalization in `original_content` verification
+
+The `files_write_lines` `original_content` check can fail even when the content appears visually identical, due to Unicode normalization differences between what the agent sends and what is stored on disk. For example, the Unicode right single quotation mark (U+2019, `'`) used in markdown files (e.g. "Ollama\u2019s") may be normalized to a different byte sequence than the ASCII apostrophe (U+0027, `'`), causing a 1–2 byte length mismatch in the verification step. The `verify_original()` error message reports the byte length difference as a hint, which is how this class of issue surfaces.
+
+**Observed instances:**
+
+- `base/ref/OLLAMA.md` contained a Unicode right single quotation mark (U+2019) in "Ollama\u2019s" on two lines. When an agent copies visible text into `original_content`, it may send the ASCII apostrophe instead, resulting in a byte-level mismatch. The error shows "different lengths — expected N bytes, actual M bytes" with a 1–2 byte delta.
+
+**Workaround:** When `files_write_lines` fails with a byte-length mismatch on `original_content`, re-read the exact target lines with `files_read_lines` (which returns content with line numbers) and use the returned content verbatim — do not retype or normalize it. This ensures the byte sequence matches the file exactly. Alternatively, use `files_read_file` to get the full file and extract the relevant lines, then pass them without modification.
+
+**Broader concern:** Any content-passing channel that involves the LLM generating string content (as opposed to copying it from tool output) is susceptible to Unicode normalization differences. The `envvar` channel avoids shell-quoting issues but does not prevent the LLM from generating a differently-normalized version of the same text. This is fundamentally a "tools over inference" issue — the more the agent copies verbatim from tool output rather than generating text from scratch, the fewer normalization mismatches will occur.
 
 #### Redundancies to remove
 
@@ -132,25 +191,29 @@ Audited during hands-on testing of `files_write_lines` verification (`original_c
 
 ### `skills-design`
 
-#### Historical measurement to replace
+#### ~~Historical measurement to replace~~
 
-The SKILL.md sizing section includes a specific measurement: "The `files` skill SKILL.md was reduced from ~9.6KB to ~6.3KB with no loss of effectiveness by applying these cuts." This is a historical anecdote that will become stale. Replace with a forward-looking principle.
+**Done.** Replaced the stale "~9.6KB to ~6.3KB" measurement with a forward-looking "Examples Sizing" subsection under SKILL.md Sizing.
 
-#### Missing principle: examples sizing
+#### ~~Missing principle: examples sizing~~
 
-The sizing section doesn't address examples. Add guidance on when examples justify their context cost (see finding #2 above).
+**Done.** Added "Examples Sizing" subsection to `skills-design/SKILL.md`.
 
-#### Missing principle: directive audit trigger
+#### ~~Missing principle: directive audit trigger~~
 
-Add guidance: when adding a new directive, check whether the tool could enforce it instead; when a tool gains new behavior, check whether existing directives are now redundant. This makes "tools over inference" actionable as a maintenance discipline, not just an authoring principle.
+**Done.** Added "Directive Audit" subsection to `skills-design/SKILL.md`.
 
-#### Section placement: "Duplicated CLI Subcommands vs. Skill Tools"
+#### ~~Section placement: "Duplicated CLI Subcommands vs. Skill Tools"~~
 
-This section is an implementation detail for skill authors, not a design principle that shapes skill behavior at runtime. Consider whether it belongs in `skills-design/SKILL.md` or in a separate authoring guide. No immediate action — flag for consideration.
+**Done.** Reframed as "CLI Subcommands Are Shared" — a concise design principle rather than an implementation note.
 
-#### Missing principle: frontmatter conventions
+#### ~~Missing principle: content-passing channel selection~~
 
-When frontmatter conventions are resolved (see cross-skill finding #5), concrete guidance should be added to `skills-design/SKILL.md` — specifically: which frontmatter fields are the skill author's concern vs. derived metadata, and how frontmatter should be maintained across the skill lifecycle (authoring, generation, validation).
+**Done.** Added "Content-Passing Channel Selection" section to `skills-design/SKILL.md`.
+
+#### ~~Missing principle: frontmatter conventions~~
+
+**Done.** Added "Frontmatter Conventions" section to `skills-design/SKILL.md` after resolving finding #5.
 
 ## Audit Method
 
@@ -161,5 +224,6 @@ For each unaudited skill:
 3. Classify every directive (tool-enforceable, schema-communicated, genuinely additive).
 4. Evaluate examples against the "worth the context cost" principle.
 5. Review frontmatter fields: which serve the author, the runtime, the agent, or the build pipeline? Which justify their context cost?
-6. Check for cross-skill patterns not yet captured above.
-7. Record findings in this document under the appropriate section.
+6. Audit content-passing channels: for each parameter with `kind: "flag"`, evaluate whether it carries arbitrary text or special-character-prone content. Flag high-risk parameters and recommend `stdin` or `envvar` per finding #6.
+7. Check for cross-skill patterns not yet captured above.
+8. Record findings in this document under the appropriate section.

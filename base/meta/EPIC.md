@@ -9,8 +9,6 @@ Epics are proposals and tracking documents for significant features or architect
 
 When implementation changes product behavior, **update the relevant `spec/*.md`** in the same effort (or immediately after) so specs stay aligned with the code. Update the root **`README.md`** or **`VISION.md`** when operators or users need to see the change.
 
-Some topics use the **same file name** under **`epic/`** and **`spec/`** (e.g. `ORCHESTRATION.md`). In prose, disambiguate (**orchestration epic** vs **orchestration spec**, or **epic `ORCHESTRATION`** vs **spec `ORCHESTRATION`**) so links and reviews target the right document.
-
 ## Frontmatter
 
 Every epic must include YAML frontmatter with the following fields:

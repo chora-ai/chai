@@ -15,7 +15,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ## Purpose and How to Use
 
 - **Purpose:** Document the NIM hosted API for integration, list its capabilities and limits, and clarify that it is a non-privacy, rate-limited free tier.
-- **How to use:** When configuring a provider with `endpoint: "openai-compat"` for NIM usage, consult this doc. Ensure privacy and rate-limit caveats stay visible to users.
+- **How to use:** When configuring a provider with `endpoint: "openai-compat"` for NIM usage, consult this doc.
 
 ## Official NVIDIA NIM API
 
@@ -41,7 +41,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ### Model List
 
 - NVIDIA does not expose a single "list models" endpoint for the hosted API in the same way as Ollama or LM Studio. The set of available models is documented in the [LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis). A client can either hardcode a supported model list for discovery or rely on config-only model selection (e.g. `agents.defaultModel` set to a known NIM model id).
-- **In Chai, NIM uses `modelDiscovery: "static"` with `staticModels`:** Users curate their own model list in the `staticModels` config field rather than relying on a discovery endpoint. This replaces the old hardcoded static catalog and `extraModels` field. Any model id from the NIM docs works when added to the `staticModels` array.
+- **In Chai, NIM uses `modelDiscovery: "static"` with `staticModels`:** Users curate their own model list in the `staticModels` config field rather than relying on a discovery endpoint. Any model id from the NIM docs works when added to the `staticModels` array.
 
 ## Current Usage in the Codebase
 
@@ -56,7 +56,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
     "baseUrl": "https://integrate.api.nvidia.com/v1",
     "modelDiscovery": "static",
     "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
-    "apiKey": "<API_KEY>"
+    "apiKey": "<NVIDIA_API_KEY>"
   }
   ```
 

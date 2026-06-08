@@ -27,7 +27,4 @@ When a working note matures (e.g. a bug fix is verified, or a feature grows into
 
 - **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. `files` and `skills-design` have initial findings; frontmatter question absorbed from former `FEAT_SKILL_MODE_FRONTMATTER.md`.
 - **[FEAT_SKILL_LOGS.md](FEAT_SKILL_LOGS.md)** — Expose chai process logs as a chai skill so the agent can read diagnostic output (finish_reason, usage tokens).
-- **[FEAT_USER_GUIDES.md](FEAT_USER_GUIDES.md)** — Improve user guides at `docs/guides/`: fill stubs, restructure configuration, broaden skills guide, fix cross-references, add missing topics, clean up consistency.
-- **[FEAT_USER_JOURNEY.md](FEAT_USER_JOURNEY.md)** — Improve user journeys at `docs/journey/`: add on-ramp journey, enrich README, harmonize depth, reduce skill journey duplication, add missing journeys.
-- **[FEAT_USER_TESTING.md](FEAT_USER_TESTING.md)** — Improve user testing playbooks at `docs/testing/`: add provider setup guidance, resolve DeepSeek/no-tool conflict, create missing provider playbooks, expand message sequences.
 - **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.

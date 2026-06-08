@@ -6,17 +6,17 @@
 
 The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). There is no separate "bot" API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
 
-**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [base/ref/MATRIX.md](../base/ref/MATRIX.md).
+**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [base/ref/MATRIX.md](../../base/ref/MATRIX.md).
 
 ## Prerequisites
 
-- **`chai init`** has been run.
+- **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - A **Matrix account** for the gateway (dedicated is best): you will use its **access token** or **password** below.
 - **Homeserver** URL, e.g. `https://matrix.example.org` (your server or a public one that allows your account).
 - **Config** — one of:
   - **`channels.matrix.homeserver`** + **`channels.matrix.accessToken`**, and **`channels.matrix.userId`** if needed, plus **`channels.matrix.deviceId`** if **`GET /account/whoami`** does not return a device id for your token, **or**
   - **`channels.matrix.homeserver`** + **`channels.matrix.user`** + **`channels.matrix.password`** for password login at startup (the SDK creates a session and persists keys under the store path).
-- **Environment overrides** (optional): `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`, `MATRIX_USER_ID`, `MATRIX_USER`, `MATRIX_PASSWORD`, `MATRIX_DEVICE_ID` — see [README.md](../README.md) **Environment variables**.
+- **Environment overrides** (optional): `MATRIX_HOMESERVER`, `MATRIX_ACCESS_TOKEN`, `MATRIX_USER_ID`, `MATRIX_USER`, `MATRIX_PASSWORD`, `MATRIX_DEVICE_ID` — see [Configuration → Environment Variables](../guides/03-configuration.md#environment-variables).
 - **Ollama** (or your configured default provider) running with the default model. If the model is missing or the provider is down, the message may be received but no reply is sent (see verification below).
 - A **room** where the Chai Matrix user is **joined** (invite `@your-chai-user:server` from Element or another client). The room may be **encrypted** or not.
 - **Gateway URL** for optional HTTP checks — note **`gateway.bind`** and **`gateway.port`** in config (default port **15151**). Examples below use `http://127.0.0.1:15151`; substitute your bind/port.
@@ -37,12 +37,12 @@ The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-s
 4. **Send a text message** in that room (plain text; the gateway only handles `m.text`).
 
 5. **Verify receipt and reply**
-   - **In the room:** The Chai user should post a reply with the model’s response.
+   - **In the room:** The Chai user should post a reply with the model's response.
    - **In logs (optional):** With `RUST_LOG=info` or `RUST_LOG=debug`, look for agent activity; failures may show `inbound: agent turn failed` or send errors.
 
 6. **Stop the gateway** with Ctrl+C in the gateway terminal.
 
-## Room allowlist (optional)
+## Room Allowlist (optional)
 
 To restrict which rooms produce agent turns (recommended on public homeservers):
 
@@ -53,13 +53,13 @@ If unset or empty, **all joined rooms** receive inbound messages as before. If s
 
 Repeat the main **Steps** above; messages must come from an **allowlisted** room id.
 
-## Interactive verification (SAS) via gateway (optional)
+## Interactive Verification (SAS) via Gateway (optional)
 
-Use this when another client or device wants to verify the gateway’s session and you do **not** want to use Element on the gateway side.
+Use this when another client or device wants to verify the gateway's session and you do **not** want to use Element on the gateway side.
 
 **Auth:** If the gateway uses a connect token (**`CHAI_GATEWAY_TOKEN`** / **`gateway.auth.token`**), send **`Authorization: Bearer <token>`** on every request below. If there is **no** token, these routes work only when **`gateway.bind`** is loopback (**`127.0.0.1`**, **`::1`**, or **`localhost`**).
 
-1. From the **other** client (e.g. Element), start **device verification** / **verify** against the Chai user’s device (your homeserver’s UI).
+1. From the **other** client (e.g. Element), start **device verification** / **verify** against the Chai user's device (your homeserver's UI).
 
 2. **List pending requests** (gateway must be running with Matrix connected):
 
@@ -105,17 +105,17 @@ Use this when another client or device wants to verify the gateway’s session a
 
    If they do not match, use **`/matrix/verification/mismatch`** instead. To abort, **`/matrix/verification/cancel`**.
 
-Full route list and behavior: [base/ref/MATRIX.md](../base/ref/MATRIX.md).
+Full route list and behavior: [base/ref/MATRIX.md](../../base/ref/MATRIX.md).
 
-## How to get an access token (Element Web / Desktop)
+## How to Get an Access Token (Element Web / Desktop)
 
-Use **Settings → Help & About → Access Token** (wording varies) or your homeserver’s documented flow. Prefer a **dedicated** account for automation. If **`whoami`** returns **`device_id`**, you may not need **`MATRIX_DEVICE_ID`**.
+Use **Settings → Help & About → Access Token** (wording varies) or your homeserver's documented flow. Prefer a **dedicated** account for automation. If **`whoami`** returns **`device_id`**, you may not need **`MATRIX_DEVICE_ID`**.
 
-## `/new` and session
+## `/new` and Session
 
 Send **`/new`** (case-insensitive) in the room to start a **new session** for that room (same pattern as Telegram).
 
-## If something fails
+## If Something Fails
 
 - **`matrix: restore_session failed`** — Token invalid, wrong **`device_id`**, or store out of sync with the server; try password login once or clear **`<active-profile>/matrix`** (you will need to verify devices again).
 - **`matrix: room not loaded yet`** — Wait for sync after joining; send again after the room appears in the client state.
@@ -123,7 +123,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 - **Allowlist** — If you configured **`roomIds`** / **`MATRIX_ROOM_ALLOWLIST`**, confirm the room id matches exactly (including `!` and server part). Logs may show `ignoring message from non-allowlisted room`.
 - **Verification HTTP** — **404** on **`/matrix/verification/*`** means Matrix did not connect (check Matrix config/logs). **401** / **403** means auth or bind: use **`Bearer`** token or bind the gateway to loopback for tokenless mode. **404** on accept/start/sas — wrong **`userId`** or **`flowId`**, or the crypto machine has not yet recorded the request (retry after a sync).
 
-## Wire-only check (no gateway)
+## Wire-only Check (no Gateway)
 
 `cargo run -p chai-spike --bin matrix-probe` — see **`crates/spike/README.md`**.
 
@@ -134,7 +134,9 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 | Store | **`<active-profile>/matrix`** |
 | Config | `channels.matrix` + token or password |
 | Allowlist (optional) | `channels.matrix.roomIds` or `MATRIX_ROOM_ALLOWLIST` |
-| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX.md](../base/ref/MATRIX.md)) |
+| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX.md](../../base/ref/MATRIX.md)) |
 | Gateway | `chai gateway` |
 | Room | Invite Chai user; send text |
 | Verify | Reply in room; optional logs |
+
+**See also:** [04 — Channel: Telegram](04-channel-telegram.md) · [09 — Channel: Signal](09-channel-signal.md)

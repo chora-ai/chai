@@ -1,13 +1,9 @@
 ---
-name: skills
 description: Manage Chai skill packages — discover, inspect, validate, create, and delete.
+capability_tier: full
 metadata:
   requires:
     bins: ["chai"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: full
 ---
 
 # Skills
@@ -18,7 +14,8 @@ Manage Chai skill packages — discover CLI interfaces, inspect and validate exi
 
 - always follow the generation workflow in order (discover, reference, design, generate)
 - always read the reference skill (`notesmd-daily`) before generating a new skill
-- always include `generated_from` metadata in produced SKILL.md frontmatter
+- always include `capability_tier` and `metadata.requires.bins` in produced SKILL.md frontmatter
+- always include `model_variant_of` in frontmatter for variant skills
 - always validate tools.json after writing with `skills_validate`
 - always verify a skill exists with `skills_list` before deleting it
 - never add subcommands to the allowlist that the skill does not use
@@ -80,7 +77,7 @@ Manage Chai skill packages — discover CLI interfaces, inspect and validate exi
 3. Call `skills_write_tools_json` with the complete JSON content.
 4. Call `skills_validate` to confirm the tools.json is conformant.
 5. Write the SKILL.md:
-   - Include frontmatter with `name`, `description`, `metadata.requires.bins`, and `generated_from` block.
+   - Include frontmatter with `description`, `capability_tier`, and `metadata.requires.bins`.
    - If this is a constrained variant, include `model_variant_of`.
    - Write skill directives, available tools list, and tool instructions.
    - For `minimal` tier: every operation must be a numbered step-by-step sequence with no judgment required.
@@ -126,7 +123,7 @@ Manage Chai skill packages — discover CLI interfaces, inspect and validate exi
 
 ### skills_write_skill_md
 
-{"skill_name": "myfeed", "content": "---\\nname: myfeed\\ndescription: Monitor RSS feeds\\n---\\n\\n# My Feed"}
+{"skill_name": "myfeed", "content": "---\\ndescription: Monitor RSS feeds\\ncapability_tier: moderate\\nmetadata:\\n  requires:\\n    bins: [\\"curl\\", \\"cat\\"]\\n---\\n\\n# My Feed"}
 
 ### skills_write_tools_json
 

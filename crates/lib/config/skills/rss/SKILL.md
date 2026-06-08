@@ -1,13 +1,9 @@
 ---
-name: rss
 description: Monitor RSS and Atom feeds for new content.
+capability_tier: moderate
 metadata:
   requires:
     bins: ["curl", "cat"]
-generated_from:
-  spec_version: "1.0"
-  generator_model: claude-opus-4
-  capability_tier: moderate
 ---
 
 # RSS Feed Monitor

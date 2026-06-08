@@ -1,31 +1,20 @@
-# Local LMS Deepseek
+# Local LMS DeepSeek
 
 ## Scope
 
-Local LM Studio runs for Deepseek-family models.
+Local LM Studio runs for DeepSeek-family models.
 
-## Provider
+## Setup
 
-LM Studio uses the `"openai-compat"` endpoint type with LM Studio–specific behavior fields. Example configuration:
+Follow the [LM Studio setup](PROVIDER_SETUP.md#lm-studio) instructions, then set `agents.defaultModel` to one of the models below.
+
+Example configuration:
 
 ```json
 { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
 ```
 
-LM Studio has the following gotchas:
-
-- LM Studio must be installed and running to use latest `lms`
-- LM Studio developer settings must be on with runtime set to CPU
-- LM Studio models must be manually loaded (e.g. `lms load <model path>`)
-- All models support tools but some models are not trained on tool use
-- `modelDiscovery: "lmstudio"` uses LM Studio's native `GET /api/v1/models` endpoint (filters by `type == "llm"`)
-- `autoLoad: "lmstudio"` automatically loads an unloaded model and retries when LM Studio returns an "unloaded" error
-
 ## Models
-
-The following models support tools (*and they are trained on tool use*):
-
-- NA
 
 The following models support tools (*but they are not trained on tool use*):
 
@@ -33,21 +22,12 @@ The following models support tools (*but they are not trained on tool use*):
 - `deepseek/deepseek-r1-distill-llama-8b` - [source (LM Studio)](https://lmstudio.ai/models/deepseek/deepseek-r1-distill-llama-8b)
 - `deepseek/deepseek-r1-distill-qwen-7b` - [source (LM Studio)](https://lmstudio.ai/models/deepseek/deepseek-r1-distill-qwen-7b)
 
-The following models do not support tools:
-
-- NA
-
-## Setup
-
-- Provider: `endpoint: "openai-compat"` with `modelDiscovery: "lmstudio"` and `autoLoad: "lmstudio"` (e.g. `{ "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }`)
-- `agents.defaultProvider`: provider `id` (e.g. `"lms"`)
-- `agents.defaultModel`: one model from the list above
+> **Note:** These models are not trained on tool use. For a pure conversational test, use [20-conversation-no-tools.md](20-conversation-no-tools.md) instead of the shared tool-use message sequence.
 
 ## Procedure
 
-Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure.
-
+Follow the shared protocol in [README.md](README.md): message sequence, expectations, and run procedure — or use the [non-tool conversation playbook](20-conversation-no-tools.md) for a more appropriate test.
 
 ## See Also
 
-- [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md#lm-studio) · [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)

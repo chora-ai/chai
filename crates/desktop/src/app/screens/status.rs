@@ -9,8 +9,6 @@ fn endpoint_display_name(endpoint: &str) -> &str {
     match endpoint {
         "ollama" => "Ollama",
         "openai-compat" => "OpenAI-Compatible",
-        "anthropic" => "Anthropic",
-        "google" => "Google",
         _ => endpoint,
     }
 }
@@ -423,12 +421,6 @@ fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>
                                 let mut bits: Vec<String> = Vec::new();
                                 if !row.discovered {
                                     bits.push("not in discovery".to_string());
-                                }
-                                if let Some(l) = row.local {
-                                    bits.push(format!("local={}", l));
-                                }
-                                if let Some(t) = row.tool_capable {
-                                    bits.push(format!("toolCapable={}", t));
                                 }
                                 dashboard::grid_cell(ui, |ui| {
                                     ui.add(egui::Label::new(

@@ -96,9 +96,12 @@ When you sent your first message, the gateway:
 Now that you have a working system, customize it:
 
 - **Switch models** — Edit `config.json` to change `defaultProvider` or `defaultModel`. See [Configuration](03-configuration.md).
+- **Choose a provider** — Compare local vs. cloud options and find the right model for your hardware. See [Choosing a Provider and Model](10-choosing-a-provider.md).
 - **Add a channel** — Connect Telegram, Matrix, or Signal so you can chat outside the CLI. See [Connections](04-connections.md).
 - **Configure agents** — Add workers for delegated subtasks. See [Agents](05-agents.md).
 - **Enable skills** — Give your agent tools for file operations, notes, and more. See [Skills](06-skills.md).
 - **Set up the write sandbox** — Control where skill tools can write. See [Write Sandbox](07-sandbox.md).
+- **Try the desktop app** — Use the GUI to manage the gateway and chat. See [Desktop App](09-desktop.md).
+- **CLI reference** — All commands and flags. See [CLI Reference](08-cli-reference.md).
 
-For hands-on walkthroughs of each feature, try the [User Journeys](../journey/README.md). To compare models and providers systematically, see the [Testing Playbooks](../testing/README.md).
+For hands-on walkthroughs of each feature, try the [User Journeys](../journey/README.md). To compare models and providers systematically, see the [Testing Playbooks](../testing/README.md). If something isn't working, see [Troubleshooting](11-troubleshooting.md).

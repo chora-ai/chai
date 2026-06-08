@@ -1,169 +1,67 @@
-//! Delegation policy: optional allowlists of (provider, model) pairs (see `base/epic/ORCHESTRATION.md`).
+//! Delegation policy: session and per-turn caps (see `base/adr/ORCHESTRATION.md`).
 
-use crate::config::{
-    canonical_provider_id, resolve_effective_provider_and_model, AgentsConfig, ProvidersConfig,
-    AllowedModelEntry,
-};
+use crate::config::{AgentsConfig, ProvidersConfig};
 use crate::session::SessionStore;
-use serde_json::{json, Value};
 
-use super::workers_context::effective_worker_defaults;
-
-fn pair_matches_catalog(
-    providers: &ProvidersConfig,
-    catalog: &[AllowedModelEntry],
-    provider_id: &str,
-    model: &str,
-) -> bool {
-    catalog.iter().any(|e| {
-        canonical_provider_id(providers, &e.provider).as_deref() == Some(provider_id)
-            && e.model.trim() == model
-    })
-}
-
-fn matches_effective_default(
-    provider_id: &str,
-    model: &str,
-    default_provider: &str,
-    default_model: &str,
-) -> bool {
-    provider_id == default_provider && model == default_model.trim()
-}
-
-/// When **`delegateAllowedModels`** is **non-empty**, the resolved `(provider, model)` for
-/// **`delegate_task`** must appear in that list (worker list if set and non-empty; otherwise
-/// orchestrator list). When the effective list is **omitted or empty**, only the **effective
-/// default** provider/model for that scope is allowed (`effective_worker_defaults` for a worker,
-/// `resolve_effective_provider_and_model` when no worker).
-pub fn assert_delegation_pair_allowed(
-    providers: &ProvidersConfig,
-    agents: &AgentsConfig,
-    worker_id: Option<&str>,
-    provider_id: &str,
-    model: &str,
-) -> Result<(), String> {
-    let model = model.trim();
-    if model.is_empty() {
-        return Err("resolved model must not be empty".to_string());
-    }
-
-    if let Some(wid) = worker_id {
-        if let Some(w) = agents
-            .workers
-            .as_ref()
-            .and_then(|ws| ws.iter().find(|w| w.id == wid))
-        {
-            if let Some(ref list) = w.delegate_allowed_models {
-                if !list.is_empty() {
-                    if !pair_matches_catalog(providers, list, provider_id, model) {
-                        return Err(format!(
-                            "provider/model not allowed for worker {} (delegateAllowedModels)",
-                            wid
-                        ));
-                    }
-                    return Ok(());
-                }
-            }
-            let (def_p, def_m) = effective_worker_defaults(providers, agents, w);
-            if matches_effective_default(provider_id, model, &def_p, &def_m) {
-                return Ok(());
-            }
-            return Err(format!(
-                "provider/model not allowed for worker {} (delegateAllowedModels empty: only default {} / {})",
-                wid, def_p, def_m
-            ));
-        }
-    }
-
-    if let Some(ref list) = agents.delegate_allowed_models {
-        if !list.is_empty() {
-            if !pair_matches_catalog(providers, list, provider_id, model) {
-                return Err(
-                    "provider/model not allowed for delegation (agents.delegateAllowedModels)"
-                        .to_string(),
-                );
-            }
-            return Ok(());
-        }
-    }
-
-    let (def_p, def_m) = resolve_effective_provider_and_model(providers, agents);
-    if matches_effective_default(provider_id, model, &def_p, &def_m) {
-        return Ok(());
-    }
-    Err(format!(
-        "provider/model not allowed for delegation (delegateAllowedModels empty: only default {} / {})",
-        def_p, def_m
-    ))
-}
-
-/// Merge **`delegationInstructionRoutes`**: first matching **`instructionPrefix`** fills missing **`workerId`** / **`provider`** / **`model`**.
-pub fn apply_delegation_instruction_routes(agents: &AgentsConfig, args: &Value) -> Value {
-    let Some(routes) = agents.delegation_instruction_routes.as_ref() else {
+/// Match `[workerId]` at the start of the instruction, inject `workerId`, and strip the bracketed prefix.
+///
+/// Every worker with a non-empty ID gets an automatic delegation prefix `[workerId]`. The system
+/// matches `[` + worker ID + `]` at the start of the `instruction` (full bracket form from opening
+/// to closing bracket), injects `workerId`, and strips the matched prefix from the instruction
+/// string. This avoids prefix subsumption: workers named `code` and `code-review` produce
+/// prefixes `[code]` and `[code-review]`, which are unambiguous because the matcher requires the
+/// closing bracket.
+pub fn apply_delegation_bracket_match(agents: &AgentsConfig, args: &serde_json::Value) -> serde_json::Value {
+    let Some(workers) = agents.workers.as_ref() else {
         return args.clone();
     };
-    if routes.is_empty() {
+    if workers.is_empty() {
         return args.clone();
     }
     let instruction = args
         .get("instruction")
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
-    let mut matched: Option<&crate::config::DelegationInstructionRoute> = None;
-    for r in routes {
-        let prefix = r.instruction_prefix.trim();
-        if !prefix.is_empty() && instruction.starts_with(prefix) {
-            matched = Some(r);
+        .unwrap_or("");
+    let trimmed = instruction.trim();
+
+    // Find the first worker whose bracket prefix matches the start of the instruction.
+    // Full bracket match: `[workerId]` — the closing bracket prevents prefix subsumption
+    // (e.g. `[code]` does not match `[code-review]...`).
+    let mut matched_worker_id: Option<&str> = None;
+    for w in workers {
+        let id = w.id.trim();
+        if id.is_empty() {
+            continue;
+        }
+        let bracket = format!("[{}]", id);
+        if trimmed.starts_with(&bracket) {
+            matched_worker_id = Some(id);
             break;
         }
     }
-    let Some(route) = matched else {
+
+    let Some(worker_id) = matched_worker_id else {
         return args.clone();
     };
+
     let mut v = args.clone();
     let Some(obj) = v.as_object_mut() else {
         return args.clone();
     };
-    if route.worker_id.is_some() && !obj.contains_key("workerId") {
-        obj.insert(
-            "workerId".to_string(),
-            json!(route.worker_id.as_ref().unwrap()),
-        );
-    }
-    if route.provider.is_some() && !obj.contains_key("provider") {
-        obj.insert(
-            "provider".to_string(),
-            json!(route.provider.as_ref().unwrap()),
-        );
-    }
-    if route.model.is_some() && !obj.contains_key("model") {
-        obj.insert("model".to_string(), json!(route.model.as_ref().unwrap()));
-    }
-    v
-}
 
-/// Rejects delegation to providers listed in **`delegateBlockedProviders`** (provider ids).
-pub fn assert_delegate_provider_not_blocked(
-    providers: &ProvidersConfig,
-    agents: &AgentsConfig,
-    provider_id: &str,
-) -> Result<(), String> {
-    let Some(ref list) = agents.delegate_blocked_providers else {
-        return Ok(());
-    };
-    if list.is_empty() {
-        return Ok(());
-    }
-    for p in list {
-        if canonical_provider_id(providers, p).as_deref() == Some(provider_id) {
-            return Err(format!(
-                "delegation to provider {} is blocked (delegateBlockedProviders)",
-                provider_id
-            ));
+    // Inject workerId.
+    obj.insert("workerId".to_string(), serde_json::json!(worker_id));
+
+    // Strip the bracket prefix from the instruction.
+    if let Some(instr) = obj.get_mut("instruction") {
+        if let Some(s) = instr.as_str() {
+            let bracket = format!("[{}]", worker_id);
+            let stripped = s.trim().strip_prefix(&bracket).unwrap_or(s.trim()).trim();
+            *instr = serde_json::Value::String(stripped.to_string());
         }
     }
-    Ok(())
+
+    v
 }
 
 /// Enforces **`maxDelegationsPerSession`** and **`maxDelegationsPerProvider`** before a delegation runs.
@@ -210,127 +108,90 @@ pub async fn assert_session_delegation_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{DelegationInstructionRoute, EndpointType, ProviderDefinition, WorkerConfig};
+    use crate::config::WorkerConfig;
     use serde_json::json;
 
-    fn test_providers(ids: &[&str]) -> ProvidersConfig {
-        ProvidersConfig {
-            entries: ids.iter().map(|id| {
-                let endpoint = match *id {
-                    "ollama" => EndpointType::Ollama,
-                    _ => EndpointType::OpenaiCompat,
-                };
-                ProviderDefinition {
-                    id: id.to_string(),
-                    endpoint,
-                    base_url: if endpoint == EndpointType::OpenaiCompat {
-                        Some(format!("http://localhost/{}", id))
-                    } else {
-                        None
-                    },
-                    api_key: None,
-                    default_model: None,
-                    model_discovery: Default::default(),
-                    static_models: Vec::new(),
-                    auto_load: Default::default(),
-                }
-            }).collect(),
-        }
-    }
-
-    fn entry(p: &str, m: &str) -> AllowedModelEntry {
-        AllowedModelEntry {
-            provider: p.to_string(),
-            model: m.to_string(),
-            local: false,
-            tool_capable: None,
-        }
-    }
-
     #[test]
-    fn no_lists_allows_only_orchestrator_default() {
-        let providers = test_providers(&["ollama"]);
-        let agents = AgentsConfig::default();
-        let (def_p, def_m) = crate::config::resolve_effective_provider_and_model(&providers, &agents);
-        assert!(
-            assert_delegation_pair_allowed(&providers, &agents, None, def_p.as_str(), def_m.as_str()).is_ok()
-        );
-        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "lms", "x").is_err());
-    }
-
-    #[test]
-    fn orchestrator_list_enforced_without_worker() {
-        let providers = test_providers(&["ollama"]);
-        let mut agents = AgentsConfig::default();
-        agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
-        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "ollama", "llama3.2:latest").is_ok());
-        assert!(assert_delegation_pair_allowed(&providers, &agents, None, "lms", "x").is_err());
-    }
-
-    #[test]
-    fn worker_list_overrides_global_when_non_empty() {
-        let providers = test_providers(&["ollama", "lms"]);
-        let mut agents = AgentsConfig::default();
-        agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
-        agents.workers = Some(vec![WorkerConfig {
-            id: "w".to_string(),
-            default_provider: None,
-            default_model: None,
-            enabled_providers: None,
-            skills_enabled: None,
-            context_mode: None,
-            delegate_allowed_models: Some(vec![entry("lms", "granite")]),
-        }]);
-        assert!(assert_delegation_pair_allowed(&providers, &agents, Some("w"), "lms", "granite").is_ok());
-        assert!(
-            assert_delegation_pair_allowed(&providers, &agents, Some("w"), "ollama", "llama3.2:latest")
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn worker_empty_list_uses_worker_defaults_not_orchestrator_list() {
-        let providers = test_providers(&["ollama", "lms"]);
-        let mut agents = AgentsConfig::default();
-        agents.delegate_allowed_models = Some(vec![entry("ollama", "llama3.2:latest")]);
-        agents.workers = Some(vec![WorkerConfig {
-            id: "w".to_string(),
-            default_provider: Some("lms".to_string()),
-            default_model: Some("granite".to_string()),
-            enabled_providers: None,
-            skills_enabled: None,
-            context_mode: None,
-            delegate_allowed_models: Some(vec![]),
-        }]);
-        assert!(assert_delegation_pair_allowed(&providers, &agents, Some("w"), "lms", "granite").is_ok());
-        assert!(
-            assert_delegation_pair_allowed(&providers, &agents, Some("w"), "ollama", "llama3.2:latest")
-                .is_err()
-        );
-    }
-
-    #[test]
-    fn instruction_route_injects_worker_id() {
+    fn bracket_match_injects_worker_id() {
         let agents = AgentsConfig {
-            delegation_instruction_routes: Some(vec![DelegationInstructionRoute {
-                instruction_prefix: "[fast]".to_string(),
-                worker_id: Some("w".to_string()),
-                provider: None,
-                model: None,
+            workers: Some(vec![WorkerConfig {
+                id: "read-only".to_string(),
+                default_provider: None,
+                default_model: None,
+                skills_enabled: None,
+                context_mode: None,
             }]),
             ..AgentsConfig::default()
         };
-        let args = json!({ "instruction": "[fast] do thing" });
-        let merged = apply_delegation_instruction_routes(&agents, &args);
-        assert_eq!(merged["workerId"], "w");
+        let args = json!({ "instruction": "[read-only] search the files" });
+        let merged = apply_delegation_bracket_match(&agents, &args);
+        assert_eq!(merged["workerId"], "read-only");
+        // The bracket prefix should be stripped from the instruction.
+        assert_eq!(merged["instruction"], "search the files");
     }
 
     #[test]
-    fn blocked_provider_rejects() {
-        let providers = test_providers(&["ollama", "nim"]);
-        let mut agents = AgentsConfig::default();
-        agents.delegate_blocked_providers = Some(vec!["nim".to_string()]);
-        assert!(assert_delegate_provider_not_blocked(&providers, &agents, "ollama").is_ok());
-        assert!(assert_delegate_provider_not_blocked(&providers, &agents, "nim").is_err());
+    fn bracket_match_no_match_returns_args_unchanged() {
+        let agents = AgentsConfig {
+            workers: Some(vec![WorkerConfig {
+                id: "read-only".to_string(),
+                default_provider: None,
+                default_model: None,
+                skills_enabled: None,
+                context_mode: None,
+            }]),
+            ..AgentsConfig::default()
+        };
+        let args = json!({ "instruction": "search the files" });
+        let merged = apply_delegation_bracket_match(&agents, &args);
+        assert!(merged.get("workerId").is_none());
+        assert_eq!(merged["instruction"], "search the files");
+    }
+
+    #[test]
+    fn bracket_match_no_subsumption() {
+        // `[code]` should not match when instruction starts with `[code-review]`.
+        let agents = AgentsConfig {
+            workers: Some(vec![
+                WorkerConfig {
+                    id: "code".to_string(),
+                    default_provider: None,
+                    default_model: None,
+                    skills_enabled: None,
+                    context_mode: None,
+                },
+                WorkerConfig {
+                    id: "code-review".to_string(),
+                    default_provider: None,
+                    default_model: None,
+                    skills_enabled: None,
+                    context_mode: None,
+                },
+            ]),
+            ..AgentsConfig::default()
+        };
+        let args = json!({ "instruction": "[code-review] check this" });
+        let merged = apply_delegation_bracket_match(&agents, &args);
+        // Should match `code-review`, not `code`.
+        assert_eq!(merged["workerId"], "code-review");
+        assert_eq!(merged["instruction"], "check this");
+    }
+
+    #[test]
+    fn bracket_match_strips_prefix_and_trims() {
+        let agents = AgentsConfig {
+            workers: Some(vec![WorkerConfig {
+                id: "w".to_string(),
+                default_provider: None,
+                default_model: None,
+                skills_enabled: None,
+                context_mode: None,
+            }]),
+            ..AgentsConfig::default()
+        };
+        let args = json!({ "instruction": "[w]   do thing  " });
+        let merged = apply_delegation_bracket_match(&agents, &args);
+        assert_eq!(merged["workerId"], "w");
+        assert_eq!(merged["instruction"], "do thing");
     }
 }

@@ -4,6 +4,16 @@
 
 Local Ollama runs for the Llama family.
 
+## Setup
+
+Follow the [Ollama setup](PROVIDER_SETUP.md#ollama) instructions, then set `agents.defaultModel` to one of the models below.
+
+Example configuration:
+
+```json
+{ "id": "ollama", "endpoint": "ollama" }
+```
+
 ## Models
 
 The following models support tools:
@@ -15,11 +25,7 @@ The following models do not support tools:
 
 - `llama3:8b` - [source (Ollama)](https://ollama.com/library/llama3:8b)
 
-## Setup
-
-- Provider: `endpoint: "ollama"` (e.g. `{ "id": "ollama", "endpoint": "ollama" }`)
-- `agents.defaultProvider`: provider `id` (e.g. `"ollama"`)
-- `agents.defaultModel`: one model from the list above
+> **Note:** Models without tool support should be tested with [20-conversation-no-tools.md](20-conversation-no-tools.md) instead of the shared tool-use message sequence.
 
 ## Procedure
 
@@ -27,4 +33,4 @@ Follow the shared protocol in [README.md](README.md): message sequence, expectat
 
 ## See Also
 
-- [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md#ollama) · [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
