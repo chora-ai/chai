@@ -66,7 +66,7 @@ The `pattern` parameter supports **extended regex** (ERE) — `|` for alternatio
 1. Use `files_read_lines` to read the exact content at the target range — this becomes the `original_content` parameter.
 2. Call `files_write_lines` with `path`, `start_line`, `original_content`, and `content`.
 3. Set `end_line` to replace a multi-line range. When omitted, only `start_line` is replaced.
-4. The tool verifies `original_content` matches the file before applying the patch. If it doesn't match, the edit is rejected — re-read the file and retry with fresh content.
+4. The tool verifies `original_content` matches the file before applying the patch. Verification is Unicode-aware: exact match is tried first, then NFC-normalized comparison, then Unicode-to-ASCII folding (e.g., smart quotes match ASCII quotes, em dash matches `--`). If all stages fail, the edit is rejected — re-read the file and retry with fresh content.
 5. Lines outside `[start_line, end_line]` are preserved unchanged.
 6. The replacement content can expand (more lines), contract (fewer lines), or delete (empty content) the range.
 7. The tool returns a diff showing removed lines (`-` prefix), added lines (`+` prefix), and 3 lines of context before and after the change.

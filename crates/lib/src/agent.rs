@@ -8,8 +8,7 @@
 //! when **`workerId`** is set, otherwise the orchestrator’s skill bundle; nested **`delegate_task`** is disabled (see epic).
 
 use crate::orchestration::{
-    execute_delegate_task, parse_delegate_tool_calls, parse_delegate_tool_results, DelegateContext,
-    DelegateObservability, DELEGATE_TASK_TOOL_NAME,
+    execute_delegate_task, DelegateContext, DelegateObservability, DELEGATE_TASK_TOOL_NAME,
 };
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
@@ -599,8 +598,6 @@ async fn execute_turn_main(
         }
 
         messages.push(assistant_msg);
-        let mut worker_tool_calls: Vec<ToolCall> = Vec::new();
-        let mut worker_tool_results: Vec<String> = Vec::new();
         for (idx, call) in last_tool_calls.iter().enumerate() {
             let name = call.function.name.as_str();
             let args = &call.function.arguments;
@@ -697,19 +694,9 @@ async fn execute_turn_main(
                     .map_err(|e| ProviderError::Session(e.to_string()))?;
             }
 
-            if name == DELEGATE_TASK_TOOL_NAME {
-                if let Ok(tool_calls) = parse_delegate_tool_calls(&result) {
-                    worker_tool_calls.extend(tool_calls);
-                }
-                if let Ok(tool_results) = parse_delegate_tool_results(&result) {
-                    worker_tool_results.extend(tool_results);
-                }
-            }
         }
 
         executed_tool_calls.extend(last_tool_calls.clone());
-        executed_tool_calls.extend(worker_tool_calls);
-        executed_tool_results.extend(worker_tool_results);
 
         // If the response was truncated, inject a notice so the model can re-emit
         // any tool calls that were cut off. The tool calls that were present have

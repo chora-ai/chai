@@ -125,6 +125,12 @@ impl ToolExecutor for GenericToolExecutor {
             result
         };
 
+        let result = if let Some(max_lines) = spec.max_output_lines {
+            truncate_output(&result, max_lines)
+        } else {
+            result
+        };
+
         if let Some(ref sr) = spec.side_read {
             Ok(apply_side_read(sr, effective_args, &result, session_id, &self.side_read_seen))
         } else {
@@ -132,7 +138,6 @@ impl ToolExecutor for GenericToolExecutor {
         }
     }
 }
-
 fn validate_write_paths(
     spec: &ExecutionSpec,
     args: &serde_json::Value,
@@ -451,6 +456,25 @@ fn apply_side_read(
     )
 }
 
+/// Truncate tool output to `max_lines` lines, appending a notice when
+/// the output exceeds the limit. The notice includes the total line count
+/// and a hint for narrowing the query.
+fn truncate_output(output: &str, max_lines: usize) -> String {
+    let lines: Vec<&str> = output.lines().collect();
+    let total = lines.len();
+    if total <= max_lines {
+        return output.to_string();
+    }
+
+    let truncated: String = lines[..max_lines].join("\n");
+    let omitted = total - max_lines;
+    format!(
+        "{}\n\n[output truncated: {} of {} lines shown; {} lines omitted. \
+         Narrow your query path, pattern, or range to reduce results.]",
+        truncated, max_lines, total, omitted
+    )
+}
+
 fn transform_param_value(
     s: String,
     arg: &crate::skills::ArgMapping,
@@ -747,6 +771,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "content": "hello world" });
@@ -779,6 +804,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "path": "/some/file" });
@@ -814,6 +840,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "content": null });
@@ -845,6 +872,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "path": "/some/file" });
@@ -1105,6 +1133,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "path": "myrepo" });
@@ -1166,6 +1195,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let args = serde_json::json!({ "path": "myrepo" });
@@ -1242,6 +1272,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1287,6 +1318,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1326,6 +1358,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1362,6 +1395,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1397,6 +1431,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1432,6 +1467,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1496,6 +1532,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1532,6 +1569,7 @@ mod tests {
             post_process: None,
             side_read: None,
             success_exit_codes: None,
+            max_output_lines: None,
         };
 
         let allowlist = Allowlist::new();
@@ -1541,5 +1579,48 @@ mod tests {
 
         assert_eq!(argv, vec!["-m", "Add search endpoint"],
             "git_commit with message should produce '-m \"msg\"', not '--m \"msg\"'");
+    }
+
+    // --- truncate_output tests ---
+
+    #[test]
+    fn truncate_output_returns_original_when_within_limit() {
+        let output = "line1\nline2\nline3";
+        assert_eq!(truncate_output(output, 5), output);
+    }
+
+    #[test]
+    fn truncate_output_returns_original_when_at_limit() {
+        let output = "line1\nline2\nline3";
+        assert_eq!(truncate_output(output, 3), output);
+    }
+
+    #[test]
+    fn truncate_output_truncates_when_exceeding_limit() {
+        let output = "line1\nline2\nline3\nline4\nline5";
+        let result = truncate_output(output, 3);
+        assert!(result.starts_with("line1\nline2\nline3"));
+        assert!(result.contains("output truncated"));
+        assert!(result.contains("3 of 5 lines shown"));
+        assert!(result.contains("2 lines omitted"));
+    }
+
+    #[test]
+    fn truncate_output_handles_single_line() {
+        let output = "only line";
+        assert_eq!(truncate_output(output, 1), output);
+    }
+
+    #[test]
+    fn truncate_output_empty_string_is_within_limit() {
+        let output = "";
+        assert_eq!(truncate_output(output, 10), output);
+    }
+
+    #[test]
+    fn truncate_output_notice_suggests_narrowing() {
+        let output = "a\nb\nc\nd\ne";
+        let result = truncate_output(output, 2);
+        assert!(result.contains("Narrow your query"));
     }
 }

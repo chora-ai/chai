@@ -14,7 +14,7 @@ The desktop app has no filesystem visibility into what the orchestrator "sees." 
 
 ## Goal
 
-A desktop app screen (or screens) where operators can browse, inspect, and edit Chai-relevant files in-app — starting with a fixed artifact set (`config.json`, agents, skills) and growing into a read-only file explorer over project roots once the projects abstraction exists. The app must communicate clearly when edits require a gateway restart and detect concurrent external modifications.
+A desktop app screen (or screens) where operators can browse, inspect, and edit Chai-relevant files in-app — starting with a fixed artifact set (`config.json`, agents, skills) and growing into a read-only file explorer over the sanbox. The app must communicate clearly when edits require a gateway restart and detect concurrent external modifications.
 
 ## Scope
 
@@ -51,8 +51,8 @@ The desktop can implement read and write for a **fixed set of artifacts** the us
 
 **Why this is valuable**
 
-- **Same skills you need for projects later** — Path resolution (via `lib::config`: `default_config_path`, `orchestrator_context_dir`, `default_skills_dir`), dirty-state, save/discard, and validation patterns all transfer to multi-root explorers.
-- **High-signal locations** — Users already edit these; in-app editing reduces friction and prepares UX for multi-root without requiring the full projects abstraction first.
+- **Same skills you need for sandbox later** — Path resolution (via `lib::config`: `default_config_path`, `orchestrator_context_dir`, `default_skills_dir`), dirty-state, save/discard, and validation patterns all transfer to sandbox explorer.
+- **High-signal locations** — Users already edit these; in-app editing reduces friction and prepares UX for sandbox explorer.
 - **Narrow scope** — Avoid arbitrary binary files and arbitrary paths until allowlists are defined.
 
 ### Design Decisions
@@ -80,7 +80,7 @@ UI copy should state these are **Chai config / agent context dirs / skills roots
 A read-only file explorer would show files the orchestrator can see. Key requirements:
 
 - **Read-only** initially — no in-app editing of sandbox files
-- **Project-root scoped** — bounded by same sandbox policy (first-level only symlinks)
+- **Sandbox scoped** — bounded by same sandbox policy (first-level only symlinks)
 
 ### Edit Mode (Long-Term)
 
@@ -119,7 +119,6 @@ An edit mode within the file explorer. Key requirements:
 
 - [spec/DESKTOP.md](../spec/DESKTOP.md) — Current state of the desktop application
 - [FEAT_DESKTOP_UX.md](../FEAT_DESKTOP_UX.md) — UX polish and quality-of-life improvements
-- [RAG_VECTOR.md](RAG_VECTOR.md) — Projects + retrieval alignment
 - [adr/DESKTOP_FRAMEWORK.md](../adr/DESKTOP_FRAMEWORK.md) — Why egui/eframe
 - [spec/TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) — tools.json validation reference
 - [spec/CONTEXT.md](../spec/CONTEXT.md) — What the gateway sends as context

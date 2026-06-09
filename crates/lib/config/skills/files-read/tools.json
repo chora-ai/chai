@@ -105,7 +105,8 @@
       "tool": "files_read_file",
       "binary": "cat",
       "subcommand": "",
-      "args": [{ "param": "path", "kind": "positional", "readPath": true }]
+      "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+      "maxOutputLines": 500
     },
     {
       "tool": "files_read_lines",
@@ -163,7 +164,8 @@
         { "param": "pattern", "kind": "positional" },
         { "param": "path", "kind": "positional", "readPath": true }
       ],
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     }
   ]
 }

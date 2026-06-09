@@ -18,8 +18,9 @@ pub struct ChatMessage {
     pub(crate) tool_result: Option<String>,
     /// Index of this tool call within the agent turn (for correlating tool_call → tool_result).
     pub(crate) tool_index: Option<usize>,
-    /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
-    /// tool calls with a blue border matching delegation events.
+    /// Source of this message — the agent id (e.g. `"orchestrator"` or a worker id like
+    /// `"engineer"`). Used to display the author label and to style worker tool calls
+    /// with a blue border matching delegation events.
     pub(crate) source: Option<String>,
     /// Tool calls that were generated but not executed because the loop limit was reached.
     /// Set on `tool_loop_limit` role messages.
@@ -153,8 +154,9 @@ pub struct SessionEvent {
     pub(crate) tool_result: Option<String>,
     /// Index of this tool call within the agent turn.
     pub(crate) tool_index: Option<usize>,
-    /// Source of this tool call (`"orchestrator"` or `"worker"`). Used to style worker
-    /// tool calls with a blue border matching delegation events.
+    /// Source of this message — the agent id (e.g. `"orchestrator"` or a worker id like
+    /// `"engineer"`). Used to display the author label and to style worker tool calls
+    /// with a blue border matching delegation events.
     pub(crate) source: Option<String>,
     /// Tool calls that were generated but not executed because the loop limit was reached.
     /// Set on `session.tool_loop_limit` events.

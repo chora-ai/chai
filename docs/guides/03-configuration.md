@@ -39,7 +39,7 @@ Each profile gets its own `config.json`, agent context directories, and local st
 | `versions/<hash>/` snapshot | Created if absent. Immutable — never re-written once created. |
 | `active` symlink | Set only when no active version exists (fresh installation). If the skill already has an `active` symlink pointing to a valid version, it is left unchanged — this preserves user customizations such as manual rollbacks or edits via `skills_write_skill_md`. The new bundled version snapshot is still written to disk, so the user can switch to it manually if desired. |
 
-**Profile `active` symlink** — `~/.chai/active` is set to `profiles/assistant/`. Unlike other components, this symlink is updated unconditionally on each `chai init` run, which resets the active profile to `assistant`. If you have switched to a different profile, you will need to run `chai profile switch <name>` again after re-initializing.
+**Profile `active` symlink** — `~/.chai/active` is set to `profiles/assistant/` only when no valid `active` symlink already exists (fresh installation or broken symlink). If the symlink already points to a valid profile directory, it is left unchanged — this preserves the user's active profile choice across re-initialization.
 
 ### When to Re-Run
 

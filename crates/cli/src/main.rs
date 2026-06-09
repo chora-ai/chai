@@ -281,7 +281,7 @@ enum FileCmd {
         /// The content expected at [start_line, end_line] before the patch. If provided, the tool
         /// verifies the file matches before applying the patch. Rejects the edit if the expected
         /// content does not match what is actually in the file. When the CHAI_ORIGINAL_CONTENT
-        /// environment variable is set, it takes precedence over this flag — this avoids CLI
+        /// environment variable is set, it takes precedence over this flag -- this avoids CLI
         /// argument encoding issues for content that must match file content byte-for-byte.
         #[arg(long, allow_hyphen_values = true)]
         original_content: Option<String>,
@@ -506,7 +506,7 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             }
             let end_line = end_line.unwrap_or(start_line);
             if end_line < start_line {
-                anyhow::bail!("end line ({}) must be >= start_line ({})", end_line, start_line);
+                anyhow::bail!("end line ({}) must be >= start line ({})", end_line, start_line);
             }
             let content = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}; {}", path, e))?;
@@ -724,53 +724,124 @@ fn format_patch_diff(
     diff
 }
 
+/// Fold common Unicode characters to their ASCII equivalents for fuzzy comparison.
+/// This handles the common case where an LLM substitutes ASCII lookalikes for
+/// Unicode characters (e.g., em dash -> "--", smart quotes -> ASCII quotes).
+fn fold_unicode_to_ascii(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            // Dashes
+            '\u{2014}' => out.push_str("--"),  // em dash -> --
+            '\u{2013}' => out.push('-'),       // en dash -> -
+            '\u{2015}' => out.push_str("--"),  // horizontal bar -> --
+            '\u{2010}' => out.push('-'),       // hyphen -> -
+            '\u{2011}' => out.push('-'),       // non-breaking hyphen -> -
+            '\u{2012}' => out.push('-'),       // figure dash -> -
+            // Quotes
+            '\u{2018}' => out.push('\''),      // left single quotation mark -> '
+            '\u{2019}' => out.push('\''),      // right single quotation mark -> '
+            '\u{201C}' => out.push('"'),       // left double quotation mark -> "
+            '\u{201D}' => out.push('"'),       // right double quotation mark -> "
+            // Dots
+            '\u{00B7}' => out.push('.'),       // middle dot -> .
+            '\u{2026}' => out.push_str("..."), // ellipsis -> ...
+            // Spaces
+            '\u{00A0}' => out.push(' '),       // non-breaking space -> space
+            '\u{2003}' => out.push(' '),       // em space -> space
+            '\u{2009}' => out.push(' '),       // thin space -> space
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
 /// Verify that the content at [start_line, end_line] in `original` matches `expected`.
 /// Returns Ok(()) if they match, or an error message describing the mismatch.
-/// When the strings differ only in invisible characters (same length but different
-/// bytes), shows byte offsets to aid diagnosis.
+///
+/// Comparison is done in three stages:
+/// 1. Exact byte-for-byte match (fast path)
+/// 2. Unicode NFC-normalized match (handles normalization form differences)
+/// 3. Unicode-to-ASCII folded match (handles LLM substitution of ASCII lookalikes)
+///
+/// Stage 2 and 3 matches are accepted with a log warning, since the file content
+/// has almost certainly not changed -- the only difference is how the LLM
+/// represented the characters.
 fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> anyhow::Result<()> {
+    use unicode_normalization::UnicodeNormalization;
+
     let lines: Vec<&str> = original.lines().collect();
     let effective_end = end_line.min(lines.len());
     let actual_lines = &lines[start_line - 1..effective_end];
     let actual: String = actual_lines.join("\n");
+
+    // Stage 1: Exact match
     if actual == expected {
-        Ok(())
-    } else {
-        let expected_fmt = expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
-        let actual_fmt = actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+        return Ok(());
+    }
 
-        // When the strings are the same length but differ, include byte-level
-        // diff info so invisible character mismatches can be diagnosed.
-        let byte_hint = if actual.len() == expected.len() {
-            let first_diff = actual.bytes().zip(expected.bytes())
-                .position(|(a, e)| a != e);
-            match first_diff {
-                Some(pos) => format!(
-                    "\n  hint: same length ({} bytes) but differ at byte offset {}; expected byte 0x{:02x}, actual byte 0x{:02x}",
-                    expected.len(),
-                    pos,
-                    expected.as_bytes().get(pos).copied().unwrap_or(0),
-                    actual.as_bytes().get(pos).copied().unwrap_or(0),
-                ),
-                None => String::new(),
-            }
-        } else {
-            format!(
-                "\n  hint: different lengths — expected {} bytes, actual {} bytes",
-                expected.len(),
-                actual.len(),
-            )
-        };
-
-        anyhow::bail!(
-            "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}",
+    // Stage 2: NFC-normalized match
+    let actual_nfc: String = actual.nfc().collect();
+    let expected_nfc: String = expected.nfc().collect();
+    if actual_nfc == expected_nfc {
+        log::warn!(
+            "original_content: exact match failed but NFC-normalized match succeeded \
+             (lines {}-{}); this indicates a Unicode normalization form difference, \
+             not a content change",
             start_line,
             effective_end,
-            expected_fmt,
-            actual_fmt,
-            byte_hint,
         );
+        return Ok(());
     }
+
+    // Stage 3: Unicode-to-ASCII folded match
+    let actual_folded = fold_unicode_to_ascii(&actual_nfc);
+    let expected_folded = fold_unicode_to_ascii(&expected_nfc);
+    if actual_folded == expected_folded {
+        log::warn!(
+            "original_content: exact and NFC match failed but Unicode-ASCII folded match succeeded \
+             (lines {}-{}); the LLM likely substituted ASCII lookalikes for Unicode characters",
+            start_line,
+            effective_end,
+        );
+        return Ok(());
+    }
+
+    // All stages failed -- genuine mismatch
+    let expected_fmt = expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+    let actual_fmt = actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+
+    // When the strings are the same length but differ, include byte-level
+    // diff info so invisible character mismatches can be diagnosed.
+    let byte_hint = if actual.len() == expected.len() {
+        let first_diff = actual.bytes().zip(expected.bytes())
+            .position(|(a, e)| a != e);
+        match first_diff {
+            Some(pos) => format!(
+                "\n  hint: same length ({} bytes) but differ at byte offset {}; expected byte 0x{:02x}, actual byte 0x{:02x}",
+                expected.len(),
+                pos,
+                expected.as_bytes().get(pos).copied().unwrap_or(0),
+                actual.as_bytes().get(pos).copied().unwrap_or(0),
+            ),
+            None => String::new(),
+        }
+    } else {
+        format!(
+            "\n  hint: different lengths - expected {} bytes, actual {} bytes",
+            expected.len(),
+            actual.len(),
+        )
+    };
+
+    anyhow::bail!(
+        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}",
+        start_line,
+        effective_end,
+        expected_fmt,
+        actual_fmt,
+        byte_hint,
+    )
 }
 
 /// Extract YAML frontmatter from markdown content (between first `---` pair).
@@ -817,7 +888,7 @@ fn edit_frontmatter(content: &str, key: &str, value: &str) -> String {
     let leading = &content[..content.len() - trimmed.len()];
 
     if !trimmed.starts_with("---") {
-        // No frontmatter — create one.
+        // No frontmatter -- create one.
         return format!("{}---\n{}: {}\n---\n{}", leading, key, value, trimmed);
     }
 
@@ -835,7 +906,7 @@ fn edit_frontmatter(content: &str, key: &str, value: &str) -> String {
         }
         if in_frontmatter && !closed {
             if line.trim() == "---" {
-                // Closing delimiter — insert key if not yet found.
+                // Closing delimiter -- insert key if not yet found.
                 if !found_key {
                     result.push(format!("{}: {}", key, value));
                 }
@@ -868,6 +939,7 @@ mod tests {
     use super::patch_string;
     use super::format_patch_diff;
     use super::verify_original;
+    use super::fold_unicode_to_ascii;
 
     #[test]
     fn edit_frontmatter_updates_existing_with_leading_newlines() {
@@ -1142,6 +1214,116 @@ mod tests {
         let input = "a\nb\nc\n";
         // end_line=100 should be clamped to 3, so "b\nc" is the actual range
         assert!(verify_original(input, 2, 100, "b\nc").is_ok());
+    }
+
+    // --- verify_original Unicode tests ---
+
+    #[test]
+    fn verify_original_accepts_nfc_normalized_match() {
+        // e with combining acute (NFD) vs precomposed e-acute (NFC)
+        let nfd = "caf\u{0065}\u{0301}"; // "cafe" + combining acute
+        let nfc = "caf\u{00E9}";          // precomposed e-acute
+        let file_content = format!("a\n{}\nc\n", nfd);
+        // If the file is NFD and the LLM sends NFC, it should still match
+        assert!(verify_original(&file_content, 2, 2, nfc).is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_smart_quote_as_ascii() {
+        // File has right single quotation mark, LLM sends ASCII apostrophe
+        let file_content = "a\nOllama\u{2019}s feature\nc\n";
+        assert!(verify_original(file_content, 2, 2, "Ollama's feature").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_em_dash_as_double_hyphen() {
+        // File has em dash, LLM sends "--"
+        let file_content = "a\nsomething \u{2014} other\nc\n";
+        assert!(verify_original(file_content, 2, 2, "something -- other").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_en_dash_as_hyphen() {
+        // File has en dash, LLM sends "-"
+        let file_content = "a\n2024\u{2013}2025\nc\n";
+        assert!(verify_original(file_content, 2, 2, "2024-2025").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_smart_double_quotes_as_ascii() {
+        // File has left/right double quotation marks, LLM sends ASCII quotes
+        let file_content = "a\n\u{201C}hello\u{201D} world\nc\n";
+        assert!(verify_original(file_content, 2, 2, "\"hello\" world").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_middle_dot_as_period() {
+        // File has middle dot, LLM sends "."
+        let file_content = "a\ntest \u{00B7} point\nc\n";
+        assert!(verify_original(file_content, 2, 2, "test . point").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_non_breaking_space_as_space() {
+        // File has non-breaking space, LLM sends regular space
+        let file_content = "a\nhello\u{00A0}world\nc\n";
+        assert!(verify_original(file_content, 2, 2, "hello world").is_ok());
+    }
+
+    #[test]
+    fn verify_original_rejects_genuine_content_mismatch() {
+        // Even with Unicode folding, genuinely different content should be rejected
+        let file_content = "a\nhello world\nc\n";
+        let result = verify_original(file_content, 2, 2, "goodbye world");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_original_rejects_genuine_mismatch_with_unicode() {
+        // File has one Unicode string, LLM sends a completely different one
+        let file_content = "a\nOllama\u{2019}s feature\nc\n";
+        let result = verify_original(file_content, 2, 2, "Ollama's different");
+        assert!(result.is_err());
+    }
+
+    // --- fold_unicode_to_ascii tests ---
+
+    #[test]
+    fn fold_em_dash() {
+        assert_eq!(fold_unicode_to_ascii("\u{2014}"), "--");
+    }
+
+    #[test]
+    fn fold_en_dash() {
+        assert_eq!(fold_unicode_to_ascii("\u{2013}"), "-");
+    }
+
+    #[test]
+    fn fold_right_single_quote() {
+        assert_eq!(fold_unicode_to_ascii("\u{2019}"), "'");
+    }
+
+    #[test]
+    fn fold_left_double_quote() {
+        assert_eq!(fold_unicode_to_ascii("\u{201C}"), "\"");
+    }
+
+    #[test]
+    fn fold_non_breaking_space() {
+        assert_eq!(fold_unicode_to_ascii("\u{00A0}"), " ");
+    }
+
+    #[test]
+    fn fold_preserves_ascii() {
+        assert_eq!(fold_unicode_to_ascii("hello world"), "hello world");
+    }
+
+    #[test]
+    fn fold_mixed_content() {
+        assert_eq!(
+            fold_unicode_to_ascii("Ollama\u{2019}s \u{201C}best\u{201D} \u{2014} ever"),
+            "Ollama's \"best\" -- ever"
+        );
     }
 }
 
@@ -1494,7 +1676,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                 paths.profile_name,
             );
             for (name, pin) in &lock.skills {
-                println!("  {} → {}", name, pin.hash);
+                println!("  {} -> {}", name, pin.hash);
             }
             Ok(())
         }
@@ -1511,7 +1693,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
                 paths.profile_name,
             );
             for (name, pin) in &restored.skills {
-                println!("  {} → {}", name, pin.hash);
+                println!("  {} -> {}", name, pin.hash);
             }
             Ok(())
         }

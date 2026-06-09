@@ -975,17 +975,22 @@ pub fn worker_skills_enabled_list(worker: &WorkerConfig) -> &[String] {
 /// If a `.env` file exists in the profile directory, variables from it are loaded into the
 /// process environment (existing variables are not overwritten). This allows `apiKey` values
 /// using the `<VAR_NAME>` syntax to resolve against profile-local environment variables.
+/// The `.env` file is loaded at most once per process; subsequent calls are no-ops.
 pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile::ChaiPaths)> {
     let paths = crate::profile::resolve_profile_dir(cli_profile)?;
 
-    // Load `.env` from the profile directory (does not overwrite existing env vars).
-    let env_path = paths.profile_dir.join(".env");
-    if env_path.is_file() {
-        match dotenvy::from_path(&env_path) {
-            Ok(_) => log::debug!("loaded .env from {}", env_path.display()),
-            Err(e) => log::warn!("failed to load .env at {}: {}", env_path.display(), e),
+    // Load `.env` from the profile directory at most once per process.
+    // dotenvy does not overwrite existing env vars, so after the first load this is a no-op.
+    static DOTENV_LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+    DOTENV_LOADED.get_or_init(|| {
+        let env_path = paths.profile_dir.join(".env");
+        if env_path.is_file() {
+            match dotenvy::from_path(&env_path) {
+                Ok(_) => log::debug!("loaded .env from {}", env_path.display()),
+                Err(e) => log::warn!("failed to load .env at {}: {}", env_path.display(), e),
+            }
         }
-    }
+    });
 
     let path = &paths.config_path;
     let config = if !path.exists() {

@@ -135,7 +135,11 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant, shared `skills/`.
+/// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`.
+///
+/// When re-run on an already-initialized directory, the `active` symlink is
+/// **not** overwritten — any profile the user has switched to is preserved.
+/// Only a missing or broken `active` symlink triggers the default (`assistant`).
 pub fn init_chai_home() -> Result<PathBuf> {
     let chai_home = profile::chai_home()?;
     std::fs::create_dir_all(&chai_home)
@@ -161,7 +165,24 @@ pub fn init_chai_home() -> Result<PathBuf> {
     // customizations (rollbacks, edits via skills_write_skill_md).
     extract_bundled_skills_versioned(&skills_dir)?;
 
-    profile::switch_active_profile(&chai_home, "assistant")?;
+    // Only set the active profile symlink on first initialization. If the
+    // symlink already exists and resolves to a valid profile directory, leave
+    // it unchanged — the user may have switched profiles via `chai profile
+    // switch` and re-running `chai init` should not reset that choice. This
+    // mirrors the skills versioning logic above where the `active` symlink is
+    // only set when no active version exists.
+    let active_link = chai_home.join("active");
+    let already_initialized = active_link.symlink_metadata().is_ok()
+        && profile::read_persistent_profile_dir(&chai_home).is_ok();
+    if already_initialized {
+        let current = profile::read_persistent_profile_name(&chai_home)?;
+        log::debug!(
+            "active profile already set to {:?}; skipping symlink update",
+            current,
+        );
+    } else {
+        profile::switch_active_profile(&chai_home, "assistant")?;
+    }
 
     Ok(chai_home)
 }

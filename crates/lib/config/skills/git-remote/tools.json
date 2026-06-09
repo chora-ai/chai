@@ -262,7 +262,8 @@
         { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
         { "param": "file_path", "kind": "positional", "optional": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "git_diff",
@@ -273,7 +274,8 @@
         { "param": "ref", "kind": "positional", "optional": true },
         { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "git_show",
@@ -282,7 +284,8 @@
       "args": [
         { "param": "ref", "kind": "positional" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "git_branch",

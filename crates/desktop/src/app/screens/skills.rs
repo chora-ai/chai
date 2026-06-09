@@ -13,33 +13,6 @@ fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
         .to_string()
 }
 
-fn config_agent_ids(agents: &lib::config::AgentsConfig) -> Vec<String> {
-    let mut ids = vec![orchestrator_id_from_config(agents)];
-    if let Some(ws) = &agents.workers {
-        for w in ws {
-            let id = w.id.trim();
-            if !id.is_empty() && !ids.iter().any(|x| x == id) {
-                ids.push(id.to_string());
-            }
-        }
-    }
-    ids
-}
-
-/// Keep **Skills** agent selection consistent with **`config.json`** when the gateway is down or has not yet populated status.
-fn reconcile_skills_dashboard_agent(app: &mut ChaiApp, agents: &lib::config::AgentsConfig) {
-    let ids = config_agent_ids(agents);
-    let orch = orchestrator_id_from_config(agents);
-    let valid = app
-        .dashboard_agent_id
-        .as_ref()
-        .map(|id| ids.iter().any(|x| x == id))
-        .unwrap_or(false);
-    if !valid {
-        app.dashboard_agent_id = Some(orch);
-    }
-}
-
 fn skills_enabled_for_agent<'a>(
     agents: &'a lib::config::AgentsConfig,
     agent_id: &str,
@@ -57,6 +30,63 @@ fn skills_enabled_for_agent<'a>(
     }
 }
 
+/// Build a map from skill name → list of (agent_id, is_orchestrator) for all
+/// agents that have the skill enabled. Uses gateway status as the source of
+/// truth when available; falls back to config only when there is no gateway
+/// connection.
+fn build_skill_agent_map(
+    config: &lib::config::Config,
+    gateway_status: Option<&crate::app::types::GatewayStatusDetails>,
+) -> std::collections::BTreeMap<String, Vec<(String, bool)>> {
+    let mut map: std::collections::BTreeMap<String, Vec<(String, bool)>> =
+        std::collections::BTreeMap::new();
+
+    if let Some(gs) = gateway_status {
+        // Gateway is connected: iterate its agent_skills directly. The
+        // gateway is the source of truth for which agents are running and
+        // which skills each has enabled — even if the config on disk has
+        // been edited but the gateway has not been restarted.
+        let orch_id = gs
+            .orchestrator_id
+            .as_deref()
+            .unwrap_or("orchestrator");
+        for (agent_id, rt) in &gs.agent_skills {
+            let is_orchestrator = agent_id == orch_id;
+            for name in &rt.enabled_skills {
+                map.entry(name.trim().to_string())
+                    .or_default()
+                    .push((agent_id.clone(), is_orchestrator));
+            }
+        }
+    } else {
+        // No gateway connection: fall back to config so the screen still
+        // shows something useful.
+        let orch_id = orchestrator_id_from_config(&config.agents);
+        for name in skills_enabled_for_agent(&config.agents, &orch_id, &orch_id)
+            .iter()
+            .map(|s| s.trim().to_string())
+        {
+            map.entry(name).or_default().push((orch_id.clone(), true));
+        }
+        if let Some(ws) = &config.agents.workers {
+            for w in ws {
+                let worker_id = w.id.trim().to_string();
+                if worker_id.is_empty() || worker_id == orch_id {
+                    continue;
+                }
+                for name in skills_enabled_for_agent(&config.agents, &worker_id, &orch_id)
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                {
+                    map.entry(name).or_default().push((worker_id.clone(), false));
+                }
+            }
+        }
+    }
+
+    map
+}
+
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
         crate::app::ui_screen(ui, "Skills", None, |ui| {
@@ -65,37 +95,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
         return;
     };
 
-    reconcile_skills_dashboard_agent(app, &config.agents);
-
     let skills_root = lib::config::default_skills_dir(&paths.chai_home);
-    let orch_id = orchestrator_id_from_config(&config.agents);
-    let agent_ids = config_agent_ids(&config.agents);
-    let selected_id = app
-        .dashboard_agent_id
-        .as_deref()
-        .unwrap_or(orch_id.as_str())
-        .to_string();
-
-    // Prefer `enabledSkills` from gateway status when the gateway is running,
-    // to maintain parity with the running gateway. Fall back to config when
-    // the gateway is down or status hasn't been fetched yet.
-    let enabled: Vec<String> = if let Some(ref gs) = app.gateway_status {
-        gs.agent_skills
-            .get(&selected_id)
-            .map(|rt| rt.enabled_skills.clone())
-            .filter(|list| !list.is_empty())
-            .unwrap_or_else(|| {
-                skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
-                    .iter()
-                    .cloned()
-                    .collect()
-            })
-    } else {
-        skills_enabled_for_agent(&config.agents, &selected_id, &orch_id)
-            .iter()
-            .cloned()
-            .collect()
-    };
 
     let Some(ref cached) = app.cached_skills else {
         let subtitle = format!("Values below are loaded from {}", skills_root.display());
@@ -116,87 +116,25 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     }
 
     skills.sort_by(|a, b| a.name.cmp(&b.name));
-    let enabled_set: std::collections::HashSet<String> =
-        enabled.into_iter().map(|s| s.trim().to_string()).collect();
-    let enabled_skills: Vec<_> = skills
-        .iter()
-        .filter(|e| enabled_set.contains(e.name.as_str()))
-        .collect();
-    let disabled_skills: Vec<_> = skills
-        .iter()
-        .filter(|e| !enabled_set.contains(e.name.as_str()))
-        .collect();
 
-    let source_label = if app.gateway_status.is_some() {
-        "gateway status"
-    } else {
-        "config"
-    };
+    let skill_agent_map = build_skill_agent_map(&config, app.gateway_status.as_ref());
+
     let subtitle = format!(
-        "Packages from {}; enabled/disabled for agent \"{}\" (from {}).",
-        skills_root.display(),
-        selected_id,
-        source_label
+        "Skill packages are loaded from {}.",
+        skills_root.display()
     );
 
     crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
-        if agent_ids.len() > 1 {
-            ui.horizontal(|ui| {
-                ui.label(egui::RichText::new("Agent").strong());
-                egui::ComboBox::from_id_source("skills_agent_pick")
-                    .selected_text(&selected_id)
-                    .width(220.0)
-                    .show_ui(ui, |ui| {
-                        for id in &agent_ids {
-                            let suffix = if id == &orch_id {
-                                " — orchestrator"
-                            } else {
-                                " — worker"
-                            };
-                            let label = format!("{}{}", id, suffix);
-                            if ui
-                                .selectable_label(selected_id == id.as_str(), label)
-                                .clicked()
-                            {
-                                app.dashboard_agent_id = Some(id.clone());
-                            }
-                        }
-                    });
-            });
-            ui.add_space(spacing::SUBSECTION);
-        }
-
         dashboard::dashboard_two_columns(ui, |ui_left, ui_right| {
-            // Left column: skills list
+            // Left column: skills list (all skills in alphabetical order)
             {
                 egui::ScrollArea::vertical()
-                    .id_source(format!("skills_list_scroll_{}", selected_id))
+                    .id_source("skills_list_scroll")
                     .show(ui_left, |ui| {
-                        // Enabled section
-                        ui.label(egui::RichText::new("Enabled").strong());
-                        ui.add_space(spacing::LINE);
-                        if enabled_skills.is_empty() {
-                            ui.label("No skills enabled.");
-                        } else {
-                            for entry in enabled_skills.iter() {
-                                let title = entry.name.as_str();
-                                paint_one_skill(ui, app, entry, title);
-                                ui.add_space(spacing::SUBSECTION);
-                            }
-                        }
-                        ui.add_space(spacing::SUBSECTION);
-
-                        // Disabled section
-                        ui.label(egui::RichText::new("Disabled").strong());
-                        ui.add_space(spacing::LINE);
-                        if disabled_skills.is_empty() {
-                            ui.label("No skills disabled.");
-                        } else {
-                            for entry in disabled_skills.iter() {
-                                let title = entry.name.as_str();
-                                paint_one_skill(ui, app, entry, title);
-                                ui.add_space(spacing::SUBSECTION);
-                            }
+                        for entry in skills.iter() {
+                            let agents_for_skill = skill_agent_map.get(&entry.name);
+                            paint_one_skill(ui, app, entry, agents_for_skill);
+                            ui.add_space(spacing::SUBSECTION);
                         }
                     });
             }
@@ -312,31 +250,22 @@ fn strip_skill_frontmatter(content: &str) -> &str {
     }
 }
 
-fn skill_field_block(ui: &mut egui::Ui, key: &str, value: &str, selected: bool) {
-    let key_rt = if selected {
-        egui::RichText::new(format!("{}:", key)).color(egui::Color32::WHITE)
-    } else {
-        dashboard::kv_key_rich(ui, key)
-    };
-    let value_rt = if selected {
-        egui::RichText::new(value).color(egui::Color32::WHITE)
-    } else {
-        dashboard::kv_value_rich(ui, value)
-    };
+fn skill_field_block(ui: &mut egui::Ui, key: &str, value: &str, _selected: bool) {
+    let key_rt = dashboard::kv_key_rich(ui, key);
+    let value_rt = dashboard::kv_value_rich(ui, value);
 
     ui.vertical(|ui| {
         ui.label(key_rt);
         ui.add_space(2.0);
         ui.add(egui::Label::new(value_rt).wrap(true));
     });
-    ui.add_space(spacing::KV_AFTER);
 }
 
 fn paint_one_skill(
     ui: &mut egui::Ui,
     app: &mut ChaiApp,
     entry: &lib::skills::SkillEntry,
-    title: &str,
+    agents_for_skill: Option<&Vec<(String, bool)>>,
 ) {
     let selected = app
         .selected_skill_name
@@ -344,13 +273,12 @@ fn paint_one_skill(
         .map(|n| n == entry.name.as_str())
         .unwrap_or(false);
 
-    let bg_fill = if selected {
-        ui.visuals().selection.bg_fill
-    } else {
-        egui::Color32::TRANSPARENT
-    };
+    let bg_fill = egui::Color32::TRANSPARENT;
     let stroke = if selected {
-        ui.visuals().selection.stroke
+        egui::Stroke {
+            width: 1.0,
+            color: ui.visuals().widgets.active.bg_stroke.color,
+        }
     } else {
         egui::Stroke {
             width: 1.0,
@@ -366,21 +294,10 @@ fn paint_one_skill(
     let frame_response = frame.show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.vertical(|ui| {
-            let title_rt = if selected {
-                egui::RichText::new(title)
-                    .strong()
-                    .color(egui::Color32::WHITE)
-            } else {
-                egui::RichText::new(title).strong()
-            };
+            let title_rt = egui::RichText::new(&entry.name).strong();
             ui.label(title_rt);
             ui.add_space(spacing::GROUP_TITLE_AFTER);
-
-            let sep_stroke = if selected {
-                egui::Stroke::new(1.0, egui::Color32::WHITE)
-            } else {
-                egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color)
-            };
+            let sep_stroke = egui::Stroke::new(1.0, ui.visuals().widgets.noninteractive.bg_stroke.color);
             let sep_w = ui.available_width();
             let (sep_rect, _) =
                 ui.allocate_exact_size(egui::vec2(sep_w, 1.0), egui::Sense::hover());
@@ -391,10 +308,26 @@ fn paint_one_skill(
             if !entry.description.is_empty() {
                 let desc = entry.description.trim();
                 skill_field_block(ui, "Description", desc, selected);
+                ui.add_space(8.0);
             }
 
             let path_str = entry.path.display().to_string();
             skill_field_block(ui, "Path", &path_str, selected);
+            ui.add_space(8.0);
+
+            // Show enabled-for agents
+            if let Some(agents) = agents_for_skill {
+                for (agent_id, is_orchestrator) in agents {
+                    let label = format!("This skill is currently enabled for {}.", agent_id);
+                    let rt = if *is_orchestrator {
+                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 150, 120))
+                    } else {
+                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 120, 150))
+                    };
+                    ui.add_space(8.0);
+                    ui.label(rt);
+                }
+            }
         });
     });
 

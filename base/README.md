@@ -24,7 +24,7 @@ Always read the relevant convention file before adding or modifying a document i
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
-| **root** | Index and entry points (`README.md`). |
+| **root** | Index and entry points (`README.md`) and working notes tracked in AGENTS.md. |
 
 ## Current Documents
 
@@ -43,8 +43,6 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (in-progress) File explorer and constrained file editing for Chai config, agent context, and skill files.
 - **[MSG_CHANNELS.md](epic/MSG_CHANNELS.md)** — (in-progress) Telegram, Matrix, Signal wired; logging and hardening remain.
-- **[RAG_VECTOR.md](epic/RAG_VECTOR.md)** — (draft) pgvector retrieval and embeddings; unbuilt; ties to future projects.
-- **[SIMULATIONS.md](epic/SIMULATIONS.md)** — (draft) Fixture harness someday; `spike` crates stay small live probes.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
 ### `/meta`
@@ -98,13 +96,3 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, URLs and keys, discovery, native vs OpenAI-compat paths.
 - **[MODELS.md](spec/MODELS.md)** — Model strings, families, repo inventory, tool-calling expectations.
-
-### Root (Working Notes)
-
-- **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills.
-- **[FEAT_DESKTOP_UX.md](FEAT_DESKTOP_UX.md)** — Desktop UX polish and quality-of-life improvements.
-- **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Cargo skill for agent-driven code verification.
-- **[FEAT_SKILL_LOGS.md](FEAT_SKILL_LOGS.md)** — Logs skill for agent access to diagnostic output.
-- **[FEAT_USER_GUIDES.md](FEAT_USER_GUIDES.md)** — User guides improvement.
-- **[FEAT_USER_JOURNEY.md](FEAT_USER_JOURNEY.md)** — User journeys improvement.
-- **[FEAT_USER_TESTING.md](FEAT_USER_TESTING.md)** — User testing playbooks improvement.

@@ -624,7 +624,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                     .map(|s| s.trim())
                                     .filter(|s| !s.is_empty())
                                 {
-                                    let _worker_id = data
+                                    let worker_id = data
                                         .get("workerId")
                                         .and_then(|v| v.as_str())
                                         .map(|s| s.trim())
@@ -643,7 +643,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                         tool_args: None,
                                         tool_result: None,
                                         tool_index: None,
-                                        source: Some("worker".to_string()),
+                                        source: Some(worker_id.to_string()),
                                         pending_tool_calls: None,
                                     };
                                     let _ = tx.send(worker_ev);

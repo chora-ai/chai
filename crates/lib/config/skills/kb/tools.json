@@ -121,7 +121,8 @@
             "args": ["$param"]
           }
         }
-      ]
+      ],
+      "maxOutputLines": 500
     },
     {
       "tool": "kb_write",
@@ -223,7 +224,8 @@
             "args": ["$param"]
           }
         }
-      ]
+      ],
+      "maxOutputLines": 200
     }
   ]
 }

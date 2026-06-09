@@ -132,7 +132,7 @@
           },
           "original_content": {
             "type": "string",
-            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
+            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch, using Unicode-aware comparison (NFC normalization and ASCII folding for common Unicode characters like smart quotes and dashes). If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
           },
           "content": {
             "type": "string",
@@ -187,7 +187,8 @@
       "tool": "files_read_file",
       "binary": "cat",
       "subcommand": "",
-      "args": [{ "param": "path", "kind": "positional", "readPath": true }]
+      "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+      "maxOutputLines": 500
     },
     {
       "tool": "files_read_lines",
@@ -250,7 +251,8 @@
         { "param": "pattern", "kind": "positional" },
         { "param": "path", "kind": "positional", "readPath": true }
       ],
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     },
     {
       "tool": "files_write_file",

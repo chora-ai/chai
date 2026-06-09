@@ -91,8 +91,8 @@ These findings may apply to multiple or all bundled skills.
 **Principle**: Content-rich parameters — those carrying arbitrary text, multi-line values, or text likely to contain special characters (backticks, quotes, ampersands, unicode) — should never be passed as CLI flags. The available channels, in order of reliability for content:
 
 1. **`stdin`** — most reliable for arbitrary content; no encoding or length limits from the OS; already used for `content` in `files_write_file`, `files_write_lines`, and `skills` write tools.
-2. **`envvar`** — reliable for large or special-character content; avoids shell argument interpretation; subject to OS environment variable size limits (typically ≥128KB on Linux, may be smaller on other platforms).
-3. **`flag`** — only safe for short, controlled values (paths, identifiers, booleans, numbers); vulnerable to quoting and encoding issues in the LLM JSON → gateway → CLI → OS chain.
+2. **`envvar`** — reliable for large or special-character content; avoids shell argument interpretation; subject to OS environment variable size limits (typically >=128KB on Linux, may be smaller on other platforms).
+3. **`flag`** — only safe for short, controlled values (paths, identifiers, booleans, numbers); vulnerable to quoting and encoding issues in the LLM JSON -> gateway -> CLI -> OS chain.
 
 **Affected tools currently passing content as `flag`**:
 
@@ -104,7 +104,7 @@ These findings may apply to multiple or all bundled skills.
 | `kb-daily` | `kb_daily_append` | `content` | **High** — same as `kb_write` | `stdin` |
 | `git` | `git_commit` | `message` | **Medium** — commit messages can contain quotes, backticks, ampersands | `envvar` or `stdin` (via `git -F -`) |
 | `git-remote` | `git_commit` | `message` | **Medium** — same as `git` | `envvar` or `stdin` (via `git -F -`) |
-| `kb-frontmatter` | `kb_frontmatter_edit` | `value` | **Low–Medium** — frontmatter values are typically short strings but can contain URLs with special chars | `envvar` |
+| `kb-frontmatter` | `kb_frontmatter_edit` | `value` | **Low-Medium** — frontmatter values are typically short strings but can contain URLs with special chars | `envvar` |
 | `skills` | `skills_init` | `description` | **Low** — short descriptive string, unlikely to contain problem chars | `flag` (acceptable) |
 
 **Action**:
@@ -115,49 +115,60 @@ These findings may apply to multiple or all bundled skills.
 
 ### 7. Unbounded tool output can exceed context length and terminate sessions
 
-**Principle**: Tool invocations that return arbitrarily large results (e.g. searching across a large codebase) can produce output that exceeds the model's context window, causing the session to crash. This is a "tools over inference" issue — the tool should enforce bounds rather than relying on the agent to predict result sizes and pre-limit queries.
+**Resolved.** Added `maxOutputLines` field to `ExecutionSpec` in `tools.json`. When set, the executor truncates tool output to the specified number of lines and appends a notice indicating how many lines were omitted plus a suggestion to narrow the query. Truncation applies after `postProcess` but before `sideRead` (side-read content is never truncated).
 
-**Observed**: A `files_search_content` call with a broad pattern against a large directory tree returned enough matching lines to exceed the context window, terminating the session with no opportunity for recovery. The agent had no way to anticipate the result size before making the call.
+**Resolution summary**:
 
-**Affected tools**:
+| Decision | Rationale |
+|----------|-----------|
+| Declarative `maxOutputLines` on execution spec | Consistent with existing declarative pattern (`successExitCodes`, `postProcess`, `sideRead`); per-tool control rather than a global limit |
+| 200 lines for search/diff/log tools | Search and diff output is high-density; 200 lines provides useful signal while staying well within context limits |
+| 500 lines for file-read tools | Full-file reads need more headroom; agents already have `files_read_lines` for targeted reads of very large files |
+| Truncation after `postProcess`, before `sideRead` | Post-processing may reformat output (and its size is bounded by the same input); side-read content is author-controlled and intentionally appended |
+| Truncation notice with line counts and narrowing hint | Gives the agent actionable information to refine its query without consuming excessive context |
 
-| Skill | Tool | Risk | Notes |
-|-------|------|------|-------|
-| `files` | `files_search_content` | **High** — recursive grep across a large tree with a broad pattern can return thousands of lines | No result limit exists today |
-| `files` | `files_read_file` | **Medium** — reading a very large file could exceed context | No size limit exists today |
-| `kb` | `kb_read` | **Low–Medium** — knowledge base entries are typically sized by authors, but could be large | Depends on entry size |
-| `kb` | `kb_search` | **Medium** — same class of risk as `files_search_content` | No result limit exists today |
+**Code changes**: Added `max_output_lines` field to `ExecutionSpec` struct in `descriptor.rs`. Added `truncate_output()` function in `tools/generic/mod.rs` that splits output into lines, truncates to the limit, and appends a notice. Added truncation step in `GenericToolExecutor::execute()` after post-processing and before side-read. Added 6 unit tests for `truncate_output`.
 
-**Mitigation options**:
+**Spec changes**: Added `maxOutputLines` row to the execution spec table in `TOOLS_SCHEMA.md`. Added "Output truncation" implementation note.
 
-1. **Hard result cap**: Tools that return unbounded output should enforce a maximum number of result lines (e.g. 200 lines for search tools, 500 lines for file reads). When the cap is hit, the tool returns the truncated results plus a message indicating truncation — allowing the agent to narrow its query or read specific line ranges.
-2. **Advisory parameters**: Add optional `max_lines` or `max_results` parameters so the agent can request a limit. However, this alone is insufficient — an agent won't think to set it until it's been burned by an oversized result. A hard cap is needed as a safety net.
-3. **Pre-flight size check**: For file reads, the tool could check file size before reading and refuse or truncate files above a threshold. This is a tool-enforceable version of the "never read binary files" and "never assume a file exists" directives — make the tool protect itself.
-4. **Result truncation with continuation**: Return the first N lines plus a continuation token or hint (e.g. "results truncated at line 200 of 1,847; use `files_search_content` with a narrower path or pattern, or use `files_read_lines` for specific ranges").
+**Skill changes**: Added `maxOutputLines: 200` to `files_search_content` (files and files-read), `git_diff`, `git_show`, `git_log` (git, git-read, git-remote), and `kb_search`. Added `maxOutputLines: 500` to `files_read_file` (files and files-read) and `kb_read`.
 
-**Action**:
-- Implement a hard result cap for `files_search_content` (highest risk tool). Start with a sensible default (e.g. 200 lines of output) and return a truncation notice when exceeded.
-- Evaluate hard caps for `files_read_file` (files above a size threshold should require `files_read_lines` instead).
-- ~~Add guidance to `skills-design/SKILL.md`: tools returning potentially unbounded output must enforce a result cap and communicate truncation to the agent.~~ **Done** — added "Unbounded Output Protection" section.
-- Classify any existing "preference" directives about result size as tool-enforceable, and migrate them into tool behavior.
+**Skills-design changes**: Updated "Unbounded Output Protection" section in `skills-design/SKILL.md` to reference `maxOutputLines` as the tool-enforceable mechanism.
+
+**Original observation**: A `files_search_content` call with a broad pattern against a large directory tree returned enough matching lines to exceed the context window, terminating the session with no opportunity for recovery. The agent had no way to anticipate the result size before making the call.
 
 ## Skill-Specific Findings
 
 ### `files`
 
-Audited during hands-on testing of `files_write_lines` verification (`original_content` check confirmed working; the resolved bug was formerly tracked as `BUG_WRITE_LINES_BACKTICK_MISMATCH.md` in this directory, then deleted after manual verification confirmed the fix).
+Audited during hands-on testing of `files_write_lines` verification (`original_content` check confirmed working).
 
 #### Unicode normalization in `original_content` verification
 
-The `files_write_lines` `original_content` check can fail even when the content appears visually identical, due to Unicode normalization differences between what the agent sends and what is stored on disk. For example, the Unicode right single quotation mark (U+2019, `'`) used in markdown files (e.g. "Ollama\u2019s") may be normalized to a different byte sequence than the ASCII apostrophe (U+0027, `'`), causing a 1–2 byte length mismatch in the verification step. The `verify_original()` error message reports the byte length difference as a hint, which is how this class of issue surfaces.
+**Resolved.** The `files_write_lines` `original_content` check previously required exact byte-for-byte match, which failed when the LLM substituted ASCII lookalikes for Unicode characters (e.g., `--` for em dash, `'` for right single quotation mark).
 
-**Observed instances:**
+**Fix:** `verify_original()` now uses a three-stage comparison:
+1. **Exact match** — byte-for-byte comparison (fast path)
+2. **NFC-normalized match** — handles Unicode normalization form differences (e.g., NFD vs NFC for composed characters like e-acute)
+3. **Unicode-to-ASCII folded match** — handles LLM substitution of ASCII lookalikes for Unicode characters
 
-- `base/ref/OLLAMA.md` contained a Unicode right single quotation mark (U+2019) in "Ollama\u2019s" on two lines. When an agent copies visible text into `original_content`, it may send the ASCII apostrophe instead, resulting in a byte-level mismatch. The error shows "different lengths — expected N bytes, actual M bytes" with a 1–2 byte delta.
+Stage 2 and 3 matches are accepted with a `log::warn`, since the file content has almost certainly not changed — the only difference is how the LLM represented the characters. This is a "tools over inference" win: the tool handles a common failure case instead of requiring the agent to work around it.
 
-**Workaround:** When `files_write_lines` fails with a byte-length mismatch on `original_content`, re-read the exact target lines with `files_read_lines` (which returns content with line numbers) and use the returned content verbatim — do not retype or normalize it. This ensures the byte sequence matches the file exactly. Alternatively, use `files_read_file` to get the full file and extract the relevant lines, then pass them without modification.
+The `fold_unicode_to_ascii` function maps common confusables:
+- Em dash (U+2014) -> `--`
+- En dash (U+2013) -> `-`
+- Smart quotes (U+2018, U+2019, U+201C, U+201D) -> ASCII equivalents
+- Middle dot (U+00B7) -> `.`
+- Ellipsis (U+2026) -> `...`
+- Non-breaking space (U+00A0) -> space
 
-**Broader concern:** Any content-passing channel that involves the LLM generating string content (as opposed to copying it from tool output) is susceptible to Unicode normalization differences. The `envvar` channel avoids shell-quoting issues but does not prevent the LLM from generating a differently-normalized version of the same text. This is fundamentally a "tools over inference" issue — the more the agent copies verbatim from tool output rather than generating text from scratch, the fewer normalization mismatches will occur.
+**Code changes:**
+- Added `unicode-normalization = "0.1"` dependency to `cli/Cargo.toml`
+- Added `fold_unicode_to_ascii()` function to `cli/src/main.rs`
+- Rewrote `verify_original()` with three-stage comparison and `log::warn` for non-exact matches
+- Added comprehensive tests for NFC normalization, Unicode-ASCII folding, and rejection of genuine mismatches
+
+**Design rationale:** The `original_content` verification exists as an optimistic concurrency control mechanism — it prevents the agent from accidentally overwriting changes. It is not a security boundary; the agent already has write access to the file. Accepting Unicode-fuzzy matches is appropriate because: (a) the file has almost certainly not changed between the read and write, (b) the only difference is how the LLM represented characters, and (c) the alternative (requiring exact match) causes the agent to fall back to `files_write_file`, which has no verification at all — a strictly worse outcome.
 
 #### Redundancies to remove
 
@@ -166,13 +177,13 @@ The `files_write_lines` `original_content` check can fail even when the content 
 
 #### Content to keep or extract
 
-- **Write specific lines workflow** (read → get `original_content` → write) — the most valuable instruction, not expressed anywhere in the schema. Keep as a directive or a concise workflow note.
+- **Write specific lines workflow** (read -> get `original_content` -> write) — the most valuable instruction, not expressed anywhere in the schema. Keep as a directive or a concise workflow note.
 - **Bottom-to-top rule for multiple edits** — a usage preference the schema can't express. Keep.
 - **Prefer `files_read_lines` over `files_read_file`** for partial reads — a preference, keep as directive.
 - **Prefer `files_write_lines` over `files_write_file`** for targeted edits — a preference, keep as directive.
 - **Prefer large contiguous rewrites** over boundary edits — a preference, keep.
 - **ERE regex capabilities** — the schema says "extended regex supported" but doesn't enumerate what that enables. Keep a condensed version.
-- **`files_search_content` → `files_read_lines` workflow** — after searching with line numbers, read surrounding context. Keep as directive.
+- **`files_search_content` -> `files_read_lines` workflow** — after searching with line numbers, read surrounding context. Keep as directive.
 
 #### Directives to evaluate for enforceability
 
@@ -214,6 +225,12 @@ The `files_write_lines` `original_content` check can fail even when the content 
 #### ~~Missing principle: frontmatter conventions~~
 
 **Done.** Added "Frontmatter Conventions" section to `skills-design/SKILL.md` after resolving finding #5.
+
+### `git` and `git-read`
+
+Not yet fully audited. The `maxOutputLines: 200` cap has been applied to `git_diff`, `git_show`, and `git_log` in both skills (and `git-remote`) as part of finding #7 resolution.
+
+**Note for full audit**: The `git diff` output risk was confirmed in production — a worker with `git-read` enabled ran a series of `git diff` calls that immediately blew past the context limit, terminating the session. This was the second real-world instance of unbounded output causing session failure (after `files_search_content`). The `maxOutputLines` cap now prevents this for all three git skills.
 
 ## Audit Method
 

@@ -977,6 +977,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tokio-tungstenite",
+ "unicode-normalization",
 ]
 
 [[package]]

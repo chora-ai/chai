@@ -4,7 +4,7 @@ status: in-progress
 
 # Epic: Messaging Channels (Privacy and Federation)
 
-**Summary** — Expand Chai's messaging integrations so users can interact with the gateway through multiple chat surfaces, prioritizing **privacy-preserving** options and, where possible, **decentralized or user-controlled** infrastructure. **Matrix**, **Telegram**, and **Signal** (BYO signal-cli) are implemented in the gateway. **Integration probes** live in **`crates/spike`**; a **broader simulation / harness** story is tracked separately in [SIMULATIONS.md](SIMULATIONS.md).
+**Summary** — Expand Chai's messaging integrations so users can interact with the gateway through multiple chat surfaces, prioritizing **privacy-preserving** options and, where possible, **decentralized or user-controlled** infrastructure. **Matrix**, **Telegram**, and **Signal** (BYO signal-cli) are implemented in the gateway. **Integration probes** live in **`crates/spike`**.
 
 **Status** — **In progress.** Matrix (including **E2EE** via matrix-sdk), Telegram, and Signal are shipped; further hardening and follow-ups remain.
 
@@ -96,7 +96,6 @@ Chai started with Telegram as its only messaging surface, which limits operator 
 
 1. **Signal hardening** — Richer **`receive`** payloads (attachments, edits), reconnect tuning, optional **`account`** UX in desktop.
 2. **Matrix hardening** — Rate limits / backoff, sync reconnect tuning, optional richer timeline events (aligns with phase 4).
-3. **Epic hygiene** — Move from **draft** to **tracked** when scope is decided; keep [SIMULATIONS.md](SIMULATIONS.md) for **harness / fixtures** (orthogonal).
 
 ### Future Considerations (Matrix Modularity)
 
@@ -114,7 +113,6 @@ Chai started with Telegram as its only messaging surface, which limits operator 
 ## Related Epics and Docs
 
 - [SIGNAL_CLI_INTEGRATION.md](../adr/SIGNAL_CLI_INTEGRATION.md) — BYO signal-cli; HTTP daemon; no bundling.
-- [SIMULATIONS.md](SIMULATIONS.md) — Simulation / harness (draft); relationship to **`crates/spike`**.
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec: gateway channel types, binding, **`process_inbound_message`**, shutdown.
 - [PROVIDERS.md](../spec/PROVIDERS.md) — LLM backends and provider configuration (orthogonal to messaging surfaces).
 - [ORCHESTRATION.md](../spec/ORCHESTRATION.md) — Agent orchestration (orthogonal to which channel delivers messages).

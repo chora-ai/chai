@@ -9,7 +9,7 @@ use crate::config::{
     canonical_provider_id, provider_discovery_enabled, AgentsConfig, ProvidersConfig,
     SkillContextMode,
 };
-use crate::providers::{ChatMessage, ToolCall, ToolDefinition, ToolFunctionDefinition};
+use crate::providers::{ChatMessage, ToolDefinition, ToolFunctionDefinition};
 use crate::session::SessionStore;
 use crate::skills::Skill;
 use serde_json::json;
@@ -42,8 +42,9 @@ pub const EVENT_TOOL_LOOP_LIMIT: &str = "session.tool_loop_limit";
 pub struct DelegateObservability {
     pub event_tx: broadcast::Sender<String>,
     pub session_id: Option<String>,
-    /// Source label included in tool call/result events (e.g. `"orchestrator"` or `"worker"`)
-    /// so the desktop can style them differently.
+    /// Source label included in tool call/result events — the agent id (e.g.
+    /// `"orchestrator"` or a worker id like `"engineer"`) so the desktop can
+    /// display the author and style worker messages differently.
     pub source: Option<String>,
     /// Offset added to tool call/result `index` values emitted by this observability instance.
     /// Workers set this to the number of tool calls already executed by the orchestrator in the
@@ -265,15 +266,11 @@ pub fn merge_delegate_task(
 
 fn format_delegate_result(
     reply: String,
-    tool_calls: Vec<ToolCall>,
-    tool_results: Vec<String>,
     provider_id: &str,
     model: &str,
 ) -> String {
     let payload = serde_json::json!({
         "reply": reply,
-        "toolCalls": tool_calls,
-        "toolResults": tool_results,
         "worker": {
             "provider": provider_id,
             "model": model,
@@ -282,29 +279,6 @@ fn format_delegate_result(
     payload.to_string()
 }
 
-/// Parse the JSON string produced by [`format_delegate_result`] and extract the worker's `toolCalls`.
-pub fn parse_delegate_tool_calls(payload: &str) -> Result<Vec<ToolCall>, String> {
-    let v: serde_json::Value = serde_json::from_str(payload)
-        .map_err(|e| format!("failed to parse delegate_task payload json: {}", e))?;
-    let tool_calls_v = v
-        .get("toolCalls")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    serde_json::from_value::<Vec<ToolCall>>(tool_calls_v)
-        .map_err(|e| format!("failed to parse worker toolCalls: {}", e))
-}
-
-/// Parse the JSON string produced by [`format_delegate_result`] and extract the worker's `toolResults`.
-pub fn parse_delegate_tool_results(payload: &str) -> Result<Vec<String>, String> {
-    let v: serde_json::Value = serde_json::from_str(payload)
-        .map_err(|e| format!("failed to parse delegate_task payload json: {}", e))?;
-    let tool_results_v = v
-        .get("toolResults")
-        .cloned()
-        .unwrap_or_else(|| serde_json::json!([]));
-    serde_json::from_value::<Vec<String>>(tool_results_v)
-        .map_err(|e| format!("failed to parse worker toolResults: {}", e))
-}
 
 #[derive(Debug)]
 struct DelegateTarget {
@@ -525,7 +499,7 @@ pub async fn execute_delegate_task(
     let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
-        source: Some("worker".to_string()),
+        source: Some(worker_id.unwrap_or("worker").to_string()),
         tool_index_offset: 0,
     });
     let result =
@@ -571,8 +545,6 @@ pub async fn execute_delegate_task(
 
     Ok(format_delegate_result(
         result.content,
-        result.tool_calls,
-        result.tool_results,
         provider_id,
         &model,
     ))
@@ -582,7 +554,6 @@ pub async fn execute_delegate_task(
 mod tests {
     use super::*;
     use crate::config::{ProviderDefinition, WorkerConfig, EndpointType};
-    use crate::providers::ToolCallFunction;
     use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
 
@@ -654,70 +625,19 @@ mod tests {
     }
 
     #[test]
-    fn format_delegate_result_includes_reply_and_tool_calls() {
-        let tool_call = ToolCall {
-            typ: "function".to_string(),
-            function: ToolCallFunction {
-                index: None,
-                name: "search".to_string(),
-                arguments: serde_json::json!({"query": "hi"}),
-            },
-        };
-
+    fn format_delegate_result_includes_reply_and_worker() {
         let payload = format_delegate_result(
             "worker reply".to_string(),
-            vec![tool_call],
-            vec!["tool output".to_string()],
             "ollama",
             "llama3.2:3b",
         );
 
         let v: serde_json::Value = serde_json::from_str(&payload).expect("valid json");
         assert_eq!(v["reply"], "worker reply");
-        assert_eq!(v["toolCalls"].as_array().unwrap().len(), 1);
         assert_eq!(v["worker"]["provider"], "ollama");
         assert_eq!(v["worker"]["model"], "llama3.2:3b");
-        assert_eq!(v["toolResults"].as_array().unwrap().len(), 1);
-        assert_eq!(v["toolResults"].as_array().unwrap()[0], "tool output");
-    }
-
-    #[test]
-    fn parse_delegate_tool_calls_round_trip() {
-        let tool_call = ToolCall {
-            typ: "function".to_string(),
-            function: ToolCallFunction {
-                index: None,
-                name: "search".to_string(),
-                arguments: serde_json::json!({"query": "hi"}),
-            },
-        };
-
-        let payload = format_delegate_result(
-            "worker reply".to_string(),
-            vec![tool_call.clone()],
-            vec!["tool output".to_string()],
-            "ollama",
-            "llama3.2:3b",
-        );
-
-        let out = parse_delegate_tool_calls(&payload).expect("parsed");
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].function.name, "search");
-        assert_eq!(out[0].function.arguments["query"], serde_json::json!("hi"));
-    }
-
-    #[test]
-    fn parse_delegate_tool_results_round_trip() {
-        let payload = format_delegate_result(
-            "worker reply".to_string(),
-            vec![],
-            vec!["tool output 1".to_string(), "tool output 2".to_string()],
-            "ollama",
-            "llama3.2:3b",
-        );
-
-        let out = parse_delegate_tool_results(&payload).expect("parsed");
-        assert_eq!(out, vec!["tool output 1", "tool output 2"]);
+        assert!(v.get("toolCalls").is_none(), "toolCalls should not be present");
+        assert!(v.get("toolResults").is_none(), "toolResults should not be present");
     }
 
     #[test]

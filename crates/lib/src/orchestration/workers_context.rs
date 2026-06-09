@@ -115,7 +115,7 @@ fn lines_for_worker(
     out.push_str("Example:\n\n");
     out.push_str("{ \"instruction\": \"[");
     out.push_str(id);
-    out.push_str("] List your skills\" }\n");
+    out.push_str("] List your skills\" }\n\n");
 }
 
 #[cfg(test)]

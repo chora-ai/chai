@@ -67,6 +67,16 @@ pub struct ExecutionSpec {
     /// still surface as tool errors.
     #[serde(default)]
     pub success_exit_codes: Option<Vec<i32>>,
+    /// Optional: maximum number of output lines to return to the model.
+    /// When set, output exceeding this limit is truncated and a notice is
+    /// appended indicating how many lines were omitted. This prevents
+    /// unbounded tool output (e.g. from `grep` or `git diff`) from exceeding
+    /// the model's context window. The truncation notice includes the total
+    /// line count and a hint to narrow the query. Applies after `postProcess`
+    /// but before `sideRead` (side-read content is not counted against the
+    /// limit and is always appended in full).
+    #[serde(default)]
+    pub max_output_lines: Option<usize>,
 }
 
 /// Spec for appending a file's contents to the tool result when it exists.

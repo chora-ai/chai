@@ -14,21 +14,12 @@ default = []
 matrix = ["lib/matrix"]
 
 [dependencies]
+anyhow = "1"
+eframe = { version = "0.24", features = ["default"] }
+env_logger = "0.11"
+futures-util = "0.3"
 lib = { path = "../lib" }
 log = "0.4"
-env_logger = "0.11"
-
-# Async runtime
 tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
-
-# WebSocket client for gateway status
 tokio-tungstenite = "0.24"
-futures-util = "0.3"
-
-# Serialization
 serde_json = { version = "1", features = ["preserve_order"] }
-
-# Error handling
-anyhow = "1"
-
-eframe = { version = "0.24", features = ["default"] }

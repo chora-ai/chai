@@ -368,7 +368,6 @@ fn build_system_context(
     let workers_ctx = build_workers_context(agents, skill_catalog);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
-        out.push_str("\n");
     }
     let skills_ctx = match context_mode {
         SkillContextMode::Full => build_skill_context_full(skills),

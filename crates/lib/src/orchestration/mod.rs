@@ -20,7 +20,6 @@ mod workers_context;
 pub use choice::{resolve_provider_choice, ProviderChoice};
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
-    parse_delegate_tool_calls, parse_delegate_tool_results,
     worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
     EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START, EVENT_TOOL_CALL,
     DELEGATE_TASK_TOOL_NAME, EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE,

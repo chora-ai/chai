@@ -35,9 +35,12 @@ fn format_tool_content_display(content: &str) -> String {
 }
 
 /// Returns true when this message is a worker-sourced tool call or tool result
-/// (should use the blue border matching delegation events).
+/// (should use the blue border matching delegation events). Any non-orchestrator
+/// source is treated as a worker (the source field carries the worker id).
 fn is_worker_tool(m: &ChatMessage) -> bool {
-    m.source.as_deref() == Some("worker")
+    m.source
+        .as_deref()
+        .is_some_and(|s| s != "orchestrator")
 }
 
 /// Amber border color used for tool loop limit warnings.

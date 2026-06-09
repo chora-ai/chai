@@ -17,6 +17,7 @@ pub use types::{AgentReply, AgentSkillsRuntime, ChatMessage, GatewayStatusDetail
 enum Screen {
     #[default]
     Chat,
+    Files,
     Status,
     Context,
     Tools,
@@ -885,6 +886,10 @@ impl eframe::App for ChaiApp {
                     ui_screen(ui, "Chat", subtitle, |ui| {
                         screens::chat::ui_chat(self, ui, running);
                     });
+                });
+            } else if self.current_screen == Screen::Files {
+                ui::layout::central_padded(ui, |ui| {
+                    screens::files::ui_files_screen(self, ui, running);
                 });
             } else if self.current_screen == Screen::Status {
                 ui::layout::central_padded(ui, |ui| {
