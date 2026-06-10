@@ -63,7 +63,7 @@ pub fn build_workers_context(
     out.push_str("## Workers\n\n");
     out.push_str("You are the orchestrator agent. You have worker agents. You can:\n\n");
     out.push_str("- call `delegate_task` to delegate a task to a worker agent\n\n");
-    out.push_str("Only delegate a task to a worker if the worker can perform the task.\n\n");
+    out.push_str("Only delegate a task to a worker if the worker can perform the task. `delegate_task` calls execute sequentially — each worker turn completes before the next begins. Combine related subtasks into a single delegation when possible.\n\n");
     for w in workers {
         lines_for_worker(&mut out, w, &skill_by_name);
     }
@@ -115,7 +115,7 @@ fn lines_for_worker(
     out.push_str("Example:\n\n");
     out.push_str("{ \"instruction\": \"[");
     out.push_str(id);
-    out.push_str("] List your skills\" }\n\n");
+    out.push_str("] Do X\" }\n\n");
 }
 
 #[cfg(test)]
@@ -153,6 +153,7 @@ mod tests {
     fn includes_orchestrator_and_worker() {
         let s = build_workers_context(&sample_agents(), &[]);
         assert!(s.contains("You are the orchestrator agent"));
+        assert!(s.contains("sequentially"));
         assert!(s.contains("bob"));
         assert!(s.contains("### bob"));
         assert!(!s.contains("provider"));

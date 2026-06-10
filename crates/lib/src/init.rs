@@ -78,15 +78,24 @@ pub fn require_initialized(paths: &profile::ChaiPaths) -> Result<()> {
 }
 
 fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
+    // If the profile directory already exists, skip seeding entirely.  Users
+    // may rename the orchestrator agent (and its directory) within an existing
+    // profile — re-running `chai init` must not overwrite those changes.
+    if profile_dir.is_dir() {
+        log::debug!(
+            "profile directory {} already exists; skipping seed",
+            profile_dir.display()
+        );
+        return Ok(());
+    }
+
     std::fs::create_dir_all(profile_dir)
         .with_context(|| format!("creating profile directory {}", profile_dir.display()))?;
 
     let config_path = profile_dir.join("config.json");
-    if !config_path.exists() {
-        std::fs::write(&config_path, b"{}")
-            .with_context(|| format!("writing default config to {}", config_path.display()))?;
-        log::info!("created default config at {}", config_path.display());
-    }
+    std::fs::write(&config_path, b"{}")
+        .with_context(|| format!("writing default config to {}", config_path.display()))?;
+    log::info!("created default config at {}", config_path.display());
 
     let default_agents_md = bundled_default_agents_md(profile_name)?;
     let orchestrator_dir = profile_dir.join("agents").join("orchestrator");
@@ -97,39 +106,32 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
         )
     })?;
     let orchestrator_agents = orchestrator_dir.join("AGENT.md");
-    if !orchestrator_agents.exists() {
-        std::fs::write(&orchestrator_agents, default_agents_md).with_context(|| {
-            format!(
-                "writing default AGENT.md to {}",
-                orchestrator_agents.display()
-            )
-        })?;
-        log::info!(
-            "wrote default AGENT.md to {}",
+    std::fs::write(&orchestrator_agents, default_agents_md).with_context(|| {
+        format!(
+            "writing default AGENT.md to {}",
             orchestrator_agents.display()
-        );
-    }
+        )
+    })?;
+    log::info!(
+        "wrote default AGENT.md to {}",
+        orchestrator_agents.display()
+    );
 
     let sandbox_dir = profile_dir.join("sandbox");
-    if !sandbox_dir.exists() {
-        std::fs::create_dir_all(&sandbox_dir).with_context(|| {
-            format!("creating sandbox directory {}", sandbox_dir.display())
-        })?;
-        log::info!("created sandbox directory at {}", sandbox_dir.display());
-    }
+    std::fs::create_dir_all(&sandbox_dir).with_context(|| {
+        format!("creating sandbox directory {}", sandbox_dir.display())
+    })?;
+    log::info!("created sandbox directory at {}", sandbox_dir.display());
 
-    // Seed sandbox template files from the profile config if they do not
-    // already exist.  This mirrors the AGENT.md seeding pattern above.
+    // Seed sandbox template files from the profile config.
     for (rel_path, contents) in bundled_sandbox_templates(profile_name)? {
         let dest = sandbox_dir.join(rel_path);
-        if !dest.exists() {
-            if let Some(parent) = dest.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&dest, contents)
-                .with_context(|| format!("writing sandbox template {}", dest.display()))?;
-            log::info!("seeded sandbox template at {}", dest.display());
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)?;
         }
+        std::fs::write(&dest, contents)
+            .with_context(|| format!("writing sandbox template {}", dest.display()))?;
+        log::info!("seeded sandbox template at {}", dest.display());
     }
 
     Ok(())
@@ -137,9 +139,10 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
 
 /// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`.
 ///
-/// When re-run on an already-initialized directory, the `active` symlink is
-/// **not** overwritten — any profile the user has switched to is preserved.
-/// Only a missing or broken `active` symlink triggers the default (`assistant`).
+/// When re-run on an already-initialized directory:
+/// - Existing profile directories (`assistant`, `developer`) are **not** re-seeded — the user may have renamed agent directories or customized files within the profile.
+/// - The `active` symlink is **not** overwritten — any profile the user has switched to is preserved.
+///   Only a missing or broken `active` symlink triggers the default (`assistant`).
 pub fn init_chai_home() -> Result<PathBuf> {
     let chai_home = profile::chai_home()?;
     std::fs::create_dir_all(&chai_home)

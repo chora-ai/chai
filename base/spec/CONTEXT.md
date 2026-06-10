@@ -69,11 +69,11 @@ For a **new session**, when the user sends a message, the model receives:
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
-- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents. You can:`**), blank line, bullet (**`- call \`delegate_task\` to delegate a task to a worker agent`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker can perform the task.`**), blank line, then per worker (via **`lines_for_worker`**):
+- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents. You can:`**), blank line, bullet (**`- call \`delegate_task\` to delegate a task to a worker agent`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker can perform the task. \`delegate_task\` calls execute sequentially — each worker turn completes before the next begins. Combine related subtasks into a single delegation when possible.`**), blank line, then per worker (via **`lines_for_worker`**):
   - **`### <id>`** heading.
   - Skill descriptions from **`skill_catalog`** (**`This worker can perform the following tasks:`** + one **`- <description>`** per enabled skill; omitted if no skills enabled).
   - Bracket prefix line (**`Start your instruction with \`[<id>]\` to delegate to this worker.`**).
-  - Example (**`{ "instruction": "[<id>] List your skills" }`**).
+  - Example (**`{ "instruction": "[<id>] Do X" }`**).
 
 ### `strip_skill_frontmatter(content)`
 
@@ -106,7 +106,7 @@ Start your instruction with `[read-only]` to delegate to this worker.
 
 Example:
 
-{ "instruction": "[read-only] List your skills" }
+{ "instruction": "[read-only] Do X" }
 
 ## Skills
 

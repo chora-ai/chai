@@ -71,7 +71,7 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on a worker's
 After a worker turn completes, the response path is:
 
 1. The worker turn produces a `TurnResult` (text reply, tool calls, tool results).
-2. `format_delegate_result` packages these into a JSON string: `{"reply": "...", "toolCalls": [...], "toolResults": [...], "worker": {...}}`.
+2. `format_delegate_result` packages these into a summarized JSON string: `{"reply": "...", "worker": {"provider": "...", "model": "..."}}`. The worker's `toolCalls` and `toolResults` are **not** included — the worker's reply text synthesizes its findings. Full tool details flow to the desktop via `session.tool_call` and `session.tool_result` observability events.
 3. This JSON becomes the `delegate_task` **tool result** in the orchestrator's message history.
 4. The orchestrator model is called again — it sees the tool result and generates its own response.
 5. The loop continues until the orchestrator produces no more tool calls. That final text is what the user receives.
