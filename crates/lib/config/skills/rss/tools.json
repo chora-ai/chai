@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "rss_check_feed",
-      "description": "Fetch an RSS or Atom feed and return its XML content. Accepts a feed name (from configured feeds) or a direct URL.",
+      "description": "Fetch an RSS or Atom feed and return a parsed table of entries (title, date, link, summary). Accepts a feed name (from configured feeds) or a direct URL.",
       "parameters": {
         "type": "object",
         "required": ["feed"],
@@ -20,12 +20,7 @@
       "parameters": {
         "type": "object",
         "required": [],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Optional override path to feeds file; default is ~/.chai/feeds.txt (resolved by the skill)"
-          }
-        }
+        "properties": {}
       }
     }
   ],
@@ -60,6 +55,7 @@
         {
           "param": "path",
           "kind": "positional",
+          "readPath": true,
           "optional": true,
           "resolveCommand": {
             "script": "resolve-feeds-path",

@@ -4,7 +4,7 @@ status: accepted
 
 # Write Sandbox
 
-Per-profile path boundary enforcement for skill tools with `writePath`-annotated arguments, using symlink-as-authorization and canonical-path validation.
+Per-profile path boundary enforcement for skill tools with `writePath`-annotated arguments, using symlink-as-authorization, canonical-path validation, and a secure-by-default runtime path-like value check.
 
 ## Context
 
@@ -18,9 +18,10 @@ A **per-profile write sandbox** at `<profileRoot>/sandbox/` restricts where skil
 - **Writable roots.** The sandbox directory itself is always a writable root. For each symlink that is a direct child of the sandbox directory, the canonicalized target of that symlink is also a writable root. Only direct children are scanned — symlinks deeper in the tree are not.
 - **Symlink-as-authorization.** Agents cannot create symlinks because `ln` is never allowlisted in any skill. Symlink creation is exclusively a user action. Each symlink is declarative authorization: creating one grants write access, removing one revokes it. The filesystem IS the policy — no configuration file or capability tier.
 - **Binary-mediated writes are out of scope.** When the model provides a semantic identifier and the binary resolves the write target internally (e.g., `chai skill write-skill-md` takes `skill_name`), the executor never sees a filesystem path and cannot validate it. Security for binary-mediated writes depends on the binary itself. The allowlist controls *which* binary-mediated operations are available; *where* enforcement is the binary's responsibility.
-- **CWD restriction.** The executor sets `Command::current_dir()` to the sandbox root for write-path tools, preventing binaries from writing to implicit CWD-relative locations outside the sandbox.
+- **CWD restriction.** The executor sets `Command::current_dir()` to the sandbox root for all tool executions, not just write-path tools. This ensures relative paths in unannotated parameters resolve within the sandbox boundary.
 - **Missing sandbox directory.** When the sandbox directory does not exist, there are no writable roots and all `writePath` validations fail. Skills without `writePath` arguments are unaffected.
 - **The sandbox is per-profile, shared by all agents.** The orchestrator and all workers within a profile share one sandbox. Per-agent sandbox subdirectories are deferred until a concrete use case demonstrates the need.
+- **Secure-by-default runtime path-like value check.** Unannotated `positional` and `flag` parameters are subject to a runtime check that rejects path-like values (absolute paths starting with `/`, home-relative paths starting with `~`, `file://` URLs, and paths containing `..` traversal). This closes the vulnerability where unannotated parameters allowed unrestricted filesystem access. Parameters that legitimately carry path-like values must be annotated with `readPath: true` or `writePath: true`. Parameters that intentionally need unrestricted access must be annotated with `unsafePath: true` (which triggers a startup warning).
 
 ## Alternatives Considered
 
@@ -32,6 +33,8 @@ A **per-profile write sandbox** at `<profileRoot>/sandbox/` restricts where skil
 | **Per-agent sandbox isolation** | No concrete use case yet. The three-layer model (skill schema constrains what the model knows, allowlist constrains what operations run, sandbox constrains where writes land) mitigates the risk of a shared sandbox. Deferred. |
 | **Capability-tier or config-based authorization** (instead of symlinks) | Adds config surface and a separate authorization mechanism. Symlinks are simpler, already understood, and have built-in revocation (remove the link). No new config keys or formats needed. |
 | **Separate writable roots config file** | Another file to manage and keep in sync. The symlink approach uses an existing OS primitive and makes authorization visible via `ls -l`. |
+| **Validate-all-by-default** (all positional/flag params sandbox-validated) | Requires every non-path parameter (patterns, refs, names, URLs) to carry an explicit opt-out. The runtime heuristic + CWD approach achieves equivalent security with fewer annotations — most parameters need nothing at all. |
+| **Opt-in `readPath`/`writePath` only** (prior state) | The gate is open by default. Omitting annotations is a vulnerability, not a safe state. The `skills` skill's `skill_name` parameter had no annotation and allowed path traversal (AUDIT_SKILLS item 20). |
 
 ## Consequences
 
@@ -40,6 +43,8 @@ A **per-profile write sandbox** at `<profileRoot>/sandbox/` restricts where skil
 - **Binary-mediated writes require trusting the binary.** The sandbox does not apply to semantic-id writes. Skill authors must ensure their binaries reject traversal and confine writes.
 - **Read-path validation reuses the sandbox.** `readPath` arguments are validated against the same writable roots, so agents can only read within directories they could also write to. This keeps the readable surface aligned with the writable surface.
 - **The sandbox is shared across agents within a profile.** If stronger isolation between agents is needed in the future, the design can be extended with per-agent subdirectories.
+- **Unannotated parameters reject path-like values by default.** The runtime check catches absolute paths, home-relative paths, `file://` URLs, and directory traversal in parameters without `readPath`/`writePath`/`unsafePath` annotations. The CWD defaults to the sandbox root, confining relative paths. Together, these make the default state safe without requiring skill authors to annotate every parameter.
+- **`unsafePath` parameters are visible at startup.** The gateway logs a warning for each `unsafePath` parameter in enabled skills, making escape hatches auditable.
 
 ## References
 

@@ -21,7 +21,7 @@ pub struct SkillEntry {
     /// Capability tier from SKILL.md frontmatter (`minimal`, `moderate`, `full`). Now parsed from top-level field (was previously nested inside `generated_from`).
     pub capability_tier: Option<String>,
     /// Parent skill this is a variant of (e.g. `git-read` is a variant of `git`).
-    pub model_variant_of: Option<String>,
+    pub variant_of: Option<String>,
 }
 
 /// Flattened skill for agent use (name + description + content).
@@ -41,9 +41,9 @@ struct SkillFrontmatter {
     /// Minimum model capability: `minimal`, `moderate`, or `full`.
     #[serde(default)]
     capability_tier: Option<String>,
-    /// Parent skill this is a model-tier variant of (e.g. `git-read` → `git`).
-    #[serde(default)]
-    model_variant_of: Option<String>,
+    /// Parent skill this is a variant of (e.g. `git-read` → `git`).
+    #[serde(default, rename = "variant_of")]
+    variant_of: Option<String>,
     #[serde(default)]
     metadata: Option<SkillMetadata>,
 }
@@ -108,7 +108,7 @@ fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
             content,
             tool_descriptor,
             capability_tier: parsed.capability_tier,
-            model_variant_of: parsed.model_variant_of,
+            variant_of: parsed.variant_of,
         });
     }
     Ok(out)
@@ -164,7 +164,7 @@ struct ParsedFrontmatter {
     description: String,
     required_bins: Option<Vec<String>>,
     capability_tier: Option<String>,
-    model_variant_of: Option<String>,
+    variant_of: Option<String>,
 }
 
 fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontmatter {
@@ -179,7 +179,7 @@ fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontma
         description: String::new(),
         required_bins: None,
         capability_tier: None,
-        model_variant_of: None,
+        variant_of: None,
     };
 
     if content.starts_with("---") {
@@ -190,7 +190,7 @@ fn parse_skill_frontmatter(content: &str, fallback_path: &Path) -> ParsedFrontma
                     parsed.description = d;
                 }
                 parsed.capability_tier = fm.capability_tier;
-                parsed.model_variant_of = fm.model_variant_of;
+                parsed.variant_of = fm.variant_of;
                 if let Some(ref meta) = fm.metadata {
                     if let Some(ref req) = meta.requires {
                         parsed.required_bins = req.bins.clone();

@@ -13,7 +13,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Directory path relative to the knowledge base root to narrow the search. Omit to search all notes."
+            "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
           }
         }
       }
@@ -27,7 +27,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
           }
         }
       }
@@ -45,7 +45,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Directory path relative to the knowledge base root to narrow the search. Omit to search all notes."
+            "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
           }
         }
       }
@@ -59,14 +59,41 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
+          },
+          "kb_root": {
+            "type": "string",
+            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+          }
+        }
+      }
+    },
+    {
+      "name": "kb_wikilink_rename",
+      "description": "Rename a knowledge base note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes in the knowledge base.",
+      "parameters": {
+        "type": "object",
+        "required": ["from", "to"],
+        "properties": {
+          "from": {
+            "type": "string",
+            "description": "Current note path relative to the sandbox root (use ./ prefix)"
+          },
+          "to": {
+            "type": "string",
+            "description": "New note path relative to the sandbox root (use ./ prefix)"
+          },
+          "kb_root": {
+            "type": "string",
+            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
           }
         }
       }
     }
   ],
   "allowlist": {
-    "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"]
+    "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"],
+    "chai": ["file rename-note"]
   },
   "execution": [
     {
@@ -85,13 +112,15 @@
         {
           "param": "path",
           "kind": "positional",
+          "readPath": true,
           "optional": true,
           "resolveCommand": {
             "script": "resolve-kb-path",
             "args": ["$param"]
           }
         }
-      ]
+      ],
+      "successExitCodes": [0, 1]
     },
     {
       "tool": "kb_wikilink_outlinks",
@@ -101,12 +130,17 @@
         {
           "param": "path",
           "kind": "positional",
+          "readPath": true,
           "resolveCommand": {
             "script": "resolve-kb-path",
             "args": ["$param"]
           }
         }
-      ]
+      ],
+      "postProcess": {
+        "script": "sanitize-outlinks"
+      },
+      "successExitCodes": [0, 1]
     },
     {
       "tool": "kb_wikilink_by_tag",
@@ -124,13 +158,15 @@
         {
           "param": "path",
           "kind": "positional",
+          "readPath": true,
           "optional": true,
           "resolveCommand": {
             "script": "resolve-kb-path",
             "args": ["$param"]
           }
         }
-      ]
+      ],
+      "successExitCodes": [0, 1]
     },
     {
       "tool": "kb_wikilink_broken",
@@ -140,6 +176,7 @@
         {
           "param": "path",
           "kind": "positional",
+          "readPath": true,
           "resolveCommand": {
             "script": "resolve-kb-path",
             "args": ["$param"]
@@ -147,8 +184,49 @@
         }
       ],
       "postProcess": {
-        "script": "check-broken-links"
-      }
+        "script": "check-broken-links",
+        "args": ["$kb_root"],
+        "emptyIsResult": true
+      },
+      "successExitCodes": [0, 1]
+    },
+    {
+      "tool": "kb_wikilink_rename",
+      "binary": "chai",
+      "subcommand": "file rename-note",
+      "args": [
+        {
+          "param": "from",
+          "kind": "flag",
+          "flag": "from",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "to",
+          "kind": "flag",
+          "flag": "to",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "kb_root",
+          "kind": "flag",
+          "flag": "root",
+          "readPath": true,
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-kb-root",
+            "args": ["$param"]
+          }
+        }
+      ]
     }
   ]
 }

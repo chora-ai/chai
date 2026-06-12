@@ -27,15 +27,52 @@ fn pipe_stdin(
     Ok(())
 }
 
+/// Substitute `$param_name` placeholders in post-process args with values from
+/// the tool call JSON. Placeholders use the format `$param_name` (e.g.
+/// `$kb_root`). If the parameter is absent or null in the tool call args,
+/// the placeholder is replaced with an empty string.
+fn substitute_pp_args(pp_args: &[String], tool_args: &serde_json::Value) -> Vec<String> {
+    let obj = match tool_args.as_object() {
+        Some(o) => o,
+        None => return pp_args.to_vec(),
+    };
+    pp_args
+        .iter()
+        .map(|a| {
+            if a.starts_with('$') {
+                let key = &a[1..];
+                match obj.get(key) {
+                    Some(v) if !v.is_null() => {
+                        // Extract string value; for non-string types, use the
+                        // JSON representation.
+                        match v.as_str() {
+                            Some(s) => s.to_string(),
+                            None => v.to_string(),
+                        }
+                    }
+                    _ => String::new(),
+                }
+            } else {
+                a.clone()
+            }
+        })
+        .collect()
+}
+
 /// Run a post-process script or command, piping `input` to its stdin.
 /// Returns the script's stdout on success, or the original input on failure.
+/// `tool_args` provides parameter values for `$param_name` substitution in
+/// `pp.args` (e.g. `$kb_root` is replaced with the `kb_root` parameter value).
 pub fn run_post_process(
     pp: &PostProcessSpec,
     input: &str,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
+    tool_args: &serde_json::Value,
 ) -> String {
     use std::process::Stdio;
+
+    let resolved_args = substitute_pp_args(&pp.args, tool_args);
 
     // Script path: run via sh with stdin piped.
     if let (Some(dir), Some(ref script_name)) = (skill_dir, &pp.script) {
@@ -56,7 +93,7 @@ pub fn run_post_process(
 
         let child = std::process::Command::new("sh")
             .arg(&script_path)
-            .args(&pp.args)
+            .args(&resolved_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -70,7 +107,7 @@ pub fn run_post_process(
                 match child.wait_with_output() {
                     Ok(output) if output.status.success() => {
                         let s = String::from_utf8_lossy(&output.stdout).into_owned();
-                        if s.is_empty() {
+                        if s.is_empty() && !pp.empty_is_result.unwrap_or(false) {
                             input.to_string()
                         } else {
                             s
@@ -91,7 +128,7 @@ pub fn run_post_process(
         let resolved = resolve_binary(binary);
         let mut cmd = std::process::Command::new(&resolved);
         cmd.args(subcommand.split_whitespace())
-            .args(&pp.args)
+            .args(&resolved_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -104,7 +141,7 @@ pub fn run_post_process(
                 match child.wait_with_output() {
                     Ok(output) if output.status.success() => {
                         let s = String::from_utf8_lossy(&output.stdout).into_owned();
-                        if s.is_empty() {
+                        if s.is_empty() && !pp.empty_is_result.unwrap_or(false) {
                             input.to_string()
                         } else {
                             s
@@ -144,6 +181,10 @@ mod tests {
         let _ = fs::remove_dir_all(dir);
     }
 
+    fn empty_args() -> serde_json::Value {
+        serde_json::json!({})
+    }
+
     #[test]
     fn post_process_script_transforms_stdout() {
         let dir = setup_skill_with_script(
@@ -157,9 +198,10 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "hello world", &Allowlist::new(), Some(dir.as_path()));
+        let result = run_post_process(&pp, "hello world", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "HELLO WORLD");
         cleanup(&dir);
     }
@@ -173,6 +215,7 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
         let result = run_post_process(
@@ -180,6 +223,7 @@ mod tests {
             "original output",
             &Allowlist::new(),
             Some(dir.as_path()),
+            &empty_args(),
         );
         assert_eq!(result, "original output");
         cleanup(&dir);
@@ -194,6 +238,7 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
         let result = run_post_process(
@@ -201,8 +246,32 @@ mod tests {
             "original output",
             &Allowlist::new(),
             Some(dir.as_path()),
+            &empty_args(),
         );
         assert_eq!(result, "original output");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn post_process_empty_is_result_returns_empty_on_empty_output() {
+        let dir = setup_skill_with_script("pp-eir", "empty", "#!/bin/sh\ncat > /dev/null");
+
+        let pp = PostProcessSpec {
+            script: Some("empty".to_string()),
+            binary: None,
+            subcommand: None,
+            args: vec![],
+            empty_is_result: Some(true),
+        };
+
+        let result = run_post_process(
+            &pp,
+            "original output",
+            &Allowlist::new(),
+            Some(dir.as_path()),
+            &empty_args(),
+        );
+        assert_eq!(result, "");
         cleanup(&dir);
     }
 
@@ -215,11 +284,56 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec!["2".to_string()],
+            empty_is_result: None,
         };
 
         let input = "line1\nline2\nline3\nline4\n";
-        let result = run_post_process(&pp, input, &Allowlist::new(), Some(dir.as_path()));
+        let result = run_post_process(&pp, input, &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "line1\nline2\n");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn post_process_substitutes_param_placeholders_in_args() {
+        let dir = setup_skill_with_script(
+            "pp-subst",
+            "echo-arg",
+            "#!/bin/sh\necho \"arg=$1\"",
+        );
+
+        let pp = PostProcessSpec {
+            script: Some("echo-arg".to_string()),
+            binary: None,
+            subcommand: None,
+            args: vec!["$kb_root".to_string()],
+            empty_is_result: None,
+        };
+
+        let tool_args = serde_json::json!({ "kb_root": "my-kb" });
+        let result = run_post_process(&pp, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
+        assert_eq!(result.trim(), "arg=my-kb");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn post_process_substitutes_empty_string_for_missing_param() {
+        let dir = setup_skill_with_script(
+            "pp-subst-missing",
+            "echo-arg",
+            "#!/bin/sh\nif [ -z \"$1\" ]; then echo \"empty\"; else echo \"got=$1\"; fi",
+        );
+
+        let pp = PostProcessSpec {
+            script: Some("echo-arg".to_string()),
+            binary: None,
+            subcommand: None,
+            args: vec!["$kb_root".to_string()],
+            empty_is_result: None,
+        };
+
+        let tool_args = serde_json::json!({});
+        let result = run_post_process(&pp, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
+        assert_eq!(result.trim(), "empty");
         cleanup(&dir);
     }
 
@@ -232,9 +346,10 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "safe", &Allowlist::new(), Some(dir.as_path()));
+        let result = run_post_process(&pp, "safe", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "safe");
         cleanup(&dir);
     }
@@ -250,9 +365,10 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "original", &Allowlist::new(), Some(dir.as_path()));
+        let result = run_post_process(&pp, "original", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "original");
         cleanup(&dir);
     }
@@ -264,9 +380,10 @@ mod tests {
             binary: None,
             subcommand: None,
             args: vec![],
+            empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "original", &Allowlist::new(), None);
+        let result = run_post_process(&pp, "original", &Allowlist::new(), None, &empty_args());
         assert_eq!(result, "original");
     }
 }

@@ -9,7 +9,7 @@ This journey covers the **`kb`** skill (knowledge base CRUD). The knowledge base
 **Extended skills:** The `kb` skill has three companion skills that add specialized capabilities:
 - **`kb-daily`** — Read, write, and append to daily notes with date-based path resolution.
 - **`kb-frontmatter`** — Read, edit, and delete YAML frontmatter keys without touching note body content.
-- **`kb-wikilink`** — Discover relationships between notes via backlinks, outlinks, tag search, and broken link detection. The write variant **`kb-wikilink-write`** adds rename-with-wikilink-update.
+- **`kb-wikilink`** — Discover relationships between notes via backlinks, outlinks, tag search, and broken link detection, and rename notes with automatic wikilink updates.
 
 These are separate skill packages, enabled independently in `skillsEnabled`. The core `kb` journey below focuses on the `kb` skill; the extended skills are mentioned where relevant.
 
@@ -29,7 +29,7 @@ These are separate skill packages, enabled independently in `skillsEnabled`. The
     ]
   }
   ```
-  Add `"kb-daily"`, `"kb-frontmatter"`, `"kb-wikilink"`, or `"kb-wikilink-write"` as needed for the extended steps.
+  Add `"kb-daily"`, `"kb-frontmatter"`, or `"kb-wikilink"` as needed for the extended steps.
 - **Gateway** will be started after the above so it loads the kb skill.
 
 ## Steps
@@ -100,9 +100,6 @@ If you enabled `kb-wikilink` (and have notes with `[[wikilink]]` syntax):
   - **Expect:** The agent uses `kb_wikilink_broken`. An empty result means all links resolve.
 - **Find notes by tag:** "Find all notes tagged with 'agentic-systems'."
   - **Expect:** The agent uses `kb_wikilink_by_tag`.
-
-If you also enabled `kb-wikilink-write`:
-
 - **Rename a note with link updates:** "Rename the note from '00-inbox/Old Name.md' to '03-research/New Name.md' and update all wikilinks."
   - **Expect:** The agent uses `kb_wikilink_rename`. The file moves and all `[[Old Name]]` references are updated.
 

@@ -2830,6 +2830,7 @@ dependencies = [
  "include_dir",
  "log",
  "matrix-channel",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

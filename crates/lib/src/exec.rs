@@ -71,29 +71,26 @@ impl Allowlist {
     /// Run `binary subcommand args...` if allowed. Returns combined stdout; on failure stderr is included in the error.
     /// When `working_dir` is set, the child process runs with that CWD.
     /// Only exit code 0 is treated as success.
-    /// `env_vars` are set as environment variables on the child process.
     pub fn run(
         &self,
         binary: &str,
         subcommand: &str,
         args: &[String],
         working_dir: Option<&Path>,
-        env_vars: &[(String, String)],
     ) -> Result<String, String> {
-        self.run_with_codes(binary, subcommand, args, working_dir, env_vars, &[])
+        self.run_with_codes(binary, subcommand, args, working_dir, &[])
     }
 
     /// Run `binary subcommand args...` if allowed, treating the given exit codes
     /// as success in addition to 0. Returns combined stdout; on failure stderr is
     /// included in the error. When `working_dir` is set, the child process runs
-    /// with that CWD. `env_vars` are set as environment variables on the child process.
+    /// with that CWD.
     pub fn run_with_codes(
         &self,
         binary: &str,
         subcommand: &str,
         args: &[String],
         working_dir: Option<&Path>,
-        env_vars: &[(String, String)],
         success_exit_codes: &[i32],
     ) -> Result<String, String> {
         let allowed = self
@@ -109,9 +106,6 @@ impl Allowlist {
         let resolved = resolve_binary(binary);
         let mut cmd = Command::new(&resolved);
         cmd.args(subcommand.split_whitespace()).args(args);
-        for (key, value) in env_vars {
-            cmd.env(key, value);
-        }
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
@@ -123,7 +117,6 @@ impl Allowlist {
     /// Returns combined stdout; on failure stderr is included in the error.
     /// When `working_dir` is set, the child process runs with that CWD.
     /// Only exit code 0 is treated as success.
-    /// `env_vars` are set as environment variables on the child process.
     pub fn run_with_stdin(
         &self,
         binary: &str,
@@ -131,15 +124,14 @@ impl Allowlist {
         args: &[String],
         working_dir: Option<&Path>,
         stdin: &[u8],
-        env_vars: &[(String, String)],
     ) -> Result<String, String> {
-        self.run_with_stdin_with_codes(binary, subcommand, args, working_dir, stdin, env_vars, &[])
+        self.run_with_stdin_with_codes(binary, subcommand, args, working_dir, stdin, &[])
     }
 
     /// Run `binary subcommand args...` if allowed, piping `stdin` bytes to the child's stdin,
     /// and treating the given exit codes as success in addition to 0. Returns combined stdout;
     /// on failure stderr is included in the error. When `working_dir` is set, the child process
-    /// runs with that CWD. `env_vars` are set as environment variables on the child process.
+    /// runs with that CWD.
     pub fn run_with_stdin_with_codes(
         &self,
         binary: &str,
@@ -147,7 +139,6 @@ impl Allowlist {
         args: &[String],
         working_dir: Option<&Path>,
         stdin: &[u8],
-        env_vars: &[(String, String)],
         success_exit_codes: &[i32],
     ) -> Result<String, String> {
         use std::io::Write;
@@ -169,9 +160,6 @@ impl Allowlist {
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());
-        for (key, value) in env_vars {
-            cmd.env(key, value);
-        }
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }

@@ -79,6 +79,21 @@ pub struct ExecutionSpec {
     pub max_output_lines: Option<usize>,
 }
 
+impl Default for ExecutionSpec {
+    fn default() -> Self {
+        Self {
+            tool: String::new(),
+            binary: String::new(),
+            subcommand: String::new(),
+            args: Vec::new(),
+            post_process: None,
+            side_read: None,
+            success_exit_codes: None,
+            max_output_lines: None,
+        }
+    }
+}
+
 /// Spec for appending a file's contents to the tool result when it exists.
 ///
 /// After the main command (and optional `postProcess`) runs, the executor
@@ -125,6 +140,16 @@ pub struct PostProcessSpec {
     /// Additional arguments passed to the script or command.
     #[serde(default)]
     pub args: Vec<String>,
+    /// When true, empty output from the post-process script is treated as the
+    /// final result (not a fallback to the original input). This is needed for
+    /// filter-style post-processors where empty output means "nothing matched
+    /// the filter" — e.g., `check-broken-links.sh` outputs nothing when all
+    /// links resolve, and the tool should return empty (no broken links) rather
+    /// than the raw grep output (all link targets). When false (default), empty
+    /// output falls back to the original input, which is correct for
+    /// sanitization-style post-processors that pass through unmodified content.
+    #[serde(default)]
+    pub empty_is_result: Option<bool>,
 }
 
 /// Spec for resolving a string param: either a script in the skill's scripts/ dir or an allowlisted command; stdout (trimmed) becomes the value.
@@ -151,24 +176,28 @@ pub struct ResolveCommandSpec {
 pub struct ArgMapping {
     /// JSON parameter name (e.g. "query").
     pub param: String,
-    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", "workingdir", or "envvar".
+    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", "workingdir", or "tempfile".
     #[serde(default)]
     pub kind: ArgKind,
-    /// For kind "flag", the flag name. Single-character names produce short flags
+    /// For kind "flag" or "tempfile", the flag name. Single-character names produce short flags
     /// (e.g. "n" -> `-n`); multi-character names produce long flags (e.g. "path" -> `--path`).
     /// If absent, uses param (which will always produce a long flag).
     #[serde(default)]
     pub flag: Option<String>,
-    /// For kind "envvar", the environment variable name. If absent, the param name
-    /// is converted to SCREAMING_SNAKE_CASE (e.g. "original_content" -> "ORIGINAL_CONTENT").
-    #[serde(default)]
-    pub env_var: Option<String>,
     /// For kind "flagIfBoolean", the flag to emit when the param value is true (e.g. "--overwrite").
     #[serde(default)]
     pub flag_if_true: Option<String>,
     /// For kind "flagIfBoolean", the flag to emit when the param value is false (e.g. "--append").
     #[serde(default)]
     pub flag_if_false: Option<String>,
+    /// For kind "flagIfBoolean", the boolean value to use when the parameter is
+    /// absent from the tool call JSON. Without this, an absent boolean parameter
+    /// is treated as false. With this, the tool enforces the default — the LLM
+    /// does not need to infer or remember to include the parameter. The schema
+    /// `"default"` field is only a hint to the LLM; `absentDefault` is enforced
+    /// by the executor.
+    #[serde(default, rename = "absentDefault")]
+    pub absent_default: Option<bool>,
     /// Optional: run this allowlisted command with param value substituted for "$param" in args; use trimmed stdout as the value.
     #[serde(default)]
     pub resolve_command: Option<ResolveCommandSpec>,
@@ -191,6 +220,37 @@ pub struct ArgMapping {
     /// from refs for commands like `git diff`).
     #[serde(default, rename = "disambiguateAfterSkippedPositionals")]
     pub disambiguate_after_skipped_positionals: Option<bool>,
+    /// Optional: a regex pattern that the resolved parameter value must NOT match.
+    /// When set, the executor checks the resolved value against this pattern
+    /// before executing the command. If the value matches, the operation is
+    /// rejected with an error. This is a tool-level enforcement mechanism for
+    /// constraints that the schema cannot express (e.g., branch protection).
+    #[serde(default, rename = "denyPattern")]
+    pub deny_pattern: Option<String>,
+    /// Optional: a resolve command that provides the effective value to check
+    /// against `denyPattern`. When `denyAlwaysResolve` is false (default),
+    /// the raw parameter value is checked directly when present, and this
+    /// command is only invoked when the parameter is absent or empty.
+    /// When `denyAlwaysResolve` is true, this command always provides the
+    /// value to check — the raw parameter value may be unrelated to what
+    /// the deny pattern matches (e.g., the param is a working directory
+    /// path, but the deny pattern checks the current branch name).
+    #[serde(default, rename = "denyResolveCommand")]
+    pub deny_resolve_command: Option<ResolveCommandSpec>,
+    /// When true, `denyResolveCommand` always provides the value to check
+    /// against `denyPattern`, even when the raw parameter value is present.
+    /// This is needed when the parameter value is not the thing being
+    /// denied (e.g., a path parameter whose value is a directory, but the
+    /// deny pattern checks the git branch within that directory).
+    #[serde(default, rename = "denyAlwaysResolve")]
+    pub deny_always_resolve: Option<bool>,
+    /// When true, this parameter is a filesystem path that intentionally needs
+    /// unrestricted access — it may receive values that resolve outside the
+    /// sandbox. The executor skips all sandbox validation and the runtime
+    /// path-like value check. This is a red flag: every use must be justified.
+    /// No current bundled skill parameter needs this.
+    #[serde(default)]
+    pub unsafe_path: Option<bool>,
 }
 
 impl Default for ArgMapping {
@@ -199,14 +259,18 @@ impl Default for ArgMapping {
             param: String::new(),
             kind: ArgKind::default(),
             flag: None,
-            env_var: None,
             flag_if_true: None,
             flag_if_false: None,
+            absent_default: None,
             resolve_command: None,
             write_path: None,
             read_path: None,
             optional: None,
             disambiguate_after_skipped_positionals: None,
+            deny_pattern: None,
+            deny_resolve_command: None,
+            deny_always_resolve: None,
+            unsafe_path: None,
         }
     }
 }
@@ -230,12 +294,13 @@ pub enum ArgKind {
     /// is set, the resolver runs with an empty string when the param is omitted,
     /// defaulting to the sandbox root.
     WorkingDir,
-    /// Set as an environment variable on the child process. Uses `envVar` if set,
-    /// else converts the param name to SCREAMING_SNAKE_CASE. The value is NOT
-    /// added to argv. Prefer this over `flag` for content that must match file
-    /// content byte-for-byte (e.g. original_content for patch verification),
-    /// since CLI flag parsing can introduce subtle mismatches.
-    EnvVar,
+    /// Write the value to a temporary file and pass the file path as a flag.
+    /// Uses `flag` for the CLI flag name (like `Flag` kind). The executor
+    /// manages temp file creation and cleanup. Use for content-rich parameters
+    /// that cannot use stdin (because stdin is already in use) or that must
+    /// match file content byte-for-byte (e.g. verification tokens like
+    /// original_content). No size limits, no encoding issues.
+    TempFile,
 }
 
 impl ToolDescriptor {

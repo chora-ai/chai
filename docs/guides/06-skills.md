@@ -75,7 +75,7 @@ agent's system context when the skill is enabled.
 | `name` | No | Skill name (defaults to directory name). |
 | `description` | No | Short description for catalogs and prompts. |
 | `capability_tier` | No | Minimum model capability: `minimal` (pure schema, 7B target), `moderate` (some interpretation, 13B–30B), or `full` (judgment-tier, 70B+ or cloud). The gateway warns at startup when an enabled skill's tier exceeds the agent's likely model capability. |
-| `model_variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `model_variant_of: git`). The gateway warns when variant skills with overlapping tools are both enabled for the same agent. |
+| `variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `variant_of: git`). The gateway warns when variant skills with overlapping tools are both enabled for the same agent. |
 | `metadata.requires.bins` | No | List of binary names (e.g. `["obsidian"]`). The skill is only loaded when every listed binary is on the system `PATH`. |
 
 When the gateway builds the agent's system context, it strips the frontmatter and inlines the body (see [Context Modes](#context-modes) below).
@@ -171,12 +171,11 @@ Bundled skills cover common agent operations with no external binary dependencie
 | `files` | 9 | full | Full file operations including write, append, delete, and line-level patching |
 | `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
 | `git` | 8 | moderate | Local git operations (read + add, commit, branch create) |
-| `git-remote` | 12 | full | Full git operations including clone, pull, push, and remote |
+| `git-remote` | 4 | minimal | Git remote operations (clone, pull, push, remote) |
 | `kb` | 6 | moderate | Knowledge base CRUD (read, write, append, delete, list, search) |
 | `kb-daily` | 3 | minimal | Daily note operations with date-based path resolution |
 | `kb-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for KB notes |
-| `kb-wikilink` | 4 | moderate | Wikilink discovery: backlinks, outlinks, tag search, broken link detection |
-| `kb-wikilink-write` | 1 | moderate | Rename KB notes with automatic wikilink updates |
+| `kb-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
 | `rss` | 2 | moderate | RSS feed monitoring via curl |
 | `skills` | 9 | full | Skill generation and management (discover, init, write, validate, delete) |
 | `skills-read` | 3 | minimal | Read-only skill inspection (read, list, validate) |
@@ -186,7 +185,7 @@ Additional skills are available in the [chai-examples](https://github.com/chora-
 
 ## Skill Variants
 
-Several bundled skills come in **variants** — related skills that provide different capability tiers for the same domain. Variants share tool names, so enabling overlapping variants for the same agent creates redundant tool surfaces.
+Several bundled skills come in **variants** — related skills that provide different capability tiers or extensions for the same domain. Variants with overlapping tool surfaces (declared via `variant_of`) should not be co-enabled for the same agent.
 
 | Domain | Variant | Tools | Tier | Best For |
 |--------|---------|-------|------|----------|
@@ -194,13 +193,17 @@ Several bundled skills come in **variants** — related skills that provide diff
 | Files | `files` | 9 | full | Agents that need to write, patch, and delete files |
 | Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
 | Git | `git` | 8 | moderate | Local development (commit, branch) |
-| Git | `git-remote` | 12 | full | Open-source workflows (clone, push) |
+| Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
+| KB | `kb-daily` | 3 | minimal | Daily note creation and appending |
+| KB | `kb-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
+| KB | `kb-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
+| KB | `kb` | 6 | moderate | Full note CRUD |
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
-When you enable a variant skill, use its `model_variant_of` frontmatter to identify its parent. The gateway warns at startup when two variants share a `model_variant_of` relationship and are both enabled for the same agent — this usually indicates a configuration error.
+Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `kb-wikilink`, `kb-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill.
 
-**Rule of thumb:** Enable one variant per domain per agent. Choose the variant with the lowest tier that covers the agent's needs.
+**Rule of thumb:** Enable one `-read` variant per domain per agent. Extension variants can be added freely alongside the base skill.
 
 ## Creating a Skill
 

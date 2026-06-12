@@ -74,7 +74,7 @@ Frontmatter contains only fields consumed at runtime. The directory name is the 
 |-------|----------|-------------|
 | `description` | No | Short description for catalogs and system context display. |
 | `capability_tier` | No | Minimum model capability: `minimal` (pure schema, 7B target), `moderate` (some interpretation, 13B–30B), `full` (judgment-tier, capable cloud or 70B+). Used by gateway startup validation to warn when an enabled skill's tier exceeds the agent's likely model capability. Also informs context budget: `minimal`-tier skills should default to `readOnDemand` context mode to preserve limited context windows. |
-| `model_variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `model_variant_of: git`). Used by startup validation to warn when variant skills with overlapping tool surfaces are both enabled for the same agent. |
+| `variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `variant_of: git`). Used by startup validation to warn when variant skills with overlapping tool surfaces are both enabled for the same agent. |
 | `metadata` | No | Optional structured metadata (see below). |
 
 ### Minimal Example
@@ -95,7 +95,7 @@ metadata:
 ---
 description: Inspect Git repository state, history, diffs, and branches (read-only).
 capability_tier: minimal
-model_variant_of: git
+variant_of: git
 metadata:
   requires:
     bins: ["git"]

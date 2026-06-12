@@ -73,6 +73,7 @@ Each element:
 | `disambiguateAfterSkippedPositionals` | boolean (optional) | For `kind: "positional"` only: when `true`, the executor inserts `--` before this argument's value if any earlier optional positional in the same `args` list was skipped. Use when a path must be disambiguated from an omitted ref (e.g. `git diff`). Default: not set. |
 | `writePath` | boolean (optional) | When `true`, this parameter is a filesystem write target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Only applies to `positional` and `flag` kinds (not `flagifboolean` or `workingdir`). Default: not set. See **[SANDBOX.md](SANDBOX.md)**. |
 | `readPath` | boolean (optional) | When `true`, this parameter is a filesystem read target. The executor validates the resolved value against the per-profile write sandbox before execution. If validation fails, the tool call is rejected. Applies to `positional` and `flag` kinds. `workingdir` args are implicitly validated as read paths — no need to set `readPath: true` on them. Default: not set. See **[SANDBOX.md](SANDBOX.md)**. |
+| `unsafePath` | boolean (optional) | When `true`, this parameter is a filesystem path that intentionally needs unrestricted access — it may receive values that resolve outside the sandbox. The executor skips all sandbox validation and the runtime path-like value check. **Every use must be justified.** The gateway logs a startup warning for each `unsafePath` parameter in enabled skills. Default: not set. |
 | `normalizeNewlines` | boolean (optional) | **Deprecated — do not use.** Previously performed a second decode of `\n`/`\t` escape sequences after `serde_json` had already decoded them, causing a double-decode bug that corrupted written content. The field is retained in the schema for backward compatibility but should never be set to `true`. |
 
 #### `resolveCommand` (object)
@@ -84,7 +85,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-feed-path"` → `scripts/resolve-feed-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
 | `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill's allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
-| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value. |
+| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value; `"$param_name"` (e.g. `"$kb_root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 When `script` is set, the executor runs `sh <skill_dir>/scripts/<script> <args...>`. When `binary` and `subcommand` are set, the executor runs them via the allowlist. No extra setup (allowlist entry or separate binary) is required for scripts.
 
@@ -99,7 +100,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"parse-rss"`). Same path rules as `resolveCommand.script`. |
 | `binary` | string (optional) | Binary name for allowlisted post-processing (must be in the skill's allowlist). |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). |
-| `args` | array of strings | Additional arguments passed to the script or command. No `$param` substitution (the input comes via stdin). |
+| `args` | array of strings | Additional arguments passed to the script or command. `"$param_name"` (e.g. `"$kb_root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 **Design notes:**
 - `postProcess` is set on the **execution spec** (per-tool), not on individual args. It transforms the final stdout, not a parameter value.

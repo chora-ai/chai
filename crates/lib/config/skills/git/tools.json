@@ -155,10 +155,46 @@
           }
         }
       }
+    },
+    {
+      "name": "git_checkout",
+      "description": "Switch to an existing branch.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Branch name to switch to (e.g. 'main', 'dev')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_branch_delete",
+      "description": "Delete a local branch.",
+      "parameters": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "Branch name to delete (e.g. 'feature/old-branch')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch", "add", "commit", "checkout -b"]
+    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d"]
   },
   "execution": [
     {
@@ -224,10 +260,18 @@
     {
       "tool": "git_commit",
       "binary": "git",
-      "subcommand": "commit",
+      "subcommand": "commit -F -",
       "args": [
-        { "param": "message", "kind": "flag", "flag": "m" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "message", "kind": "stdin" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^(main|release/.+)$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
       ]
     },
     {
@@ -236,6 +280,24 @@
       "subcommand": "checkout -b",
       "args": [
         { "param": "name", "kind": "positional" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+      ]
+    },
+    {
+      "tool": "git_checkout",
+      "binary": "git",
+      "subcommand": "checkout",
+      "args": [
+        { "param": "name", "kind": "positional" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+      ]
+    },
+    {
+      "tool": "git_branch_delete",
+      "binary": "git",
+      "subcommand": "branch -d",
+      "args": [
+        { "param": "name", "kind": "positional", "denyPattern": "^(main|release/.+)$" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     }

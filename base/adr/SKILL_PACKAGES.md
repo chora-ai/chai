@@ -27,7 +27,7 @@ Model each `skills/<name>/` tree as a **skill package** with content-addressed r
 - **Per-profile lockfile.** `profiles/<name>/skills.lock` (JSON) maps skill directory name → content hash, with a monotonic generation counter. Different profiles legitimately pin different revisions (developer iterates, assistant pins stable). Lockfile keys on directory name (authoritative).
 - **Startup verification against lock.** On gateway startup, for each enabled skill that has a lock entry, the gateway checks whether the `active` symlink matches the locked hash. Behavior on mismatch is controlled by `skillLockMode` in `config.json`: `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills load normally.
 - **Generation-level rollback.** Each lockfile update increments the generation counter and preserves the previous lockfile as `skills.lock.<N>`. Rollback restores a previous generation's lockfile and updates `active` symlinks to match. This is generation-level (all skills at once), not per-package — matching the NixOS "switch to a previous configuration" contract.
-- **Frontmatter for runtime validation.** `SKILL.md` frontmatter records `capability_tier` (minimal/moderate/full) and `model_variant_of` (links variant skills). The gateway validates tier/model fit and variant overlap at startup, warning when composition problems are detected.
+- **Frontmatter for runtime validation.** `SKILL.md` frontmatter records `capability_tier` (minimal/moderate/full) and `variant_of` (links variant skills). The gateway validates tier/model fit and variant overlap at startup, warning when composition problems are detected.
 
 ## Alternatives Considered
 

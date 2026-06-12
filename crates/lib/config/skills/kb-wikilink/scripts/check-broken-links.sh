@@ -1,22 +1,50 @@
 #!/bin/sh
 # Post-process script: filter wikilink targets to only broken (nonexistent) ones.
 # Receives wikilink targets on stdin (one per line, from grep -oP).
-# Checks each target against the KB root for existence.
+# Checks each target against the KB directory for existence.
 # Outputs only targets that don't resolve to an existing file.
 #
-# A target resolves if any of these exist:
-#   <kb_root>/<target>.md
-#   <kb_root>/<target>
+# Resolution strategy:
+#   1. Exact path: <kb_dir>/<target>.md or <kb_dir>/<target>
+#   2. Recursive search: find <target>.md anywhere under <kb_dir>
+#      (handles bare wikilinks like [[AI Assistant]] in a nested KB)
 #
-# Usage: pipe grep output | check-broken-links.sh
+# Usage: check-broken-links.sh [kb_root]
+#
+# The kb_root parameter is a path relative to the sandbox root. When omitted,
+# the KB directory defaults to the sandbox root.
 
-kb_root="$HOME/.chai/active/sandbox"
-found_broken=0
+kb_root_rel="$1"
+
+sandbox_root="$HOME/.chai/active/sandbox"
+
+# Resolve the KB directory from kb_root parameter.
+if [ -z "$kb_root_rel" ]; then
+    kb_dir="$sandbox_root"
+else
+    kb_dir="$sandbox_root/$kb_root_rel"
+fi
 
 sort -u | while IFS= read -r target; do
     [ -z "$target" ] && continue
-    if [ ! -f "$kb_root/$target.md" ] && [ ! -f "$kb_root/$target" ] && [ ! -d "$kb_root/$target" ]; then
-        echo "$target"
-        found_broken=1
+
+    # Strip trailing backslash from escaped pipes (e.g. [[path\|alias]] -> path).
+    target=$(printf '%s' "$target" | sed 's/\\$//')
+
+    # Check 1: exact path at KB directory.
+    if [ -f "$kb_dir/$target.md" ] || [ -f "$kb_dir/$target" ] || [ -d "$kb_dir/$target" ]; then
+        continue
     fi
+
+    # Check 2: recursive search for bare wikilinks.
+    # Extract just the filename portion if the target contains a path.
+    basename=$(printf '%s' "$target" | sed 's|.*/||')
+    if [ -n "$basename" ]; then
+        found=$(find "$kb_dir" -name "$basename.md" -type f 2>/dev/null | head -1)
+        if [ -n "$found" ]; then
+            continue
+        fi
+    fi
+
+    echo "$target"
 done

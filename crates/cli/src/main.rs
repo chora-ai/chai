@@ -280,11 +280,14 @@ enum FileCmd {
         end_line: Option<usize>,
         /// The content expected at [start_line, end_line] before the patch. If provided, the tool
         /// verifies the file matches before applying the patch. Rejects the edit if the expected
-        /// content does not match what is actually in the file. When the CHAI_ORIGINAL_CONTENT
-        /// environment variable is set, it takes precedence over this flag -- this avoids CLI
-        /// argument encoding issues for content that must match file content byte-for-byte.
+        /// content does not match what is actually in the file.
         #[arg(long, allow_hyphen_values = true)]
         original_content: Option<String>,
+        /// Read original_content from a file instead of passing it as a CLI flag. Takes precedence
+        /// over --original-content. This avoids CLI argument encoding issues for content that
+        /// must match file content byte-for-byte.
+        #[arg(long)]
+        original_content_file: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
         #[arg(long, allow_hyphen_values = true)]
@@ -329,9 +332,13 @@ enum FileCmd {
         /// Frontmatter key to set
         #[arg(long)]
         key: String,
-        /// Value to set the key to
+        /// Value to set the key to. Takes precedence over --value-file.
         #[arg(long)]
-        value: String,
+        value: Option<String>,
+        /// Read value from a file instead of passing it as a CLI flag. Used when
+        /// --value is not provided.
+        #[arg(long)]
+        value_file: Option<String>,
     },
     /// Remove a YAML frontmatter key. No-op if the key does not exist.
     FrontmatterDelete {
@@ -437,15 +444,17 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             println!("appended {} bytes to {}", content.len(), target.display());
             Ok(())
         }
-        FileCmd::Patch { path, start_line, end_line, original_content, content } => {
+        FileCmd::Patch { path, start_line, end_line, original_content, original_content_file, content } => {
             let content = read_content_from_stdin_or(content)?;
-            // Environment variable takes precedence over the CLI flag for
-            // original_content. This avoids CLI argument encoding issues for
-            // content that must match the file byte-for-byte (e.g. backticks,
-            // middle dots, ampersands in markdown documentation).
-            let original_content = std::env::var("CHAI_ORIGINAL_CONTENT")
-                .ok()
-                .or(original_content);
+            // Resolve original_content: --original-content-file takes precedence,
+            // then --original-content. File-based passing avoids CLI argument
+            // encoding issues for content that must match file content byte-for-byte.
+            let original_content = if let Some(ref file_path) = original_content_file {
+                Some(std::fs::read_to_string(file_path)
+                    .map_err(|e| anyhow::anyhow!("failed to read original-content-file {}: {}", file_path, e))?)
+            } else {
+                original_content
+            };
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -474,10 +483,40 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
 
             let effective_end = end_line.min(original.lines().count());
 
-            // Verify original_content if provided
-            if let Some(ref expected) = original_content {
-                verify_original(&original, start_line, effective_end, expected)?;
-            }
+            // Verify original_content if provided, and collect trailing whitespace
+            // from the original file if the match succeeded via stage 4 (trailing-
+            // whitespace tolerance). This allows us to preserve the file's trailing
+            // whitespace in the replacement content.
+            let trailing_ws = if let Some(ref expected) = original_content {
+                verify_original(&original, start_line, effective_end, expected)?
+            } else {
+                Vec::new()
+            };
+
+            // Apply trailing whitespace from the original file to the replacement
+            // content. When the LLM drops trailing whitespace, the verification
+            // (stage 4) accepts the match but we preserve the original whitespace
+            // in the output. For each replacement line, strip its trailing whitespace
+            // and re-append the original line's trailing whitespace. This handles
+            // both cases: the LLM omitted trailing whitespace entirely, or the LLM
+            // provided partial trailing whitespace (we replace, not append, to avoid
+            // doubling). Extra replacement lines (expanding the range) have no
+            // original trailing whitespace to preserve.
+            let content = if !trailing_ws.is_empty() {
+                let mut lines: Vec<String> = content.lines().map(String::from).collect();
+                for (i, ws) in trailing_ws.iter().enumerate() {
+                    if i < lines.len() {
+                        // Trim the replacement line's trailing whitespace,
+                        // then re-append the original's.
+                        let trimmed = lines[i].trim_end();
+                        lines[i] = trimmed.to_string();
+                        lines[i].push_str(ws);
+                    }
+                }
+                lines.join("\n")
+            } else {
+                content
+            };
 
             let diff = format_patch_diff(&original, start_line, Some(effective_end), &content);
             let result = patch_string(&original, start_line, Some(end_line), &content);
@@ -567,7 +606,16 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
                 }
             }
         }
-        FileCmd::FrontmatterEdit { path, key, value } => {
+        FileCmd::FrontmatterEdit { path, key, value, value_file } => {
+            // Resolve value: --value takes precedence over --value-file.
+            let value = if let Some(ref v) = value {
+                v.clone()
+            } else if let Some(ref file_path) = value_file {
+                std::fs::read_to_string(file_path)
+                    .map_err(|e| anyhow::anyhow!("failed to read value-file {}: {}", file_path, e))?
+            } else {
+                anyhow::bail!("either --value or --value-file is required");
+            };
             let target = std::path::Path::new(&path);
             let content = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
@@ -757,17 +805,22 @@ fn fold_unicode_to_ascii(s: &str) -> String {
 }
 
 /// Verify that the content at [start_line, end_line] in `original` matches `expected`.
-/// Returns Ok(()) if they match, or an error message describing the mismatch.
+/// Returns `Ok(Vec<String>)` on match. For stages 1-3, the vector is empty (no
+/// whitespace correction needed). For stage 4 (trailing-whitespace-tolerant match),
+/// the vector contains the trailing whitespace from each original line (empty strings
+/// for lines with no trailing whitespace), so the caller can preserve it in the
+/// replacement content. Returns an error describing the mismatch if all stages fail.
 ///
-/// Comparison is done in three stages:
+/// Comparison is done in four stages:
 /// 1. Exact byte-for-byte match (fast path)
 /// 2. Unicode NFC-normalized match (handles normalization form differences)
 /// 3. Unicode-to-ASCII folded match (handles LLM substitution of ASCII lookalikes)
+/// 4. Trailing-whitespace-tolerant match (handles LLM dropping trailing whitespace)
 ///
-/// Stage 2 and 3 matches are accepted with a log warning, since the file content
+/// Stages 2-4 matches are accepted with a log warning, since the file content
 /// has almost certainly not changed -- the only difference is how the LLM
-/// represented the characters.
-fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> anyhow::Result<()> {
+/// represented the characters or whitespace.
+fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> anyhow::Result<Vec<String>> {
     use unicode_normalization::UnicodeNormalization;
 
     let lines: Vec<&str> = original.lines().collect();
@@ -777,7 +830,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
 
     // Stage 1: Exact match
     if actual == expected {
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     // Stage 2: NFC-normalized match
@@ -791,7 +844,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
             start_line,
             effective_end,
         );
-        return Ok(());
+        return Ok(Vec::new());
     }
 
     // Stage 3: Unicode-to-ASCII folded match
@@ -804,7 +857,39 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
             start_line,
             effective_end,
         );
-        return Ok(());
+        return Ok(Vec::new());
+    }
+
+    // Stage 4: Trailing-whitespace-tolerant match
+    // LLMs frequently drop or alter trailing whitespace when reproducing file
+    // content. When the only difference is trailing whitespace per line, we
+    // accept the match and return the trailing whitespace from the original
+    // lines so the caller can preserve it in the replacement content.
+    // Leading whitespace (indentation) is not stripped — it is semantically
+    // meaningful. Like stages 2-3, this is an optimistic concurrency check,
+    // not a security boundary.
+    let strip_trailing_ws = |s: &str| -> String {
+        s.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n")
+    };
+    let actual_trimmed = strip_trailing_ws(&actual_folded);
+    let expected_trimmed = strip_trailing_ws(&expected_folded);
+    if actual_trimmed == expected_trimmed {
+        log::warn!(
+            "original_content: exact, NFC, and folded match all failed but trailing-whitespace-tolerant match succeeded \
+             (lines {}-{}); the LLM likely dropped trailing whitespace when reproducing file content",
+            start_line,
+            effective_end,
+        );
+        // Extract trailing whitespace from each original line for reapplication
+        // to the replacement content.
+        let trailing_ws: Vec<String> = actual_lines
+            .iter()
+            .map(|l| {
+                let trimmed = l.trim_end();
+                l[trimmed.len()..].to_string()
+            })
+            .collect();
+        return Ok(trailing_ws);
     }
 
     // All stages failed -- genuine mismatch
@@ -889,7 +974,9 @@ fn edit_frontmatter(content: &str, key: &str, value: &str) -> String {
 
     if !trimmed.starts_with("---") {
         // No frontmatter -- create one.
-        return format!("{}---\n{}: {}\n---\n{}", leading, key, value, trimmed);
+        // Add a blank line after the closing --- for standard YAML frontmatter convention.
+        let separator = if trimmed.is_empty() { "" } else { "\n" };
+        return format!("{}---\n{}: {}\n---\n{}{}", leading, key, value, separator, trimmed);
     }
 
     let lines: Vec<&str> = trimmed.lines().collect();
@@ -960,7 +1047,7 @@ mod tests {
     fn edit_frontmatter_creates_frontmatter_without_moving_leading_whitespace_into_body_gap() {
         let input = "\n\nbody\n";
         let out = edit_frontmatter(input, "title", "new");
-        assert!(out.starts_with("\n\n---\ntitle: new\n---\nbody\n"));
+        assert!(out.starts_with("\n\n---\ntitle: new\n---\n\nbody\n"));
     }
 
     #[test]
@@ -1286,6 +1373,97 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn verify_original_accepts_trailing_whitespace_difference() {
+        // File has trailing spaces, LLM drops them
+        let file_content = "a\nhello world   \nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world");
+        assert!(result.is_ok(), "should accept match with trailing whitespace dropped");
+        // Stage 4 matched — should return trailing whitespace for reapplication
+        let ws = result.unwrap();
+        assert_eq!(ws.len(), 1);
+        assert_eq!(ws[0], "   ", "should capture trailing spaces from original line");
+    }
+
+    #[test]
+    fn verify_original_accepts_trailing_whitespace_difference_multiline() {
+        // File has trailing spaces on multiple lines, LLM drops them
+        let file_content = "a\nhello   \nworld   \nc\n";
+        let result = verify_original(file_content, 2, 3, "hello\nworld");
+        assert!(result.is_ok(), "should accept match with trailing whitespace dropped on multiple lines");
+        let ws = result.unwrap();
+        assert_eq!(ws.len(), 2);
+        assert_eq!(ws[0], "   ", "should capture trailing spaces from first line");
+        assert_eq!(ws[1], "   ", "should capture trailing spaces from second line");
+    }
+
+    #[test]
+    fn verify_original_returns_empty_vec_for_exact_match() {
+        // Stages 1-3 return empty vectors — no whitespace correction needed
+        let file_content = "a\nhello world\nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world");
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_empty(), "exact match should return empty trailing ws vec");
+    }
+
+    #[test]
+    fn verify_original_rejects_leading_whitespace_difference() {
+        // Leading whitespace (indentation) is semantically meaningful and should not be stripped
+        let file_content = "a\n  hello world\nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world");
+        assert!(result.is_err(), "should reject match with leading whitespace dropped");
+    }
+
+    #[test]
+    fn verify_original_rejects_content_mismatch_with_trailing_whitespace() {
+        // Trailing whitespace tolerance should not mask genuine content differences
+        let file_content = "a\nhello world   \nc\n";
+        let result = verify_original(file_content, 2, 2, "goodbye world");
+        assert!(result.is_err(), "should reject genuine content mismatch even with trailing whitespace");
+    }
+
+    #[test]
+    fn verify_original_captures_trailing_tab() {
+        // File has trailing tab, LLM drops it
+        let file_content = "a\nhello world\t\nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world");
+        assert!(result.is_ok());
+        let ws = result.unwrap();
+        assert_eq!(ws[0], "\t", "should capture trailing tab");
+    }
+
+    #[test]
+    fn verify_original_captures_mixed_trailing_whitespace() {
+        // File has trailing spaces + tab, LLM drops them
+        let file_content = "a\nhello world  \t\nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world");
+        assert!(result.is_ok());
+        let ws = result.unwrap();
+        assert_eq!(ws[0], "  \t", "should capture mixed trailing whitespace");
+    }
+
+    #[test]
+    fn verify_original_captures_trailing_unicode_whitespace() {
+        // File has trailing non-breaking space, LLM drops it
+        let file_content = format!("a\nhello world\u{00A0}\nc\n");
+        let result = verify_original(&file_content, 2, 2, "hello world");
+        assert!(result.is_ok());
+        let ws = result.unwrap();
+        assert_eq!(ws[0], "\u{00A0}", "should capture trailing non-breaking space");
+    }
+
+    #[test]
+    fn verify_original_partial_trailing_whitespace() {
+        // File has "hello world   " (3 trailing spaces), LLM provides "hello world " (1 trailing space)
+        // Stage 4 should match (trimmed content is identical), and trailing_ws
+        // should capture the full original trailing whitespace for reapplication.
+        let file_content = "a\nhello world   \nc\n";
+        let result = verify_original(file_content, 2, 2, "hello world ");
+        assert!(result.is_ok(), "should accept match when LLM provides partial trailing whitespace");
+        let ws = result.unwrap();
+        assert_eq!(ws[0], "   ", "should capture full original trailing whitespace for reapplication");
+    }
+
     // --- fold_unicode_to_ascii tests ---
 
     #[test]
@@ -1427,6 +1605,13 @@ fn skill_root() -> anyhow::Result<std::path::PathBuf> {
     Ok(lib::config::default_skills_dir(&chai_home))
 }
 
+fn validate_skill_name(name: &str) -> anyhow::Result<()> {
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        anyhow::bail!("skill_name must not contain '..', '/', or '\\'");
+    }
+    Ok(())
+}
+
 fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
     match cmd {
         SkillCmd::Discover { binary, subcommand } => {
@@ -1492,6 +1677,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             Ok(())
         }
         SkillCmd::Read { skill_name, file } => {
+            validate_skill_name(&skill_name)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
                 anyhow::bail!(
@@ -1525,6 +1711,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             skill_name,
             description,
         } => {
+            validate_skill_name(&skill_name)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if skill_dir.exists() {
                 anyhow::bail!(
@@ -1536,8 +1723,8 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             std::fs::create_dir_all(&skill_dir)?;
             let desc = description.as_deref().unwrap_or("TODO");
             let skill_md = format!(
-                "---\nname: {}\ndescription: {}\nmetadata:\n  requires:\n    bins: []\n---\n",
-                skill_name, desc
+                "---\ndescription: {}\ncapability_tier: moderate\nmetadata:\n  requires:\n    bins: []\n---\n",
+                desc
             );
             let tools_json = "{\n  \"tools\": [],\n  \"allowlist\": {},\n  \"execution\": []\n}\n";
             // Compute hash from initial content and create versioned layout
@@ -1563,6 +1750,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             skill_name,
             content,
         } => {
+            validate_skill_name(&skill_name)?;
             let content = read_content_from_stdin_or(content)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
@@ -1585,6 +1773,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             skill_name,
             content,
         } => {
+            validate_skill_name(&skill_name)?;
             let content = read_content_from_stdin_or(content)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
@@ -1610,6 +1799,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             script_name,
             content,
         } => {
+            validate_skill_name(&skill_name)?;
             let content = read_content_from_stdin_or(content)?;
             if script_name.contains("..") || script_name.contains('/') || script_name.contains('\\')
             {
@@ -1635,6 +1825,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             Ok(())
         }
         SkillCmd::Validate { skill_name } => {
+            validate_skill_name(&skill_name)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
                 anyhow::bail!("skill '{}' not found", skill_name);
@@ -1721,6 +1912,7 @@ fn run_skill(cmd: SkillCmd) -> anyhow::Result<()> {
             Ok(())
         }
         SkillCmd::Delete { skill_name } => {
+            validate_skill_name(&skill_name)?;
             let skill_dir = skill_root()?.join(&skill_name);
             if !skill_dir.exists() {
                 anyhow::bail!(

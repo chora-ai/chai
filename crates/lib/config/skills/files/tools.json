@@ -75,7 +75,7 @@
           },
           "recursive": {
             "type": "boolean",
-            "description": "Search directories recursively. Defaults to true when the path is a directory — set to false only to restrict the search to the top-level directory.",
+            "description": "Search directories recursively. On by default — set to false only when searching a single file path.",
             "default": true
           },
           "line_numbers": {
@@ -132,7 +132,7 @@
           },
           "original_content": {
             "type": "string",
-            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch, using Unicode-aware comparison (NFC normalization and ASCII folding for common Unicode characters like smart quotes and dashes). If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
+            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch, using a four-stage comparison: exact match, NFC normalization, Unicode-to-ASCII folding (for smart quotes, dashes, etc.), and trailing-whitespace tolerance with automatic preservation — if the only difference is trailing whitespace, the file's original trailing whitespace is preserved in the replacement. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
           },
           "content": {
             "type": "string",
@@ -231,7 +231,8 @@
         {
           "param": "recursive",
           "kind": "flagifboolean",
-          "flagIfTrue": "--recursive"
+          "flagIfTrue": "--recursive",
+          "absentDefault": true
         },
         {
           "param": "line_numbers",
@@ -281,8 +282,8 @@
         },
         {
           "param": "original_content",
-          "kind": "envvar",
-          "envVar": "CHAI_ORIGINAL_CONTENT"
+          "kind": "tempfile",
+          "flag": "original-content-file"
         },
         {
           "param": "content",

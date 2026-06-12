@@ -1,7 +1,11 @@
 #!/bin/sh
-# Resolve a KB-relative path to an absolute path in the active profile sandbox.
+# Resolve a path to an absolute path in the sandbox root.
 # Usage: resolve-kb-path.sh [relative-path]
-# If no path or empty path, returns the KB root (sandbox root).
+#
+# All kb paths are resolved from the sandbox root, matching the files skill.
+# No KB root configuration file is needed.
+#
+# If no path or empty path, returns the sandbox root.
 # If the path is already absolute, returns it unchanged. This makes the script
 # idempotent — when the generic executor substitutes a canonical path into args
 # and build_argv re-resolves it through this script, the absolute path passes
@@ -14,10 +18,10 @@ case "$path" in
     /*) echo "$path"; exit 0 ;;
 esac
 
-kb_root="$HOME/.chai/active/sandbox"
+sandbox_root="$HOME/.chai/active/sandbox"
 
 if [ -z "$path" ]; then
-    echo "$kb_root"
+    echo "$sandbox_root"
 else
-    echo "$kb_root/$path"
+    echo "$sandbox_root/$path"
 fi

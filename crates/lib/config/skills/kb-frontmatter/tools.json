@@ -9,7 +9,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
           }
         }
       }
@@ -23,7 +23,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
           "key": {
             "type": "string",
@@ -45,7 +45,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the knowledge base root (e.g. '01-admin/AI Assistant.md')"
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
           "key": {
             "type": "string",
@@ -97,8 +97,8 @@
         },
         {
           "param": "value",
-          "kind": "flag",
-          "flag": "value"
+          "kind": "tempfile",
+          "flag": "value-file"
         }
       ]
     },

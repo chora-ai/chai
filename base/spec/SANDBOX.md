@@ -60,6 +60,16 @@ The executor sets `Command::current_dir()` to the sandbox root when a write-path
 
 Arguments annotated with `readPath` in `tools.json` are validated against the same writable roots. Agents can only read within directories they could also write to. This keeps the readable surface aligned with the writable surface — there is no separate "readable roots" concept.
 
+## Default Path-Like Value Check
+
+Arguments of kind `positional` or `flag` with no path annotation are subject to a runtime path-like value check by default. Values that start with `/`, start with `~`, start with `file://`, or contain `..` as a path component are rejected unless the parameter is annotated with `readPath: true`, `writePath: true`, or `unsafePath: true`. This makes the default safe — unannotated parameters cannot be used to access paths outside the sandbox.
+
+Arguments annotated with `unsafePath: true` skip all sandbox validation and the runtime path-like value check. This is an escape hatch for parameters that intentionally need unrestricted path access. **Every use must be justified.** The gateway logs a startup warning for each `unsafePath` parameter in enabled skills.
+
+## Default Working Directory
+
+When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This ensures that relative paths in unannotated parameters resolve within the sandbox boundary, even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`).
+
 ## Missing Sandbox Directory
 
 When the sandbox directory does not exist at profile root, there are no writable roots. All `writePath` and `readPath` validations fail. Skills without path-annotated arguments are **unaffected** — they continue to work normally.

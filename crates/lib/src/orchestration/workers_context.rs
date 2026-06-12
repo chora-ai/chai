@@ -202,7 +202,7 @@ mod tests {
             content: String::new(),
             tool_descriptor: None,
             capability_tier: None,
-            model_variant_of: None,
+            variant_of: None,
         }];
         let s = build_workers_context(&a, &catalog);
         assert!(!s.contains("provider"));

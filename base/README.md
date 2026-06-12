@@ -24,7 +24,7 @@ Always read the relevant convention file before adding or modifying a document i
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
-| **root** | Index and entry points (`README.md`) and working notes tracked in AGENTS.md. |
+| **root** | Index and entry points (`README.md`), security considerations (`SECURITY.md`), and working notes tracked in AGENTS.md. |
 
 ## Current Documents
 
@@ -79,7 +79,7 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[AGENTS.md](spec/AGENTS.md)** — Per-agent context dirs, skill configuration, system context, and tool lists.
 - **[CONTEXT.md](spec/CONTEXT.md)** — System string, workers roster, skills modes, tools, startup validation (lockfile verification, capability-tier and variant overlap warnings).
-- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill package versioned layout (`versions/<hash>/`, `active` symlink), frontmatter (`description`, `capability_tier`, `model_variant_of`, `metadata.requires.bins`), CLI lock/rollback commands.
+- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill package versioned layout (`versions/<hash>/`, `active` symlink), frontmatter (`description`, `capability_tier`, `variant_of`, `metadata.requires.bins`), CLI lock/rollback commands.
 - **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — Declarative tools, allowlist, argv mapping, scripts, resolvers.
 - **[SANDBOX.md](spec/SANDBOX.md)** — Write-path enforcement, writable roots, symlink-as-authorization.
 

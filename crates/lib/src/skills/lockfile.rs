@@ -363,7 +363,7 @@ mod tests {
             content: String::new(),
             tool_descriptor: None,
             capability_tier: None,
-            model_variant_of: None,
+            variant_of: None,
         }];
 
         let lock = SkillsLock {
@@ -394,7 +394,7 @@ mod tests {
             content: String::new(),
             tool_descriptor: None,
             capability_tier: None,
-            model_variant_of: None,
+            variant_of: None,
         }];
 
         let lock = SkillsLock {
@@ -425,7 +425,7 @@ mod tests {
             content: String::new(),
             tool_descriptor: None,
             capability_tier: None,
-            model_variant_of: None,
+            variant_of: None,
         }];
 
         let lock = SkillsLock {

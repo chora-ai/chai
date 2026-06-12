@@ -26,7 +26,7 @@ After skill loading and config resolution, the gateway runs two validation passe
 
 **Capability-tier validation** — For each agent's `skillsEnabled` list:
 - **Tier vs model** — Warn when an enabled skill's `capability_tier` assumes more capability than the agent's effective model is likely to provide (e.g., a `full` skill with a 7B local model). Informational warnings only; no strict mode yet.
-- **Variant overlap** — Warn when two enabled skills share a `model_variant_of` relationship (e.g., both `git` and `git-read` enabled for the same agent), creating redundant or overlapping tool surfaces.
+- **Variant overlap** — Warn when two enabled skills share a `variant_of` relationship (e.g., both `git` and `git-read` enabled for the same agent), creating redundant or overlapping tool surfaces.
 
 For a **new session**, when the user sends a message, the model receives:
 

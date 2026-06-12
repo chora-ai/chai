@@ -1,162 +1,6 @@
 {
   "tools": [
     {
-      "name": "git_status",
-      "description": "Show working tree status: current branch, staged changes, unstaged changes, and untracked files.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_log",
-      "description": "Show recent commit history.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "count": {
-            "type": "string",
-            "description": "Number of commits to show (e.g. '10'). Defaults to all if omitted."
-          },
-          "oneline": {
-            "type": "boolean",
-            "description": "Use compact one-line format per commit"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          },
-          "file_path": {
-            "type": "string",
-            "description": "Limit log to commits affecting this file or directory path within the repository"
-          }
-        }
-      }
-    },
-    {
-      "name": "git_diff",
-      "description": "Show differences between working tree, index, or commits.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "staged": {
-            "type": "boolean",
-            "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
-          },
-          "ref": {
-            "type": "string",
-            "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          },
-          "file_path": {
-            "type": "string",
-            "description": "Limit diff to a specific file or directory path within the repository"
-          }
-        }
-      }
-    },
-    {
-      "name": "git_show",
-      "description": "Show the contents of a specific commit (message, author, diff).",
-      "parameters": {
-        "type": "object",
-        "required": ["ref"],
-        "properties": {
-          "ref": {
-            "type": "string",
-            "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_branch",
-      "description": "List branches. Shows all local branches with the current branch marked.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "all": {
-            "type": "boolean",
-            "description": "Include remote-tracking branches"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_add",
-      "description": "Stage files for the next commit.",
-      "parameters": {
-        "type": "object",
-        "required": ["files"],
-        "properties": {
-          "files": {
-            "type": "string",
-            "description": "File path or pattern to stage (e.g. 'src/main.rs', '.')"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_commit",
-      "description": "Create a new commit with staged changes.",
-      "parameters": {
-        "type": "object",
-        "required": ["message"],
-        "properties": {
-          "message": {
-            "type": "string",
-            "description": "Commit message describing the changes"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_branch_create",
-      "description": "Create a new branch and switch to it.",
-      "parameters": {
-        "type": "object",
-        "required": ["name"],
-        "properties": {
-          "name": {
-            "type": "string",
-            "description": "Name for the new branch (e.g. 'feature/add-search')"
-          },
-          "path": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
       "name": "git_clone",
       "description": "Clone a remote repository into a local directory.",
       "parameters": {
@@ -213,7 +57,7 @@
           },
           "remote": {
             "type": "string",
-            "description": "Remote name (e.g. 'origin'). Uses tracking remote if omitted."
+            "description": "Remote name (e.g. 'origin'). Must be specified explicitly when pushing a branch for the first time (no tracking remote configured)."
           },
           "branch": {
             "type": "string",
@@ -242,87 +86,9 @@
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch", "add", "commit", "checkout -b", "clone", "pull", "push", "remote -v"]
+    "git": ["clone", "pull", "push", "remote -v"]
   },
   "execution": [
-    {
-      "tool": "git_status",
-      "binary": "git",
-      "subcommand": "status",
-      "args": [
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
-    },
-    {
-      "tool": "git_log",
-      "binary": "git",
-      "subcommand": "log",
-      "args": [
-        { "param": "count", "kind": "flag", "flag": "n" },
-        { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
-        { "param": "file_path", "kind": "positional", "optional": true },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "git_diff",
-      "binary": "git",
-      "subcommand": "diff",
-      "args": [
-        { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--cached" },
-        { "param": "ref", "kind": "positional", "optional": true },
-        { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "git_show",
-      "binary": "git",
-      "subcommand": "show",
-      "args": [
-        { "param": "ref", "kind": "positional" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "git_branch",
-      "binary": "git",
-      "subcommand": "branch",
-      "args": [
-        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
-    },
-    {
-      "tool": "git_add",
-      "binary": "git",
-      "subcommand": "add",
-      "args": [
-        { "param": "files", "kind": "positional" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
-    },
-    {
-      "tool": "git_commit",
-      "binary": "git",
-      "subcommand": "commit",
-      "args": [
-        { "param": "message", "kind": "flag", "flag": "m" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
-    },
-    {
-      "tool": "git_branch_create",
-      "binary": "git",
-      "subcommand": "checkout -b",
-      "args": [
-        { "param": "name", "kind": "positional" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
-    },
     {
       "tool": "git_clone",
       "binary": "git",
@@ -350,7 +116,13 @@
       "args": [
         { "param": "set_upstream", "kind": "flagifboolean", "flagIfTrue": "--set-upstream" },
         { "param": "remote", "kind": "positional", "optional": true },
-        { "param": "branch", "kind": "positional", "optional": true },
+        {
+          "param": "branch",
+          "kind": "positional",
+          "optional": true,
+          "denyPattern": "^(main|release/.+)$",
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },

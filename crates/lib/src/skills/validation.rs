@@ -1,10 +1,12 @@
 //! Startup validation of skill composition against agent configuration.
 //!
-//! Two checks run per agent:
-//! - **Variant overlap** — warns when two enabled skills share a `model_variant_of` relationship
+//! Three checks run per agent:
+//! - **Variant overlap** — warns when two enabled skills share a `variant_of` relationship
 //!   (e.g. `git` and `git-read` both enabled), creating redundant tool surfaces.
 //! - **Tier–model mismatch** — warns when a skill's `capability_tier` exceeds the likely capability
 //!   of the agent's configured model (e.g. `full`-tier skill with a 7B local model).
+//! - **unsafePath parameters** — warns when a skill tool has a parameter annotated with `unsafePath`,
+//!   which bypasses sandbox path validation. This makes escape hatches visible at startup.
 
 use super::SkillEntry;
 
@@ -19,13 +21,14 @@ pub fn validate_skill_composition(
     default_model: Option<&str>,
 ) {
     check_variant_overlap(agent_label, enabled_entries);
+    check_unsafe_path_params(agent_label, enabled_entries);
     if let Some(model) = default_model {
         check_tier_model_mismatch(agent_label, enabled_entries, model);
     }
 }
 
 /// Warn when two enabled skills share a variant relationship:
-/// - Both have the same `model_variant_of` parent
+/// - Both have the same `variant_of` parent
 /// - One is the parent and the other is its variant
 fn check_variant_overlap(agent_label: &str, entries: &[SkillEntry]) {
     let len = entries.len();
@@ -47,27 +50,53 @@ fn check_variant_overlap(agent_label: &str, entries: &[SkillEntry]) {
 }
 
 /// Two skills overlap if:
-/// - a.model_variant_of == Some(b.name) or b.model_variant_of == Some(a.name)
-/// - both have model_variant_of pointing to the same parent
+/// - a.variant_of == Some(b.name) or b.variant_of == Some(a.name)
+/// - both have variant_of pointing to the same parent
 fn skills_overlap(a: &SkillEntry, b: &SkillEntry) -> bool {
     // One is the parent of the other
-    if let Some(ref av) = a.model_variant_of {
+    if let Some(ref av) = a.variant_of {
         if av == &b.name {
             return true;
         }
     }
-    if let Some(ref bv) = b.model_variant_of {
+    if let Some(ref bv) = b.variant_of {
         if bv == &a.name {
             return true;
         }
     }
     // Both are variants of the same parent
-    if let (Some(ref av), Some(ref bv)) = (&a.model_variant_of, &b.model_variant_of) {
+    if let (Some(ref av), Some(ref bv)) = (&a.variant_of, &b.variant_of) {
         if av == bv {
             return true;
         }
     }
     false
+}
+
+/// Warn when a skill tool has a parameter annotated with `unsafePath`.
+/// This makes escape hatches visible at gateway startup so operators are
+/// aware of parameters that bypass sandbox path validation.
+fn check_unsafe_path_params(agent_label: &str, entries: &[SkillEntry]) {
+    for entry in entries {
+        let descriptor = match entry.tool_descriptor.as_ref() {
+            Some(d) => d,
+            None => continue,
+        };
+        for spec in &descriptor.execution {
+            for arg in &spec.args {
+                if arg.unsafe_path == Some(true) {
+                    log::warn!(
+                        "{}: skill '{}' tool '{}' parameter '{}' uses unsafePath — \
+                         this parameter bypasses sandbox validation",
+                        agent_label,
+                        entry.name,
+                        spec.tool,
+                        arg.param,
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// Warn when a skill's capability_tier is likely too high for the agent's model.
@@ -201,7 +230,7 @@ mod tests {
     fn make_entry(
         name: &str,
         capability_tier: Option<&str>,
-        model_variant_of: Option<&str>,
+        variant_of: Option<&str>,
     ) -> SkillEntry {
         SkillEntry {
             name: name.to_string(),
@@ -210,7 +239,7 @@ mod tests {
             content: String::new(),
             tool_descriptor: None,
             capability_tier: capability_tier.map(|s| s.to_string()),
-            model_variant_of: model_variant_of.map(|s| s.to_string()),
+            variant_of: variant_of.map(|s| s.to_string()),
         }
     }
 }
