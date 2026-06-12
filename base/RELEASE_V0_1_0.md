@@ -1,6 +1,6 @@
-# REL: v0.1.0 Release Requirements
+# RELEASE: v0.1.0 Release Requirements
 
-Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself (how releases are tagged, where notes live, changelog conventions), see [REL_PROCESS.md](REL_PROCESS.md).
+Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself (how releases are tagged, where notes live, changelog conventions), see [RELEASE_PROCESS.md](RELEASE_PROCESS.md).
 
 ## v0.1.0 Scope
 
@@ -70,8 +70,8 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### Release Build and Distribution
 
 - [ ] Create CI workflow for release builds with binary assets (Linux, macOS, Windows)
-- [ ] Decide on release asset naming and structure (see [REL_PROCESS.md](REL_PROCESS.md) design questions)
-- [ ] Decide whether to ship experimental feature binaries as release assets or require manual builds (see [REL_PROCESS.md](REL_PROCESS.md) design question 6)
+- [ ] Decide on release asset naming and structure (see [RELEASE_PROCESS.md](RELEASE_PROCESS.md) design questions)
+- [ ] Decide whether to ship experimental feature binaries as release assets or require manual builds (see [RELEASE_PROCESS.md](RELEASE_PROCESS.md) design question 6)
 - [ ] Verify `cargo install --path crates/cli` and `cargo install --path crates/desktop` work cleanly from the release tag
 - [ ] Test `--features matrix` builds produce working binaries
 - [ ] If Signal becomes an optional feature (`--features signal`), test that build path as well
@@ -85,7 +85,7 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 ### chai-examples Alignment
 
-The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [REL_PROCESS.md](REL_PROCESS.md) design question 7).
+The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [RELEASE_PROCESS.md](RELEASE_PROCESS.md) design question 7).
 
 - [ ] Review example profiles (`assistant`, `developer`, `skillsmith`) against v0.1.0 config schema and agent model
 - [ ] Review example skills (`notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, `websearch`) against v0.1.0 skill format and tools schema

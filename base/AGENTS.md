@@ -28,8 +28,8 @@ When a working note matures (e.g. a bug fix is verified, or a feature grows into
 - **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. Round 3 in progress.
 - **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.
 - **[FEAT_SKILL_LOGS.md](FEAT_SKILL_LOGS.md)** — Expose chai process logs as a chai skill so the agent can read diagnostic output (finish_reason, usage tokens).
-- **[REL_V0_1_0.md](REL_V0_1_0.md)** — Requirements and open questions for the first official release (v0.1.0).
-- **[REL_PROCESS.md](REL_PROCESS.md)** — Release process design: how releases are tagged, tracked, documented, and distributed.
+- **[RELEASE_V0_1_0.md](RELEASE_V0_1_0.md)** — Requirements and open questions for the first official release (v0.1.0).
+- **[RELEASE_PROCESS.md](RELEASE_PROCESS.md)** — Release process design: how releases are tagged, tracked, documented, and distributed.
 - **[SECURITY.md](SECURITY.md)** — Known security considerations and vulnerabilities in Chai's agent sandboxing model.
 - **[BUG_FILES_REPLACE_WHITESPACE.md](BUG_FILES_REPLACE_WHITESPACE.md)** — `files_replace` has two issues: multi-line patterns fail with "0 replacements" (whitespace/encoding mismatches), and successful replacements can produce corrupted output (misplaced lines, duplicate match insertions, line interleaving).
 - **[BUG_CODE_COMMENTS_REJECTED.md](BUG_CODE_COMMENTS_REJECTED.md)** — `files_replace` pattern parameter misinterpreted by validation and CLI parsing: `///` rejected as absolute path, `-` interpreted as CLI flag.
