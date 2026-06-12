@@ -1,5 +1,5 @@
 ---
-description: Read files, list directories, search file contents, write files, and delete files and directories.
+description: Read files, list directories, search file contents, write files, replace patterns, and delete files and directories.
 capability_tier: full
 metadata:
   requires:
@@ -17,5 +17,8 @@ metadata:
 - prefer rewriting an entire affected section as a single `files_write_lines` call over making multiple small targeted edits to the same file
 - when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
 - after using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines
+- use `files_replace` for bulk find-and-replace across a file; use `files_write_lines` for targeted edits where surrounding context must be verified before replacement
 
 The `pattern` parameter in `files_search_content` supports extended regex (ERE): `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping.
+
+The `pattern` parameter in `files_replace` is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). The `\n` in a pattern matches a newline, enabling multi-line patterns and line deletion (e.g., matching `line_content\n` and replacing with `""` deletes the line). Capture groups from the pattern can be referenced in the replacement as `$1`–`$9`. Use `$$` for a literal `$`.

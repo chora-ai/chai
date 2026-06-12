@@ -293,6 +293,21 @@ enum FileCmd {
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
+    /// Replace all occurrences of a regex pattern in a file. Supports capture groups ($1-$9) in the replacement string.
+    Replace {
+        /// Absolute file path
+        #[arg(long)]
+        path: String,
+        /// Search pattern (extended regex, whole-file matching with multiline mode so ^ and $ match line boundaries)
+        #[arg(long)]
+        pattern: String,
+        /// Replacement string. Use $1-$9 for capture group references. Use $$ for a literal $.
+        #[arg(long)]
+        replacement: String,
+        /// Show line numbers in the diff output
+        #[arg(long)]
+        line_numbers: bool,
+    },
     /// Read a range of lines from a file with line numbers. Outputs lines in the format {line_number}|{content}.
     ReadLines {
         /// Absolute file path to read
@@ -529,6 +544,46 @@ fn run_file(cmd: FileCmd) -> anyhow::Result<()> {
             println!(
                 "patched {} - removed {} line(s), added {} line(s)\n{}",
                 path, removed, added, diff
+            );
+            Ok(())
+        }
+        FileCmd::Replace { path, pattern, replacement, line_numbers } => {
+            let target = std::path::Path::new(&path);
+            if !target.exists() {
+                anyhow::bail!("file does not exist: {}", path);
+            }
+            if !target.is_file() {
+                anyhow::bail!("not a file: {}", path);
+            }
+
+            let original = std::fs::read_to_string(target)
+                .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
+
+            let re = regex::RegexBuilder::new(&pattern)
+                .multi_line(true)
+                .build()
+                .map_err(|e| anyhow::anyhow!("invalid pattern: {}", e))?;
+
+            let mut count = 0usize;
+            let new_content = re.replace_all(&original, |caps: &regex::Captures| {
+                count += 1;
+                let mut expanded = String::new();
+                caps.expand(&replacement, &mut expanded);
+                expanded
+            });
+
+            if count == 0 {
+                println!("0 replacements in {}", path);
+                return Ok(());
+            }
+
+            std::fs::write(target, new_content.as_bytes())
+                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+
+            let diff = format_replace_diff(&original, &*new_content, line_numbers);
+            println!(
+                "{} replacement(s) in {}\n{}",
+                count, path, diff
             );
             Ok(())
         }
@@ -770,6 +825,230 @@ fn format_patch_diff(
     }
 
     diff
+}
+
+/// Produce a diff between original and new content, showing all changed lines
+/// with context. Each hunk shows removed lines prefixed with `-` and added
+/// lines prefixed with `+`, with a few lines of surrounding context.
+fn format_replace_diff(original: &str, new: &str, line_numbers: bool) -> String {
+    let orig_lines: Vec<&str> = original.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+
+    let hunks = compute_diff_hunks(&orig_lines, &new_lines);
+
+    if hunks.is_empty() {
+        return String::new();
+    }
+
+    let context = 3;
+    let mut diff = String::new();
+
+    for hunk in &hunks {
+        // Context before
+        let ctx_start = hunk.orig_start.saturating_sub(context);
+        for i in ctx_start..hunk.orig_start {
+            if line_numbers {
+                diff.push_str(&format!(" {}|{}\n", i + 1, orig_lines[i]));
+            } else {
+                diff.push_str(&format!(" {}\n", orig_lines[i]));
+            }
+        }
+
+        // Removed lines
+        for i in hunk.orig_start..hunk.orig_end {
+            if line_numbers {
+                diff.push_str(&format!("-{}|{}\n", i + 1, orig_lines[i]));
+            } else {
+                diff.push_str(&format!("-{}\n", orig_lines[i]));
+            }
+        }
+
+        // Added lines
+        for (offset, line_idx) in (hunk.new_start..hunk.new_end).enumerate() {
+            if line_numbers {
+                diff.push_str(&format!("+{}|{}\n", hunk.new_start + offset + 1, new_lines[line_idx]));
+            } else {
+                diff.push_str(&format!("+{}\n", new_lines[line_idx]));
+            }
+        }
+
+        // Context after (from original, since we show the original context)
+        let ctx_end = (hunk.orig_end + context).min(orig_lines.len());
+        for i in hunk.orig_end..ctx_end {
+            if line_numbers {
+                diff.push_str(&format!(" {}|{}\n", i + 1, orig_lines[i]));
+            } else {
+                diff.push_str(&format!(" {}\n", orig_lines[i]));
+            }
+        }
+    }
+
+    diff
+}
+
+/// A contiguous region of change between original and new content.
+struct DiffHunk {
+    /// Start index in orig_lines (inclusive)
+    orig_start: usize,
+    /// End index in orig_lines (exclusive)
+    orig_end: usize,
+    /// Start index in new_lines (inclusive)
+    new_start: usize,
+    /// End index in new_lines (exclusive)
+    new_end: usize,
+}
+
+/// Compute diff hunks using the LCS algorithm. Delete and Insert ops that are
+/// adjacent (not separated by an Equal) are merged into a single hunk. Nearby
+/// hunks within 6 lines are also merged.
+fn compute_diff_hunks(orig: &[&str], new: &[&str]) -> Vec<DiffHunk> {
+    let m = orig.len();
+    let n = new.len();
+
+    // Build LCS length table
+    let mut dp = vec![vec![0usize; n + 1]; m + 1];
+    for i in 1..=m {
+        for j in 1..=n {
+            if orig[i - 1] == new[j - 1] {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                dp[i][j] = dp[i - 1][j].max(dp[i][j - 1]);
+            }
+        }
+    }
+
+    // Backtrack to produce tagged changes, but this time we also track
+    // the positions in both sequences so we can detect gaps.
+    #[derive(Debug)]
+    enum Tag {
+        Delete(usize), // orig index
+        Insert(usize), // new index
+    }
+
+    let mut tags = Vec::new();
+    let mut i = m;
+    let mut j = n;
+    while i > 0 || j > 0 {
+        if i > 0 && j > 0 && orig[i - 1] == new[j - 1] {
+            i -= 1;
+            j -= 1;
+        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
+            tags.push(Tag::Insert(j - 1));
+            j -= 1;
+        } else {
+            tags.push(Tag::Delete(i - 1));
+            i -= 1;
+        }
+    }
+    tags.reverse();
+
+    if tags.is_empty() {
+        return Vec::new();
+    }
+
+    // Group tags into hunks. Tags that are adjacent in both sequences
+    // (no gap of equal lines) belong to the same hunk. We detect gaps
+    // by checking if consecutive Delete tags have adjacent orig indices,
+    // and consecutive Insert tags have adjacent new indices.
+    //
+    // Strategy: Walk the tags and maintain the current hunk's ranges.
+    // When we encounter a tag that creates a gap in both orig and new
+    // sequences, flush the current hunk and start a new one.
+    let mut hunks: Vec<DiffHunk> = Vec::new();
+    let mut cur_del: Option<(usize, usize)> = None; // (start, end_exclusive)
+    let mut cur_ins: Option<(usize, usize)> = None; // (start, end_exclusive)
+    let mut last_orig: Option<usize> = None;
+    let mut last_new: Option<usize> = None;
+
+    for tag in &tags {
+        let (tag_orig, tag_new) = match tag {
+            Tag::Delete(idx) => (Some(*idx), None),
+            Tag::Insert(idx) => (None, Some(*idx)),
+        };
+
+        // Check if this tag is adjacent to the previous one.
+        // A tag is adjacent if it doesn't create a gap in either sequence
+        // relative to the current hunk's extent.
+        let mut is_gap = false;
+        if let Some(lo) = last_orig {
+            if let Some(to) = tag_orig {
+                // Two Delete tags: check orig adjacency
+                if to > lo + 1 {
+                    is_gap = true;
+                }
+            }
+        }
+        if let Some(ln) = last_new {
+            if let Some(tn) = tag_new {
+                // Two Insert tags: check new adjacency
+                if tn > ln + 1 {
+                    is_gap = true;
+                }
+            }
+        }
+
+        // If there's a gap and we have an existing hunk, flush it
+        if is_gap {
+            if let Some((ds, de)) = cur_del.take() {
+                let (ns, ne) = cur_ins.take().unwrap_or((ds, ds));
+                hunks.push(DiffHunk { orig_start: ds, orig_end: de, new_start: ns, new_end: ne });
+            } else if let Some((ns, ne)) = cur_ins.take() {
+                hunks.push(DiffHunk { orig_start: ns.min(m), orig_end: ns.min(m), new_start: ns, new_end: ne });
+            }
+            last_orig = None;
+            last_new = None;
+        }
+
+        // Extend current hunk
+        match tag {
+            Tag::Delete(idx) => {
+                match &mut cur_del {
+                    Some((_, end)) => { *end = idx + 1; }
+                    None => { cur_del = Some((*idx, idx + 1)); }
+                }
+                last_orig = Some(*idx);
+            }
+            Tag::Insert(idx) => {
+                match &mut cur_ins {
+                    Some((_, end)) => { *end = idx + 1; }
+                    None => { cur_ins = Some((*idx, idx + 1)); }
+                }
+                last_new = Some(*idx);
+            }
+        }
+    }
+
+    // Flush final hunk
+    if let Some((ds, de)) = cur_del {
+        let (ns, ne) = cur_ins.unwrap_or((ds, ds));
+        hunks.push(DiffHunk { orig_start: ds, orig_end: de, new_start: ns, new_end: ne });
+    } else if let Some((ns, ne)) = cur_ins {
+        hunks.push(DiffHunk { orig_start: ns.min(m), orig_end: ns.min(m), new_start: ns, new_end: ne });
+    }
+
+    // Merge nearby hunks (within 6 lines in orig) for context overlap
+    if hunks.len() <= 1 {
+        return hunks;
+    }
+    let gap = 6;
+    let mut merged: Vec<DiffHunk> = Vec::new();
+    let (mut cos, mut coe) = (hunks[0].orig_start, hunks[0].orig_end);
+    let (mut cns, mut cne) = (hunks[0].new_start, hunks[0].new_end);
+
+    for hunk in hunks.iter().skip(1) {
+        if hunk.orig_start <= coe + gap {
+            coe = hunk.orig_end;
+            cne = hunk.new_end;
+        } else {
+            merged.push(DiffHunk { orig_start: cos, orig_end: coe, new_start: cns, new_end: cne });
+            cos = hunk.orig_start;
+            coe = hunk.orig_end;
+            cns = hunk.new_start;
+            cne = hunk.new_end;
+        }
+    }
+    merged.push(DiffHunk { orig_start: cos, orig_end: coe, new_start: cns, new_end: cne });
+    merged
 }
 
 /// Fold common Unicode characters to their ASCII equivalents for fuzzy comparison.

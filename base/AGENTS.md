@@ -26,7 +26,6 @@ When a working note matures (e.g. a bug fix is verified, or a feature grows into
 ## Active Work
 
 - **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. Round 3 in progress.
-- **[FEAT_FILES_REPLACE.md](FEAT_FILES_REPLACE.md)** — Add `files_replace` tool to the `files` skill for sed-style bulk find-and-replace across a file, backed by a `chai file replace` subcommand.
 - **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.
 - **[FEAT_SKILL_LOGS.md](FEAT_SKILL_LOGS.md)** — Expose chai process logs as a chai skill so the agent can read diagnostic output (finish_reason, usage tokens).
 - **[REL_V0_1_0.md](REL_V0_1_0.md)** — Requirements and open questions for the first official release (v0.1.0).

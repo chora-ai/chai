@@ -175,6 +175,28 @@ chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
 
 The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--original-content` is provided, the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected.
 
+### Find and Replace
+
+```bash
+chai file replace --path <PATH> --pattern <PATTERN> --replacement <REPLACEMENT> [--line-numbers]
+```
+
+Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
+
+**Line deletion** — Match the line content plus its trailing newline and replace with an empty string to delete the line entirely:
+
+```bash
+chai file replace --path config.toml --pattern 'obsolete_field: None,\n' --replacement ''
+```
+
+**Capture groups** — Bump a version number across all matching lines:
+
+```bash
+chai file replace --path config.toml --pattern 'version = "(\d+)\.(\d+)\.(\d+)"' --replacement 'version = "$1.$2.4"'
+```
+
+When `--line-numbers` is omitted, it defaults to true (line numbers shown in the diff). If zero matches are found, exits 0 with a "0 replacements" message.
+
 ### Deleting
 
 ```bash

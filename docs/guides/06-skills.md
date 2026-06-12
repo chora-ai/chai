@@ -168,11 +168,12 @@ Bundled skills cover common agent operations with no external binary dependencie
 | Skill | Tools | Tier | Description |
 |-------|-------|------|-------------|
 | `files-read` | 4 | minimal | Read-only file inspection (read, list, search, read lines) |
-| `files` | 9 | full | Full file operations including write, append, delete, and line-level patching |
+| `files` | 9 | full | Full file operations including write, append, delete, line-level patching, and bulk find-and-replace |
 | `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
-| `git` | 8 | moderate | Local git operations (read + add, commit, branch create) |
+| `git` | 10 | moderate | Local git operations (read + add, commit, branch create, checkout, branch delete) |
 | `git-remote` | 4 | minimal | Git remote operations (clone, pull, push, remote) |
-| `kb` | 6 | moderate | Knowledge base CRUD (read, write, append, delete, list, search) |
+| `kb-read` | 4 | minimal | Read-only knowledge base inspection (read, list, search, read lines) |
+| `kb` | 10 | moderate | Knowledge base CRUD (read, write, append, delete, list, search, read lines, write lines, replace, delete dir) |
 | `kb-daily` | 3 | minimal | Daily note operations with date-based path resolution |
 | `kb-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for KB notes |
 | `kb-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
@@ -190,14 +191,15 @@ Several bundled skills come in **variants** — related skills that provide diff
 | Domain | Variant | Tools | Tier | Best For |
 |--------|---------|-------|------|----------|
 | Files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
-| Files | `files` | 9 | full | Agents that need to write, patch, and delete files |
+| Files | `files` | 9 | full | Agents that need to write, patch, replace, and delete files |
 | Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
-| Git | `git` | 8 | moderate | Local development (commit, branch) |
+| Git | `git` | 10 | moderate | Local development (commit, branch, checkout) |
 | Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
+| KB | `kb-read` | 4 | minimal | Inspector agents that only need to read notes |
 | KB | `kb-daily` | 3 | minimal | Daily note creation and appending |
 | KB | `kb-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
 | KB | `kb-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
-| KB | `kb` | 6 | moderate | Full note CRUD |
+| KB | `kb` | 10 | moderate | Full note CRUD including bulk find-and-replace |
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
@@ -310,7 +312,7 @@ chai skill delete --skill-name my-skill
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
 | How do I enable a skill? | Add its name to the `skillsEnabled` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
-| What bundled skills are available? | 13 skills covering files, git, knowledge base, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
+| What bundled skills are available? | 14 skills covering files, git, knowledge base, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
 | How do I create a skill? | `chai skill init --name <name> --description "..."`, then customize the files. |
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
