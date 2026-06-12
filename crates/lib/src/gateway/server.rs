@@ -16,8 +16,8 @@ use crate::config::{
 use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
-    AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, WsRequest,
-    WsResponse,
+    AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, StopParams,
+    WsRequest, WsResponse,
 };
 use crate::init;
 use crate::orchestration::{
@@ -50,9 +50,11 @@ use axum::{
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 
 const PROTOCOL_VERSION: u32 = 1;
@@ -179,6 +181,9 @@ pub struct GatewayState {
     pub skill_packages_discovered: usize,
     /// Orchestrator **`AGENT.md`** directory (`<profile>/agents/<orchestratorId>/`).
     pub orchestrator_context_dir: PathBuf,
+    /// Per-session stop flags. When set, the agent loop breaks after the current iteration.
+    /// The flag is cleared at the start of each new turn.
+    pub session_stop_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
 }
 
 /// Per-provider runtime state: discovered model name list.
@@ -641,6 +646,14 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     let provider_dyn = state.provider_clients.get(&provider_choice)
         .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
         .expect("provider client should exist");
+    // Get or create the stop flag for this session (used by channel stop if needed).
+    let stop_flag = {
+        let mut flags = state.session_stop_flags.write().await;
+        flags
+            .entry(session_id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone()
+    };
     let result = agent::run_turn_dyn(
         &state.session_store,
         &session_id,
@@ -653,6 +666,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         tool_executor,
         delegate,
         None,
+        Some(stop_flag),
     )
     .await;
     let result = match result {
@@ -895,6 +909,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         skills_discovery_root: skills_dir,
         skill_packages_discovered: all_entries.len(),
         orchestrator_context_dir: orch_context_dir,
+        session_stop_flags: Arc::new(RwLock::new(HashMap::new())),
     };
 
     // Spawn model discovery tasks for each configured provider.
@@ -1762,6 +1777,15 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let (tools, tool_executor) = state.tools_and_executor();
                 let tools = merge_delegate_task(tools, has_workers);
                 let worker_tools = worker_tool_list(tools.as_ref());
+                // Get or create the stop flag for this session. The flag is cleared
+                // at the start of each new turn inside execute_turn_main.
+                let stop_flag = {
+                    let mut flags = state.session_stop_flags.write().await;
+                    flags
+                        .entry(session_id.clone())
+                        .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+                        .clone()
+                };
                 let delegate = Some(DelegateContext {
                     clients: &state.provider_clients,
                     providers: &state.config.providers,
@@ -1803,6 +1827,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     tool_executor,
                     delegate,
                     None,
+                    Some(stop_flag),
                 )
                 .await;
                 match run_result
@@ -1855,6 +1880,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             "toolCalls": tool_calls_payload,
                             "toolResults": tool_results_payload,
                             "loopLimitReached": result.loop_limit_reached,
+                            "stopped": result.stopped,
                         });
                         if result.loop_limit_reached && !result.pending_tool_calls.is_empty() {
                             let pending = serde_json::to_value(&result.pending_tool_calls)
@@ -1869,6 +1895,25 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
                     }
                 }
+            }
+            "stop" => {
+                let params: StopParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let res = WsResponse::err(&req.id, "invalid stop params");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        continue;
+                    }
+                };
+                let flags = state.session_stop_flags.read().await;
+                if let Some(flag) = flags.get(&params.session_id) {
+                    flag.store(true, Ordering::SeqCst);
+                    log::info!("stop: set stop flag for session {}", params.session_id);
+                } else {
+                    log::debug!("stop: no active turn for session {}, ignoring", params.session_id);
+                }
+                let res = WsResponse::ok(&req.id, json!({ "stopped": true }));
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
             }
             _ => {
                 let res = WsResponse::err(&req.id, format!("unknown method: {}", req.method));

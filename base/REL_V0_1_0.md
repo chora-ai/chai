@@ -67,14 +67,6 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 - [ ] Remove any backwards-compatible code or compatibility notes (clean slate for v0.1.0)
 - [ ] Verify all `log::info!` / `log::warn!` / `log::error!` messages follow lowercase-first convention (per `chai/AGENTS.md`)
 
-### Desktop App
-
-- [ ] Add stop button to desktop chat input area — see [FEAT_STOP_BUTTON.md](FEAT_STOP_BUTTON.md)
-- [ ] Stop button pauses agent turn after current iteration completes, preserving session context
-- [ ] Gateway `stop` WebSocket method signals the agent to break out of the tool loop
-- [ ] Send button disabled during active turn, enabled when idle or paused
-- [ ] Test that stopped turns produce valid session transcripts and can be continued
-
 ### Release Build and Distribution
 
 - [ ] Create CI workflow for release builds with binary assets (Linux, macOS, Windows)

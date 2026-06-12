@@ -147,6 +147,13 @@ pub struct AgentParams {
     pub model: Option<String>,
 }
 
+/// Params for WS method "stop": signal the agent to stop the current turn after the current iteration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopParams {
+    pub session_id: String,
+}
+
 impl WsResponse {
     pub fn ok(id: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {

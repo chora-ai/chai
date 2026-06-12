@@ -80,6 +80,8 @@ pub struct ChaiApp {
     chat_error: Option<String>,
     /// When Some, a chat turn is in flight; we read the result here.
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
+    /// When Some, a stop request is in flight; we read the result here.
+    stop_receiver: Option<mpsc::Receiver<Result<bool, String>>>,
     /// User message we sent for the in-flight turn (used when reply creates a new session).
     pending_user_message: Option<String>,
     /// True when the in-flight turn was started for a new (previously unbound) session.
@@ -192,6 +194,7 @@ impl Default for ChaiApp {
             chat_input: String::new(),
             chat_error: None,
             chat_turn_receiver: None,
+            stop_receiver: None,
             pending_user_message: None,
             chat_turn_is_new_session: false,
             session_messages: BTreeMap::new(),
@@ -363,6 +366,7 @@ impl ChaiApp {
         // Drop any in-flight agent RPC so a late reply cannot re-bind `chat_session_id` to the
         // previous server session (which would make the next send continue that history).
         self.chat_turn_receiver = None;
+        self.stop_receiver = None;
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.chat_messages.clear();
@@ -378,6 +382,7 @@ impl ChaiApp {
         self.chat_messages.clear();
         self.chat_error = None;
         self.chat_turn_receiver = None;
+        self.stop_receiver = None;
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.session_messages.clear();
@@ -436,13 +441,14 @@ impl ChaiApp {
                             }
                         }
                         let reply_is_empty = reply.reply.trim().is_empty();
-                        // When the tool loop limit was reached, skip the assistant message when:
-                        // (1) content is empty — the tool_loop_limit banner already communicates
-                        //     what happened, and an empty frame adds no useful information.
+                        // When the tool loop limit was reached or the turn was stopped, skip the
+                        // assistant message when:
+                        // (1) content is empty — the banner already communicates what happened,
+                        //     and an empty frame adds no useful information.
                         // (2) an assistant_progress with the same content already exists — the
                         //     progress message shows the intermediate text and the banner
                         //     explains the interruption; a duplicate assistant frame is redundant.
-                        let skip_assistant = if reply.loop_limit_reached {
+                        let skip_assistant = if reply.loop_limit_reached || reply.stopped {
                             if reply_is_empty {
                                 true
                             } else {
@@ -530,6 +536,18 @@ impl ChaiApp {
                                     "tool loop iteration limit reached",
                                     reply.pending_tool_calls.clone(),
                                 ));
+                            }
+                        }
+                        // When the turn was stopped by the user, add a banner so the
+                        // user knows the turn was paused and can send a new message.
+                        // Only check for an existing banner in recent messages (since
+                        // the last user message) so that multiple stops in the same
+                        // session each get their own banner.
+                        if reply.stopped {
+                            let last_user_idx = entry.iter().rposition(|m| m.role == "user");
+                            let already_has_banner = entry.iter().skip(last_user_idx.unwrap_or(0)).any(|m| m.role == "turn_stopped");
+                            if !already_has_banner {
+                                entry.push(ChatMessage::turn_stopped());
                             }
                         }
                         // Retain only the most recent pre-session error so it doesn't disappear
@@ -745,6 +763,35 @@ impl ChaiApp {
         self.chat_turn_receiver = Some(rx);
     }
 
+    /// Signal the gateway to stop the current agent turn for the active session.
+    /// The agent finishes the current iteration, then pauses. The session transcript
+    /// is preserved and the user can send a new message to continue.
+    fn stop_chat_turn(&mut self) {
+        let session_id = match self.chat_session_id {
+            Some(ref id) => id.clone(),
+            None => return,
+        };
+        if self.stop_receiver.is_some() {
+            return;
+        }
+        let profile_override = self.effective_profile_override().map(String::from);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let result = state::gateway::send_stop(profile_override.as_deref(), &session_id);
+            let _ = tx.send(result);
+        });
+        self.stop_receiver = Some(rx);
+    }
+
+    /// Poll for the stop request result. Call each frame.
+    fn poll_stop(&mut self) {
+        if let Some(rx) = &self.stop_receiver {
+            if let Ok(_result) = rx.try_recv() {
+                self.stop_receiver = None;
+            }
+        }
+    }
+
     // screen-specific UI functions moved into app::screens::*
 }
 
@@ -797,6 +844,7 @@ impl eframe::App for ChaiApp {
         self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
         self.poll_chat_turn();
+        self.poll_stop();
 
         // Layout-level UI components
         let mut start_gateway = false;

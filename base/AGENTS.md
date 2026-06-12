@@ -31,3 +31,6 @@ When a working note matures (e.g. a bug fix is verified, or a feature grows into
 - **[REL_V0_1_0.md](REL_V0_1_0.md)** — Requirements and open questions for the first official release (v0.1.0).
 - **[REL_PROCESS.md](REL_PROCESS.md)** — Release process design: how releases are tagged, tracked, documented, and distributed.
 - **[SECURITY.md](SECURITY.md)** — Known security considerations and vulnerabilities in Chai's agent sandboxing model.
+- **[BUG_FILES_REPLACE_WHITESPACE.md](BUG_FILES_REPLACE_WHITESPACE.md)** — `files_replace` has two issues: multi-line patterns fail with "0 replacements" (whitespace/encoding mismatches), and successful replacements can produce corrupted output (misplaced lines, duplicate match insertions, line interleaving).
+- **[BUG_CODE_COMMENTS_REJECTED.md](BUG_CODE_COMMENTS_REJECTED.md)** — `files_replace` pattern parameter misinterpreted by validation and CLI parsing: `///` rejected as absolute path, `-` interpreted as CLI flag.
+- **[BUG_FILES_WRITE_LINES.md](BUG_FILES_WRITE_LINES.md)** — `files_write_lines` `original_content` mismatches when line numbers shift between reads and edits.

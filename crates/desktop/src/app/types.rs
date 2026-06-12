@@ -119,6 +119,24 @@ impl ChatMessage {
             },
         }
     }
+
+    /// Agent turn was stopped by the user. The session transcript is preserved
+    /// and the user can send a new message to continue.
+    pub(crate) fn turn_stopped() -> Self {
+        Self {
+            role: "turn_stopped".to_string(),
+            content: "turn paused — send a message to continue".to_string(),
+            tool_calls: None,
+            tool_results: None,
+            delegation_event: None,
+            tool_name: None,
+            tool_args: None,
+            tool_result: None,
+            tool_index: None,
+            source: None,
+            pending_tool_calls: None,
+        }
+    }
 }
 
 /// Reply from a single agent turn, as seen by the app.
@@ -132,6 +150,8 @@ pub struct AgentReply {
     pub(crate) loop_limit_reached: bool,
     /// Tool calls that were generated but not executed because the loop limit was reached.
     pub(crate) pending_tool_calls: Vec<serde_json::Value>,
+    /// Whether the turn was stopped by the user via the stop button.
+    pub(crate) stopped: bool,
 }
 
 /// Event emitted by the gateway for session timelines.
