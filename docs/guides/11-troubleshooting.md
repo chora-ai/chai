@@ -73,7 +73,7 @@ The requested model isn't loaded in LM Studio. Either:
 - Configure `autoLoad: "lmstudio"` so chai requests automatic loading:
 
 ```json
-{ "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
 ```
 
 ### Cloud Provider: Authentication Failed
@@ -142,6 +142,24 @@ The directory name under `versions/` must be the 12-hex-character truncated SHA-
 2. Follow the manual workflow in [Skills → Manual Workflow](06-skills.md#manual-workflow), which includes computing the correct hash
 
 **Do not** edit files in place under `versions/<hash>/` — those directories are immutable by design.
+
+### Skills Lock Verification Failure
+
+The gateway refuses to start in `strict` mode (the default `skillLockMode`) when an enabled skill's active version doesn't match its pinned hash in `skills.lock`. This can happen when:
+
+- You updated a skill with `chai skill write-*` but didn't re-lock — Run `chai skill lock` to update the lock.
+- You rolled back a skill manually by repointing the `active` symlink — Run `chai skill lock` to re-pin.
+- The lock file is stale after a `chai init` update — Run `chai skill lock` to re-pin at the current versions.
+
+To bypass the check temporarily, set `skillLockMode: "warn"` in your profile's `config.json`:
+
+```json
+{
+  "skillLockMode": "warn"
+}
+```
+
+This logs warnings instead of refusing to start. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
 
 ### Tool Validation Fails
 

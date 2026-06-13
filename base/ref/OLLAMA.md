@@ -2,7 +2,7 @@
 status: current
 ---
 
-# Ollama Endpoint Reference
+# Ollama Endpoint Type Reference
 
 Reference for the **`"ollama"` endpoint type** in Chai: the native Ollama wire protocol, request/response shapes, model discovery, and how Ollama compares to the OpenAI-compatible endpoint. Use this when adding features, debugging Ollama integration, or understanding the differences between the two endpoint types in Chai.
 
@@ -11,7 +11,7 @@ Reference for the **`"ollama"` endpoint type** in Chai: the native Ollama wire p
 - **Purpose:** Document the `ollama` wire protocol (routes, shapes, streaming format), current Chai usage, Ollama API capabilities we do not yet use, and differences from the `openai-compat` endpoint type.
 - **How to use:** When adding features (e.g. generation options, embeddings, model lifecycle, streaming to the channel), consult this doc.
 
-## Endpoint vs. Hosting Service
+## Endpoint Type vs. Hosting Service
 
 The **endpoint type** describes the wire protocol — what HTTP routes to call and how to serialize/deserialize messages. It is **not** a hosting service, a product, or a deployment location. A provider's **hosting service** (or lack thereof) determines where the model runs: on your personal device (local), on your infrastructure (self-hosted), or on a third-party's cloud (hosted API).
 
@@ -23,7 +23,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 | **Hosting service** | The product that serves the API | Ollama |
 | **Deployment** | Where the model physically runs | Local (your device), self-hosted (your servers) |
 
-**Why this distinction matters:** Configuring a provider with `endpoint: "ollama"` determines the wire protocol, not where the model runs. Ollama is most commonly run locally on a personal device (all data stays on your machine), but the same endpoint type is used when Ollama runs on a self-hosted server — you change `baseUrl` to reach the remote Ollama instance. The privacy and cost profile depends on the deployment, not the endpoint type.
+**Why this distinction matters:** Configuring a provider with `endpointType: "ollama"` determines the wire protocol, not where the model runs. Ollama is most commonly run locally on a personal device (all data stays on your machine), but the same endpoint type is used when Ollama runs on a self-hosted server — you change `baseUrl` to reach the remote Ollama instance. The privacy and cost profile depends on the deployment, not the endpoint type.
 
 ## Official Ollama API
 
@@ -40,7 +40,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 
 - **`crates/lib/src/providers/ollama.rs`** — Single Ollama HTTP client.
 - **`OllamaClient::new(base_url: Option<String>)`** — Default base URL `http://127.0.0.1:11434`; no auth (local only).
-- **Config** — Ollama is configured as `{ "id": "ollama", "endpoint": "ollama" }` in the `providers` array. `agents.defaultProvider` references the provider `id`. `agents.defaultModel` in config (e.g. `llama3.2:3b`, `qwen3:8b`). Model name must match `ollama list` exactly. See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
+- **Config** — Ollama is configured as `{ "id": "ollama", "endpointType": "ollama" }` in the `providers` array. `agents.defaultProvider` references the provider `id`. `agents.defaultModel` in config (e.g. `llama3.2:3b`, `qwen3:8b`). Model name must match `ollama list` exactly. See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
 ### Endpoints Used
 
@@ -57,7 +57,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 
 ### Where Ollama Is Referenced
 
-- **Gateway server** — Holds **`OllamaClient`** for any provider with `endpoint: "ollama"`; model lists are stored per provider id. Resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when a provider with `endpoint: "ollama"` is referenced in `defaultProvider` (inbound messages and WebSocket **`agent`** requests).
+- **Gateway server** — Holds **`OllamaClient`** for any provider with `endpointType: "ollama"`; model lists are stored per provider id. Resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when a provider with `endpointType: "ollama"` is referenced in `defaultProvider` (inbound messages and WebSocket **`agent`** requests).
 - **Agent** — **`run_turn_dyn`** builds messages and calls the provider's **`chat`** / **`chat_stream`**; when the backend is Ollama, that is **`OllamaClient`**. Model id comes from config or override (**`agents.defaultModel`** in JSON). Handles **`tool_calls`** and re-calls up to a fixed max iterations.
 - **Tools** — Skills with a `tools.json` descriptor (e.g. notesmd, notesmd-daily, obsidian, obsidian-daily) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
 
@@ -94,7 +94,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | `String` | Yes | — | Unique provider id referenced by agents (`defaultProvider`, `enabledProviders`). |
-| `endpoint` | `EndpointType` | Yes | — | Must be `"ollama"` for this endpoint type. |
+| `endpointType` | `EndpointType` | Yes | — | Must be `"ollama"` for this endpoint type. |
 | `baseUrl` | `String` | No | `http://127.0.0.1:11434` | Base URL for the Ollama server. Change this when Ollama runs on a remote host. |
 | `defaultModel` | `String` | No | `llama3.2:3b` | Default model id for this provider. Must match `ollama list` exactly. |
 
@@ -114,4 +114,4 @@ The `"ollama"` endpoint type has no configurable behaviors (no `modelDiscovery` 
 
 - **[PROVIDERS.md](../spec/PROVIDERS.md)** — Provider array configuration, endpoint type definitions, categories of providers (local, self-hosted, third-party), and example configurations.
 - **[MODELS.md](../spec/MODELS.md)** — Model identifiers per endpoint type, repository inventory, deployment categories, and tool-calling fit.
-- **[OPENAI.md](OPENAI.md)** — OpenAI-compatible endpoint reference (the other main endpoint type in Chai).
+- **[OPENAI.md](OPENAI.md)** — OpenAI-compatible endpoint type reference (the other main endpoint type in Chai).

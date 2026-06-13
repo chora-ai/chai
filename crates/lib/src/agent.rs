@@ -12,7 +12,8 @@ use crate::orchestration::{
 };
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
-
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// Result of one agent turn: final text content and any tool/function calls that were executed during the turn.
 #[derive(Debug, Clone)]
@@ -34,6 +35,11 @@ pub struct AgentTurnResult {
     /// The accompanying `content` (assistant text) for these calls is stored in the
     /// top-level `content` field.
     pub pending_tool_calls: Vec<ToolCall>,
+    /// Whether the turn was stopped by a stop signal between iterations. When true,
+    /// the agent finished the current tool call or model request, then paused before
+    /// the next iteration. The session transcript remains valid and the user can
+    /// send a new message to continue.
+    pub stopped: bool,
 }
 
 /// Executes a tool by name and JSON arguments. Returns output or error string.
@@ -55,6 +61,7 @@ pub async fn run_turn<B: Provider>(
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
     on_chunk: Option<&mut (dyn FnMut(&str) + Send)>,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     run_turn_dyn(
         store,
@@ -68,6 +75,7 @@ pub async fn run_turn<B: Provider>(
         tool_executor,
         delegate,
         on_chunk,
+        stop_flag,
     )
     .await
 }
@@ -85,6 +93,7 @@ pub async fn run_turn_dyn(
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
     mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)>,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let session = store
         .get(session_id)
@@ -133,6 +142,7 @@ pub async fn run_turn_dyn(
         Some((store, session_id)),
         delegate,
         max_tool_loop_iterations,
+        stop_flag,
     )
     .await
 }
@@ -434,9 +444,9 @@ async fn execute_turn_worker(
         truncated,
         loop_limit_reached,
         pending_tool_calls,
+        stopped: false,
     })
 }
-
 /// Session-backed tool loop with `delegate_task` (nested worker turns use [`execute_turn_worker`] only).
 async fn execute_turn_main(
     provider: &dyn Provider,
@@ -448,6 +458,7 @@ async fn execute_turn_main(
     persist: Option<(&SessionStore, &str)>,
     delegate: Option<DelegateContext<'_>>,
     max_tool_loop_iterations: u32,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
@@ -461,7 +472,7 @@ async fn execute_turn_main(
     let mut loop_count = 0;
     let mut executed_tool_calls: Vec<ToolCall> = Vec::new();
     let mut executed_tool_results: Vec<String> = Vec::new();
-    let mut last_content: String;
+    let mut last_content = String::new();
     let mut last_tool_calls: Vec<ToolCall>;
     let mut truncated = false;
     let max_delegations_per_turn = delegate
@@ -470,8 +481,30 @@ async fn execute_turn_main(
     let mut delegate_calls_this_turn: usize = 0;
     let mut loop_limit_reached = false;
     let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
+    let mut stopped = false;
+
+    // Clear any stale stop flag from a previous turn before starting.
+    if let Some(ref flag) = stop_flag {
+        flag.store(false, Ordering::SeqCst);
+    }
 
     loop {
+        // Check stop flag before each iteration. If set, break out of the loop
+        // gracefully — the current tool call or model request has already completed.
+        if let Some(ref flag) = stop_flag {
+            if flag.load(Ordering::SeqCst) {
+                log::info!("agent: stop signal received, pausing turn after iteration {}", loop_count);
+                stopped = true;
+                // Emit turn stopped event so connected clients know the turn was paused.
+                if let Some(ref d) = delegate {
+                    if let Some(ref obs) = d.observability {
+                        obs.emit_turn_stopped();
+                    }
+                }
+                break;
+            }
+        }
+
         let use_stream = on_chunk.is_some() && loop_count == 0;
         let res = if use_stream {
             let cb = on_chunk.as_mut().unwrap();
@@ -744,6 +777,7 @@ async fn execute_turn_main(
         truncated,
         loop_limit_reached,
         pending_tool_calls,
+        stopped,
     })
 }
 

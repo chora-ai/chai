@@ -62,11 +62,16 @@ These are separate skill packages, enabled independently in `skillsEnabled`. The
    - Send: "Append a new section to test-note.md with the content '\n## Added Section\n\nThis was appended later.'"
    - **Expect:** The agent uses `kb_append`. Verify: the file now includes the added section at the end.
 
-8. **Delete the note**
+8. **Bulk find-and-replace**
+   - First, create a note with repeated patterns: Send: "Create a note at versions.md with content '# Versions\n\nrelease = \"1.0.0\"\nrelease = \"2.0.0\"\n'."
+   - Then send: "Use kb_replace to replace all occurrences of `release = \"(\d+)\.(\d+)\.(\d+)\"` with `release = \"$1.$2.99\"` in versions.md."
+   - **Expect:** The agent uses `kb_replace` with capture groups. Both release lines are updated in a single call. The diff shows both changes. Verify: both lines in the note should now end in `.99`.
+
+9. **Delete the note**
    - Send: "Delete the note at test-note.md."
    - **Expect:** The agent uses `kb_delete`. Verify: `ls ~/.chai/profiles/assistant/sandbox/test-note.md` should fail (file not found).
 
-9. **Stop the gateway** with Ctrl+C when done.
+10. **Stop the gateway** with Ctrl+C when done.
 
 ## Extended: kb-daily (optional)
 
@@ -136,7 +141,8 @@ Every turn the model receives the full system context (skills), full conversatio
 | 5 | "Read the note" | Agent returns full content |
 | 6 | "Search for 'test'" | Agent returns matches |
 | 7 | "Append to the note" | Section added at end |
-| 8 | "Delete the note" | Note removed |
-| 9 | Ctrl+C | Gateway stops |
+| 8 | "Bulk replace in versions.md" | Both release lines updated via `kb_replace` |
+| 9 | "Delete the note" | Note removed |
+| 10 | Ctrl+C | Gateway stops |
 
 **See also:** [05 — Skill: Files](05-skill-files.md) · [07 — Skill: Skills](07-skill-skills.md)

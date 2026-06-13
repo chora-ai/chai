@@ -16,7 +16,7 @@ use super::super::{ChaiApp, ChatMessage, SessionEvent};
 /// Last timeline row that is not an orchestration delegation line, tool event, or assistant thinking row
 /// (used so RPC + WebSocket do not duplicate the same assistant turn).
 pub(crate) fn last_non_delegation(messages: &[ChatMessage]) -> Option<&ChatMessage> {
-    messages.iter().rev().find(|m| !matches!(m.role.as_str(), "delegation" | "tool_call" | "tool_result" | "assistant_progress" | "tool_loop_limit"))
+    messages.iter().rev().find(|m| !matches!(m.role.as_str(), "delegation" | "tool_call" | "tool_result" | "assistant_progress" | "tool_loop_limit" | "turn_stopped"))
 }
 
 /// Same assistant turn as already shown (same content), ignoring delegation rows in between.
@@ -299,6 +299,21 @@ impl ChaiApp {
                 self.move_session_to_front(&session_id);
                 continue;
             }
+            // Handle turn stopped event: add a banner message to the session.
+            // Only check for an existing banner in recent messages (since the last
+            // user message) so that multiple stops in the same session each get
+            // their own banner.
+            if ev.role == "turn_stopped" {
+                let last_user_idx = entry.iter().rposition(|m| m.role == "user");
+                let already_has_banner = entry.iter().skip(last_user_idx.unwrap_or(0)).any(|m| m.role == "turn_stopped");
+                if !already_has_banner {
+                    entry.push(crate::app::ChatMessage::turn_stopped());
+                }
+                self.session_meta
+                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.move_session_to_front(&session_id);
+                continue;
+            }
             // Skip if this is a duplicate of the last message (e.g. echo of our own turn from start_chat_turn + poll_chat_turn).
             if let Some(last) = entry.last() {
                 if last.role == ev.role && last.content == ev.content {
@@ -310,12 +325,13 @@ impl ChaiApp {
             }
             // Assistant from session.message broadcast can duplicate the RPC reply when delegation
             // rows were appended in between (last != assistant). Also skip when the tool loop
-            // limit was reached and an assistant_progress with matching content already shows
-            // the intermediate text — the tool_loop_limit banner explains the interruption and
-            // a duplicate assistant frame would be redundant.
+            // limit was reached or the turn was stopped and an assistant_progress with matching
+            // content already shows the intermediate text — the banner explains the interruption
+            // and a duplicate assistant frame would be redundant.
             if ev.role == "assistant" && ev.delegation_event.is_none() {
                 let has_loop_limit = entry.iter().any(|m| m.role == "tool_loop_limit");
-                if has_loop_limit
+                let has_turn_stopped = entry.iter().any(|m| m.role == "turn_stopped");
+                if (has_loop_limit || has_turn_stopped)
                     && entry.iter().any(|m| {
                         m.role == "assistant_progress" && m.content == ev.content
                     })
@@ -794,6 +810,36 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls,
+                            };
+                            let _ = tx.send(ev);
+                            ctx.request_repaint();
+                        }
+                    } else if event_name == "session.turn_stopped" {
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let Some(session_id) = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                            else {
+                                continue;
+                            };
+                            let ev = SessionEvent {
+                                session_id: session_id.to_string(),
+                                role: "turn_stopped".to_string(),
+                                content: String::new(),
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
+                                source: None,
+                                pending_tool_calls: None,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();

@@ -31,6 +31,10 @@ Each skill group is tested in a dedicated session with the relevant skills enabl
 
 TODO
 
+NOTE: files_replace was added since the last audit and needs to be thoroughly tested
+
+NOTE: files_write_lines was updated since the last audit and needs to be thoroughly tested
+
 ---
 
 ### Skillset 2: git, git-read, git-remote, rss
@@ -42,6 +46,10 @@ TODO
 ### Skillset 3: kb, kb-daily, kb-frontmatter, kb-wikilink
 
 TODO
+
+NOTE: kb_replace was added since the last audit and needs to be thoroughly tested
+
+NOTE: kb_write_lines was updated since the last audit and needs to be thoroughly tested
 
 ---
 

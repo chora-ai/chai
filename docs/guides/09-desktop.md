@@ -61,6 +61,10 @@ The right-side sessions panel lists conversation history. Each session shows the
 
 Below the chat input, dropdown selectors let you override the provider and model for the next message — useful for testing different backends without editing `config.json`.
 
+### Stopping a Turn
+
+While an agent turn is in progress, a **Stop** button appears next to the Send button. Click it to pause the agent after the current tool call or model request completes — the session transcript is preserved and you can send a new message to continue. This is useful when the agent is stuck, heading in the wrong direction, or needs additional guidance you didn't include in your original message. The stop is graceful: the agent finishes whatever it's currently doing, then pauses before starting the next iteration.
+
 ## Device Pairing
 
 The desktop pairs with the gateway using a device identity and cryptographic signature. On first connection:
@@ -88,6 +92,7 @@ The chat screen renders different message types visually:
 | **Worker reply** | The worker's text response, shown as a blue-bordered message with the worker id as a label |
 | **Delegation error** | Red-highlighted error from the worker |
 | **Tool loop limit** | Amber warning banner — the orchestrator hit `maxToolLoopIterations`, pending tool calls were paused |
+| **Turn stopped** | Amber info banner — the agent turn was stopped by the user, send a message to continue |
 
 ## Try It
 

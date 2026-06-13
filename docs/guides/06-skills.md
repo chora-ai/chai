@@ -168,11 +168,12 @@ Bundled skills cover common agent operations with no external binary dependencie
 | Skill | Tools | Tier | Description |
 |-------|-------|------|-------------|
 | `files-read` | 4 | minimal | Read-only file inspection (read, list, search, read lines) |
-| `files` | 9 | full | Full file operations including write, append, delete, and line-level patching |
+| `files` | 9 | full | Full file operations including write, append, delete, line-level patching, and bulk find-and-replace |
 | `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
-| `git` | 8 | moderate | Local git operations (read + add, commit, branch create) |
+| `git` | 10 | moderate | Local git operations (read + add, commit, branch create, checkout, branch delete) |
 | `git-remote` | 4 | minimal | Git remote operations (clone, pull, push, remote) |
-| `kb` | 6 | moderate | Knowledge base CRUD (read, write, append, delete, list, search) |
+| `kb-read` | 4 | minimal | Read-only knowledge base inspection (read, list, search, read lines) |
+| `kb` | 10 | moderate | Knowledge base CRUD (read, write, append, delete, list, search, read lines, write lines, replace, delete dir) |
 | `kb-daily` | 3 | minimal | Daily note operations with date-based path resolution |
 | `kb-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for KB notes |
 | `kb-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
@@ -190,14 +191,15 @@ Several bundled skills come in **variants** — related skills that provide diff
 | Domain | Variant | Tools | Tier | Best For |
 |--------|---------|-------|------|----------|
 | Files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
-| Files | `files` | 9 | full | Agents that need to write, patch, and delete files |
+| Files | `files` | 9 | full | Agents that need to write, patch, replace, and delete files |
 | Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
-| Git | `git` | 8 | moderate | Local development (commit, branch) |
+| Git | `git` | 10 | moderate | Local development (commit, branch, checkout) |
 | Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
+| KB | `kb-read` | 4 | minimal | Inspector agents that only need to read notes |
 | KB | `kb-daily` | 3 | minimal | Daily note creation and appending |
 | KB | `kb-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
 | KB | `kb-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
-| KB | `kb` | 6 | moderate | Full note CRUD |
+| KB | `kb` | 10 | moderate | Full note CRUD including bulk find-and-replace |
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
@@ -295,6 +297,36 @@ Skills are shared across profiles; each profile can pin active hashes in `~/.cha
 
 After changing skills, whether you need `lock` depends on how strictly you use lock checking for the gateway. Lockfiles give you reproducibility: pinned versions ensure the same skill content across restarts.
 
+### Skill Lock Mode
+
+The `skillLockMode` field in `config.json` controls how the gateway handles mismatches between the lockfile and active skill versions at startup:
+
+| Mode | Behavior |
+|------|----------|
+| `"strict"` (default) | The gateway **refuses to start** when any enabled skill's active version does not match its locked hash. |
+| `"warn"` | The gateway logs a warning for each mismatched skill but continues loading. |
+
+When no `skills.lock` file exists for the active profile, the gateway skips lock verification entirely — even in `strict` mode. This means `strict` mode only takes effect **after** a lock file has been generated.
+
+### When `chai init` Generates a Lock
+
+`chai init` automatically generates `skills.lock` for each profile it creates. If the `assistant` or `developer` profile directory does not yet exist, `chai init` seeds the profile and writes a lock file that pins all bundled skills at their current versions. This ensures `strict` mode is enforced from the first gateway start.
+
+Re-running `chai init` on an already-initialized directory does **not** overwrite existing lock files. Profiles that already exist retain whatever lock state they have.
+
+### When to Run `chai skill lock` Manually
+
+You need to call `chai skill lock` yourself when:
+
+- **You create a new profile manually** — Profiles added by hand (outside of `chai init`) do not have a lock file. Run `chai skill lock` after creating the profile and switching to it.
+- **You update a skill** — After writing a new skill version (`chai skill write-*`), the active hash changes. Run `chai skill lock` to update the lock, or the gateway will refuse to start in `strict` mode.
+- **You rollback a skill** — After `chai skill rollback`, the lock file is already updated for you. No additional step is needed.
+
+```bash
+# After creating a new profile or updating skills
+chai skill lock
+```
+
 ## Deleting a Skill
 
 Remove a skill package entirely (the directory and all version snapshots):
@@ -310,12 +342,14 @@ chai skill delete --skill-name my-skill
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
 | How do I enable a skill? | Add its name to the `skillsEnabled` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
-| What bundled skills are available? | 13 skills covering files, git, knowledge base, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
+| What bundled skills are available? | 14 skills covering files, git, knowledge base, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
 | How do I create a skill? | `chai skill init --name <name> --description "..."`, then customize the files. |
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
 | Can I name a version directory arbitrarily? | No. Under `versions/`, the name must be the 12-hex content hash. |
 | How do I roll back? | `chai skill lock` to save, `chai skill rollback <generation>` to restore. |
+| What is `skillLockMode`? | Controls lock verification at startup: `strict` (default, gateway refuses to start on mismatch) or `warn` (log warning, continue). No effect until a `skills.lock` file exists. |
+| When do I need to run `chai skill lock`? | After creating a profile manually or updating skills. `chai init` generates the lock for profiles it creates. |
 
 ## Try It
 

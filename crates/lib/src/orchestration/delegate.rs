@@ -37,6 +37,8 @@ pub const EVENT_TOOL_RESULT: &str = "session.tool_result";
 pub const EVENT_ASSISTANT_PROGRESS: &str = "session.assistant_progress";
 /// WebSocket event name: tool loop iteration limit reached, some tool calls were not executed.
 pub const EVENT_TOOL_LOOP_LIMIT: &str = "session.tool_loop_limit";
+/// WebSocket event name: agent turn stopped by user (pause after current iteration).
+pub const EVENT_TURN_STOPPED: &str = "session.turn_stopped";
 /// Optional broadcast of structured orchestration events to gateway WebSocket clients (`type`: `event`).
 #[derive(Clone)]
 pub struct DelegateObservability {
@@ -166,6 +168,14 @@ impl DelegateObservability {
             "pendingToolCalls": pending,
         }));
         self.send(EVENT_TOOL_LOOP_LIMIT, payload);
+    }
+
+    /// Emits [`EVENT_TURN_STOPPED`] when the agent turn is stopped by the user.
+    /// The session transcript remains valid — the user can send a new message
+    /// to continue from where the turn was paused.
+    pub fn emit_turn_stopped(&self) {
+        let payload = self.base_payload();
+        self.send(EVENT_TURN_STOPPED, payload);
     }
 }
 
@@ -561,14 +571,14 @@ mod tests {
     fn test_providers(ids: &[&str]) -> ProvidersConfig {
         ProvidersConfig {
             entries: ids.iter().map(|id| {
-                let endpoint = match *id {
+                let endpoint_type = match *id {
                     "ollama" => EndpointType::Ollama,
                     _ => EndpointType::OpenaiCompat,
                 };
                 ProviderDefinition {
                     id: id.to_string(),
-                    endpoint,
-                    base_url: if endpoint == EndpointType::OpenaiCompat {
+                    endpoint_type,
+                    base_url: if endpoint_type == EndpointType::OpenaiCompat {
                         Some(format!("http://localhost/{}", id))
                     } else {
                         None

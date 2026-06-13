@@ -99,7 +99,7 @@
 ## If Something Fails
 
 - **`chai: command not found`** — The CLI is not installed or not on your PATH. Re-run `cargo install --path crates/cli` and check your Cargo bin directory is on PATH.
-- **`chai init` errors** — Ensure `~/.chai/` is writable and not locked by another process. If the directory exists and is in a bad state, you can remove it and re-run `chai init` (this destroys all config, profiles, and skills).
+- **`chai init` errors** — Ensure `~/.chai/` is writable and not locked by another process. If the directory exists and is in a bad state, you can remove it and re-run `chai init` (this destroys all profiles and skills).
 - **`ollama list` is empty or model missing** — Pull the model: `ollama pull llama3.2:3b`. Ensure Ollama is running: `ollama serve` (or the system tray app).
 - **Gateway exits immediately** — Check the error output. Common causes: Ollama not running, another gateway already running (the advisory lock at `~/.chai/gateway.lock` prevents duplicates), or a config error.
 - **`curl` returns "connection refused"** — The gateway is not running or is on a different port. Check the gateway terminal for the actual port, or set `gateway.port` in config (see [Configuration](../guides/03-configuration.md)).
@@ -111,7 +111,7 @@
 | Step | Action | Expected Outcome |
 |------|--------|-------------------|
 | 1 | Install CLI (`cargo install`) | `chai version` prints a version |
-| 2 | `chai init` | `~/.chai/` created with profiles, skills, active symlink |
+| 2 | `chai init` | `~/.chai/` created with profiles, skills, active symlink, and skills.lock |
 | 3 | `chai profile current` | `assistant` |
 | 4 | `ollama list` | At least one model listed |
 | 5 | `chai gateway` | Startup logs; listening on `127.0.0.1:15151` |

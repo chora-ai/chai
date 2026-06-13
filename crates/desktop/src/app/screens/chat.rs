@@ -63,6 +63,7 @@ fn render_chat_message(
     let is_tool_call = m.role == "tool_call";
     let is_tool_result = m.role == "tool_result";
     let is_tool_loop_limit = m.role == "tool_loop_limit";
+    let is_turn_stopped = m.role == "turn_stopped";
     let is_worker = is_worker_tool(m);
 
     // Skip assistant and assistant_progress messages with empty content — they
@@ -76,7 +77,7 @@ fn render_chat_message(
     let frame = egui::Frame::none()
         .fill(if is_user {
             ui.style().visuals.extreme_bg_color
-        } else if is_tool_loop_limit {
+        } else if is_tool_loop_limit || is_turn_stopped {
             ui.style().visuals.faint_bg_color
         } else if is_delegation || is_worker || is_worker_reply {
             ui.style().visuals.faint_bg_color
@@ -91,7 +92,7 @@ fn render_chat_message(
             1.0,
             if is_error {
                 egui::Color32::RED
-            } else if is_tool_loop_limit {
+            } else if is_tool_loop_limit || is_turn_stopped {
                 AMBER_BORDER
             } else if is_delegation || is_worker || is_worker_reply {
                 BLUE_BORDER
@@ -251,6 +252,22 @@ fn render_chat_message(
                 .small()
                 .weak(),
             );
+        } else if is_turn_stopped {
+            // Turn stopped banner — amber-bordered info message.
+            let amber = egui::Color32::from_rgb(200, 150, 50);
+            ui.label(
+                egui::RichText::new("⏸ turn paused")
+                    .strong()
+                    .color(amber),
+            );
+            ui.add_space(4.0);
+            ui.label(
+                egui::RichText::new(
+                    "The agent turn was stopped after the current iteration. \
+                     The session transcript is preserved — send a new message to continue.",
+                )
+                .small(),
+            );
         } else if is_assistant {
             // Assistant message — show text content only.
             ui.label(egui::RichText::new(orchestrator_id).small().weak());
@@ -368,9 +385,9 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             let endpoint_type = app
                 .gateway_status
                 .as_ref()
-                .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.endpoint.as_str()));
+                .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.endpoint_type.as_str()));
             // OpenAI-compat providers with a remote base URL are also treated as hosted.
-            // Since we don't have the base URL here, check if the endpoint is openai-compat
+            // Since we don't have the base URL here, check if the endpoint type is openai-compat
             // and the model list is empty — this covers remote OpenAI-compat providers.
             // For local openai-compat (vLLM, LM Studio etc.), discovery typically succeeds.
             let treat_as_hosted = endpoint_type == Some("openai-compat") && gateway_models.is_empty();
@@ -386,14 +403,32 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
             };
             // For hosted API providers, allow send even when the gateway has not yet returned a model list.
             let model_available = !model_options.is_empty() || treat_as_hosted;
-            can_send = can_send && model_available;
+            can_send = can_send && model_available && !app.chat_turn_receiver.is_some();
 
             let mut send_now = false;
+            let turn_in_progress = app.chat_turn_receiver.is_some();
 
             let send_button = ui
                 .add_enabled(can_send, egui::Button::new("Send"))
                 .on_hover_text("ctrl/cmd+enter to send");
 
+            // Stop button: shows "Stopping…" while a stop request is in flight.
+            ui.add_space(4.0);
+            let stopping = app.stop_receiver.is_some();
+            let can_stop = turn_in_progress && !stopping;
+            let stop_label = if stopping { "Stopping…" } else { "Stop" };
+            let stop_hover = if stopping {
+                "waiting for current iteration to finish"
+            } else {
+                "stop the current turn after this iteration"
+            };
+            if ui
+                .add_enabled(can_stop, egui::Button::new(stop_label))
+                .on_hover_text(stop_hover)
+                .clicked()
+            {
+                app.stop_chat_turn();
+            }
             if !model_options.is_empty() {
                 ui.add_space(8.0);
                 let current_label = app
@@ -431,7 +466,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                         .cloned()
                         .unwrap_or_else(|| "—".to_string())
                 };
-                ui.add_enabled_ui(can_send_base, |ui| {
+                ui.add_enabled_ui(can_send, |ui| {
                     egui::ComboBox::from_id_source("provider_select")
                         .selected_text(selected)
                         .show_ui(ui, |ui| {

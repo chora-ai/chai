@@ -24,7 +24,7 @@ Always read the relevant convention file before adding or modifying a document i
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
-| **root** | Index and entry points (`README.md`), security considerations (`SECURITY.md`), and working notes tracked in AGENTS.md. |
+| **root** | Index and entry points (`README.md`), release process (`RELEASE.md`), security considerations (`SECURITY.md`), project vision (`VISION.md`), and working notes tracked in AGENTS.md. |
 
 ## Current Documents
 

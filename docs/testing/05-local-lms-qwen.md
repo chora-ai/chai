@@ -11,7 +11,7 @@ Follow the [LM Studio setup](PROVIDER_SETUP.md#lm-studio) instructions, then set
 Example configuration:
 
 ```json
-{ "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
 ```
 
 ## Models

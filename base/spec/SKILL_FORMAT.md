@@ -112,7 +112,7 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 
 ## Bundled Skills
 
-**Bundled skills** are the skills shipped with the application (in `crates/lib/config/skills/`); `chai init` extracts them to **`~/.chai/skills`** using the versioned layout (creating `versions/<hash>/` snapshots and `active` symlinks), which is the **only** skill package root the runtime loads.
+**Bundled skills** are the skills shipped with the application (in `crates/lib/bundled/skills/`); `chai init` extracts them to **`~/.chai/skills`** using the versioned layout (creating `versions/<hash>/` snapshots and `active` symlinks), which is the **only** skill package root the runtime loads.
 
 ## Related Documents
 

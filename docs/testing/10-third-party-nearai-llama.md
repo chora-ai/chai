@@ -11,7 +11,7 @@ Follow the [NearAI setup](PROVIDER_SETUP.md#nearai) instructions, then set `agen
 Example configuration:
 
 ```json
-{ "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
+{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
 ```
 
 ## Models

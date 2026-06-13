@@ -5,11 +5,11 @@ use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, GatewayStatusDetails, StatusViewMode};
 
 /// Friendly display names for well-known endpoint types.
-fn endpoint_display_name(endpoint: &str) -> &str {
-    match endpoint {
+fn endpoint_type_display_name(endpoint_type: &str) -> &str {
+    match endpoint_type {
         "ollama" => "Ollama",
         "openai-compat" => "OpenAI-Compatible",
-        _ => endpoint,
+        _ => endpoint_type,
     }
 }
 
@@ -199,16 +199,16 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
         for pid in &provider_ids {
             let info = s.provider_info.get(pid.as_str()).unwrap();
             // Use the provider id as the section title; append the endpoint type for clarity.
-            let title = if **pid == info.endpoint || info.endpoint == "unknown" {
+            let title = if **pid == info.endpoint_type || info.endpoint_type == "unknown" {
                 (*pid).clone()
             } else {
-                format!("{} ({})", pid, endpoint_display_name(&info.endpoint))
+                format!("{} ({})", pid, endpoint_type_display_name(&info.endpoint_type))
             };
 
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
             ui.label(egui::RichText::new(title).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            dashboard::kv(ui, "endpoint", endpoint_display_name(&info.endpoint));
+            dashboard::kv(ui, "endpoint type", endpoint_type_display_name(&info.endpoint_type));
             dashboard::kv(ui, "discovery", if info.discovery { "on" } else { "off" });
 
             if info.models.is_empty() {

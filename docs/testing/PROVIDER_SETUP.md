@@ -29,7 +29,7 @@ Ollama runs locally and requires no API key.
 
    ```json
    {
-     "providers": [{ "id": "ollama", "endpoint": "ollama" }],
+     "providers": [{ "id": "ollama", "endpointType": "ollama" }],
      "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "ollama", "defaultModel": "llama3.1:8b" }]
    }
    ```
@@ -60,7 +60,7 @@ LM Studio runs locally and uses the `"openai-compat"` endpoint type with LM Stud
 
    ```json
    {
-     "providers": [{ "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }],
+     "providers": [{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }],
      "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "lms", "defaultModel": "llama-3.2-3B-instruct" }]
    }
    ```
@@ -84,7 +84,7 @@ NearAI is a remote OpenAI-compatible API that requires an API key.
 
    ```json
    {
-     "providers": [{ "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }],
+     "providers": [{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }],
      "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" }]
    }
    ```
@@ -109,7 +109,7 @@ NVIDIA NIM is a remote OpenAI-compatible API (free tier) that requires an API ke
    {
      "providers": [{
        "id": "nim",
-       "endpoint": "openai-compat",
+       "endpointType": "openai-compat",
        "baseUrl": "https://integrate.api.nvidia.com/v1",
        "modelDiscovery": "static",
        "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],

@@ -11,7 +11,7 @@ Follow the [NVIDIA NIM setup](PROVIDER_SETUP.md#nvidia-nim) instructions, then s
 Example configuration:
 
 ```json
-{ "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }
+{ "id": "nim", "endpointType": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "modelDiscovery": "static", "staticModels": [...] }
 ```
 
 ## Models

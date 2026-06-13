@@ -16,6 +16,7 @@ This creates:
 - An `active` symlink → `profiles/assistant/`
 - A shared `skills/` tree (bundled skills extracted from the application)
 - A `sandbox/` directory per profile for write-capable tools
+- A `skills.lock` file per newly seeded profile (pins bundled skill versions so `skillLockMode: strict` takes effect immediately)
 
 Each profile gets its own `config.json`, agent context directories, and local state. The active profile is `assistant` by default.
 
@@ -39,6 +40,12 @@ Each profile gets its own `config.json`, agent context directories, and local st
 | `versions/<hash>/` snapshot | Created if absent. Immutable — never re-written once created. |
 | `active` symlink | Set only when no active version exists (fresh installation). If the skill already has an `active` symlink pointing to a valid version, it is left unchanged — this preserves user customizations such as manual rollbacks or edits via `skills_write_skill_md`. The new bundled version snapshot is still written to disk, so the user can switch to it manually if desired. |
 
+**Skills lock** — For each newly seeded profile, `chai init` writes a `skills.lock` file that pins all bundled skills at their current content hashes:
+
+| Component | Behavior |
+|-----------|----------|
+| `profiles/<name>/skills.lock` | Generated when the profile is newly seeded. If the profile directory already exists, the existing lock file is left unchanged. |
+
 **Profile `active` symlink** — `~/.chai/active` is set to `profiles/assistant/` only when no valid `active` symlink already exists (fresh installation or broken symlink). If the symlink already points to a valid profile directory, it is left unchanged — this preserves the user's active profile choice across re-initialization.
 
 ### When to Re-Run
@@ -60,6 +67,28 @@ Each profile is an independent configuration tree under `~/.chai/profiles/<name>
 
 The gateway refuses profile switches while it is running (it holds an advisory lock at `~/.chai/gateway.lock`).
 
+### Creating a New Profile
+
+Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.lock` file that pins bundled skill versions. When you create a profile manually, you must also generate a lock file to activate `skillLockMode: strict` (the default). Without a lock file, the gateway skips lock verification entirely.
+
+1. Create the profile directory and a minimal config:
+   ```bash
+   mkdir -p ~/.chai/profiles/my-profile
+   echo '{}' > ~/.chai/profiles/my-profile/config.json
+   ```
+2. Create the sandbox and agent context directories:
+   ```bash
+   mkdir -p ~/.chai/profiles/my-profile/sandbox
+   mkdir -p ~/.chai/profiles/my-profile/agents/orchestrator
+   ```
+3. Switch to the new profile and generate the skills lock:
+   ```bash
+   chai profile switch my-profile
+   chai skill lock
+   ```
+
+The `chai skill lock` command records the current active hash for each discovered skill into `~/.chai/profiles/my-profile/skills.lock`. After this, `skillLockMode: strict` will enforce that those skill versions are used on gateway startup. See [Skills → Lockfiles and Rollback](06-skills.md#lockfiles-and-rollback) for the full lock behavior.
+
 ## Configuration File
 
 Each profile has a `config.json` at `~/.chai/profiles/<name>/config.json`. An empty file is valid — built-in defaults are used at runtime:
@@ -72,14 +101,14 @@ With no `agents` key, the gateway runs a single orchestrator using Ollama and `l
 
 ## Configuring Providers
 
-Providers are defined as a **JSON array** in the `providers` key. Each provider has a unique `id` (referenced by agents) and an `endpoint` type that determines the wire protocol. Additional fields like `baseUrl`, `apiKey`, and behavior settings are optional.
+Providers are defined as a **JSON array** in the `providers` key. Each provider has a unique `id` (referenced by agents) and an `endpointType` type that determines the wire protocol. Additional fields like `baseUrl`, `apiKey`, and behavior settings are optional.
 
 ### Endpoint Types
 
-An **endpoint type** describes the wire protocol — what HTTP routes to call and how to serialize/deserialize messages. The `id` is just a name; the `endpoint` determines the protocol.
+An **endpoint type** describes the wire protocol — what HTTP routes to call and how to serialize/deserialize messages. The `id` is just a name; the `endpointType` determines the protocol.
 
-| Endpoint | Description | Default Base URL | Default Model |
-|----------|------------|------------------|---------------|
+| Endpoint Type | Description | Default Base URL | Default Model |
+|---------------|-------------|------------------|---------------|
 | `"ollama"` | Native Ollama API (`/api/chat`, `/api/tags`) | `http://127.0.0.1:11434` | `llama3.2:3b` |
 | `"openai-compat"` | OpenAI-compatible servers (`/v1/chat/completions`, `/v1/models`) | `http://127.0.0.1:1234/v1` | `llama-3.2-3B-instruct` |
 
@@ -100,7 +129,7 @@ The gateway defaults to a single Ollama provider at `http://127.0.0.1:11434` wit
 ```json
 {
   "providers": [
-    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
   ],
   "agents": [
     {
@@ -120,7 +149,7 @@ LM Studio uses `modelDiscovery: "lmstudio"` to list models via its native `GET /
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
   ],
   "agents": [
     {
@@ -142,7 +171,7 @@ Set the API key via the `apiKey` field in the provider object. This same pattern
   "providers": [
     {
       "id": "nim",
-      "endpoint": "openai-compat",
+      "endpointType": "openai-compat",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
       "modelDiscovery": "static",
       "staticModels": [
@@ -170,9 +199,9 @@ NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is us
 ```json
 {
   "providers": [
-    { "id": "ollama", "endpoint": "ollama" },
-    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" },
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    { "id": "ollama", "endpointType": "ollama" },
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" },
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
   ],
   "agents": [
     {
@@ -188,7 +217,7 @@ NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is us
 
 ### Other OpenAI-Compatible Servers
 
-Any server that exposes OpenAI-shaped routes (`/v1/chat/completions`, optionally `/v1/models`) can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`. This includes vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, and any other OpenAI-compatible proxy — no special behavior fields are needed, just `endpoint: "openai-compat"` and the correct base URL.
+Any server that exposes OpenAI-shaped routes (`/v1/chat/completions`, optionally `/v1/models`) can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`. This includes vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, and any other OpenAI-compatible proxy — no special behavior fields are needed, just `endpointType: "openai-compat"` and the correct base URL.
 
 ### Behavior Fields
 
@@ -216,8 +245,8 @@ The `autoLoad` field controls whether a failed chat request triggers a model-loa
 
 Use the exact model id expected by the selected provider for `defaultModel`:
 
-| Provider `id` (example) | Endpoint | Model id example | Where to find it |
-|--------------------------|----------|-----------------|------------------|
+| Provider `id` (example) | Endpoint Type | Model id example | Where to find it |
+|-------------------------|---------------|------------------|------------------|
 | `ollama` | `"ollama"` | `llama3.2:3b`, `qwen3:8b` | `ollama list` |
 | `lms` | `"openai-compat"` + `modelDiscovery: "lmstudio"` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
 | `nearai` | `"openai-compat"` | `zai-org/GLM-5.1-FP8` | [NearAI model catalog](https://near.ai) |
@@ -279,6 +308,7 @@ Signal requires a running signal-cli HTTP daemon. Point to it:
 See [Connections](04-connections.md) for signal-cli setup instructions.
 
 For hands-on channel setup, see the user journeys: [Telegram](../journey/04-channel-telegram.md) · [Matrix](../journey/08-channel-matrix.md) · [Signal](../journey/09-channel-signal.md).
+
 ## Configuring Agents
 
 The `agents` array defines the orchestrator and optional workers. Omit the key entirely for a single-orchestrator default setup.
@@ -305,8 +335,8 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 ```json
 {
   "providers": [
-    { "id": "ollama", "endpoint": "ollama" },
-    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "ollama", "endpointType": "ollama" },
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
   ],
   "agents": [
     {
@@ -363,6 +393,7 @@ The `~/.chai/` directory structure:
 | `profiles/<name>/config.json` | Per-profile configuration |
 | `profiles/<name>/agents/<agentId>/AGENT.md` | Per-agent instructions |
 | `profiles/<name>/sandbox/` | Write boundary for tools (see [Write Sandbox](07-sandbox.md)) |
+| `profiles/<name>/skills.lock` | Pinned skill hashes for lock verification (see [Skills → Lockfiles](06-skills.md#lockfiles-and-rollback)) |
 | `profiles/<name>/paired.json` | Desktop pairing state |
 | `active` | Symlink to the active profile |
 | `skills/` | Shared on-disk skills tree |
@@ -382,6 +413,7 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 | `gateway.bind` | `127.0.0.1` | - | - |
 | `gateway.auth.mode` | `none` | - | `none` or `token` |
 | `gateway.auth.token` | - | `CHAI_GATEWAY_TOKEN` | Only used if `mode` is `token` |
+| `skillLockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. No effect until `skills.lock` exists for the active profile. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
 
 ### Channels
 
@@ -402,29 +434,29 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 
 ### Providers
 
-The `providers` array contains provider definitions. Each provider has a unique `id` (referenced by agents) and an `endpoint` type.
+The `providers` array contains provider definitions. Each provider has a unique `id` (referenced by agents) and an `endpointType`.
 
 | Field | Type | Required | Default | Note |
 |-------|------|----------|---------|------|
 | `id` | `string` | Yes | — | Unique provider id referenced by agents. |
-| `endpoint` | `string` | Yes | — | One of: `"ollama"`, `"openai-compat"`. |
-| `baseUrl` | `string` | No | Per-endpoint default | Override the endpoint type's default base URL. |
-| `apiKey` | `string` | No | Per-endpoint env var | API key override. Env var takes precedence when set. |
-| `defaultModel` | `string` | No | Per-endpoint default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
+| `endpointType` | `string` | Yes | — | One of: `"ollama"`, `"openai-compat"`. |
+| `baseUrl` | `string` | No | Per-endpoint type default | Override the endpoint type's default base URL. |
+| `apiKey` | `string` | No | Per-endpoint type env var | API key override. Env var takes precedence when set. |
+| `defaultModel` | `string` | No | Per-endpoint type default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
 | `modelDiscovery` | `string` | No | `"default"` | One of: `"default"`, `"lmstudio"`, `"static"`. |
 | `staticModels` | `string[]` | No | `[]` | Model list when `modelDiscovery: "static"`. |
 | `autoLoad` | `false` or `"lmstudio"` | No | `false` | Auto-load on "unloaded" error. |
 
 **Endpoint type defaults:**
 
-| Endpoint | Default `baseUrl` | Default `defaultModel` | Env var for API key |
-|----------|-------------------|------------------------|---------------------|
+| Endpoint Type | Default `baseUrl` | Default `defaultModel` | Env var for API key |
+|---------------|-------------------|------------------------|---------------------|
 | `"ollama"` | `http://127.0.0.1:11434` | `llama3.2:3b` | — |
 | `"openai-compat"` | `http://127.0.0.1:1234/v1` | `llama-3.2-3B-instruct` | — |
 
 **Common provider configurations:**
 
-| Provider `id` | `endpoint` | `baseUrl` | `modelDiscovery` | `autoLoad` | Notes |
+| Provider `id` | `endpointType` | `baseUrl` | `modelDiscovery` | `autoLoad` | Notes |
 |---------------|-----------|-----------|-------------------|-----------|-------|
 | `ollama` | `"ollama"` | (default) | (default) | `false` | Default localhost Ollama |
 | `lms` | `"openai-compat"` | (default) | `"lmstudio"` | `"lmstudio"` | LM Studio with auto-load |

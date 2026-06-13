@@ -66,8 +66,8 @@ Additional prerequisites per part:
    ```json
    {
      "providers": [
-       { "id": "ollama", "endpoint": "ollama" },
-       { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+       { "id": "ollama", "endpointType": "ollama" },
+       { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
      ],
      "agents": [
        {
@@ -114,8 +114,8 @@ NearAI provides OpenAI-compatible cloud inference. Unlike the local providers, d
     ```json
     {
       "providers": [
-        { "id": "ollama", "endpoint": "ollama" },
-        { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "your-key-here" }
+        { "id": "ollama", "endpointType": "ollama" },
+        { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "your-key-here" }
       ],
       "agents": [
         {
@@ -168,10 +168,10 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
     ```json
     {
       "providers": [
-        { "id": "ollama", "endpoint": "ollama" },
+        { "id": "ollama", "endpointType": "ollama" },
         {
           "id": "nim",
-          "endpoint": "openai-compat",
+          "endpointType": "openai-compat",
           "baseUrl": "https://integrate.api.nvidia.com/v1",
           "modelDiscovery": "static",
           "staticModels": [

@@ -19,7 +19,7 @@ By default, chai runs a single orchestrator agent. This journey adds a worker th
    ```json
    {
      "providers": [
-       { "id": "ollama", "endpoint": "ollama" }
+       { "id": "ollama", "endpointType": "ollama" }
      ],
      "agents": [
        {

@@ -142,6 +142,37 @@
       }
     },
     {
+      "name": "kb_replace",
+      "description": "Replace all occurrences of a pattern in a knowledge base note. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple files_write_lines calls when the same edit applies to many locations in one file. When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content.",
+      "parameters": {
+        "type": "object",
+        "required": ["path", "pattern", "replacement"],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Note path relative to the sandbox root (use ./ prefix)"
+          },
+          "pattern": {
+            "type": "string",
+            "description": "Search pattern (extended regex). Matched against the full note content with multiline mode (^ and $ match line boundaries). \\n matches newlines, enabling multi-line patterns and line deletion."
+          },
+          "replacement": {
+            "type": "string",
+            "description": "Replacement string. Supports $1-$9 for capture group references. Use $$ for a literal $. Use an empty string to delete matches. Escape sequences \\n (newline), \\t (tab), and \\\\ (literal backslash) are processed in the replacement, consistent with how \\n works in the pattern."
+          },
+          "max_replacements": {
+            "type": "integer",
+            "description": "Maximum number of replacements to apply. 0 (default) means unlimited. Use 1 to replace only the first match and avoid unintended changes when the same pattern appears in multiple locations.",
+            "default": 0
+          },
+          "line_numbers": {
+            "type": "boolean",
+            "description": "Show line numbers in the returned diff (default: true)"
+          }
+        }
+      }
+    },
+    {
       "name": "kb_append",
       "description": "Append content to an existing knowledge base note. Creates the note if it does not exist.",
       "parameters": {
@@ -198,7 +229,8 @@
       "file delete",
       "file patch",
       "file read-lines",
-      "file delete-dir"
+      "file delete-dir",
+      "file replace"
     ]
   },
   "execution": [
@@ -379,6 +411,31 @@
         {
           "param": "content",
           "kind": "stdin"
+        }
+      ]
+    },
+    {
+      "tool": "kb_replace",
+      "binary": "chai",
+      "subcommand": "file replace",
+      "args": [
+        {
+          "param": "path",
+          "kind": "flag",
+          "flag": "path",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-kb-path",
+            "args": ["$param"]
+          }
+        },
+        { "param": "pattern", "kind": "flag", "flag": "pattern" },
+        { "param": "replacement", "kind": "flag", "flag": "replacement" },
+        {
+          "param": "line_numbers",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--line-numbers",
+          "absentDefault": true
         }
       ]
     },

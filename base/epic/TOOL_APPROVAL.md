@@ -6,7 +6,7 @@ status: draft
 
 **Summary** — This epic tracks **optional human-in-the-loop approval** before executing model-requested tool calls. That behavior is **not implemented**; the sections below describe **today’s baseline** (immediate execution, skill allowlists, runtime profiles) and a **draft** design for approval when/if it is prioritized. Default after any future implementation should remain **auto-execute** unless the operator opts into a gate.
 
-**Status** — **Human-in-the-loop approval:** not scheduled; spec remains draft. **Baseline tool execution and layout:** matches shipped code as of [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) (per-profile `config.json` under `~/.chai/profiles/<name>/`). Review against [VISION.md](../../VISION.md) (long-term security goals) and [ORCHESTRATION.md](ORCHESTRATION.md).
+**Status** — **Human-in-the-loop approval:** not scheduled; spec remains draft. **Baseline tool execution and layout:** matches shipped code as of [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) (per-profile `config.json` under `~/.chai/profiles/<name>/`). Review against [VISION.md](../VISION.md) (long-term security goals) and [ORCHESTRATION.md](ORCHESTRATION.md).
 
 ## Problem Statement
 

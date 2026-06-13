@@ -57,7 +57,7 @@ Configuration:
 ```json
 {
   "providers": [
-    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
   ],
   "agents": [
     {
@@ -87,7 +87,7 @@ Configuration:
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
   ],
   "agents": [
     {
@@ -116,7 +116,7 @@ Configuration:
   "providers": [
     {
       "id": "nim",
-      "endpoint": "openai-compat",
+      "endpointType": "openai-compat",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
       "modelDiscovery": "static",
       "staticModels": ["meta/llama-3.1-8b-instruct", "deepseek-ai/deepseek-v3.1"]
@@ -167,8 +167,8 @@ You can configure multiple providers and assign different agents to different ba
 ```json
 {
   "providers": [
-    { "id": "ollama", "endpoint": "ollama" },
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    { "id": "ollama", "endpointType": "ollama" },
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
   ],
   "agents": [
     {

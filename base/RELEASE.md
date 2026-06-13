@@ -1,4 +1,4 @@
-# REL: Release Process Design
+# RELEASE: Release Process Design
 
 Track requirements and open questions for the Chai release process — both the first release (v0.1.0) and subsequent releases. This is a working document for designing how releases are tagged, tracked, documented, and distributed.
 
@@ -17,9 +17,9 @@ Chai does not have a defined release process. There are no tagged releases, no r
 - **No tagged releases** — The repository has no git tags or release branches.
 - **No CHANGELOG.md** — Changes are tracked informally through `base/` working notes and structured docs.
 - **No CI/CD for releases** — No automated workflow for building release artifacts.
-- **Working notes in `base/`** — `FEAT_*`, `BUG_*`, `AUDIT_*` files track active work but are not release-oriented.
-- **`VISION.md`** — Describes project state and goals but is not a release document.
-- **`base/` structured docs** — `adr/`, `epic/`, `spec/`, `ref/` capture decisions, features, and behavior but not release history.
+- **Working notes in `base/`** — `AUDIT_*`, `BUG_*`, `FEAT_*` files track active work but are not release-oriented.
+- **`base/VISION.md`** — Describes project state and goals but is not a release document.
+- **`base/` structured docs** — `adr/`, `epic/`, `ref/`, `spec/` capture decisions, features, and behavior but not release history.
 
 ## Design Questions
 
@@ -27,9 +27,9 @@ Chai does not have a defined release process. There are no tagged releases, no r
 
 **Option A: Per-release tracking document in `base/`**
 
-Each release gets a `REL_V0_1_0.md`, `REL_V0_2_0.md`, etc. in the root of `base/`. These documents track the requirements checklist, scope decisions, and open questions for that specific release. After the release is tagged, the document becomes a historical reference.
+Each release gets a `RELEASE_V0_1_0.md`, `RELEASE_V0_2_0.md`, etc. in the root of `base/`. These documents track the requirements checklist, scope decisions, and open questions for that specific release. After the release is tagged, the document becomes a historical reference.
 
-- **Pro:** Keeps release planning in the same location as other working notes. Consistent with the `FEAT_*`/`BUG_*`/`AUDIT_*` pattern.
+- **Pro:** Keeps release planning in the same location as other working notes. Consistent with the `AUDIT_*`/`BUG_*`/`FEAT_*` pattern.
 - **Pro:** Easy to find what was in scope for a given release.
 - **Con:** Proliferates files in `base/` root over time.
 
@@ -51,7 +51,7 @@ Release requirements are tracked in issues/milestones and the release itself is 
 
 ### 2. Should the working document graduate into a release document?
 
-When a release is tagged, should the `REL_V*` working document be:
+When a release is tagged, should the `RELEASE_V*` working document be:
 
 **Option A: Left as-is (historical working note)**
 
@@ -62,7 +62,7 @@ The document stays in `base/` as a record of what was planned and what was compl
 
 **Option B: Converted to a structured release document**
 
-Before tagging, the working document is reformatted into a standard release document (similar to how working notes graduate into structured docs per `base/AGENTS.md` conventions). The release document would follow a standard format: version, date, summary, changes, known issues, breaking changes.
+Before tagging, the working document is reformatted into a standard release document (similar to how working notes graduate into structured docs). The release document would follow a standard format: version, date, summary, changes, known issues, breaking changes.
 
 - **Pro:** Clean historical record; consistent format across releases.
 - **Pro:** The release document could be the source of truth for release notes / CHANGELOG entries.
@@ -164,7 +164,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 **Breaking changes** should be called out explicitly in the changelog under a `### Changed` or `### Removed` section. After v0.1.0, breaking changes require a minor version bump (v0.2.0) per semver.
 
-**Working notes** (`FEAT_*`, `BUG_*`, etc.) continue to track active development. When a change ships, the working note is updated and the changelog entry is added. This mirrors the graduation pattern already established in `base/AGENTS.md`.
+**Working notes** (`BUG_*`, `FEAT_*`, etc.) continue to track active development. When a change ships, the working note is updated and the changelog entry is added. This mirrors the graduation pattern already established in `base/AGENTS.md`.
 
 ### 6. Should experimental feature binaries be shipped as release assets?
 
@@ -262,10 +262,10 @@ This keeps the process simple while giving users a clear compatibility signal. I
 - [ ] Create `CHANGELOG.md` in the repository root with v0.1.0 entry
 - [ ] Create CI workflow for release builds with binary assets
 - [ ] Add CI step to validate experimental feature builds (`--features matrix`, `--features signal` if applicable) without publishing them
-- [ ] Review `chai-examples` against v0.1.0 config schema, agent model, and skill format (see [REL_V0_1_0.md](REL_V0_1_0.md) chai-examples Alignment section)
-- [ ] Tag v0.1.0 on `main` after all `REL_V0_1_0.md` requirements are met
+- [ ] Review `chai-examples` against v0.1.0 config schema, agent model, and skill format (see [RELEASE_V0_1_0.md](RELEASE_V0_1_0.md) chai-examples Alignment section)
+- [ ] Tag v0.1.0 on `main` after all `RELEASE_V0_1_0.md` requirements are met
 - [ ] Tag v0.1.0 on `chai-examples` after examples review is complete
-- [ ] Convert `REL_V0_1_0.md` to structured release record before tagging
+- [ ] Convert `RELEASE_V0_1_0.md` to structured release record before tagging
 
 ### For Subsequent Releases
 
@@ -275,15 +275,15 @@ This keeps the process simple while giving users a clear compatibility signal. I
 - [ ] Follow semantic versioning after v0.1.0 (breaking = minor bump while pre-1.0)
 - [ ] Review `chai-examples` as part of every release checklist; tag `chai-examples` with the same version after review
 - [ ] Evaluate release branches if patch releases become necessary
-- [ ] Consider creating a `base/meta/REL.md` convention file for release document format
+- [ ] Consider creating a `base/meta/RELEASE.md` convention file for release document format
 
 ## Conventions (Proposed)
 
 If the per-release tracking document pattern is adopted, a convention file should be added to `base/meta/` defining the format. Draft structure:
 
-### `base/meta/REL.md` — Release Document Conventions
+### `base/meta/RELEASE.md` — Release Document Conventions
 
-**Naming:** `REL_V<major>_<minor>_<patch>.md` in `base/` root (e.g., `REL_V0_1_0.md`).
+**Naming:** `RELEASE_V<major>_<minor>_<patch>.md` in `base/` root (e.g., `RELEASE_V0_1_0.md`).
 
 **Lifecycle:**
 
@@ -296,7 +296,7 @@ If the per-release tracking document pattern is adopted, a convention file shoul
 
 **Required sections:**
 
-1. **Title** — `# REL: vX.Y.Z Release`
+1. **Title** — `# RELEASE: vX.Y.Z Release`
 2. **Scope** — Epics and features in scope for this release
 3. **Requirements** — Checklist of deliverables (`- [ ]` / `- [x]`)
 4. **Open Questions** — Unresolved decisions blocking the release
@@ -306,10 +306,8 @@ If the per-release tracking document pattern is adopted, a convention file shoul
 
 ## Related Documents
 
-- [REL_V0_1_0.md](REL_V0_1_0.md) — v0.1.0 specific requirements
-- [AUDIT_SKILLS.md](AUDIT_SKILLS.md) — Skills audit (v0.1.0 blocker)
-- [epic/MSG_CHANNELS.md](epic/MSG_CHANNELS.md) — Messaging channels epic (v0.1.0 scope)
-- [VISION.md](../VISION.md) — Project vision and current state
+- [RELEASE_V0_1_0.md](RELEASE_V0_1_0.md) — v0.1.0 specific requirements
+- [VISION.md](VISION.md) — Project vision and current state
 - [chai-examples](../../chai-examples/) — Example profiles and skills (versioned alongside chai)
 - [Keep a Changelog](https://keepachangelog.com/) — Proposed changelog format
 - [Semantic Versioning](https://semver.org/) — Versioning scheme

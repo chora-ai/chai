@@ -1,5 +1,5 @@
-//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config, `sandbox/` (seeded from templates), and `agents/<orchestratorId>/AGENT.md`.
-//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`config/profiles/<name>/agents/orchestrator/AGENT.md`**, **`config/profiles/<name>/sandbox/`**.
+//! Initialize `~/.chai`: profiles (`assistant`, `developer`), `active` symlink, shared `skills/`, per-profile config, `sandbox/` (seeded from templates), `agents/<orchestratorId>/AGENT.md`, and `skills.lock` for newly seeded profiles.
+//! Bundled defaults mirror **`~/.chai/profiles/<name>/`**: **`bundled/profiles/<name>/agents/orchestrator/AGENT.md`**, **`bundled/profiles/<name>/sandbox/`**.
 
 use anyhow::{Context, Result};
 use include_dir::{include_dir, Dir, DirEntry};
@@ -9,15 +9,15 @@ use crate::config;
 use crate::profile;
 use crate::skills::versioning;
 
-static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/config/skills");
+static BUNDLED_SKILLS: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/bundled/skills");
 
 fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
     match profile_name {
         "assistant" => Ok(include_str!(
-            "../config/profiles/assistant/agents/orchestrator/AGENT.md"
+            "../bundled/profiles/assistant/agents/orchestrator/AGENT.md"
         )),
         "developer" => Ok(include_str!(
-            "../config/profiles/developer/agents/orchestrator/AGENT.md"
+            "../bundled/profiles/developer/agents/orchestrator/AGENT.md"
         )),
         _ => anyhow::bail!(
             "no bundled AGENT.md template for profile {:?}",
@@ -29,27 +29,27 @@ fn bundled_default_agents_md(profile_name: &str) -> Result<&'static str> {
 /// Bundled sandbox template files for a profile.
 ///
 /// Returns `[(relative_path, contents)]` for each file in
-/// `config/profiles/<name>/sandbox/`.
+/// `bundled/profiles/<name>/sandbox/`.
 fn bundled_sandbox_templates(profile_name: &str) -> Result<Vec<(&'static str, &'static [u8])>> {
     match profile_name {
         "assistant" => Ok(vec![
             (
                 "AGENTS.md",
-                include_bytes!("../config/profiles/assistant/sandbox/AGENTS.md"),
+                include_bytes!("../bundled/profiles/assistant/sandbox/AGENTS.md"),
             ),
             (
                 "README.md",
-                include_bytes!("../config/profiles/assistant/sandbox/README.md"),
+                include_bytes!("../bundled/profiles/assistant/sandbox/README.md"),
             ),
         ]),
         "developer" => Ok(vec![
             (
                 "AGENTS.md",
-                include_bytes!("../config/profiles/developer/sandbox/AGENTS.md"),
+                include_bytes!("../bundled/profiles/developer/sandbox/AGENTS.md"),
             ),
             (
                 "README.md",
-                include_bytes!("../config/profiles/developer/sandbox/README.md"),
+                include_bytes!("../bundled/profiles/developer/sandbox/README.md"),
             ),
         ]),
         _ => anyhow::bail!(
@@ -77,7 +77,7 @@ pub fn require_initialized(paths: &profile::ChaiPaths) -> Result<()> {
     Ok(())
 }
 
-fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
+fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<bool> {
     // If the profile directory already exists, skip seeding entirely.  Users
     // may rename the orchestrator agent (and its directory) within an existing
     // profile — re-running `chai init` must not overwrite those changes.
@@ -86,7 +86,7 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
             "profile directory {} already exists; skipping seed",
             profile_dir.display()
         );
-        return Ok(());
+        return Ok(false);
     }
 
     std::fs::create_dir_all(profile_dir)
@@ -134,13 +134,18 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<()> {
         log::info!("seeded sandbox template at {}", dest.display());
     }
 
-    Ok(())
+    Ok(true)
 }
 
-/// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`.
+/// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`, and `skills.lock` for newly seeded profiles.
+///
+/// When a profile directory does not yet exist and is seeded by this function, a `skills.lock` is
+/// generated for it. This ensures the defensive-by-default `skillLockMode=strict` takes effect
+/// immediately after `chai init`, without requiring a separate `chai skill lock` step.
 ///
 /// When re-run on an already-initialized directory:
 /// - Existing profile directories (`assistant`, `developer`) are **not** re-seeded — the user may have renamed agent directories or customized files within the profile.
+/// - Existing `skills.lock` files are **not** overwritten — only newly seeded profiles receive a lock.
 /// - The `active` symlink is **not** overwritten — any profile the user has switched to is preserved.
 ///   Only a missing or broken `active` symlink triggers the default (`assistant`).
 pub fn init_chai_home() -> Result<PathBuf> {
@@ -152,8 +157,11 @@ pub fn init_chai_home() -> Result<PathBuf> {
     std::fs::create_dir_all(&profiles_base)
         .with_context(|| format!("creating {}", profiles_base.display()))?;
 
+    let mut newly_seeded = Vec::new();
     for name in ["assistant", "developer"] {
-        seed_profile(&profiles_base.join(name), name)?;
+        if seed_profile(&profiles_base.join(name), name)? {
+            newly_seeded.push(name);
+        }
     }
 
     let skills_dir = chai_home.join("skills");
@@ -167,6 +175,28 @@ pub fn init_chai_home() -> Result<PathBuf> {
     // version snapshot but will not change the active symlink, preserving any user
     // customizations (rollbacks, edits via skills_write_skill_md).
     extract_bundled_skills_versioned(&skills_dir)?;
+
+    // Generate skills.lock for newly seeded profiles so the defensive-by-default
+    // skillLockMode=strict takes effect immediately. Without this, a user must
+    // manually run `chai skill lock` after `chai init` — which side-steps the
+    // strict default. Only profiles that were just created need a lock; existing
+    // profiles retain whatever lock state they already have.
+    if !newly_seeded.is_empty() {
+        let all_entries = crate::skills::load_skills(&skills_dir)?;
+        if !all_entries.is_empty() {
+            for name in &newly_seeded {
+                let profile_dir = profiles_base.join(name);
+                let lock = crate::skills::lockfile::SkillsLock::from_entries(&all_entries)?;
+                crate::skills::lockfile::write_lock(&profile_dir, &lock)?;
+                log::info!(
+                    "generated skills.lock for profile '{}' ({} skill(s), generation {})",
+                    name,
+                    lock.skills.len(),
+                    lock.generation,
+                );
+            }
+        }
+    }
 
     // Only set the active profile symlink on first initialization. If the
     // symlink already exists and resolves to a valid profile directory, leave

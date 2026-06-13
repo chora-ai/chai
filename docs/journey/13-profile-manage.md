@@ -40,6 +40,12 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
    ```bash
    echo '# Orchestrator (testing profile)\n\nYou are a test assistant.' > ~/.chai/profiles/testing/agents/orchestrator/AGENT.md
    ```
+   - Generate a skills lock file so `skillLockMode: strict` (the default) takes effect for this profile:
+   ```bash
+   chai profile switch testing
+   chai skill lock
+   ```
+   Without a `skills.lock` file, the gateway skips lock verification entirely — even in `strict` mode. Profiles created by `chai init` (`assistant`, `developer`) get a lock file automatically; manually created profiles do not.
 
 4. **Verify the new profile appears**
    ```bash
@@ -47,15 +53,11 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
    ```
    - **Expect:** `assistant`, `developer`, and `testing`.
 
-5. **Switch to the new profile**
-   ```bash
-   chai profile switch testing
-   ```
-   - **Expect:** Output confirming the switch. Verify:
+5. **Verify the active profile**
    ```bash
    chai profile current
    ```
-   - **Expect:** `testing`.
+   - **Expect:** `testing` (the switch was done as part of the lock generation in step 3).
    - The symlink `~/.chai/active` now points to `profiles/testing/`.
 
 6. **Start the gateway with the new profile**
@@ -117,9 +119,9 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
 |------|--------|-------------------|
 | 1 | `chai profile list` | `assistant`, `developer` |
 | 2 | `chai profile current` | `assistant` |
-| 3 | Create `testing` profile | Directory + config + sandbox |
+| 3 | Create `testing` profile + `chai skill lock` | Directory + config + sandbox + skills.lock |
 | 4 | `chai profile list` | `testing` appears |
-| 5 | `chai profile switch testing` | Active → `testing` |
+| 5 | `chai profile current` | `testing` (already switched in step 3) |
 | 6 | `chai gateway` | Gateway loads testing config |
 | 7 | `chai chat` | Model from testing profile used |
 | 9 | `chai profile switch assistant` | Active → `assistant` |

@@ -52,15 +52,20 @@ This journey covers the **`files`** skill (full read + write + delete). The read
    - Send: "In test-note.md, replace the line 'Hello from the files skill.' with 'Updated by the files skill.'"
    - **Expect:** The agent uses `files_read_lines` to get `original_content`, then `files_write_lines` to patch the file. The reply confirms the change. Verify: `cat ~/.chai/profiles/assistant/sandbox/test-note.md` should show "Updated by the files skill."
 
-7. **Delete a file**
+7. **Bulk find-and-replace**
+   - First, create a test file: Send: "Create a file called versions.txt with the content `version = \"1.0.0\"\nname = \"demo\"\nversion = \"2.0.0\"\n`."
+   - Then send: "Use files_replace to replace all occurrences of `version = \"(\d+)\.(\d+)\.(\d+)\"` with `version = \"$1.$2.99\"` in versions.txt."
+   - **Expect:** The agent uses `files_replace` with capture groups. Both version lines are updated in a single call. The diff shows both changes. Verify: both version lines in the file should now end in `.99`.
+
+8. **Delete a file**
    - Send: "Delete the file test-note.md."
    - **Expect:** The agent uses `files_delete_file`. Verify: `ls ~/.chai/profiles/assistant/sandbox/test-note.md` should fail (file not found).
 
-8. **Verify sandbox enforcement (optional)**
+9. **Verify sandbox enforcement (optional)**
    - Send: "Write a file at /tmp/outside-sandbox.txt with content 'test'."
    - **Expect:** The tool call is rejected — the path is outside the sandbox root. The agent reports the rejection (path not in writable roots).
 
-9. **Stop the gateway** with Ctrl+C when done.
+10. **Stop the gateway** with Ctrl+C when done.
 
 ## How to Verify the Files Skill Was Used
 
@@ -93,8 +98,9 @@ Every turn the model receives the full system context (skills), full conversatio
 | 4 | "Search for 'agent'" | Agent returns matches with line numbers |
 | 5 | "Create test-note.md" | File created in sandbox |
 | 6 | "Patch test-note.md" | Line replaced; file updated |
-| 7 | "Delete test-note.md" | File removed |
-| 8 | "Write to /tmp/…" (optional) | Rejected — sandbox enforcement |
-| 9 | Ctrl+C | Gateway stops |
+| 7 | "Bulk replace in versions.txt" | Both version lines updated via `files_replace` |
+| 8 | "Delete test-note.md" | File removed |
+| 9 | "Write to /tmp/…" (optional) | Rejected — sandbox enforcement |
+| 10 | Ctrl+C | Gateway stops |
 
 **Next:** [06 — Skill: Knowledge Base](06-skill-kb.md) · [07 — Skill: Skills](07-skill-skills.md)

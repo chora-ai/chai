@@ -16,8 +16,8 @@ The gateway is a single HTTP/WebSocket server that orchestrates everything. It l
 
 A **provider** is a model backend — where the inference happens. Chai supports two endpoint types, with four common provider configurations:
 
-| Provider | Where it runs | Endpoint | Special behavior | Needs API key |
-|----------|---------------|----------|------------------|---------------|
+| Provider | Where it runs | Endpoint Type | Special behavior | Needs API key |
+|----------|---------------|---------------|------------------|---------------|
 | **Ollama** (`ollama`) | Your machine | `"ollama"` | — | No |
 | **LM Studio** (`lms`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"` | No |
 | **NearAI** (`nearai`) | NearAI cloud | `"openai-compat"` | — | Yes |

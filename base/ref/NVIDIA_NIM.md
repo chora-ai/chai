@@ -15,7 +15,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 ## Purpose and How to Use
 
 - **Purpose:** Document the NIM hosted API for integration, list its capabilities and limits, and clarify that it is a non-privacy, rate-limited free tier.
-- **How to use:** When configuring a provider with `endpoint: "openai-compat"` for NIM usage, consult this doc.
+- **How to use:** When configuring a provider with `endpointType: "openai-compat"` for NIM usage, consult this doc.
 
 ## Official NVIDIA NIM API
 
@@ -52,7 +52,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
   ```json
   {
     "id": "nim",
-    "endpoint": "openai-compat",
+    "endpointType": "openai-compat",
     "baseUrl": "https://integrate.api.nvidia.com/v1",
     "modelDiscovery": "static",
     "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
@@ -61,7 +61,7 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
   ```
 
 - **Client** — Uses `OpenAiCompatClient` (shared with all `"openai-compat"` providers). Same `tool_name` ↔ `tool_call_id` mapping.
-- **Config:** Provider `id` (e.g. `"nim"`), `endpoint: "openai-compat"`, `baseUrl: "https://integrate.api.nvidia.com/v1"`, `modelDiscovery: "static"`, `staticModels` array. API key from provider `apiKey` or `NVIDIA_API_KEY` env. `agents.defaultProvider` references the provider `id`; `agents.defaultModel` is a NIM model id (e.g. `meta/llama-3.1-8b-instruct`).
+- **Config:** Provider `id` (e.g. `"nim"`), `endpointType: "openai-compat"`, `baseUrl: "https://integrate.api.nvidia.com/v1"`, `modelDiscovery: "static"`, `staticModels` array. API key from provider `apiKey` or `NVIDIA_API_KEY` env. `agents.defaultProvider` references the provider `id`; `agents.defaultModel` is a NIM model id (e.g. `meta/llama-3.1-8b-instruct`).
 
 ### Endpoints Used
 

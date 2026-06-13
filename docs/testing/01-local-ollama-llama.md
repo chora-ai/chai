@@ -11,7 +11,7 @@ Follow the [Ollama setup](PROVIDER_SETUP.md#ollama) instructions, then set `agen
 Example configuration:
 
 ```json
-{ "id": "ollama", "endpoint": "ollama" }
+{ "id": "ollama", "endpointType": "ollama" }
 ```
 
 ## Models

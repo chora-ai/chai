@@ -139,7 +139,7 @@ impl ChaiApp {
 }
 
 /// Parse the `providers` block from gateway status into per-provider info.
-/// The gateway now sends each provider as `{ "endpoint": "...", "discovery": bool, "models": [string, ...] }`
+/// The gateway now sends each provider as `{ "endpointType": "...", "discovery": bool, "models": [string, ...] }`
 /// keyed by provider id, instead of the old fixed-field format with `{"name": "..."}` model objects.
 fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collections::HashMap<String, super::super::ProviderStatusInfo> {
     let Some(obj) = providers.and_then(|p| p.as_object()) else {
@@ -147,7 +147,7 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
     };
     let mut map = std::collections::HashMap::new();
     for (pid, val) in obj {
-        let endpoint = val.get("endpoint")
+        let endpoint_type = val.get("endpointType")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
@@ -165,7 +165,7 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
             })
             .unwrap_or_default();
         map.insert(pid.clone(), super::super::ProviderStatusInfo {
-            endpoint,
+            endpoint_type,
             discovery,
             models,
         });
@@ -699,6 +699,10 @@ pub(crate) fn run_agent_turn(
                     .and_then(|v| v.as_array())
                     .map(|arr| arr.clone())
                     .unwrap_or_default();
+                let stopped = payload
+                    .get("stopped")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
                 return Ok(AgentReply {
                     session_id,
                     reply,
@@ -706,9 +710,119 @@ pub(crate) fn run_agent_turn(
                     tool_results,
                     loop_limit_reached,
                     pending_tool_calls,
+                    stopped,
                 });
             }
         }
         Err("no agent response".to_string())
+    })
+}
+
+/// Send a stop signal to the gateway for the specified session.
+/// The agent turn will pause after the current iteration completes.
+/// This is idempotent — stopping an idle session is a no-op.
+pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Result<bool, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for hello-ok
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+
+        let stop_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "stop",
+            "params": { "sessionId": session_id }
+        });
+        ws.send(Message::Text(stop_req.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("stop failed");
+                    return Err(err.to_string());
+                }
+                let stopped = res
+                    .get("payload")
+                    .and_then(|p| p.get("stopped"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(true);
+                return Ok(stopped);
+            }
+        }
+        Err("no stop response".to_string())
     })
 }

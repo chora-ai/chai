@@ -974,6 +974,7 @@ dependencies = [
  "futures-util",
  "lib",
  "log",
+ "regex",
  "serde_json",
  "tokio",
  "tokio-tungstenite",

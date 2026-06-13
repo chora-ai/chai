@@ -58,13 +58,13 @@ pub fn build_provider_client(
     let base_url = crate::config::resolve_provider_base_url(providers, &def.id);
     let api_key = crate::config::resolve_provider_api_key(providers, &def.id);
 
-    match def.endpoint {
+    match def.endpoint_type {
         EndpointType::Ollama => {
             Ok(Arc::new(OllamaClient::new(base_url)))
         }
         EndpointType::OpenaiCompat => {
             let base = base_url.ok_or_else(|| {
-                format!("provider '{}' uses endpoint 'openai-compat' but baseUrl could not be resolved", def.id)
+                format!("provider '{}' uses endpoint type 'openai-compat' but baseUrl could not be resolved", def.id)
             })?;
             Ok(Arc::new(OpenAiCompatClient::new_with_auto_load(base, api_key, def.auto_load)))
         }

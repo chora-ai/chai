@@ -1,6 +1,6 @@
-# REL: v0.1.0 Release Requirements
+# RELEASE: v0.1.0 Release Requirements
 
-Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself (how releases are tagged, where notes live, changelog conventions), see [REL_PROCESS.md](REL_PROCESS.md).
+Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself (how releases are tagged, where notes live, changelog conventions), see [RELEASE.md](RELEASE.md).
 
 ## v0.1.0 Scope
 
@@ -18,7 +18,7 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 | Epic | Reason |
 |------|--------|
-| [DESKTOP_FILES.md](epic/DESKTOP_FILES.md) | In progress but not a release blocker |
+| [DESKTOP_FILES.md](epic/DESKTOP_FILES.md) | Draft; not scheduled |
 | [PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md) | Draft; not scheduled |
 | [PERSISTENT_SESSIONS.md](epic/PERSISTENT_SESSIONS.md) | Draft; not scheduled |
 | [TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md) | Draft; not scheduled |
@@ -28,16 +28,15 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### Skills Audit and Refinement
 
 - [ ] Complete cross-skill audit ([AUDIT_SKILLS.md](AUDIT_SKILLS.md)) — all bundled skills reviewed
+- [ ] Confirm [BUG_FILES_REPLACE.md](BUG_FILES_REPLACE.md) and [BUG_FILES_WRITE_LINES.md](BUG_FILES_WRITE_LINES.md) are resolved
 - [ ] Confirm `maxOutputLines` caps are applied to all output-heavy tools across all skills
 
 ### Sandbox Security 🔴
 
-- [x] Add `readPath: true` to all path parameters that read files but currently lack the annotation — see [AUDIT_SKILLS.md](AUDIT_SKILLS.md) Issue 4 for the full list (`rss_list_feeds`, `kb_read`, `kb_daily_read`, `kb_wikilink`, `kb_search`)
 - [x] Implement secure-by-default sandbox path validation (runtime heuristic + CWD confinement + sandbox validation) — see [SECURITY.md](SECURITY.md)
-- [ ] Verify that sandbox-relative paths still work after adding `readPath` (resolve scripts prepend sandbox root for relative paths; canonical path then validates against sandbox)
-- [ ] Verify that absolute paths within the sandbox (e.g. canonical paths from the executor) still work after adding `readPath`
-- [ ] Test that arbitrary filesystem paths outside the sandbox are rejected for all affected tools
-- [ ] Update `skills-design/SKILL.md` with sandbox security requirements for skill authors
+- [ ] Verify that sandbox-relative paths still work after updating `readPath` and `writePath` (resolve scripts prepend sandbox root for relative paths; canonical path then validates against sandbox)
+- [ ] Verify that absolute paths within the sandbox (e.g. canonical paths from the executor) still work after updating `readPath` and `writePath`
+- [ ] Verify that arbitrary filesystem paths outside the sandbox are rejected for all affected tools
 
 ### Branch Protection 🔴
 
@@ -67,19 +66,11 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 - [ ] Remove any backwards-compatible code or compatibility notes (clean slate for v0.1.0)
 - [ ] Verify all `log::info!` / `log::warn!` / `log::error!` messages follow lowercase-first convention (per `chai/AGENTS.md`)
 
-### Desktop App
-
-- [ ] Add stop button to desktop chat input area — see [FEAT_STOP_BUTTON.md](FEAT_STOP_BUTTON.md)
-- [ ] Stop button pauses agent turn after current iteration completes, preserving session context
-- [ ] Gateway `stop` WebSocket method signals the agent to break out of the tool loop
-- [ ] Send button disabled during active turn, enabled when idle or paused
-- [ ] Test that stopped turns produce valid session transcripts and can be continued
-
 ### Release Build and Distribution
 
 - [ ] Create CI workflow for release builds with binary assets (Linux, macOS, Windows)
-- [ ] Decide on release asset naming and structure (see [REL_PROCESS.md](REL_PROCESS.md) design questions)
-- [ ] Decide whether to ship experimental feature binaries as release assets or require manual builds (see [REL_PROCESS.md](REL_PROCESS.md) design question 6)
+- [ ] Decide on release asset naming and structure (see [RELEASE.md](RELEASE.md) design questions)
+- [ ] Decide whether to ship experimental feature binaries as release assets or require manual builds (see [RELEASE.md](RELEASE.md) design question 6)
 - [ ] Verify `cargo install --path crates/cli` and `cargo install --path crates/desktop` work cleanly from the release tag
 - [ ] Test `--features matrix` builds produce working binaries
 - [ ] If Signal becomes an optional feature (`--features signal`), test that build path as well
@@ -93,7 +84,7 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 ### chai-examples Alignment
 
-The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [REL_PROCESS.md](REL_PROCESS.md) design question 7).
+The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [RELEASE.md](RELEASE.md) design question 7).
 
 - [ ] Review example profiles (`assistant`, `developer`, `skillsmith`) against v0.1.0 config schema and agent model
 - [ ] Review example skills (`notesmd`, `notesmd-daily`, `obsidian`, `obsidian-daily`, `websearch`) against v0.1.0 skill format and tools schema
@@ -112,7 +103,7 @@ The `chai-examples` repository contains example profiles and skills that users r
 
 The question of switching from LGPL-3.0 to GPL has been raised. This is a significant decision with implications for how others can use Chai as a library. The current LGPL-3.0 license allows Chai to be used as a library in non-GPL applications; GPL would not. This question is separate from the Signal integration question (Signal uses BYO signal-cli, which avoids GPL redistribution obligations — see [SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md)).
 
-**Decision needed:** Confirm LGPL-3.0 or switch to GPL before v0.1.0. If switching, update `LICENSE`, all `Cargo.toml` files, and `VISION.md`.
+**Decision needed:** Confirm LGPL-3.0 or switch to GPL before v0.1.0. If switching, update `LICENSE`, all `Cargo.toml` files, and `base/VISION.md`.
 
 ### Signal as Full Adapter
 

@@ -1,7 +1,7 @@
 //! Configuration types and loading.
 //!
 //! Config is loaded from a JSON file under the active profile (e.g. `~/.chai/profiles/assistant/config.json`) and environment.
-//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (JSON array of `id` + `endpoint` entries
+//! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (JSON array of `id` + `endpointType` entries
 //! for model APIs), and `agents` (JSON array of `id` / `role` entries; omit the key for a single default orchestrator).
 //! Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
 
@@ -22,7 +22,7 @@ pub struct Config {
     #[serde(default)]
     pub channels: ChannelsConfig,
 
-    /// Model provider definitions: JSON array of `id` + `endpoint` entries. Omit for default (single Ollama provider).
+    /// Model provider definitions: JSON array of `id` + `endpointType` entries. Omit for default (single Ollama provider).
     #[serde(default = "default_providers_config", with = "providers_config_serde")]
     pub providers: ProvidersConfig,
 
@@ -549,15 +549,15 @@ pub struct WorkerConfig {
     pub context_mode: Option<SkillContextMode>,
 }
 
-/// Per-provider configuration: JSON array of provider definitions with `id`, `endpoint` type, and connection settings.
+/// Per-provider configuration: JSON array of provider definitions with `id`, `endpointType` type, and connection settings.
 ///
-/// In `config.json`, **`providers`** is a JSON **array** of entries with `id`, `endpoint`, and
+/// In `config.json`, **`providers`** is a JSON **array** of entries with `id`, `endpointType`, and
 /// optional connection settings. This type wraps `Vec<ProviderDefinition>` with custom serde
 /// so the wire format is a direct array (`"providers": [...]`) rather than an object with
 /// an `entries` field.
 ///
 /// When the `providers` key is omitted or the array is empty, a single default Ollama provider
-/// is used (id `"ollama"`, endpoint `"ollama"`). This aligns with the default agent, which uses
+/// is used (id `"ollama"`, endpointType `"ollama"`). This aligns with the default agent, which uses
 /// Ollama as its `defaultProvider`.
 #[derive(Debug, Clone)]
 pub struct ProvidersConfig {
@@ -570,7 +570,7 @@ fn default_providers_config() -> ProvidersConfig {
     ProvidersConfig {
         entries: vec![ProviderDefinition {
             id: "ollama".to_string(),
-            endpoint: EndpointType::Ollama,
+            endpoint_type: EndpointType::Ollama,
             base_url: None,
             api_key: None,
             default_model: None,
@@ -713,7 +713,7 @@ pub struct ProviderDefinition {
     /// Unique provider id referenced by agents (`defaultProvider`, `enabledProviders`).
     pub id: String,
     /// Wire protocol / API family for this provider.
-    pub endpoint: EndpointType,
+    pub endpoint_type: EndpointType,
     /// Base URL override. When unset, the endpoint type default is used.
     #[serde(default)]
     pub base_url: Option<String>,
@@ -723,7 +723,7 @@ pub struct ProviderDefinition {
     /// `None`. When `apiKey` is absent entirely, no key is sent.
     #[serde(default)]
     pub api_key: Option<String>,
-    /// Default model id for this provider. When unset, `endpoint.default_model()` is used.
+    /// Default model id for this provider. When unset, `endpoint_type.default_model()` is used.
     #[serde(default)]
     pub default_model: Option<String>,
     /// How to discover available models for this provider.
@@ -780,7 +780,7 @@ pub fn resolve_provider_base_url(providers: &ProvidersConfig, id: &str) -> Optio
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
-        .or_else(|| def.endpoint.default_base_url().map(|s| s.to_string()));
+        .or_else(|| def.endpoint_type.default_base_url().map(|s| s.to_string()));
     base.map(|s| s.trim_end_matches('/').to_string())
 }
 
@@ -830,7 +830,7 @@ pub fn resolve_provider_default_model(providers: &ProvidersConfig, id: &str) -> 
                 return t;
             }
         }
-        return def.endpoint.default_model().to_string();
+        return def.endpoint_type.default_model().to_string();
     }
     // Fallback when no provider matches (should not happen in normal use).
     "llama3.2:3b".to_string()
@@ -1153,11 +1153,11 @@ mod tests {
 
     #[test]
     fn providers_array_round_trips() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"},{"id":"lms","endpoint":"openai-compat","modelDiscovery":"lmstudio","autoLoad":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio","autoLoad":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let lms = c.providers.get("lms").expect("lms");
         assert_eq!(lms.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
-        assert_eq!(lms.endpoint, EndpointType::OpenaiCompat);
+        assert_eq!(lms.endpoint_type, EndpointType::OpenaiCompat);
         assert_eq!(lms.model_discovery, ModelDiscovery::Lmstudio);
         assert_eq!(lms.auto_load, AutoLoad::Lmstudio);
         let out = serde_json::to_string(&c).expect("serialize");
@@ -1170,20 +1170,20 @@ mod tests {
 
     #[test]
     fn providers_rejects_duplicate_ids() {
-        let j = r#"{"providers":[{"id":"dup","endpoint":"ollama"},{"id":"dup","endpoint":"openai-compat"}]}"#;
+        let j = r#"{"providers":[{"id":"dup","endpointType":"ollama"},{"id":"dup","endpointType":"openai-compat"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert!(c.providers.validate().is_err());
     }
 
     #[test]
-    fn providers_rejects_unknown_endpoint() {
-        let j = r#"{"providers":[{"id":"x","endpoint":"unknown"}]}"#;
+    fn providers_rejects_unknown_endpoint_type() {
+        let j = r#"{"providers":[{"id":"x","endpointType":"unknown"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
     }
 
     #[test]
     fn providers_default_base_url() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_base_url(&c.providers, "ollama"),
@@ -1193,7 +1193,7 @@ mod tests {
 
     #[test]
     fn providers_openai_compat_default_base_url() {
-        let j = r#"{"providers":[{"id":"my-openai","endpoint":"openai-compat"}]}"#;
+        let j = r#"{"providers":[{"id":"my-openai","endpointType":"openai-compat"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_base_url(&c.providers, "my-openai"),
@@ -1203,7 +1203,7 @@ mod tests {
 
     #[test]
     fn providers_openai_compat_explicit_base_url() {
-        let j = r#"{"providers":[{"id":"my-openai","endpoint":"openai-compat","baseUrl":"https://api.openai.com/v1"}]}"#;
+        let j = r#"{"providers":[{"id":"my-openai","endpointType":"openai-compat","baseUrl":"https://api.openai.com/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_base_url(&c.providers, "my-openai"),
@@ -1212,8 +1212,8 @@ mod tests {
     }
 
     #[test]
-    fn providers_default_model_per_endpoint() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"},{"id":"lms","endpoint":"openai-compat"}]}"#;
+    fn providers_default_model_per_endpoint_type() {
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_default_model(&c.providers, "ollama"),
@@ -1227,7 +1227,7 @@ mod tests {
 
     #[test]
     fn providers_custom_default_model() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama","defaultModel":"qwen3:8b"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama","defaultModel":"qwen3:8b"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_default_model(&c.providers, "ollama"),
@@ -1237,7 +1237,7 @@ mod tests {
 
     #[test]
     fn providers_model_discovery_default() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("ollama").expect("ollama");
         assert_eq!(def.model_discovery, ModelDiscovery::Default);
@@ -1245,7 +1245,7 @@ mod tests {
 
     #[test]
     fn providers_model_discovery_lmstudio() {
-        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","modelDiscovery":"lmstudio"}]}"#;
+        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("lms").expect("lms");
         assert_eq!(def.model_discovery, ModelDiscovery::Lmstudio);
@@ -1253,7 +1253,7 @@ mod tests {
 
     #[test]
     fn providers_model_discovery_static() {
-        let j = r#"{"providers":[{"id":"custom","endpoint":"openai-compat","modelDiscovery":"static","staticModels":["a","b"]}]}"#;
+        let j = r#"{"providers":[{"id":"custom","endpointType":"openai-compat","modelDiscovery":"static","staticModels":["a","b"]}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("custom").expect("custom");
         assert_eq!(def.model_discovery, ModelDiscovery::Static);
@@ -1262,7 +1262,7 @@ mod tests {
 
     #[test]
     fn providers_auto_load_default_is_none() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("ollama").expect("ollama");
         assert_eq!(def.auto_load, AutoLoad::None);
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn providers_auto_load_lmstudio() {
-        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","autoLoad":"lmstudio"}]}"#;
+        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","autoLoad":"lmstudio"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("lms").expect("lms");
         assert_eq!(def.auto_load, AutoLoad::Lmstudio);
@@ -1278,7 +1278,7 @@ mod tests {
 
     #[test]
     fn providers_auto_load_false() {
-        let j = r#"{"providers":[{"id":"lms","endpoint":"openai-compat","autoLoad":false}]}"#;
+        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","autoLoad":false}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("lms").expect("lms");
         assert_eq!(def.auto_load, AutoLoad::None);
@@ -1286,7 +1286,7 @@ mod tests {
 
     #[test]
     fn providers_rejects_unknown_auto_load() {
-        let j = r#"{"providers":[{"id":"x","endpoint":"openai-compat","autoLoad":"bogus"}]}"#;
+        let j = r#"{"providers":[{"id":"x","endpointType":"openai-compat","autoLoad":"bogus"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
     }
 
@@ -1294,18 +1294,18 @@ mod tests {
     fn providers_nim_like_config() {
         // A NIM-style provider using static model discovery.
         let j = r#"{"providers":[
-            {"id":"nim","endpoint":"openai-compat","baseUrl":"https://integrate.api.nvidia.com/v1","apiKey":null,"modelDiscovery":"static","staticModels":["meta/llama-3.1-8b-instruct","meta/llama-3.1-70b-instruct"]}
+            {"id":"nim","endpointType":"openai-compat","baseUrl":"https://integrate.api.nvidia.com/v1","apiKey":null,"modelDiscovery":"static","staticModels":["meta/llama-3.1-8b-instruct","meta/llama-3.1-70b-instruct"]}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("nim").expect("nim");
-        assert_eq!(def.endpoint, EndpointType::OpenaiCompat);
+        assert_eq!(def.endpoint_type, EndpointType::OpenaiCompat);
         assert_eq!(def.model_discovery, ModelDiscovery::Static);
         assert_eq!(def.static_models.len(), 2);
     }
 
     #[test]
     fn providers_rejects_lms_endpoint_type() {
-        let j = r#"{"providers":[{"id":"x","endpoint":"lms"}]}"#;
+        let j = r#"{"providers":[{"id":"x","endpointType":"lms"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
     }
 
@@ -1315,7 +1315,7 @@ mod tests {
         let c: Config = serde_json::from_str("{}").expect("parse");
         assert_eq!(c.providers.entries.len(), 1);
         assert_eq!(c.providers.entries[0].id, "ollama");
-        assert_eq!(c.providers.entries[0].endpoint, EndpointType::Ollama);
+        assert_eq!(c.providers.entries[0].endpoint_type, EndpointType::Ollama);
     }
 
     #[test]
@@ -1324,7 +1324,7 @@ mod tests {
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(c.providers.entries.len(), 1);
         assert_eq!(c.providers.entries[0].id, "ollama");
-        assert_eq!(c.providers.entries[0].endpoint, EndpointType::Ollama);
+        assert_eq!(c.providers.entries[0].endpoint_type, EndpointType::Ollama);
     }
 
     #[test]
@@ -1436,7 +1436,7 @@ mod tests {
         std::env::set_var(key, "sk-from-env");
 
         let j = format!(
-            r#"{{"providers":[{{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
+            r#"{{"providers":[{{"id":"nearai","endpointType":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
             key
         );
         let c: Config = serde_json::from_str(&j).expect("parse");
@@ -1466,7 +1466,7 @@ mod tests {
         };
 
         let j = format!(
-            r#"{{"providers":[{{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
+            r#"{{"providers":[{{"id":"nearai","endpointType":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"<{}>"}}]}}"#,
             key
         );
         let c: Config = serde_json::from_str(&j).expect("parse");
@@ -1475,7 +1475,7 @@ mod tests {
 
     #[test]
     fn resolve_provider_api_key_literal_value_still_works() {
-        let j = r#"{"providers":[{"id":"nearai","endpoint":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"sk-literal-123"}]}"#;
+        let j = r#"{"providers":[{"id":"nearai","endpointType":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1","apiKey":"sk-literal-123"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_api_key(&c.providers, "nearai"),
@@ -1485,7 +1485,7 @@ mod tests {
 
     #[test]
     fn resolve_provider_api_key_none_when_omitted() {
-        let j = r#"{"providers":[{"id":"ollama","endpoint":"ollama"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(resolve_provider_api_key(&c.providers, "ollama"), None);
     }

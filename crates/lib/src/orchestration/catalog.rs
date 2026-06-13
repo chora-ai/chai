@@ -64,14 +64,14 @@ mod tests {
     fn test_providers(ids: &[&str]) -> ProvidersConfig {
         crate::config::ProvidersConfig {
             entries: ids.iter().map(|id| {
-                let endpoint = match *id {
+                let endpoint_type = match *id {
                     "ollama" => crate::config::EndpointType::Ollama,
                     _ => crate::config::EndpointType::OpenaiCompat,
                 };
                 crate::config::ProviderDefinition {
                     id: id.to_string(),
-                    endpoint,
-                    base_url: if endpoint == crate::config::EndpointType::OpenaiCompat {
+                    endpoint_type,
+                    base_url: if endpoint_type == crate::config::EndpointType::OpenaiCompat {
                         Some(format!("http://localhost/{}", id))
                     } else {
                         None

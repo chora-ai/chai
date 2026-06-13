@@ -12,17 +12,17 @@ Internal spec for **LLM backends** in Chai: provider array configuration, endpoi
 
 ## Provider Configuration
 
-Providers are configured as a **JSON array** of provider objects, each with an `id`, `endpoint` type, and optional configuration fields. This follows the same array pattern used for agents.
+Providers are configured as a **JSON array** of provider objects, each with an `id`, `endpointType`, and optional configuration fields. This follows the same array pattern used for agents.
 
 ### Example Configuration
 
 ```json
 {
   "providers": [
-    { "id": "ollama", "endpoint": "ollama" },
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
-    { "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"] },
-    { "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "ollama", "endpointType": "ollama" },
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
+    { "id": "nim", "endpointType": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"] },
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
   ],
   "agents": [
     { "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" },
@@ -36,19 +36,19 @@ Providers are configured as a **JSON array** of provider objects, each with an `
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | `String` | Yes | — | Unique provider id referenced by agents (`defaultProvider`, `enabledProviders`). |
-| `endpoint` | `EndpointType` | Yes | — | Wire protocol / API family: `"ollama"` or `"openai-compat"`. |
-| `baseUrl` | `String` | No | Per-endpoint default | Base URL override. When unset, the endpoint type default is used. |
+| `endpointType` | `EndpointType` | Yes | — | Wire protocol / API family: `"ollama"` or `"openai-compat"`. |
+| `baseUrl` | `String` | No | Per-endpoint type default | Base URL override. When unset, the endpoint type default is used. |
 | `apiKey` | `String` | No | — | API key. A literal key string, an environment variable reference (`"<VAR_NAME>"`), or omitted. See [API Key Resolution](#api-key-resolution). |
-| `defaultModel` | `String` | No | Per-endpoint default | Default model id fallback for this provider. |
+| `defaultModel` | `String` | No | Per-endpoint type default | Default model id fallback for this provider. |
 | `modelDiscovery` | `ModelDiscovery` | No | `"default"` | How to discover available models: `"default"`, `"lmstudio"`, or `"static"`. |
 | `staticModels` | `String[]` | No | `[]` | Model list when `modelDiscovery: "static"`. No polling. |
 | `autoLoad` | `AutoLoad` | No | `false` | Auto-load behavior on "unloaded" error: `false` or `"lmstudio"`. |
 
 ### Key Concepts
 
-**Provider `id` vs `endpoint` type.** The `id` is just a name — it is what agents reference in `defaultProvider` and `enabledProviders`. The `endpoint` determines the wire protocol. This decouples provider identity from the API family. Two providers with different `id`s can use the same `endpoint` type, differentiated by `baseUrl` and behavior fields.
+**Provider `id` vs `endpointType`.** The `id` is just a name — it is what agents reference in `defaultProvider` and `enabledProviders`. The `endpointType` determines the wire protocol. This decouples provider identity from the API family. Two providers with different `id`s can use the same `endpointType`, differentiated by `baseUrl` and behavior fields.
 
-**Multiple providers of the same endpoint type.** Two Ollama instances or two OpenAI-compat endpoints can coexist in the array, each with its own `id`. No repurposing of provider names as generic carriers.
+**Multiple providers of the same endpoint type.** Two Ollama instances or two OpenAI-compat endpoint types can coexist in the array, each with its own `id`. No repurposing of provider names as generic carriers.
 
 **Dynamic provider list.** Only providers in the array are instantiated at startup.
 
@@ -56,20 +56,20 @@ Providers are configured as a **JSON array** of provider objects, each with an `
 
 An **endpoint type** describes the wire protocol — what HTTP routes to call and how to serialize/deserialize messages. This is distinct from a provider's identity (its `id`).
 
-| Endpoint | Wire Protocol | Default Base URL | Default Model | Default Discovery |
-|----------|--------------|------------------|---------------|-------------------|
+| Endpoint Type | Wire Protocol | Default Base URL | Default Model | Default Discovery |
+|---------------|---------------|------------------|---------------|-------------------|
 | `"ollama"` | Native Ollama: `POST /api/chat`, `GET /api/tags` | `http://127.0.0.1:11434` | `llama3.2:3b` | `GET /api/tags` |
 | `"openai-compat"` | OpenAI: `POST /v1/chat/completions`, `GET /v1/models` | `http://127.0.0.1:1234/v1` | `llama-3.2-3B-instruct` | `GET /v1/models` |
 
-Endpoint types are a **closed enum**, validated at config load time. Unknown endpoint values produce a clear error. The set is small and grows slowly — new endpoint types require a code change (new `Provider` impl) but new providers of an existing endpoint type are config-only.
+Endpoint types are a **closed enum**, validated at config load time. Unknown endpoint type values produce a clear error. The set is small and grows slowly — new endpoint types require a code change (new `Provider` impl) but new providers of an existing endpoint type are config-only.
 
 ### Default Base URL for `openai-compat`
 
-The default base URL for `openai-compat` is `http://127.0.0.1:1234/v1` (LM Studio's localhost address). Since LM Studio is the local alternative to Ollama, most `openai-compat` providers on localhost will be LM Studio. Remote providers (NVIDIA NIM, NearAI, etc.) set `baseUrl` explicitly. A bare `{ "id": "local", "endpoint": "openai-compat" }` connects to LM Studio on localhost.
+The default base URL for `openai-compat` is `http://127.0.0.1:1234/v1` (LM Studio's localhost address). Since LM Studio is the local alternative to Ollama, most `openai-compat` providers on localhost will be LM Studio. Remote providers (NVIDIA NIM, NearAI, etc.) set `baseUrl` explicitly. A bare `{ "id": "local", "endpointType": "openai-compat" }` connects to LM Studio on localhost.
 
 ### OpenAI-Compatible Is Not a Product
 
-The `"openai-compat"` endpoint type covers any server speaking the OpenAI chat completions protocol. Products like LM Studio, NVIDIA NIM, and NearAI all use this protocol — they are configured as providers with `endpoint: "openai-compat"`, differentiated by `baseUrl`, `apiKey`, and behavior fields. Any other OpenAI-compatible server (vLLM, Hugging Face TGI, OpenAI itself, etc.) can also be configured as an `openai-compat` provider by setting `baseUrl` and `apiKey` appropriately.
+The `"openai-compat"` endpoint type covers any server speaking the OpenAI chat completions protocol. Products like LM Studio, NVIDIA NIM, and NearAI all use this protocol — they are configured as providers with `endpointType: "openai-compat"`, differentiated by `baseUrl`, `apiKey`, and behavior fields. Any other OpenAI-compatible server (vLLM, Hugging Face TGI, OpenAI itself, etc.) can also be configured as an `openai-compat` provider by setting `baseUrl` and `apiKey` appropriately.
 
 ## Configurable Behaviors
 
@@ -79,8 +79,8 @@ Product-specific behaviors (LM Studio auto-load, LM Studio model listing, NVIDIA
 
 The `modelDiscovery` field controls how a provider's available model list is obtained.
 
-| Value | Description | Applicable Endpoints |
-|-------|-------------|---------------------|
+| Value | Description | Applicable Endpoint Types |
+|-------|-------------|---------------------------|
 | `"default"` | Use the endpoint type's standard discovery method (`GET /api/tags` for `ollama`, `GET /v1/models` for `openai-compat`). | All |
 | `"lmstudio"` | LM Studio native model list: `GET /api/v1/models`, filter `type == "llm"`, use `key` as model id. | `openai-compat` |
 | `"static"` | Use the model list from the `staticModels` config field. No polling. | All |
@@ -94,7 +94,7 @@ The `staticModels` field is an array of model id strings used when `modelDiscove
 ```json
 {
   "id": "nim",
-  "endpoint": "openai-compat",
+  "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
   "apiKey": "<NVIDIA_API_KEY>",
   "modelDiscovery": "static",
@@ -122,7 +122,7 @@ When omitted, `autoLoad` defaults to `false`.
 ```json
 {
   "id": "lms",
-  "endpoint": "openai-compat",
+  "endpointType": "openai-compat",
   "modelDiscovery": "lmstudio",
   "autoLoad": "lmstudio"
 }
@@ -157,8 +157,8 @@ With this `.env` file, the following config resolves both keys without hardcodin
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
-    { "id": "nim", "endpoint": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct"] }
+    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
+    { "id": "nim", "endpointType": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct"] }
   ]
 }
 ```
@@ -227,29 +227,29 @@ Note: A **multi-agent management system** extends this idea: one agent or model 
 
 Four providers demonstrate the key configuration patterns. Each shows a different combination of endpoint type and behavior fields.
 
-### Ollama (`"ollama"` endpoint)
+### Ollama (`"ollama"` endpoint type)
 
-The simplest configuration: native Ollama endpoint, no `baseUrl` or `apiKey` needed.
+The simplest configuration: native Ollama endpoint type, no `baseUrl` or `apiKey` needed.
 
 ```json
-{ "id": "ollama", "endpoint": "ollama" }
+{ "id": "ollama", "endpointType": "ollama" }
 ```
 
-- **Endpoint:** `"ollama"` — native Ollama REST API (`/api/chat`, `/api/tags`)
+- **EndpointType:** `"ollama"` — native Ollama REST API (`/api/chat`, `/api/tags`)
 - **Default base URL:** `http://127.0.0.1:11434`
 - **Model discovery:** `GET /api/tags` (default)
 - **Auth:** None (local only)
 - **Privacy:** Full — data stays on your machine
 
-### NearAI (`"openai-compat"` endpoint)
+### NearAI (`"openai-compat"` endpoint type)
 
 A remote OpenAI-compatible API. Needs `baseUrl` and `apiKey`.
 
 ```json
-{ "id": "nearai", "endpoint": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
+{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
 ```
 
-- **Endpoint:** `"openai-compat"` — OpenAI chat completions protocol
+- **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
 - **Default base URL:** None — must set `baseUrl` explicitly
 - **Model discovery:** `GET /v1/models` (default)
 - **Auth:** API key via `apiKey` field (literal string or `<ENV_VAR>` reference)
@@ -264,7 +264,7 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 ```json
 {
   "id": "nim",
-  "endpoint": "openai-compat",
+  "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
   "apiKey": "<NVIDIA_API_KEY>",
   "modelDiscovery": "static",
@@ -272,7 +272,7 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 }
 ```
 
-- **Endpoint:** `"openai-compat"` — OpenAI chat completions protocol
+- **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
 - **Default base URL:** None — must set `baseUrl` explicitly
 - **Model discovery:** `"static"` — no polling; models from `staticModels` config field only
 - **Auth:** API key via `apiKey` field (literal string or `<NVIDIA_API_KEY>` reference)
@@ -285,10 +285,10 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 LM Studio uses two behavior fields: `modelDiscovery: "lmstudio"` for its native model list and `autoLoad: "lmstudio"` for automatic model loading.
 
 ```json
-{ "id": "lms", "endpoint": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
 ```
 
-- **Endpoint:** `"openai-compat"` — OpenAI chat completions protocol
+- **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
 - **Default base URL:** `http://127.0.0.1:1234/v1` (`openai-compat` default — LM Studio's localhost address)
 - **Model discovery:** `"lmstudio"` — uses LM Studio's native `GET /api/v1/models` endpoint (filters `type == "llm"`, uses `key` as model id)
 - **Auto-load:** `"lmstudio"` — on "unloaded" error, calls `POST /api/v1/models/load` and retries once
@@ -306,15 +306,15 @@ Any other OpenAI-compatible server follows one of the three `openai-compat` patt
 
 | Pattern | When to Use | Fields |
 |---------|-------------|--------|
-| Simple remote API | Server has `/v1/models` and standard discovery works | `endpoint: "openai-compat"` + `baseUrl` + `apiKey` |
+| Simple remote API | Server has `/v1/models` and standard discovery works | `endpointType: "openai-compat"` + `baseUrl` + `apiKey` |
 | Static model list | Server lacks `/v1/models` or you want to curate the list | Add `modelDiscovery: "static"` + `staticModels` |
 | LM Studio | Local LM Studio instance | `modelDiscovery: "lmstudio"` + `autoLoad: "lmstudio"` |
 
-For example, vLLM, Hugging Face TGI, and OpenAI itself are all "simple remote API" — just `endpoint: "openai-compat"` with the appropriate `baseUrl` and `apiKey`. No special behavior fields needed.
+For example, vLLM, Hugging Face TGI, and OpenAI itself are all "simple remote API" — just `endpointType: "openai-compat"` with the appropriate `baseUrl` and `apiKey`. No special behavior fields needed.
 
 ## API Comparison
 
-Canonical comparison of what the gateway uses for the two endpoint types. For endpoint details and shapes, see the per-backend references under [base/ref/](../ref/).
+Canonical comparison of what the gateway uses for the two endpoint types. For endpoint type details and shapes, see the per-backend references under [base/ref/](../ref/).
 
 **Ollama: current usage vs full API vs hosted**
 

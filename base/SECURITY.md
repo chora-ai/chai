@@ -17,8 +17,8 @@ The sandbox model defends against the agent, not against user error, compromised
 The sandbox enforces filesystem boundaries through three layers:
 
 1. **Runtime path-like value check** — Unannotated `positional` and `flag` parameters are inspected at runtime. Values matching a path-like pattern are rejected: absolute paths (`/etc/passwd`), home-relative paths (`~/.ssh/id_rsa`), directory traversal (`../../etc/passwd`), and `file://` URLs (`file:///etc/passwd`).
-2. **CWD confinement** — The executor sets `Command::current_dir()` to the sandbox root for all tool executions, so relative paths in unannotated parameters resolve within the sandbox.
-3. **Sandbox path validation** — Parameters annotated with `readPath` or `writePath` are validated against the sandbox's writable roots (canonicalized, prefix-checked).
+2. **CWD confinement** — The executor sets `Command::current_dir()` to the sandbox root for all tool executions, so relative paths in unannotated parameters resolve within the sandbox. (TODO: Is this still accurate? Sandbox root rather than current directory?)
+3. **Sandbox path validation** — Parameters annotated with `readPath` or `writePath` are validated against the sandbox's readable and writable roots (canonicalized, prefix-checked).
 
 ## Known Vulnerabilities
 
@@ -98,4 +98,3 @@ The following are explicitly outside Chai's current security model:
 | [spec/SANDBOX.md](spec/SANDBOX.md) | Behavioral contract for the sandbox model |
 | [spec/TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md) | `writePath`, `readPath`, and `unsafePath` field definitions |
 | [adr/WRITE_SANDBOX.md](adr/WRITE_SANDBOX.md) | Architectural decision for the sandbox model |
-| [AUDIT_SKILLS.md](AUDIT_SKILLS.md) | Cross-skill audit tracking |

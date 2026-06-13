@@ -8,14 +8,14 @@ Internal spec for **model identifiers** in Chai: examples per endpoint type, cro
 
 ## Relationship to Other Documents
 
-- **[PROVIDERS.md](PROVIDERS.md)** — Provider `id`, `endpoint` types, discovery, and compatibility; pair with **MODELS.md** for **model** strings.
+- **[PROVIDERS.md](PROVIDERS.md)** — Provider `id`, endpoint types, discovery, and compatibility; pair with **MODELS.md** for **model** strings.
 - **Testing procedures** live under **`/docs/testing/`** and are operational runbooks; this spec remains the canonical model taxonomy and inventory.
 
 ## Models by Endpoint Type
 
 ### `"ollama"` — Ollama (Supported)
 
-Models are identified by the name used in `ollama list`. Set `defaultProvider` to the `id` of a provider with `endpoint: "ollama"` and `defaultModel` to the model name (e.g. `llama3.2:3b`).
+Models are identified by the name used in `ollama list`. Set `defaultProvider` to the `id` of a provider with `endpointType: "ollama"` and `defaultModel` to the model name (e.g. `llama3.2:3b`).
 
 | Model | Notes |
 |-------|-------|
@@ -30,7 +30,7 @@ This endpoint type covers LM Studio, NVIDIA NIM, NEAR AI, and any other server s
 
 #### LM Studio
 
-Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Provider config: `endpoint: "openai-compat"`, `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"`. Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
+Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Provider config: `endpointType: "openai-compat"`, `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"`. Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
 
 | Model id (example) | Notes |
 |--------------------|-------|
@@ -41,7 +41,7 @@ Models are identified by the model id shown in LM Studio (e.g. from the in-app l
 
 #### NVIDIA NIM (Hosted)
 
-Provider config: `endpoint: "openai-compat"`, `baseUrl: "https://integrate.api.nvidia.com/v1"`, `modelDiscovery: "static"`, `staticModels` array, `apiKey` / `NVIDIA_API_KEY`. Not a private deployment; see [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md).
+Provider config: `endpointType: "openai-compat"`, `baseUrl: "https://integrate.api.nvidia.com/v1"`, `modelDiscovery: "static"`, `staticModels` array, `apiKey` / `NVIDIA_API_KEY`. Not a private deployment; see [NVIDIA_NIM.md](../ref/NVIDIA_NIM.md).
 
 | Model | Notes |
 |-------|-------|
@@ -51,7 +51,7 @@ Provider config: `endpoint: "openai-compat"`, `baseUrl: "https://integrate.api.n
 
 #### NearAI
 
-Provider config: `endpoint: "openai-compat"`, `baseUrl: "https://cloud-api.near.ai/v1"`, `apiKey`.
+Provider config: `endpointType: "openai-compat"`, `baseUrl: "https://cloud-api.near.ai/v1"`, `apiKey`.
 
 | Model | Notes |
 |-------|-------|
@@ -61,7 +61,7 @@ Provider config: `endpoint: "openai-compat"`, `baseUrl: "https://cloud-api.near.
 
 #### Other OpenAI-Compatible Servers
 
-Any server exposing OpenAI-shaped routes can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`. This includes vLLM, Hugging Face TGI, OpenAI, and others. No special behavior fields are needed. See [OPENAI.md](../ref/OPENAI.md) for the `openai-compat` endpoint reference.
+Any server exposing OpenAI-shaped routes can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`. This includes vLLM, Hugging Face TGI, OpenAI, and others. No special behavior fields are needed. See [OPENAI.md](../ref/OPENAI.md) for the `openai-compat` endpoint type reference.
 
 ## Repository Model Inventory
 
@@ -75,7 +75,7 @@ For this document, **local** means a model that is **realistic to run on a typic
 
 | Model id | Primary references |
 |----------|-------------------|
-| **`llama3.2:3b`** | Runtime default for `"ollama"` endpoint: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/agent.rs`](../../crates/lib/src/agent.rs), [README.md](../../README.md), journey guides (`docs/journey/`), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
+| **`llama3.2:3b`** | Runtime default for `"ollama"` endpoint type: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/agent.rs`](../../crates/lib/src/agent.rs), [README.md](../../README.md), journey guides (`docs/journey/`), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | **`llama-3.2-3B-instruct`** | LM Studio fallback when model unset: [`crates/lib/src/orchestration/model.rs`](../../crates/lib/src/orchestration/model.rs), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
 | **`meta/llama-3.2-3b-instruct`** | NIM example model id in docs; runtime default for NIM is provider-configured via `staticModels` |
 | **`qwen3:8b`** | [OLLAMA.md](../ref/OLLAMA.md) |

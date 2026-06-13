@@ -43,6 +43,7 @@ This creates `~/.chai/` with:
 - An `active` symlink → `profiles/assistant/`
 - A shared `skills/` tree (bundled skills extracted from the application)
 - A `sandbox/` directory per profile for write-capable tools
+- A `skills.lock` file per newly seeded profile (pins bundled skill versions so lock verification is active from the start)
 
 Each profile gets its own `config.json`, agent context directories, and state. The active profile is `assistant` by default.
 

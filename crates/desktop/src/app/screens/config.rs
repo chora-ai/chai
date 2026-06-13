@@ -210,13 +210,13 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
 
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
             // Show provider id with endpoint type label.
-            let endpoint_label = match def.endpoint {
+            let endpoint_label = match def.endpoint_type {
                 lib::config::EndpointType::Ollama => "Ollama",
                 lib::config::EndpointType::OpenaiCompat => "OpenAI-Compatible",
             };
             ui.label(egui::RichText::new(format!("{} ({})", def.id, endpoint_label)).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            dashboard::kv(ui, "endpoint", def.endpoint.as_str());
+            dashboard::kv(ui, "endpoint type", def.endpoint_type.as_str());
             if let Some(ref url) = resolved_base {
                 dashboard::kv(ui, "base URL", url.as_str());
             }

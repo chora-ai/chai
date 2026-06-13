@@ -7,7 +7,7 @@ Epics are proposals and tracking documents for significant features or architect
 - **Epics** (`epic/*.md`) — Proposals, phases, requirements, and tracking. They capture *what* is planned or delivered and *why*.
 - **Specs** (`spec/*.md`) — Behavioral contracts for the running system. They capture *how* the system behaves for implementers.
 
-When implementation changes product behavior, **update the relevant `spec/*.md`** in the same effort (or immediately after) so specs stay aligned with the code. Update the root **`README.md`** or **`VISION.md`** when operators or users need to see the change.
+When implementation changes product behavior, **update the relevant `spec/*.md`** in the same effort (or immediately after) so specs stay aligned with the code. Update the root **`docs/`** when operators or users need to see the change.
 
 ## Frontmatter
 

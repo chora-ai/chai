@@ -19,7 +19,7 @@ chai version
 
 ## `chai init`
 
-Create the `~/.chai/` configuration directory with default profiles, an `active` symlink, and bundled skills. Safe to re-run on an existing configuration — existing files are never overwritten and user customizations are preserved. See [Configuration](03-configuration.md#initialization) for the full re-run behavior.
+Create the `~/.chai/` home directory with an `active` symlink, bundled profiles, bundled skills, and a `skills.lock` for each newly seeded profile. Safe to re-run on an existing configuration — existing files are never overwritten and user customizations are preserved. See [Configuration](03-configuration.md#initialization) for the full re-run behavior.
 
 ```bash
 chai init
@@ -132,6 +132,8 @@ chai skill generations               # List saved lock generations
 chai skill rollback <generation>     # Restore a saved generation and repoint active symlinks
 ```
 
+The default `skillLockMode` is `strict` — the gateway refuses to start when an enabled skill's active version does not match its locked hash. However, `strict` mode has no effect until a `skills.lock` file exists for the active profile. `chai init` generates the lock for profiles it creates; for manually created profiles, you must run `chai skill lock` yourself. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
+
 ### Discovery
 
 ```bash
@@ -174,6 +176,28 @@ chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
 ```
 
 The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--original-content` is provided, the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected.
+
+### Find and Replace
+
+```bash
+chai file replace --path <PATH> --pattern <PATTERN> --replacement <REPLACEMENT> [--line-numbers]
+```
+
+Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
+
+**Line deletion** — Match the line content plus its trailing newline and replace with an empty string to delete the line entirely:
+
+```bash
+chai file replace --path config.toml --pattern 'obsolete_field: None,\n' --replacement ''
+```
+
+**Capture groups** — Bump a version number across all matching lines:
+
+```bash
+chai file replace --path config.toml --pattern 'version = "(\d+)\.(\d+)\.(\d+)"' --replacement 'version = "$1.$2.4"'
+```
+
+When `--line-numbers` is omitted, it defaults to true (line numbers shown in the diff). If zero matches are found, exits 0 with a "0 replacements" message.
 
 ### Deleting
 
