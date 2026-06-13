@@ -466,7 +466,7 @@ pub fn ui_chat(app: &mut ChaiApp, ui: &mut egui::Ui, gateway_running: bool) {
                         .cloned()
                         .unwrap_or_else(|| "—".to_string())
                 };
-                ui.add_enabled_ui(can_send_base, |ui| {
+                ui.add_enabled_ui(can_send, |ui| {
                     egui::ComboBox::from_id_source("provider_select")
                         .selected_text(selected)
                         .show_ui(ui, |ui| {

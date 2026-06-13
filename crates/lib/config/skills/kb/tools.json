@@ -143,7 +143,7 @@
     },
     {
       "name": "kb_replace",
-      "description": "Replace all occurrences of a pattern in a knowledge base note. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full note content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple kb_write_lines calls when the same edit applies to many locations in one note.",
+      "description": "Replace all occurrences of a pattern in a knowledge base note. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple files_write_lines calls when the same edit applies to many locations in one file. When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content.",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
@@ -158,7 +158,12 @@
           },
           "replacement": {
             "type": "string",
-            "description": "Replacement string. Supports $1-$9 for capture group references. Use $$ for a literal $. Use an empty string to delete matches."
+            "description": "Replacement string. Supports $1-$9 for capture group references. Use $$ for a literal $. Use an empty string to delete matches. Escape sequences \\n (newline), \\t (tab), and \\\\ (literal backslash) are processed in the replacement, consistent with how \\n works in the pattern."
+          },
+          "max_replacements": {
+            "type": "integer",
+            "description": "Maximum number of replacements to apply. 0 (default) means unlimited. Use 1 to replace only the first match and avoid unintended changes when the same pattern appears in multiple locations.",
+            "default": 0
           },
           "line_numbers": {
             "type": "boolean",

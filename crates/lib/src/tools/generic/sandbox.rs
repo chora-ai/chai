@@ -27,10 +27,13 @@ use super::argv::{json_value_to_string, transform_param_value};
 ///
 /// Values that don't match these patterns pass through: simple names,
 /// URLs (http/https/ssh), patterns, numbers, relative subpaths without
-/// traversal.
+/// traversal, and comment-like values starting with `//` or `///`.
 fn check_path_like_value(param: &str, value: &str) -> Result<(), String> {
-    // Absolute path
-    if value.starts_with('/') {
+    // Absolute path — reject single-slash paths (e.g. /etc/passwd) but allow
+    // double-slash or triple-slash prefixes which are line comments (//, ///)
+    // or doc comments, not filesystem paths. No mainstream OS uses // or ///
+    // as a distinct absolute path.
+    if value.starts_with('/') && !value.starts_with("//") {
         return Err(format!(
             "parameter '{}' received an absolute path '{}' but is not annotated as a path parameter; add readPath, writePath, or unsafePath",
             param, value
@@ -368,6 +371,38 @@ mod tests {
     fn check_path_like_allows_empty_string() {
         // Empty strings are not checked (handled separately)
         assert!(check_path_like_value("p", "").is_ok());
+    }
+
+    // --- double-slash and triple-slash comment patterns ---
+
+    #[test]
+    fn check_path_like_allows_double_slash_comment() {
+        // `//` is a line comment in C/C++/Java/JS/Rust, not an absolute path
+        assert!(check_path_like_value("pattern", "// TODO: fix this").is_ok());
+    }
+
+    #[test]
+    fn check_path_like_allows_triple_slash_doc_comment() {
+        // `///` is a Rust doc comment, not an absolute path
+        assert!(check_path_like_value("pattern", "/// WebSocket event name").is_ok());
+    }
+
+    #[test]
+    fn check_path_like_allows_double_slash_at_line_start() {
+        // Multi-line pattern starting with // (common in source code)
+        assert!(check_path_like_value("pattern", "// comment\nfn main()").is_ok());
+    }
+
+    #[test]
+    fn check_path_like_rejects_single_slash_absolute_path() {
+        // Single-slash absolute paths should still be rejected
+        assert!(check_path_like_value("p", "/etc/passwd").is_err());
+    }
+
+    #[test]
+    fn check_path_like_rejects_single_slash_root() {
+        // Bare `/` should still be rejected
+        assert!(check_path_like_value("p", "/").is_err());
     }
 
     // --- validate_write_paths: runtime path-like check integration ---
