@@ -10,7 +10,6 @@ use lib::orchestration::{
     EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 
-
 use super::super::{ChaiApp, ChatMessage, SessionEvent};
 
 /// Last timeline row that is not an orchestration delegation line, tool event, or assistant thinking row

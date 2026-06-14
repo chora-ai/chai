@@ -68,10 +68,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ]
     },
@@ -84,11 +81,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "key",
@@ -111,11 +104,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "key",

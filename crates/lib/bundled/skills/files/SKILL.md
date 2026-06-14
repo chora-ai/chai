@@ -18,6 +18,7 @@ metadata:
 - when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
 - after using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines
 - use `files_replace` for bulk find-and-replace across a file; use `files_write_lines` for targeted edits where surrounding context must be verified before replacement
+- prefer `files_write_lines` over `files_replace` when the content to match contains regex metacharacters (especially `|`, `()`, `[]`, `.`, `*`, `+`, `?` — common in markdown tables, code blocks, and URLs). The escaping burden makes `files_replace` error-prone for such content. Use `files_replace` when the pattern is simple text or intentionally uses regex features
 
 The `pattern` parameter in `files_search_content` supports extended regex (ERE): `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping.
 

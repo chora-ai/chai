@@ -6,8 +6,19 @@ status: stable
 
 This document describes how **messaging channels** connect to the Chai gateway: **`InboundMessage`** ingestion, **`ChannelHandle`** registration, **`SessionBindingStore`** routing, WebSocket **`send`** / **`agent`** delivery, and shutdown. It is an internal spec aligned with the current implementation in **`crates/lib`** (`channels/`, `routing.rs`, `gateway/server.rs`, `gateway/protocol.rs`, `config.rs`).
 
-For roadmap, privacy goals, and planned channels beyond Telegram, see **[MSG_CHANNELS.md](../epic/MSG_CHANNELS.md)**. For third-party Telegram Bot API usage in this codebase, see **[TELEGRAM.md](../ref/TELEGRAM.md)**.
-For experimental **Matrix** / **Signal** wire probes (not the gateway), see **`crates/spike/`** and **`crates/spike/README.md`**.
+For channel-specific reference documentation, see [TELEGRAM.md](../ref/TELEGRAM.md), [MATRIX.md](../ref/MATRIX.md), and [SIGNAL.md](../ref/SIGNAL.md). For adapter package design decisions, see [MATRIX_ADAPTER.md](../adr/MATRIX_ADAPTER.md) and [SIGNAL_ADAPTER.md](../adr/SIGNAL_ADAPTER.md). For experimental **Matrix** / **Signal** wire probes (not the gateway), see **`crates/spike/`** and **`crates/spike/README.md`**.
+
+## Feature Gates
+
+Optional channel integrations are isolated in adapter crates and gated behind Cargo features:
+
+| Channel | Adapter Crate | Feature | Default | Status |
+|---------|--------------|---------|---------|--------|
+| **Telegram** | — (in **`lib`**) | — | Always on | Supported |
+| **Matrix** | **`crates/adapters/matrix`** (`matrix-channel`) | **`matrix`** | Off | Experimental (opt-in) |
+| **Signal** | **`crates/adapters/signal`** (`signal-channel`) | **`signal`** | Off | Experimental (opt-in) |
+
+When a feature is off, **`lib`** compiles a stub module so the gateway builds without that channel's types. Operators enable opt-in channels at install time (e.g. **`cargo install --path crates/cli --features matrix`**).
 
 ## Core Types
 
@@ -64,7 +75,11 @@ Defined in **`crates/lib/src/channels/registry.rs`** (`async_trait`):
 
 - **`ChannelRegistry::register(id, handle)`** stores **`Arc<dyn ChannelHandle>`**. Registering the same id **replaces** the handle and calls **`stop()`** on the previous one.
 
-- **Telegram today** — If the token is present: in webhook mode the handle is registered without a long-poll task; in long-poll mode **`start_inbound`** spawns a **`JoinHandle`** pushed to **`channel_tasks`** so shutdown can **`await`** it.
+- **Telegram** — If the token is present: in webhook mode the handle is registered without a long-poll task; in long-poll mode **`start_inbound`** spawns a **`JoinHandle`** pushed to **`channel_tasks`** so shutdown can **`await`** it.
+
+- **Matrix** — If credentials are present and the **`matrix`** feature is enabled: **`connect_matrix_client`** builds a **`MatrixChannel`**, registers it, and starts the sync loop as a **`JoinHandle`** in **`channel_tasks`**.
+
+- **Signal** — If **`httpBase`** is present and the **`signal`** feature is enabled: **`SignalChannel`** is registered and the SSE events loop starts as a **`JoinHandle`** in **`channel_tasks`**.
 
 - **New channels** — Must register under a **unique** **`channel_id`** before any inbound message is processed. Any long-running task should be tracked in **`channel_tasks`** the same way.
 
@@ -84,7 +99,7 @@ New channels that use HTTP push need new routes on the **`Router`** in **`run_ga
 3. **Telegram-specific:** if webhook mode was used, **`delete_webhook`** on the **`TelegramChannel`** instance kept for shutdown.
 4. **`await`** each **`JoinHandle`** in **`channel_tasks`**.
 
-New channels with extra cleanup (logout, disconnect Matrix client, stop sidecar) should follow the same pattern: prefer **`stop()`** plus awaited tasks; add dedicated shutdown parameters only when necessary (as with Telegram’s webhook delete).
+New channels with extra cleanup (logout, disconnect Matrix client, stop sidecar) should follow the same pattern: prefer **`stop()`** plus awaited tasks; add dedicated shutdown parameters only when necessary (as with Telegram's webhook delete).
 
 ## Configuration
 
@@ -99,12 +114,13 @@ New channels with extra cleanup (logout, disconnect Matrix client, stop sidecar)
 | Requirement | Detail |
 |-------------|--------|
 | **`channel_id`** | Single stable id string; consistent across **`InboundMessage`**, registry, and config docs. |
-| **`conversation_id`** | Round-trips through **`send_message`**; stable for the lifetime of a “chat” on that network. |
+| **`conversation_id`** | Round-trips through **`send_message`**; stable for the lifetime of a "chat" on that network. |
 | **Text-only MVP** | Match current **`InboundMessage`** unless you extend the struct. |
 | **Register + optional tasks** | **`ChannelRegistry::register`**; push **`JoinHandle`**s to **`channel_tasks`** for work that must complete on shutdown. |
 | **`stop()`** | Unblock long-poll, cancel sync, or signal subprocess shutdown. |
 | **Gateway wiring** | Startup registration in **`run_gateway`**; **`Router`** routes for HTTP ingress; extend **`shutdown_signal`** if channel-specific teardown is required beyond **`stop()`** + task await. |
 | **Config** | Extend **`ChannelsConfig`** and resolution; document env vars. |
+| **Feature gate** | Optional channels should live in **`crates/adapters/<name>`** behind a Cargo feature on **`lib`**; include a stub when the feature is off. |
 
 ## Key Files
 
@@ -113,7 +129,8 @@ New channels with extra cleanup (logout, disconnect Matrix client, stop sidecar)
 | **`crates/lib/src/channels/inbound.rs`** | **`InboundMessage`**. |
 | **`crates/adapters/matrix`** (package **`matrix-channel`**) | **`MatrixInner`**, **`connect_with_params`**, **`RawInbound`** ([matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk): SQLite + E2EE, **`/sync`**, **`m.room.message`** send). |
 | **`crates/lib/src/channels/matrix.rs`** | **`MatrixChannel`** newtype + **`ChannelHandle`**, bridges **`RawInbound`** → **`InboundMessage`** (when **`lib`** **`matrix`** feature is on). |
-| **`crates/lib/src/channels/signal.rs`** | **`SignalChannel`**, **`resolve_signal_daemon_config`** (signal-cli HTTP SSE + JSON-RPC **`send`**). |
+| **`crates/adapters/signal`** (package **`signal-channel`**) | **`SignalInner`**, SSE events loop, JSON-RPC **`send`** (when **`lib`** **`signal`** feature is on; currently in **`crates/lib/src/channels/signal.rs`**). |
+| **`crates/lib/src/channels/signal.rs`** | **`SignalChannel`**, **`resolve_signal_daemon_config`** (thin wrapper; to migrate to adapter crate). |
 | **`crates/lib/src/channels/registry.rs`** | **`ChannelHandle`**, **`ChannelRegistry`**. |
 | **`crates/lib/src/routing.rs`** | **`SessionBindingStore`**. |
 | **`crates/lib/src/gateway/server.rs`** | **`process_inbound_message`**, queue, registration, shutdown, webhook handlers. |

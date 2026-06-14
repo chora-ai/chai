@@ -17,18 +17,21 @@ This guide walks you through installing chai, starting the gateway, and sending 
 cargo install --path crates/cli
 ```
 
-To include the optional Matrix channel adapter:
+To include optional channel adapters (experimental):
 
 ```bash
-cargo install --path crates/cli --features matrix
+cargo install --path crates/cli --features matrix   # Matrix
+cargo install --path crates/cli --features signal    # Signal
+cargo install --path crates/cli --features matrix,signal  # Both
 ```
+
+Telegram is included by default and does not need a feature flag. See [Channels](#channels) below for details.
 
 Verify the installation:
 
 ```bash
 chai version
 ```
-
 ## Initialize
 
 Run `chai init` to create the chai configuration directory:
@@ -91,6 +94,18 @@ When you sent your first message, the gateway:
 2. Sent the system message and your message to the provider (Ollama).
 3. Received the model's response and streamed it back.
 4. Stored the exchange in the session history for context on the next turn.
+
+## Channels
+
+Chai supports multiple messaging channels. All channels deliver messages to the same agent, so you can start a conversation in one channel and continue in another.
+
+| Channel | Build Feature | Status |
+|---------|--------------|--------|
+| Telegram | (always on) | Supported |
+| Matrix | `--features matrix` | Experimental (opt-in) |
+| Signal | `--features signal` | Experimental (opt-in) |
+
+Telegram is included in every build. No configuration is required to use the CLI or desktop chat — those work without any channel. When you're ready to connect a messaging platform, see [Connections](04-connections.md) for setup instructions for each channel.
 
 ## Next Steps
 

@@ -926,14 +926,7 @@ impl eframe::App for ChaiApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             if self.current_screen == Screen::Chat {
                 ui::layout::central_padded(ui, |ui| {
-                    let subtitle = if !running {
-                        Some("Start the gateway to chat with the orchestrator.")
-                    } else {
-                        Some("Chat with the orchestrator using the selected provider and model.")
-                    };
-                    ui_screen(ui, "Chat", subtitle, |ui| {
-                        screens::chat::ui_chat(self, ui, running);
-                    });
+                    screens::chat::ui_chat_screen(self, ui, running);
                 });
             } else if self.current_screen == Screen::Files {
                 ui::layout::central_padded(ui, |ui| {
@@ -960,7 +953,6 @@ impl eframe::App for ChaiApp {
                     screens::skills::ui_skills_screen(self, ui);
                 });
             } else if self.current_screen == Screen::Logs {
-                // Logs screen has its own scroll area for the log lines; avoid double scrollbars
                 ui::layout::central_padded(ui, |ui| {
                     screens::logs::ui_logs_screen(self, ui);
                 });

@@ -4,9 +4,9 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 ## Primary Resources
 
-This document and the `./base/` directory are the primary resources for agents.
+This document and the `base` directory are the primary resources for agents.
 
-**Always read [base/README.md](base/README.md)** — the entry point for the `./base/` directory.
+**Always read [base/README.md](base/README.md)** — the entry point for the `base` directory.
 
 ## Architecture Overview
 
@@ -16,6 +16,7 @@ This document and the `./base/` directory are the primary resources for agents.
 | User-facing runtime | `crates/desktop` | Graphical user interface for the multi-agent management system. |
 | Shared runtime library | `crates/lib` | Shared business logic for the multi-agent management system. |
 | Optional integration | `crates/adapters/matrix` | Optional Matrix **matrix-sdk** adapter (sync, E2EE, hooks). |
+| Optional integration | `crates/adapters/signal` | Optional Signal **signal-cli** adapter (SSE, JSON-RPC send). |
 | Optional research | `crates/spike` | Optional research binaries (e.g. Matrix/Signal wire probes). |
 
 ## Architecture Guidelines
@@ -27,10 +28,6 @@ This document and the `./base/` directory are the primary resources for agents.
 ### Dependencies
 
 - Add dependencies only when clearly needed; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits.
-
-### New Crates
-
-- The crates in **Architecture Overview** are a starting point. If creating a new crate would improve modularity without adding unnecessary complexity, create a new crate.
 
 ## Code Style Guidelines
 

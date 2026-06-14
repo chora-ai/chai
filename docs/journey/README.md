@@ -30,8 +30,8 @@ Step-by-step walkthroughs for setting up chai, verifying its behavior, and testi
 | 05 | [Skill: Files](05-skill-files.md) | Test the files skill: read, write, patch, search, and delete files in the write sandbox. |
 | 06 | [Skill: Knowledge Base](06-skill-kb.md) | Test the kb skill: create, read, search, append, list, and delete notes. Covers kb-daily, kb-frontmatter, and kb-wikilink extensions. |
 | 07 | [Skill: Skills](07-skill-skills.md) | Test the skills skill: list, read, validate, discover, init, write, and delete skill packages. |
-| 08 | [Channel: Matrix](08-channel-matrix.md) | Connect Matrix, verify message round-trip, and optionally test E2EE device verification. |
-| 09 | [Channel: Signal](09-channel-signal.md) | Connect Signal via signal-cli, send a message, and verify the agent replies. |
+| 08 | [Channel: Matrix (Experimental)](08-channel-matrix.md) | Connect Matrix, verify message round-trip, and optionally test E2EE device verification. Requires `--features matrix`. |
+| 09 | [Channel: Signal (Experimental)](09-channel-signal.md) | Connect Signal via signal-cli, send a message, and verify the agent replies. Requires `--features signal`. |
 | 10 | [Provider: local and cloud](10-provider-ollama-lmstudio.md) | Switch the default model, add LM Studio, NearAI, or NVIDIA NIM as providers, verify model discovery. |
 | 11 | [Agent: multi-agent configuration](11-agent-multi.md) | Configure an orchestrator with a worker, trigger delegation, verify the worker's response. |
 | 12 | [Gateway: auth](12-gateway-auth.md) | Enable token auth, verify connect with and without the token, test protected HTTP routes. |

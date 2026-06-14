@@ -17,7 +17,7 @@ fn server_name_from_homeserver(hs: &str) -> Result<String> {
     let rest = s
         .strip_prefix("https://")
         .or_else(|| s.strip_prefix("http://"))
-        .ok_or_else(|| anyhow!("MATRIX_HOMESERVER must start with https:// or http://"))?;
+        .ok_or_else(|| anyhow!("matrix homeserver must start with https:// or http://"))?;
     let host = rest.split('/').next().unwrap_or(rest);
     if host.is_empty() {
         anyhow::bail!("homeserver URL has no host");

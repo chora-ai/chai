@@ -44,10 +44,8 @@ For deeper reference material, the chai source tree includes provider and model 
 
 - **Provider taxonomy and API comparisons** — `base/spec/PROVIDERS.md`
 - **Model ids, inventory, and tool-fit notes** — `base/spec/MODELS.md`
-- **API alignment roadmap** — `base/spec/API_ALIGNMENT.md` (inside `base/epic/`)
 - **Per-backend wire protocol references** — `base/ref/OLLAMA.md`, `base/ref/LM_STUDIO.md`, `base/ref/NVIDIA_NIM.md`, `base/ref/OPENAI.md`
 - **Repeatable model test playbooks** — `docs/testing/`
-
 These paths are relative to the chai source tree, not the guides directory. They are intended for contributors and advanced users working inside the repository.
 
 ## Agent Context On Disk

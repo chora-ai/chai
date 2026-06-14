@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_json::json;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -14,6 +15,11 @@ const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
 const LONG_POLL_TIMEOUT: u64 = 30;
 
 const STATUS_ERR_MAX: usize = 512;
+
+/// Initial reconnect delay (seconds) for getUpdates failures.
+const RECONNECT_BASE_SECS: u64 = 1;
+/// Maximum reconnect delay cap (seconds).
+const RECONNECT_MAX_SECS: u64 = 30;
 
 fn set_channel_status_error(slot: &Mutex<Option<String>>, msg: &str) {
     let t = msg.trim();
@@ -25,6 +31,18 @@ fn set_channel_status_error(slot: &Mutex<Option<String>>, msg: &str) {
     if let Ok(mut g) = slot.lock() {
         *g = Some(s);
     }
+}
+
+/// Exponential backoff with jitter: `min(base * 2^attempt, max) ± jitter`.
+fn reconnect_delay(attempt: u32) -> Duration {
+    let exp = RECONNECT_BASE_SECS.saturating_mul(1u64.checked_shl(attempt).unwrap_or(u64::MAX));
+    let capped = exp.min(RECONNECT_MAX_SECS);
+    // Simple jitter: ±25% of capped value
+    let jitter = (capped / 4).max(1);
+    // Deterministic jitter based on attempt; no random crate needed.
+    let offset = (attempt as u64 * 7) % (2 * jitter);
+    let delay = capped + offset;
+    Duration::from_secs(delay.min(RECONNECT_MAX_SECS))
 }
 
 /// How inbound Telegram updates are received.
@@ -217,9 +235,14 @@ async fn run_get_updates_loop(
     inbound_tx: mpsc::Sender<InboundMessage>,
 ) {
     let mut offset: Option<i64> = None;
+    let mut attempt: u32 = 0;
     while channel.running() {
         match channel.get_updates(offset).await {
             Ok((updates, next)) => {
+                if attempt > 0 {
+                    log::info!("telegram: getUpdates recovered after {} attempt(s)", attempt);
+                }
+                attempt = 0;
                 if let Ok(mut g) = channel.last_error.lock() {
                     *g = None;
                 }
@@ -242,9 +265,16 @@ async fn run_get_updates_loop(
                 }
             }
             Err(e) => {
-                log::debug!("telegram getUpdates error: {}", e);
+                log::debug!(
+                    "telegram getUpdates error (attempt {}): {}",
+                    attempt + 1,
+                    e
+                );
                 set_channel_status_error(&channel.last_error, &e);
-                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                let delay = reconnect_delay(attempt);
+                log::debug!("telegram: retrying in {:?}", delay);
+                tokio::time::sleep(delay).await;
+                attempt += 1;
             }
         }
     }
@@ -282,4 +312,26 @@ impl ChannelHandle for TelegramChannel {
 #[allow(dead_code)]
 pub fn telegram_api_base() -> String {
     std::env::var("TELEGRAM_API_BASE").unwrap_or_else(|_| TELEGRAM_API_BASE.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reconnect_delay_increases_then_caps() {
+        let d0 = reconnect_delay(0);
+        let d1 = reconnect_delay(1);
+        let d2 = reconnect_delay(2);
+        assert!(d1 > d0, "backoff should increase: {:?} > {:?}", d1, d0);
+        assert!(d2 > d1, "backoff should increase: {:?} > {:?}", d2, d1);
+        // Cap at RECONNECT_MAX_SECS
+        let d_max = reconnect_delay(20);
+        assert!(
+            d_max <= Duration::from_secs(RECONNECT_MAX_SECS),
+            "should be capped at {:?}, got {:?}",
+            Duration::from_secs(RECONNECT_MAX_SECS),
+            d_max
+        );
+    }
 }

@@ -9,7 +9,7 @@
         "properties": {
           "binary": {
             "type": "string",
-            "description": "CLI binary name to discover (e.g. 'notesmd-cli', 'git', 'rg')"
+            "description": "CLI binary name to discover (e.g. 'chai', 'git', 'rg')"
           },
           "subcommand": {
             "type": "string",
@@ -36,7 +36,7 @@
         "properties": {
           "skill_name": {
             "type": "string",
-            "description": "Skill directory name (e.g. 'notesmd-daily', 'obsidian')"
+            "description": "Skill directory name (e.g. 'files', 'git', 'kb')"
           },
           "file": {
             "type": "string",
@@ -192,9 +192,7 @@
       "tool": "skills_validate",
       "binary": "chai",
       "subcommand": "skill validate",
-      "args": [
-        { "param": "skill_name", "kind": "positional" }
-      ]
+      "args": [{ "param": "skill_name", "kind": "positional" }]
     },
     {
       "tool": "skills_init",
@@ -237,9 +235,7 @@
       "tool": "skills_delete",
       "binary": "chai",
       "subcommand": "skill delete",
-      "args": [
-        { "param": "skill_name", "kind": "positional" }
-      ]
+      "args": [{ "param": "skill_name", "kind": "positional" }]
     }
   ]
 }

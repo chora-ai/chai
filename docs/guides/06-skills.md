@@ -4,7 +4,7 @@ Skills give agents instructions and tools. Each skill is a declarative package t
 
 ## What a Skill Is
 
-A skill is a directory under `~/.chai/skills/` containing at minimum a `SKILL.md` file. The skill's directory name is its stable **package id** (for example `notesmd-daily`). A skill can provide:
+A skill is a directory under `~/.chai/skills/` containing at minimum a `SKILL.md` file. The skill's directory name is its stable **package id** (for example `files`). A skill can provide:
 
 - **Instructions** — `SKILL.md` contains Markdown (with optional YAML frontmatter) that the model reads. This is the skill's "brain": what it knows, how it should behave, and how to use its tools.
 - **Tool definitions** — An optional `tools.json` declares typed tool schemas that the model can call. Without this file, the skill contributes context only (no callable tools).
@@ -76,7 +76,7 @@ agent's system context when the skill is enabled.
 | `description` | No | Short description for catalogs and prompts. |
 | `capability_tier` | No | Minimum model capability: `minimal` (pure schema, 7B target), `moderate` (some interpretation, 13B–30B), or `full` (judgment-tier, 70B+ or cloud). The gateway warns at startup when an enabled skill's tier exceeds the agent's likely model capability. |
 | `variant_of` | No | Links to a related skill at a different tier (e.g., `git-read` declares `variant_of: git`). The gateway warns when variant skills with overlapping tools are both enabled for the same agent. |
-| `metadata.requires.bins` | No | List of binary names (e.g. `["obsidian"]`). The skill is only loaded when every listed binary is on the system `PATH`. |
+| `metadata.requires.bins` | No | List of binary names (e.g. `["git"]`). The skill is only loaded when every listed binary is on the system `PATH`. |
 
 When the gateway builds the agent's system context, it strips the frontmatter and inlines the body (see [Context Modes](#context-modes) below).
 
@@ -94,26 +94,18 @@ A minimal example with one tool:
 {
   "tools": [
     {
-      "name": "search_notes",
-      "description": "Search notes by name.",
-      "parameters": {
-        "type": "object",
-        "required": ["query"],
-        "properties": {
-          "query": { "type": "string", "description": "Search query" }
-        }
-      }
+      "name": "git_status",
+      "description": "Git status",
     }
   ],
   "allowlist": {
-    "notesmd-cli": ["search", "create"]
+    "git": ["status"]
   },
   "execution": [
     {
-      "tool": "search_notes",
-      "binary": "notesmd-cli",
-      "subcommand": "search",
-      "args": [{ "param": "query", "kind": "positional" }]
+      "tool": "git_status",
+      "binary": "git",
+      "subcommand": "status"
     }
   ]
 }
@@ -133,7 +125,7 @@ Skills are discovered globally under `~/.chai/skills/`, but each agent opts in i
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
-      "skillsEnabled": ["notesmd-daily", "files"]
+      "skillsEnabled": ["files-read"]
     }
   ]
 }
@@ -154,7 +146,7 @@ Set `contextMode` on the agent entry in `config.json`:
 {
   "id": "orchestrator",
   "role": "orchestrator",
-  "skillsEnabled": ["notesmd-daily"],
+  "skillsEnabled": ["files"],
   "contextMode": "readOnDemand"
 }
 ```

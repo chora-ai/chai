@@ -209,7 +209,7 @@ pub struct ChannelsConfig {
     pub signal: SignalChannelConfig,
 }
 
-/// Signal channel: user-run signal-cli HTTP daemon (BYO). See `base/adr/SIGNAL_CLI_INTEGRATION.md`.
+/// Signal channel: user-run signal-cli HTTP daemon.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SignalChannelConfig {

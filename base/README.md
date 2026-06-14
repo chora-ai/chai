@@ -32,7 +32,8 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why the runtime and tools are implemented in Rust.
 - **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why the desktop UI uses egui and eframe.
-- **[SIGNAL_CLI_INTEGRATION.md](adr/SIGNAL_CLI_INTEGRATION.md)** — Why Signal uses a BYO signal-cli HTTP daemon.
+- **[MATRIX_ADAPTER.md](adr/MATRIX_ADAPTER.md)** — Why Matrix lives in a separate adapter crate with an optional Cargo feature (experimental).
+- **[SIGNAL_ADAPTER.md](adr/SIGNAL_ADAPTER.md)** — Why Signal lives in a separate adapter crate with an optional Cargo feature (experimental).
 - **[ORCHESTRATION.md](adr/ORCHESTRATION.md)** — Why Chai uses an orchestrator–worker delegation model with a single `agents` array in config.
 - **[AGENT_ISOLATION.md](adr/AGENT_ISOLATION.md)** — Why each agent has its own context directory and skill configuration.
 - **[RUNTIME_PROFILES.md](adr/RUNTIME_PROFILES.md)** — Why Chai uses named runtime profiles with restart-required switching.
@@ -42,7 +43,6 @@ Always read the relevant convention file before adding or modifying a document i
 ### `/epic`
 
 - **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (in-progress) File explorer and constrained file editing for Chai config, agent context, and skill files.
-- **[MSG_CHANNELS.md](epic/MSG_CHANNELS.md)** — (in-progress) Telegram, Matrix, Signal wired; logging and hardening remain.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
 ### `/meta`
@@ -57,8 +57,8 @@ Always read the relevant convention file before adding or modifying a document i
 #### Channels (External APIs)
 
 - **[TELEGRAM.md](ref/TELEGRAM.md)** — Bot API: config, long-poll, webhook, and gateway wiring.
-- **[SIGNAL.md](ref/SIGNAL.md)** — BYO signal-cli: SSE inbound, JSON-RPC send, `crates/lib` channel.
-- **[MATRIX.md](ref/MATRIX.md)** — Optional adapter crate: E2EE, allowlist, SAS routes on the gateway.
+- **[SIGNAL.md](ref/SIGNAL.md)** — BYO signal-cli: SSE inbound, JSON-RPC send, experimental adapter crate.
+- **[MATRIX.md](ref/MATRIX.md)** — Optional adapter crate (experimental): E2EE, allowlist, SAS routes on the gateway.
 
 #### Providers (External APIs)
 

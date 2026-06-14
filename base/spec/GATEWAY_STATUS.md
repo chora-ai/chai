@@ -48,7 +48,7 @@ There is **no** top-level **`skills`** object. Skill **packages** on disk are un
 
 ### `channels`
 
-Per integration: **`telegram`**, **`matrix`**, **`signal`**. Each value includes **`active`** (registered with the gateway) and **`configured`** (non-secret prerequisites present in config/env). Additional keys are merged from the channel implementation (no secrets):
+Per integration: **`telegram`** (always on), **`matrix`** (requires `matrix` feature), **`signal`** (requires `signal` feature). A channel that is not compiled in does not appear in the status payload. Each value includes **`active`** (registered with the gateway) and **`configured`** (non-secret prerequisites present in config/env). Additional keys are merged from the channel implementation (no secrets):
 
 | Channel | Fields |
 |---------|--------|

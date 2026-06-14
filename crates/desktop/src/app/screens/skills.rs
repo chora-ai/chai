@@ -3,90 +3,6 @@ use eframe::egui;
 use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
-fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
-    agents
-        .orchestrator_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("orchestrator")
-        .to_string()
-}
-
-fn skills_enabled_for_agent<'a>(
-    agents: &'a lib::config::AgentsConfig,
-    agent_id: &str,
-    orchestrator_id: &str,
-) -> &'a [String] {
-    if agent_id == orchestrator_id {
-        lib::config::orchestrator_skills_enabled_list(agents)
-    } else if let Some(ws) = agents.workers.as_ref() {
-        ws.iter()
-            .find(|w| w.id.trim() == agent_id)
-            .map(lib::config::worker_skills_enabled_list)
-            .unwrap_or(&[])
-    } else {
-        &[]
-    }
-}
-
-/// Build a map from skill name → list of (agent_id, is_orchestrator) for all
-/// agents that have the skill enabled. Uses gateway status as the source of
-/// truth when available; falls back to config only when there is no gateway
-/// connection.
-fn build_skill_agent_map(
-    config: &lib::config::Config,
-    gateway_status: Option<&crate::app::types::GatewayStatusDetails>,
-) -> std::collections::BTreeMap<String, Vec<(String, bool)>> {
-    let mut map: std::collections::BTreeMap<String, Vec<(String, bool)>> =
-        std::collections::BTreeMap::new();
-
-    if let Some(gs) = gateway_status {
-        // Gateway is connected: iterate its agent_skills directly. The
-        // gateway is the source of truth for which agents are running and
-        // which skills each has enabled — even if the config on disk has
-        // been edited but the gateway has not been restarted.
-        let orch_id = gs
-            .orchestrator_id
-            .as_deref()
-            .unwrap_or("orchestrator");
-        for (agent_id, rt) in &gs.agent_skills {
-            let is_orchestrator = agent_id == orch_id;
-            for name in &rt.enabled_skills {
-                map.entry(name.trim().to_string())
-                    .or_default()
-                    .push((agent_id.clone(), is_orchestrator));
-            }
-        }
-    } else {
-        // No gateway connection: fall back to config so the screen still
-        // shows something useful.
-        let orch_id = orchestrator_id_from_config(&config.agents);
-        for name in skills_enabled_for_agent(&config.agents, &orch_id, &orch_id)
-            .iter()
-            .map(|s| s.trim().to_string())
-        {
-            map.entry(name).or_default().push((orch_id.clone(), true));
-        }
-        if let Some(ws) = &config.agents.workers {
-            for w in ws {
-                let worker_id = w.id.trim().to_string();
-                if worker_id.is_empty() || worker_id == orch_id {
-                    continue;
-                }
-                for name in skills_enabled_for_agent(&config.agents, &worker_id, &orch_id)
-                    .iter()
-                    .map(|s| s.trim().to_string())
-                {
-                    map.entry(name).or_default().push((worker_id.clone(), false));
-                }
-            }
-        }
-    }
-
-    map
-}
-
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
         crate::app::ui_screen(ui, "Skills", None, |ui| {
@@ -221,6 +137,90 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
             }
         });
     });
+}
+
+fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
+    agents
+        .orchestrator_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("orchestrator")
+        .to_string()
+}
+
+fn skills_enabled_for_agent<'a>(
+    agents: &'a lib::config::AgentsConfig,
+    agent_id: &str,
+    orchestrator_id: &str,
+) -> &'a [String] {
+    if agent_id == orchestrator_id {
+        lib::config::orchestrator_skills_enabled_list(agents)
+    } else if let Some(ws) = agents.workers.as_ref() {
+        ws.iter()
+            .find(|w| w.id.trim() == agent_id)
+            .map(lib::config::worker_skills_enabled_list)
+            .unwrap_or(&[])
+    } else {
+        &[]
+    }
+}
+
+/// Build a map from skill name → list of (agent_id, is_orchestrator) for all
+/// agents that have the skill enabled. Uses gateway status as the source of
+/// truth when available; falls back to config only when there is no gateway
+/// connection.
+fn build_skill_agent_map(
+    config: &lib::config::Config,
+    gateway_status: Option<&crate::app::types::GatewayStatusDetails>,
+) -> std::collections::BTreeMap<String, Vec<(String, bool)>> {
+    let mut map: std::collections::BTreeMap<String, Vec<(String, bool)>> =
+        std::collections::BTreeMap::new();
+
+    if let Some(gs) = gateway_status {
+        // Gateway is connected: iterate its agent_skills directly. The
+        // gateway is the source of truth for which agents are running and
+        // which skills each has enabled — even if the config on disk has
+        // been edited but the gateway has not been restarted.
+        let orch_id = gs
+            .orchestrator_id
+            .as_deref()
+            .unwrap_or("orchestrator");
+        for (agent_id, rt) in &gs.agent_skills {
+            let is_orchestrator = agent_id == orch_id;
+            for name in &rt.enabled_skills {
+                map.entry(name.trim().to_string())
+                    .or_default()
+                    .push((agent_id.clone(), is_orchestrator));
+            }
+        }
+    } else {
+        // No gateway connection: fall back to config so the screen still
+        // shows something useful.
+        let orch_id = orchestrator_id_from_config(&config.agents);
+        for name in skills_enabled_for_agent(&config.agents, &orch_id, &orch_id)
+            .iter()
+            .map(|s| s.trim().to_string())
+        {
+            map.entry(name).or_default().push((orch_id.clone(), true));
+        }
+        if let Some(ws) = &config.agents.workers {
+            for w in ws {
+                let worker_id = w.id.trim().to_string();
+                if worker_id.is_empty() || worker_id == orch_id {
+                    continue;
+                }
+                for name in skills_enabled_for_agent(&config.agents, &worker_id, &orch_id)
+                    .iter()
+                    .map(|s| s.trim().to_string())
+                {
+                    map.entry(name).or_default().push((worker_id.clone(), false));
+                }
+            }
+        }
+    }
+
+    map
 }
 
 /// Strip YAML frontmatter (`---` ... `---`) from SKILL.md content so that only

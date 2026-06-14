@@ -2,7 +2,7 @@
 status: current
 ---
 
-# OpenAI-Compatible Endpoint Type Reference
+# OpenAI Reference
 
 Reference for the **`"openai-compat"` endpoint type** in Chai: the wire protocol, request/response shapes, model discovery options, auto-load behavior, and how different products and hosting scenarios map onto this single endpoint type. Use this when adding features, debugging provider integrations, or onboarding a new OpenAI-compatible service.
 

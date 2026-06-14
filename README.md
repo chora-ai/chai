@@ -8,61 +8,65 @@ For user guides and other documentation, see [docs](docs/README.md).
 
 ## Packages
 
-- **`crates/cli`** — A command-line interface for the multi-agent management system
-- **`crates/desktop`** — A graphical user-interface for the multi-agent management system
-- **`crates/lib`** — All shared business logic for the multi-agent management system
+- **`crates/cli`** — Command-line interface for the multi-agent management system
+- **`crates/desktop`** — Graphical user interface for the multi-agent management system
+- **`crates/lib`** — Shared business logic for the multi-agent management system
 
-## Commands
+## Build
 
 ```bash
-# Test everything
-cargo test
-
-# Build everything
+# Build everything (Telegram channel included by default)
 cargo build
 
-# Build specific crates
-cargo build -p cli
-cargo build -p desktop
-cargo build -p lib
+# Build with the experimental Matrix adapter
+cargo build --features matrix
 
-# Run the command-line interface
-cargo run -p cli -- help
+# Build with the experimental Signal adapter
+cargo build --features signal
 
-# Run the desktop application
-cargo run -p desktop
+# Build with both experimental adapters
+cargo build --features matrix,signal
 ```
 
-Use `--features matrix` to build or run with the `matrix` adaptor.
-
-## Command-Line Interface
-
-Install the CLI locally:
+## Test
 
 ```bash
+cargo test
+```
+
+## Install
+
+```bash
+# CLI (Telegram included by default)
 cargo install --path crates/cli
-```
 
-Use `--features matrix` to install the `matrix` adaptor.
-
-Run the installed CLI:
-
-```bash
-chai help
-```
-
-## Desktop Application
-
-Install the app locally:
-
-```bash
+# Desktop (Telegram included by default)
 cargo install --path crates/desktop
+
+# With optional channel adapters
+cargo install --path crates/cli --features matrix
+cargo install --path crates/cli --features signal
+cargo install --path crates/cli --features matrix,signal
 ```
 
-Use `--features matrix` to install the `matrix` adaptor.
-
-Run the installed app:
+## Run
 
 ```bash
+# CLI
+chai help
+chai gateway
+chai chat
+
+# Desktop
 chai-desktop
 ```
+
+## Channels
+
+| Channel | Build Feature | Status |
+|---------|--------------|--------|
+| Telegram | (always on) | Supported |
+| Matrix | `--features matrix` | Experimental (opt-in) |
+| Signal | `--features signal` | Experimental (opt-in) |
+
+Telegram is included by default. Matrix and Signal require opt-in feature flags at build time and are experimental — they work for basic messaging but are still being hardened. See [Connections](docs/guides/04-connections.md) for setup instructions.

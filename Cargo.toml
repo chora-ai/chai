@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/adapters/matrix",
+    "crates/adapters/signal",
     "crates/cli",
     "crates/desktop",
     "crates/lib",

@@ -34,10 +34,10 @@ pub fn resolve_binary(binary: &str) -> String {
     binary.to_string()
 }
 
-/// Allowlist: binary name -> set of allowed subcommands (e.g. "notesmd-cli" -> ["search", "create", ...]).
+/// Allowlist: binary name -> set of allowed subcommands (e.g. "git" -> ["search", "create", ...]).
 #[derive(Debug, Clone, Default)]
 pub struct Allowlist {
-    /// Binary name (e.g. "notesmd-cli") -> allowed subcommands.
+    /// Binary name (e.g. "git") -> allowed subcommands.
     bins: HashMap<String, Vec<String>>,
 }
 
@@ -48,7 +48,7 @@ impl Allowlist {
         }
     }
 
-    /// Allow a binary to run only the given subcommands (e.g. "notesmd-cli" and ["search", "search-content", "create"]).
+    /// Allow a binary to run only the given subcommands (e.g. "git" and ["status", "log"]).
     pub fn allow(&mut self, binary: impl Into<String>, subcommands: Vec<&'static str>) {
         self.bins.insert(
             binary.into(),

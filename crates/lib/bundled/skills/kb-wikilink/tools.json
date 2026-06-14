@@ -113,11 +113,7 @@
           "param": "path",
           "kind": "positional",
           "readPath": true,
-          "optional": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "optional": true
         }
       ],
       "successExitCodes": [0, 1]
@@ -130,11 +126,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "postProcess": {
@@ -159,11 +151,7 @@
           "param": "path",
           "kind": "positional",
           "readPath": true,
-          "optional": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "optional": true
         }
       ],
       "successExitCodes": [0, 1]
@@ -176,11 +164,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "postProcess": {
@@ -199,32 +183,20 @@
           "param": "from",
           "kind": "flag",
           "flag": "from",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "to",
           "kind": "flag",
           "flag": "to",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "kb_root",
           "kind": "flag",
           "flag": "root",
           "readPath": true,
-          "optional": true,
-          "resolveCommand": {
-            "script": "resolve-kb-root",
-            "args": ["$param"]
-          }
+          "optional": true
         }
       ]
     }

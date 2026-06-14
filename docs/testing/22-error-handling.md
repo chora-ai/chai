@@ -51,4 +51,4 @@ Key observations:
 
 ## See Also
 
-- [Provider setup](PROVIDER_SETUP.md) · [Configuration → Providers](../guides/03-configuration.md#configuring-a-provider) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md) · [Sandbox spec](../../base/spec/SANDBOX.md)
+- [Provider setup](PROVIDER_SETUP.md) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md) · [Sandbox spec](../../base/spec/SANDBOX.md)

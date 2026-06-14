@@ -11,19 +11,26 @@
 #
 # Usage: check-broken-links.sh [kb_root]
 #
-# The kb_root parameter is a path relative to the sandbox root. When omitted,
-# the KB directory defaults to the sandbox root.
+# The kb_root parameter may be:
+# - Empty/omitted: KB directory defaults to the sandbox root
+# - A relative path: resolved relative to the sandbox root
+# - An absolute path: used as-is (canonical path from the executor)
 
-kb_root_rel="$1"
+kb_root="$1"
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
-# Resolve the KB directory from kb_root parameter.
-if [ -z "$kb_root_rel" ]; then
-    kb_dir="$sandbox_root"
-else
-    kb_dir="$sandbox_root/$kb_root_rel"
-fi
+# If the input is already an absolute path, use it directly.
+case "$kb_root" in
+    /*) kb_dir="$kb_root" ;;
+    *)
+        if [ -z "$kb_root" ]; then
+            kb_dir="$sandbox_root"
+        else
+            kb_dir="$sandbox_root/$kb_root"
+        fi
+        ;;
+esac
 
 sort -u | while IFS= read -r target; do
     [ -z "$target" ] && continue

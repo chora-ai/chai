@@ -2,7 +2,7 @@
 status: current
 ---
 
-# NVIDIA NIM (Hosted API) Reference
+# NVIDIA NIM Reference
 
 Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): what the API offers, how the gateway uses it, and important limitations. Use this when configuring a NIM provider or when aligning with NVIDIA's hosted NIM capabilities.
 

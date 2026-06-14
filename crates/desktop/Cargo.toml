@@ -12,6 +12,7 @@ path = "src/main.rs"
 [features]
 default = []
 matrix = ["lib/matrix"]
+signal = ["lib/signal"]
 
 [dependencies]
 anyhow = "1"

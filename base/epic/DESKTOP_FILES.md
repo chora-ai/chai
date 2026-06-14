@@ -118,7 +118,6 @@ An edit mode within the file explorer. Key requirements:
 ## Related Epics and Docs
 
 - [spec/DESKTOP.md](../spec/DESKTOP.md) — Current state of the desktop application
-- [FEAT_DESKTOP_UX.md](../FEAT_DESKTOP_UX.md) — UX polish and quality-of-life improvements
 - [adr/DESKTOP_FRAMEWORK.md](../adr/DESKTOP_FRAMEWORK.md) — Why egui/eframe
 - [spec/TOOLS_SCHEMA.md](../spec/TOOLS_SCHEMA.md) — tools.json validation reference
 - [spec/CONTEXT.md](../spec/CONTEXT.md) — What the gateway sends as context

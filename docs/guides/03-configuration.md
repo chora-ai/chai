@@ -258,7 +258,15 @@ For systematic provider and model testing, see the [Testing Playbooks](../testin
 
 ## Configuring Channels
 
-Channels connect the gateway to messaging platforms. Add a `channels` block to enable one.
+Channels connect the gateway to messaging platforms. Telegram is included by default. Matrix and Signal are optional channels that require Cargo feature flags at build time:
+
+| Channel | Feature flag | Status |
+|---------|-------------|--------|
+| Telegram | (always on) | Supported |
+| Matrix | `--features matrix` | Experimental (opt-in) |
+| Signal | `--features signal` | Experimental (opt-in) |
+
+Add a `channels` block to enable one or more.
 
 **Telegram (long-poll):**
 
@@ -274,7 +282,7 @@ Channels connect the gateway to messaging platforms. Add a `channels` block to e
 
 Or set `TELEGRAM_BOT_TOKEN` as an environment variable. For webhook mode (better for public gateways), also set `webhookUrl` and optionally `webhookSecret`. See [Connections](04-connections.md) for the full setup walkthrough.
 
-**Matrix:**
+**Matrix** (experimental; requires `--features matrix` at build time):
 
 ```json
 {
@@ -290,7 +298,7 @@ Or set `TELEGRAM_BOT_TOKEN` as an environment variable. For webhook mode (better
 
 Or use `user` + `password` for `m.login.password` auth. The corresponding `MATRIX_*` environment variables also work.
 
-**Signal:**
+**Signal** (experimental; requires `--features signal` at build time):
 
 Signal requires a running signal-cli HTTP daemon. Point to it:
 
@@ -308,6 +316,8 @@ Signal requires a running signal-cli HTTP daemon. Point to it:
 See [Connections](04-connections.md) for signal-cli setup instructions.
 
 For hands-on channel setup, see the user journeys: [Telegram](../journey/04-channel-telegram.md) · [Matrix](../journey/08-channel-matrix.md) · [Signal](../journey/09-channel-signal.md).
+
+For secrets management and rotation, see [Connections → Secrets and Rotation](04-connections.md#secrets-and-rotation).
 
 ## Configuring Agents
 
@@ -422,9 +432,9 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 | `channels.telegram.botToken` | - | `TELEGRAM_BOT_TOKEN` | Required for Telegram |
 | `channels.telegram.webhookUrl` | - | - | Long-poll used if not set |
 | `channels.telegram.webhookSecret` | - | `TELEGRAM_WEBHOOK_SECRET` | Only used if `webhookUrl` is set |
-| `channels.signal.httpBase` | - | `SIGNAL_CLI_HTTP` | Required for Signal |
+| `channels.signal.httpBase` | - | `SIGNAL_CLI_HTTP` | Required for Signal (experimental; `--features signal`) |
 | `channels.signal.account` | - | `SIGNAL_CLI_ACCOUNT` | Multi-account daemon: `+E.164` |
-| `channels.matrix.homeserver` | - | `MATRIX_HOMESERVER` | Required for Matrix |
+| `channels.matrix.homeserver` | - | `MATRIX_HOMESERVER` | Required for Matrix (experimental; `--features matrix`) |
 | `channels.matrix.accessToken` | - | `MATRIX_ACCESS_TOKEN` | Or `user` + `password` |
 | `channels.matrix.user` | - | `MATRIX_USER` | Password login localpart or MXID |
 | `channels.matrix.password` | - | `MATRIX_PASSWORD` | For `m.login.password` |

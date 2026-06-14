@@ -29,6 +29,11 @@ use tokio::task::JoinHandle;
 
 const CHANNEL_ID: &str = "matrix";
 
+/// Initial sync retry delay (seconds).
+const SYNC_RETRY_BASE_SECS: u64 = 1;
+/// Maximum sync retry delay cap (seconds).
+const SYNC_RETRY_MAX_SECS: u64 = 60;
+
 /// Inbound payload for the gateway queue (same shape as `lib::InboundMessage`).
 #[derive(Debug, Clone)]
 pub struct RawInbound {
@@ -251,25 +256,74 @@ fn truncate_sync_status_msg(s: &str) -> String {
     }
 }
 
+/// Check whether a sync error is likely caused by server-side rate limiting
+/// (HTTP 429 or the Matrix `M_LIMIT_EXCEEDED` error code).
+fn is_rate_limit_error(e: &matrix_sdk::Error) -> bool {
+    // matrix-sdk wraps HTTP 429 with a specific variant when the server
+    // returns `M_LIMIT_EXCEEDED`. Fall back to string matching for robustness.
+    let msg = e.to_string();
+    msg.contains("429") || msg.contains("M_LIMIT_EXCEEDED") || msg.contains("limit_exceeded")
+}
+
+/// Exponential backoff with jitter for sync retries.
+/// Returns `min(base * 2^attempt, max) + deterministic jitter`.
+fn sync_retry_delay(attempt: u32, rate_limited: bool) -> Duration {
+    // On rate-limit, start higher and cap higher.
+    let (base, max) = if rate_limited {
+        (5u64, 120u64)
+    } else {
+        (SYNC_RETRY_BASE_SECS, SYNC_RETRY_MAX_SECS)
+    };
+    let exp = base.saturating_mul(1u64.checked_shl(attempt.min(10)).unwrap_or(u64::MAX));
+    let capped = exp.min(max);
+    // Deterministic jitter based on attempt (avoids adding a random dep).
+    let jitter = (capped / 4).max(1);
+    let offset = (attempt as u64 * 7) % (2 * jitter);
+    let delay = capped + offset;
+    Duration::from_secs(delay.min(max))
+}
+
 async fn matrix_sync_loop(
     client: Client,
     running: Arc<AtomicBool>,
     last_error: Arc<Mutex<Option<String>>>,
 ) {
     let settings = SyncSettings::new().timeout(Duration::from_secs(30));
+    let mut attempt: u32 = 0;
     while running.load(Ordering::SeqCst) {
         match client.sync_once(settings.clone()).await {
             Ok(_) => {
+                if attempt > 0 {
+                    log::info!("matrix: sync recovered after {} attempt(s)", attempt);
+                }
+                attempt = 0;
                 if let Ok(mut g) = last_error.lock() {
                     *g = None;
                 }
             }
             Err(e) => {
-                log::debug!("matrix sync error: {}", e);
+                let rate_limited = is_rate_limit_error(&e);
+                let level = if rate_limited {
+                    "rate-limited"
+                } else {
+                    "error"
+                };
+                log::debug!(
+                    "matrix sync {} (attempt {}): {}",
+                    level,
+                    attempt + 1,
+                    e
+                );
                 if let Ok(mut g) = last_error.lock() {
-                    *g = Some(truncate_sync_status_msg(&e.to_string()));
+                    *g = Some(truncate_sync_status_msg(&format!(
+                        "sync {}: {}",
+                        level, e
+                    )));
                 }
-                tokio::time::sleep(Duration::from_secs(2)).await;
+                let delay = sync_retry_delay(attempt, rate_limited);
+                log::debug!("matrix: retrying sync in {:?}", delay);
+                tokio::time::sleep(delay).await;
+                attempt += 1;
             }
         }
     }
@@ -487,6 +541,39 @@ mod normalize_mxid_tests {
         assert_eq!(
             normalize_mxid("@alice:", "matrix.example.org"),
             "@alice:matrix.example.org"
+        );
+    }
+}
+
+#[cfg(test)]
+mod sync_retry_tests {
+    use super::*;
+
+    #[test]
+    fn sync_retry_delay_increases_then_caps() {
+        let d0 = sync_retry_delay(0, false);
+        let d1 = sync_retry_delay(1, false);
+        let d2 = sync_retry_delay(2, false);
+        assert!(d1 > d0, "backoff should increase: {:?} > {:?}", d1, d0);
+        assert!(d2 > d1, "backoff should increase: {:?} > {:?}", d2, d1);
+        let d_max = sync_retry_delay(20, false);
+        assert!(
+            d_max <= Duration::from_secs(SYNC_RETRY_MAX_SECS),
+            "should be capped at {:?}, got {:?}",
+            Duration::from_secs(SYNC_RETRY_MAX_SECS),
+            d_max
+        );
+    }
+
+    #[test]
+    fn sync_retry_delay_rate_limited_starts_higher() {
+        let d_normal = sync_retry_delay(0, false);
+        let d_limited = sync_retry_delay(0, true);
+        assert!(
+            d_limited > d_normal,
+            "rate-limited delay should start higher: {:?} > {:?}",
+            d_limited,
+            d_normal
         );
     }
 }

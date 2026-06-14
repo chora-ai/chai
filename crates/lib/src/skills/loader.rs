@@ -248,11 +248,11 @@ mod tests {
             panic!("fixture has tools.json but tool_descriptor is None");
         };
         assert!(desc.tools.len() >= 1);
-        assert_eq!(desc.tools[0].name, "notesmd_search");
-        assert!(desc.allowlist.contains_key("notesmd"));
+        assert_eq!(desc.tools[0].name, "git_status");
+        assert!(desc.allowlist.contains_key("git"));
         assert!(desc.execution.len() >= 1);
-        assert_eq!(desc.execution[0].tool, "notesmd_search");
-        assert_eq!(desc.execution[0].binary, "notesmd-cli");
-        assert_eq!(desc.execution[0].subcommand, "search");
+        assert_eq!(desc.execution[0].tool, "git_status");
+        assert_eq!(desc.execution[0].binary, "git");
+        assert_eq!(desc.execution[0].subcommand, "status");
     }
 }

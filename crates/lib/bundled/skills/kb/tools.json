@@ -242,11 +242,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "maxOutputLines": 500
@@ -260,11 +256,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         },
         {
           "param": "start_line",
@@ -297,11 +289,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "postProcess": {
@@ -346,11 +334,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "successExitCodes": [0, 1],
@@ -365,11 +349,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "content",
@@ -386,11 +366,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "start_line",
@@ -423,11 +399,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         { "param": "pattern", "kind": "flag", "flag": "pattern" },
         { "param": "replacement", "kind": "flag", "flag": "replacement" },
@@ -448,11 +420,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         },
         {
           "param": "content",
@@ -469,11 +437,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         }
       ]
     },
@@ -486,11 +450,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "writePath": true
         }
       ]
     }

@@ -8,6 +8,7 @@ license = "LGPL-3.0"
 [features]
 default = []
 matrix = ["dep:matrix-channel"]
+signal = ["dep:signal-channel"]
 
 [dependencies]
 anyhow = "1"
@@ -24,12 +25,13 @@ getrandom = "0.2"
 include_dir = "0.7"
 log = "0.4"
 matrix-channel = { path = "../adapters/matrix", optional = true }
-reqwest = { version = "0.12", features = ["json", "stream"] }
 regex = "1"
+reqwest = { version = "0.12", features = ["json", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
 sha2 = "0.10"
+signal-channel = { path = "../adapters/signal", optional = true }
 thiserror = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "fs", "sync", "signal"] }
 uuid = { version = "1", features = ["v4"] }

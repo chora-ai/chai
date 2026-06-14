@@ -18,7 +18,7 @@
         "properties": {
           "skill_name": {
             "type": "string",
-            "description": "Skill directory name (e.g. 'notesmd-daily', 'obsidian')"
+            "description": "Skill directory name (e.g. 'files', 'git', 'kb')"
           },
           "file": {
             "type": "string",
@@ -43,11 +43,7 @@
     }
   ],
   "allowlist": {
-    "chai": [
-      "skill list",
-      "skill read",
-      "skill validate"
-    ]
+    "chai": ["skill list", "skill read", "skill validate"]
   },
   "execution": [
     {
@@ -69,9 +65,7 @@
       "tool": "skills_validate",
       "binary": "chai",
       "subcommand": "skill validate",
-      "args": [
-        { "param": "skill_name", "kind": "positional" }
-      ]
+      "args": [{ "param": "skill_name", "kind": "positional" }]
     }
   ]
 }

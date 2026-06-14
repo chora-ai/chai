@@ -109,11 +109,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "maxOutputLines": 500
@@ -127,11 +123,7 @@
           "param": "path",
           "kind": "flag",
           "flag": "path",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         },
         {
           "param": "start_line",
@@ -164,11 +156,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "postProcess": {
@@ -213,11 +201,7 @@
         {
           "param": "path",
           "kind": "positional",
-          "readPath": true,
-          "resolveCommand": {
-            "script": "resolve-kb-path",
-            "args": ["$param"]
-          }
+          "readPath": true
         }
       ],
       "successExitCodes": [0, 1],

@@ -4,15 +4,6 @@ use serde_json::Value as JsonValue;
 use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, GatewayStatusDetails, StatusViewMode};
 
-/// Friendly display names for well-known endpoint types.
-fn endpoint_type_display_name(endpoint_type: &str) -> &str {
-    match endpoint_type {
-        "ollama" => "Ollama",
-        "openai-compat" => "OpenAI-Compatible",
-        _ => endpoint_type,
-    }
-}
-
 pub fn ui_status_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
         ui,
@@ -65,6 +56,15 @@ pub fn ui_status_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 });
         },
     );
+}
+
+/// Friendly display names for well-known endpoint types.
+fn endpoint_type_display_name(endpoint_type: &str) -> &str {
+    match endpoint_type {
+        "ollama" => "Ollama",
+        "openai-compat" => "OpenAI-Compatible",
+        _ => endpoint_type,
+    }
 }
 
 fn status_summary_dashboard(

@@ -4,9 +4,13 @@ use crate::agent;
 use crate::agent_ctx;
 #[cfg(feature = "matrix")]
 use crate::channels::{connect_matrix_client, MatrixChannel};
+#[cfg(feature = "signal")]
+use crate::channels::{resolve_signal_daemon_config, SignalChannel};
+#[cfg(not(feature = "signal"))]
+use crate::channels::resolve_signal_daemon_config;
 use crate::channels::{
-    resolve_signal_daemon_config, ChannelHandle, ChannelRegistry, InboundMessage, SignalChannel,
-    TelegramChannel, TelegramTransport, TelegramUpdate,
+    ChannelHandle, ChannelRegistry, InboundMessage, TelegramChannel, TelegramTransport,
+    TelegramUpdate,
 };
 use crate::config::{
     self, orchestrator_context_mode, resolve_telegram_webhook_secret,
@@ -551,6 +555,12 @@ fn broadcast_session_message(
 /// Process one inbound channel message: get or create session, bind, append user message, run agent, send reply.
 /// If the message is the new-session trigger (e.g. /new), rebind the conversation to a fresh session and confirm.
 async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
+    log::info!(
+        "inbound: channel={}, conversation={}, text_len={}",
+        msg.channel_id,
+        msg.conversation_id,
+        msg.text.len()
+    );
     let trimmed = msg.text.trim();
     if trimmed.eq_ignore_ascii_case(NEW_SESSION_TRIGGER) {
         let old_id = state
@@ -1041,6 +1051,43 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         });
     }
 
+    // Channel startup summary.
+    {
+        let mut channel_summary: Vec<String> = Vec::new();
+        if config::resolve_telegram_token(&config).is_some() {
+            let mode = if config.channels.telegram.webhook_url.is_some() {
+                "webhook"
+            } else {
+                "long-poll"
+            };
+            channel_summary.push(format!("telegram ({})", mode));
+        }
+        #[cfg(feature = "matrix")]
+        if matrix_channel_configured(&config) {
+            channel_summary.push("matrix (experimental)".to_string());
+        }
+        #[cfg(not(feature = "matrix"))]
+        if matrix_channel_configured(&config) {
+            channel_summary.push("matrix (not built)".to_string());
+        }
+        #[cfg(feature = "signal")]
+        if resolve_signal_daemon_config(&config).is_some() {
+            channel_summary.push("signal (experimental)".to_string());
+        }
+        #[cfg(not(feature = "signal"))]
+        if resolve_signal_daemon_config(&config).is_some() {
+            channel_summary.push("signal (not built)".to_string());
+        }
+        if channel_summary.is_empty() {
+            log::info!("channels: none configured (CLI and desktop chat always available)");
+        } else {
+            log::info!(
+                "channels: {}",
+                channel_summary.join(", ")
+            );
+        }
+    }
+
     let telegram_token = config::resolve_telegram_token(&config);
     let webhook_url = config.channels.telegram.webhook_url.clone();
     let telegram_webhook_for_shutdown: Option<Arc<TelegramChannel>> =
@@ -1095,6 +1142,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         }
     }
 
+    #[cfg(feature = "signal")]
     if let Some(sig_cfg) = resolve_signal_daemon_config(&config) {
         let signal = Arc::new(SignalChannel::new(sig_cfg));
         let handle = signal.clone().start_inbound(inbound_tx.clone());
@@ -1574,7 +1622,10 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 #[cfg(not(feature = "matrix"))]
                 let matrix_active = false;
                 let matrix_configured = matrix_channel_configured(cfg_ref);
+                #[cfg(feature = "signal")]
                 let signal_configured = resolve_signal_daemon_config(cfg_ref).is_some();
+                #[cfg(not(feature = "signal"))]
+                let signal_configured = false;
                 let channel_runtime = state.channel_registry.channel_status_details().await;
                 let mut telegram_ch = serde_json::Map::new();
                 telegram_ch.insert("active".into(), json!(active.contains("telegram")));
@@ -1584,8 +1635,12 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 matrix_ch.insert("active".into(), json!(matrix_active));
                 matrix_ch.insert("configured".into(), json!(matrix_configured));
                 merge_channel_runtime_detail(&mut matrix_ch, &channel_runtime, "matrix");
+                #[cfg(feature = "signal")]
+                let signal_active = active.contains("signal");
+                #[cfg(not(feature = "signal"))]
+                let signal_active = false;
                 let mut signal_ch = serde_json::Map::new();
-                signal_ch.insert("active".into(), json!(active.contains("signal")));
+                signal_ch.insert("active".into(), json!(signal_active));
                 signal_ch.insert("configured".into(), json!(signal_configured));
                 merge_channel_runtime_detail(&mut signal_ch, &channel_runtime, "signal");
                 let channels_block = json!({

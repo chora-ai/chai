@@ -31,7 +31,7 @@ Each element:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Tool name (e.g. `notesmd_search`). Must match an execution spec. |
+| `name` | string | Tool name (e.g. `files`, `git`, `kb`). Must match an execution spec. |
 | `description` | string (optional) | Short description for the model. |
 | `parameters` | object | JSON Schema for arguments (see **Parameters (JSON Schema)** above). |
 

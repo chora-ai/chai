@@ -1,6 +1,6 @@
 # CLI Reference
 
-This reference covers every command in the `chai` CLI. Install with `cargo install --path crates/cli` (add `--features matrix` for the Matrix channel adapter). Run `chai --help` or `chai <command> --help` for built-in usage text.
+This reference covers every command in the `chai` CLI. Install with `cargo install --path crates/cli`. Add `--features matrix` for the experimental Matrix channel, `--features signal` for the experimental Signal channel, or `--features matrix,signal` for both. Run `chai --help` or `chai <command> --help` for built-in usage text.
 
 ## Global
 

@@ -1,16 +1,16 @@
-# Journey: Matrix — receive message and reply
+# Journey: Matrix (Experimental) — receive message and reply
 
 **Goal:** Confirm the gateway is logged into a Matrix homeserver, messages in a **joined** room are received (including **encrypted** rooms when keys are available), and the agent's reply is sent back as `m.room.message` (`m.text`).
 
 **Background:** [Connections → Matrix](../guides/04-connections.md#matrix) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
 
-The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). There is no separate "bot" API like Telegram; you use a normal user account reserved for Chai, invite it into rooms, and message from another client (e.g. Element).
+The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). Unlike Telegram's dedicated bot API, Matrix uses a normal user account reserved for Chai; invite it into rooms, and message from another client (e.g. Element).
 
 **Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [base/ref/MATRIX.md](../../base/ref/MATRIX.md).
 
 ## Prerequisites
 
-- **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
+- **Setup complete** — You have installed chai with the `matrix` feature (`cargo install --path crates/cli --features matrix` or `cargo run -p cli --features matrix -- gateway`), run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - A **Matrix account** for the gateway (dedicated is best): you will use its **access token** or **password** below.
 - **Homeserver** URL, e.g. `https://matrix.example.org` (your server or a public one that allows your account).
 - **Config** — one of:
@@ -26,8 +26,8 @@ The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-s
 1. **Configure** **`~/.chai/profiles/<active>/config.json`** with **`channels.matrix`** as above, **or** export the **`MATRIX_*`** variables for a one-off test.
 
 2. **Start the gateway**
-   - From repo root: `cargo run -p cli -- gateway`
-   - Or: `chai gateway`
+   - From repo root: `cargo run -p cli --features matrix -- gateway`
+   - Or: `chai gateway` (if installed with `--features matrix`)
    - Optional: `RUST_LOG=info` for channel logs.
    - **Expect:** Log lines like `matrix: session restored` or `matrix: logged in with password` and `matrix channel: starting sync loop`.
    - The first **sync** completes without turning historical timeline into agent messages; messages **after** the gateway is running are what matter.
@@ -113,7 +113,7 @@ Use **Settings → Help & About → Access Token** (wording varies) or your home
 
 ## `/new` and Session
 
-Send **`/new`** (case-insensitive) in the room to start a **new session** for that room (same pattern as Telegram).
+Send **`/new`** (case-insensitive) in the room to start a **new session** for that room (same as other channels).
 
 ## If Something Fails
 

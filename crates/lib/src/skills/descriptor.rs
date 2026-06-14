@@ -42,7 +42,7 @@ pub struct ToolSpec {
 pub struct ExecutionSpec {
     /// Tool name (must match a name in `tools`).
     pub tool: String,
-    /// Binary to run (e.g. "notesmd-cli").
+    /// Binary to run (e.g. "chai").
     pub binary: String,
     /// Subcommand (e.g. "search"). Must be in allowlist for this binary.
     pub subcommand: String,

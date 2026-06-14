@@ -4,24 +4,6 @@ use crate::app::types::GatewayStatusDetails;
 use crate::app::ui::{readonly_code, spacing};
 use crate::app::ChaiApp;
 
-fn effective_tools_json<'a>(
-    gs: &'a GatewayStatusDetails,
-    selected_id: &str,
-    orchestrator_id: &str,
-) -> Option<&'a str> {
-    gs.agent_tools
-        .get(selected_id)
-        .map(|s| s.as_str())
-        .or_else(|| {
-            if selected_id == orchestrator_id {
-                gs.tools.as_deref()
-            } else {
-                None
-            }
-        })
-}
-
-/// OpenAI-style tool definitions from gateway **`status`** (**`agentTools`**, with legacy fallback to **`tools`** for the orchestrator).
 pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
         ui,
@@ -97,4 +79,21 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             }
         },
     );
+}
+
+fn effective_tools_json<'a>(
+    gs: &'a GatewayStatusDetails,
+    selected_id: &str,
+    orchestrator_id: &str,
+) -> Option<&'a str> {
+    gs.agent_tools
+        .get(selected_id)
+        .map(|s| s.as_str())
+        .or_else(|| {
+            if selected_id == orchestrator_id {
+                gs.tools.as_deref()
+            } else {
+                None
+            }
+        })
 }

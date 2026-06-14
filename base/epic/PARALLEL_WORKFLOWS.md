@@ -547,6 +547,5 @@ Stream worker `assistant_progress` events to the desktop in real-time, rather th
 - [ORCHESTRATION.md](../adr/ORCHESTRATION.md) — ADR for the orchestrator–worker model and design decisions.
 - [CONTEXT.md](../spec/CONTEXT.md) — System context build order, worker roster, skill context modes.
 - [DESKTOP.md](../spec/DESKTOP.md) — Desktop chat screen rendering, worker reply display, delegation events.
-- [AUDIT_WORKERS.md](../AUDIT_WORKERS.md) — Audit of worker response summarization; the two-channel model (summarized tool result for orchestrator, full events for desktop user).
 - [PERSISTENT_SESSIONS.md](PERSISTENT_SESSIONS.md) — Persistent sessions epic; session store refactoring may overlap with `DelegateContext` changes.
 - Implementation touchpoints: **`crates/lib/src/agent.rs`** (tool loop redesign), **`crates/lib/src/orchestration/delegate.rs`** (`DelegateContext`, `DelegateObservability`, `execute_delegate_task`), **`crates/lib/src/config.rs`** (`AgentsConfig`, `maxParallelWorkflows`), **`crates/lib/src/gateway/server.rs`** (`DelegateContext` construction, event subscription), **`crates/desktop/src/app/screens/chat.rs`** (worker event rendering), **`crates/desktop/src/app/state/chat.rs`** (event processing and attribution).

@@ -122,7 +122,7 @@ Set `channels.signal.httpBase` or `SIGNAL_CLI_HTTP` to match the daemon's addres
 1. **Check `skillsEnabled`.** Skills must be explicitly listed on each agent entry in `config.json`. An empty or omitted `skillsEnabled` means no skills are loaded.
 2. **Check the skill exists.** Run `chai skill list` to see installed skills and their status.
 3. **Check the `active` symlink.** Each skill under `~/.chai/skills/` should have an `active` symlink pointing to `versions/<hash>/`. If the symlink is broken, the skill won't load.
-4. **Check `metadata.requires.bins`.** Skills that declare required binaries (e.g., `["obsidian"]`) are only loaded when every binary is on `PATH`.
+4. **Check `metadata.requires.bins`.** Skills that declare required binaries (e.g., `["git"]`) are only loaded when every binary is on `PATH`.
 
 ### Capability Tier Warning at Startup
 

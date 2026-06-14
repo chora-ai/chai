@@ -1,14 +1,14 @@
-# Journey: Signal — receive message and reply
+# Journey: Signal (Experimental) — receive message and reply
 
 **Goal:** Confirm a **user-run** signal-cli **HTTP daemon** is reachable, the gateway consumes **`receive`** events from **`GET /api/v1/events`**, and agent replies are sent via **`POST /api/v1/rpc`** (**`send`**).
 
 **Background:** [Connections → Signal](../guides/04-connections.md#signal) · [Configuration → Channels](../guides/03-configuration.md#configuring-channels)
 
-Chai **does not** install signal-cli. Install it from [upstream](https://github.com/AsamK/signal-cli) and register your number separately. Policy: **`base/adr/SIGNAL_CLI_INTEGRATION.md`**.
+Signal is an **experimental** channel. It requires the `signal` Cargo feature at build time (`--features signal`). Chai **does not** install signal-cli. Install it from [upstream](https://github.com/AsamK/signal-cli) and register your number separately.
 
 ## Prerequisites
 
-- **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
+- **Setup complete** — You have installed chai with the `signal` feature (`cargo install --path crates/cli --features signal` or `cargo run -p cli --features signal -- gateway`), run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - **signal-cli** installed; your Signal account registered with signal-cli (`register` / `verify` per upstream).
 - **Daemon** — In a separate terminal, start the HTTP daemon (example):
 
@@ -26,7 +26,7 @@ Chai **does not** install signal-cli. Install it from [upstream](https://github.
 1. **Start signal-cli** (daemon command above) and wait until it is listening.
 
 2. **Start the gateway**
-   - `chai gateway` or `cargo run -p cli -- gateway`
+   - `chai gateway` (if installed with `--features signal`) or `cargo run -p cli --features signal -- gateway`
    - Optional: `RUST_LOG=info`
    - **Expect:** `signal: daemon check ok at http://.../api/v1/check` and `signal channel registered and SSE events loop started`.
 
