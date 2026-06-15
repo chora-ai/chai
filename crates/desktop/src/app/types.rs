@@ -247,8 +247,9 @@ pub struct GatewayStatusDetails {
     pub(crate) skills_context: Option<String>,
     /// Full skill content for display (always full; use for UI when present).
     pub(crate) skills_context_full: Option<String>,
-    /// Skill bodies only (no overview). Set when context mode is readOnDemand; use for Skills section to avoid duplicating the overview.
-    pub(crate) skills_context_bodies: Option<String>,
+    /// Per-skill body (name → frontmatter-stripped body). Set when context mode is readOnDemand;
+    /// used for desktop display so each skill can be rendered in its own box.
+    pub(crate) skills_context_bodies: BTreeMap<String, String>,
     /// Skill context mode: "full" or "readOnDemand".
     pub(crate) context_mode: Option<String>,
     /// Merged tool definitions sent to the model (including read_skill when context mode is readOnDemand).
@@ -278,6 +279,6 @@ pub struct AgentSkillsRuntime {
     pub(crate) skills_context: Option<String>,
     /// Full skill content for display (always full; use for UI when present).
     pub(crate) skills_context_full: Option<String>,
-    /// Skill bodies only (no overview). Set when context mode is readOnDemand.
-    pub(crate) skills_context_bodies: Option<String>,
+    /// Per-skill body (name → frontmatter-stripped body). Set when context mode is readOnDemand.
+    pub(crate) skills_context_bodies: BTreeMap<String, String>,
 }

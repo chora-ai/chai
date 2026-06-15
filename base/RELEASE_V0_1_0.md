@@ -42,35 +42,47 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 - [ ] Audit naming conventions — consistent naming across crates, modules, types, and config fields
 - [ ] Audit file structure — no oversized files, logical module organization
 
+### Documentation
+
+- [ ] Review and update `chai/docs/` for accuracy against shipped features
+- [ ] Review and update `tag/V0_1_0.md` for accuracy against shipped features 
+
 ### Release Build and Distribution
 
-- [ ] Create CI workflow for release builds with binary assets (Linux, macOS, Windows)
-- [ ] Decide on release asset naming and structure (see [RELEASE.md](RELEASE.md) design questions)
-- [ ] Verify `cargo install --path crates/cli` and `cargo install --path crates/desktop` work cleanly from the release tag
+- [ ] Create CI workflow for Nix flake builds on `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`
+- [ ] Verify `nix build .#cli` produces a working binary from the release tag
+- [ ] Verify `nix build .#desktop` produces a working binary from the release tag
+- [ ] Verify `cargo install --path crates/cli` works cleanly from the release tag (for Windows / non-Nix users)
+- [ ] Verify `cargo install --path crates/desktop` works cleanly from the release tag (for Windows / non-Nix users)
 - [ ] Test `--features matrix` builds produce working binaries
 - [ ] Test `--features signal` builds produce working binaries
 - [ ] Test `--features matrix,signal` builds produce working binaries
+- [ ] Include Build Instructions for Windows in `tag/V0_1_0.md`
 
-### Documentation
+### License and Legal
 
-- [ ] Review and update `chai/docs/` guides for accuracy against shipped features
+- [ ] Replace `LICENSE` with GPL-3.0 license: https://www.gnu.org/licenses/gpl-3.0.html
+- [ ] Replace all references and links to GPL-3.0 (including `README.md`, all `Cargo.toml` files, and `base/VISION.md`)
 
-### chai-examples Alignment
+### Release Commit and Tag
+
+- [ ] Update all `Cargo.toml` files to version `0.1.0`
+- [ ] Remove this working document if it still exists
+- [ ] Update `CHANGELOG.md` unreleased heading to version number heading following conventions
+- [ ] Create commit using version number as the commit message `v0.1.0` and push to `release/v0.1.0`
+- [ ] Create annotated tag (`git tag -a`) with exact contents from `tag/V0_1_0.md` and push to origin
+- [ ] Create and switch to release branch `release/v0.1.0` and push to origin
+
+### Post-Commit and Tag
+
+- [ ] Update Codeberg/GitHub release notes using exact content from `tag/V0_1_0.md`
+
+## Additional Requirements
+
+### chai-examples
 
 The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [RELEASE.md](RELEASE.md) design question 7).
 
 - [ ] Add `skills.lock` for example profiles using v0.1.0 skill format and tools schema (no example skills locked)
 - [ ] Review example profiles (`assistant`, `developer`, `skillsmith`) against v0.1.0 config schema and agent model
 - [ ] Review example skills (`notesmd`, `notesmd-daily`, `websearch`) against v0.1.0 skill format and tools schema
-
-### License and Legal
-
-- [ ] Decide on license for v0.1.0 — current license is LGPL-3.0; the question of switching to GPL has been raised (see open questions below)
-
-## Open Questions
-
-### License
-
-The question of switching from LGPL-3.0 to GPL has been raised. This is a significant decision with implications for how others can use Chai as a library. The current LGPL-3.0 license allows Chai to be used as a library in non-GPL applications; GPL would not.
-
-**Decision needed:** Confirm LGPL-3.0 or switch to GPL before v0.1.0. If switching, update `LICENSE`, all `Cargo.toml` files, and `base/VISION.md`.

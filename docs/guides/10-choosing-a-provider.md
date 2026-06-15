@@ -145,9 +145,9 @@ When choosing a model, consider the **capability tier** of the skills you plan t
 
 | Tier | Model size | Skills example |
 |------|-----------|----------------|
-| `minimal` | 7B+ | `files-read`, `git-read`, `kb-daily`, `skills-read` |
-| `moderate` | 13B–30B | `git`, `kb`, `kb-wikilink`, `rss` |
-| `full` | 70B+ or cloud | `files`, `git-remote`, `skills` |
+| `minimal` | 7B+ | `files-read`, `git-read`, `git-remote`, `kb-daily`, `logs`, `skills-read` |
+| `moderate` | 13B–30B | `git`, `kb`, `kb-frontmatter`, `kb-wikilink`, `rss` |
+| `full` | 70B+ or cloud | `files`, `skills` |
 
 The gateway warns at startup when an enabled skill's tier exceeds the likely capability of the configured model. If you see these warnings, consider either:
 
@@ -192,7 +192,7 @@ You can configure multiple providers and assign different agents to different ba
 |----------|----------|-------|-----------|
 | First time / testing | Ollama | `llama3.2:3b` | Default, zero config, fast download |
 | Privacy-critical work | Ollama or LM Studio | 7B–13B local | No data leaves the machine |
-| Full skill suite (files, git-remote) | Cloud or 70B+ local | `full`-tier model | High-tier skills need strong reasoning |
+| Full skill suite (files, skills) | Cloud or 70B+ local | `full`-tier model | High-tier skills need strong reasoning |
 | Low-power hardware | NearAI or NVIDIA NIM | Cloud model | No local GPU needed |
 | Multi-agent with delegation | Mixed (cloud + local) | Orchestrator on cloud, workers local | Cost-effective delegation |
 

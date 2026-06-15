@@ -26,4 +26,4 @@ In summary:
 
 ## See Also
 
-- [Provider setup](PROVIDER_SETUP.md) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Model selection](../guides/10-choosing-a-provider.md)

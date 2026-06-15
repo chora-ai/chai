@@ -4,14 +4,14 @@ use serde_json::Value as JsonValue;
 use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, GatewayStatusDetails, StatusViewMode};
 
-pub fn ui_status_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
+pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
         ui,
-        "Status",
+        "Gateway",
         Some(if running {
-            "Values below are loaded from the gateway status."
+            "Values loaded from gateway status."
         } else {
-            "Start the gateway to load the gateway status."
+            "Start the gateway to load gateway status."
         }),
         |ui| {
             if running {

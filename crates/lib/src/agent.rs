@@ -372,7 +372,15 @@ async fn execute_turn_worker(
                     Some(executor) => match executor.execute(name, args, persist.map(|(_, sid)| sid)) {
                         Ok(out) => out.clone(),
                         Err(e) => {
-                            log::warn!("agent: tool {} failed: {}", name, e);
+                            // Log the short status at warn level; log the
+                            // full detail (expected/actual diffs, etc.) at
+                            // debug level so it doesn't overwhelm the chat
+                            // log view.
+                            let (base, detail) = e.split_once(": ").unwrap_or((&e, ""));
+                            log::warn!("agent: tool {} failed: {}", name, base);
+                            if !detail.is_empty() {
+                                log::debug!("agent: tool {} failed: {}: {}", name, base, detail);
+                            }
                             format!("error: {}", e)
                         }
                     },
@@ -695,7 +703,15 @@ async fn execute_turn_main(
                     Some(executor) => match executor.execute(name, args, persist.map(|(_, sid)| sid)) {
                         Ok(out) => out.clone(),
                         Err(e) => {
-                            log::warn!("agent: tool {} failed: {}", name, e);
+                            // Log the short status at warn level; log the
+                            // full detail (expected/actual diffs, etc.) at
+                            // debug level so it doesn't overwhelm the chat
+                            // log view.
+                            let (base, detail) = e.split_once(": ").unwrap_or((&e, ""));
+                            log::warn!("agent: tool {} failed: {}", name, base);
+                            if !detail.is_empty() {
+                                log::debug!("agent: tool {} failed: {}: {}", name, base, detail);
+                            }
                             format!("error: {}", e)
                         }
                     },

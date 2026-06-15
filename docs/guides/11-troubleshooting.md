@@ -27,7 +27,7 @@ This almost always means the configured provider is unreachable or the model isn
 1. **Check the provider is running.** For Ollama: `ollama list` should show your model. For LM Studio: the model must be loaded in the LM Studio UI (or `autoLoad` must be configured).
 2. **Check the model id.** The `defaultModel` value must exactly match what the provider expects. Use `ollama list` for Ollama, `GET /api/v1/models` for LM Studio, or the provider's model catalog for cloud APIs.
 3. **Check connectivity.** The gateway defaults to `http://127.0.0.1:11434` for Ollama and `http://127.0.0.1:1234/v1` for LM Studio. If you changed these, verify the URLs are correct.
-4. **Check the logs.** Start with `RUST_LOG=info chai gateway` and look for provider discovery errors or connection failures.
+4. **Check the logs.** Start with `RUST_LOG=info chai gateway` and look for provider discovery errors or connection failures. If the gateway is already running, use `chai logs recent` or `chai logs search --pattern error` to read from the in-memory log buffer without restarting.
 
 ### Gateway Immediately Exits
 
@@ -225,7 +225,7 @@ The gateway stops the turn after `maxToolLoopIterations` (default: 100) consecut
 
 ## General Debugging Tips
 
-1. **Run with debug logging:** `RUST_LOG=debug chai gateway` shows every provider request, tool execution, and agent turn.
+1. **Run with debug logging:** `RUST_LOG=debug chai gateway` shows every provider request, tool execution, and agent turn. If the gateway is already running with debug logging enabled, use `chai logs recent --level debug` or `chai logs search --pattern "your query"` to inspect the log buffer.
 2. **Validate your config:** Start the gateway and check for warnings at startup — they flag missing providers, mismatched agent references, and skill capability gaps.
 3. **Test providers independently:** Before configuring chai, verify the provider works directly:
    - Ollama: `ollama run llama3.2:3b`

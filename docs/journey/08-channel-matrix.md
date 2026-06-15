@@ -6,7 +6,7 @@
 
 The gateway uses **[matrix-rust-sdk](https://github.com/matrix-org/matrix-rust-sdk)** with a **SQLite** store for state and **E2EE** keys at **`<active-profile>/matrix`** under **`~/.chai/profiles/<name>/`**. It acts as **one Matrix user** (the account you configure). Unlike Telegram's dedicated bot API, Matrix uses a normal user account reserved for Chai; invite it into rooms, and message from another client (e.g. Element).
 
-**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. Details: [base/ref/MATRIX.md](../../base/ref/MATRIX.md).
+**Encryption:** Encrypted rooms are supported: the SDK decrypts inbound timeline events and encrypts outbound sends when the room is encrypted. **Interactive device verification (SAS)** can be completed **without Element** using gateway HTTP under **`/matrix/verification/*`** (same host and port as the WebSocket gateway). Element remains an option if you prefer to verify there. See the verification section below for the full route table and step-by-step instructions.
 
 ## Prerequisites
 
@@ -105,7 +105,19 @@ Use this when another client or device wants to verify the gateway's session and
 
    If they do not match, use **`/matrix/verification/mismatch`** instead. To abort, **`/matrix/verification/cancel`**.
 
-Full route list and behavior: [base/ref/MATRIX.md](../../base/ref/MATRIX.md).
+Verification routes (all on the gateway host and port):
+
+| Method | Path | Role |
+|--------|------|------|
+| GET | `/matrix/verification/pending` | List pending verification requests seen since startup |
+| POST | `/matrix/verification/accept` | Accept an incoming verification request |
+| POST | `/matrix/verification/start-sas` | Start SAS after the request is accepted and ready |
+| GET | `/matrix/verification/sas` | Short auth string (emoji / decimals) and flags |
+| POST | `/matrix/verification/confirm` | Confirm SAS matches the other device |
+| POST | `/matrix/verification/mismatch` | SAS did not match |
+| POST | `/matrix/verification/cancel` | Cancel verification request or SAS flow |
+
+Typical flow: `pending` → `accept` → `start-sas` → `sas` (compare with the other client) → `confirm` or `mismatch` / `cancel`.
 
 ## How to Get an Access Token (Element Web / Desktop)
 
@@ -125,7 +137,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 
 ## Wire-only Check (no Gateway)
 
-`cargo run -p chai-spike --bin matrix-probe` — see **`crates/spike/README.md`**.
+`cargo run -p chai-spike --bin matrix-probe` — requires `MATRIX_HOMESERVER`, `MATRIX_USER`, and `MATRIX_PASSWORD` environment variables.
 
 ## Summary
 
@@ -134,7 +146,7 @@ Send **`/new`** (case-insensitive) in the room to start a **new session** for th
 | Store | **`<active-profile>/matrix`** |
 | Config | `channels.matrix` + token or password |
 | Allowlist (optional) | `channels.matrix.roomIds` or `MATRIX_ROOM_ALLOWLIST` |
-| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` (see [MATRIX.md](../../base/ref/MATRIX.md)) |
+| Verification (optional) | `GET/POST` `http://<bind>:<port>/matrix/verification/*` |
 | Gateway | `chai gateway` |
 | Room | Invite Chai user; send text |
 | Verify | Reply in room; optional logs |

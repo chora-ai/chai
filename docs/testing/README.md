@@ -2,7 +2,7 @@
 
 Files are grouped by deployment category, then provider, then model family. A separate non-tool playbook covers models that lack tool calling.
 
-For provider setup instructions, see [PROVIDER_SETUP.md](PROVIDER_SETUP.md). For provider configuration details, see [Configuration](../guides/03-configuration.md) and the provider spec (`base/spec/PROVIDERS.md` in the chai source tree). For model ids and tool-fit notes, see the model spec (`base/spec/MODELS.md`). For hands-on channel and skill walkthroughs, see the [User Journeys](../journey/README.md).
+For provider setup instructions, see [PROVIDER_SETUP.md](PROVIDER_SETUP.md). For provider configuration details, see [Configuration](../guides/03-configuration.md). For model ids and choosing a provider, see [Choosing a Provider and Model](../guides/10-choosing-a-provider.md). For hands-on channel and skill walkthroughs, see the [User Journeys](../journey/README.md).
 
 ## Coverage Matrix
 
@@ -32,7 +32,7 @@ These playbooks use the shared message sequences that exercise tool calls. Only 
 | 07 | third-party | nim | llama | A | [07-third-party-nim-llama.md](07-third-party-nim-llama.md) |
 | 08 | third-party | nim | qwen | A | [08-third-party-nim-qwen.md](08-third-party-nim-qwen.md) |
 | 09 | third-party | nim | deepseek | A | [09-third-party-nim-deepseek.md](09-third-party-nim-deepseek.md) |
-| 10 | third-party | nearai | llama | A | [10-third-party-nearai-llama.md](10-third-party-nearai-llama.md) |
+| 10 | third-party | nearai | zai-org | A | [10-third-party-nearai-glm.md](10-third-party-nearai-glm.md) |
 
 ### Non-Tool Playbook
 
@@ -296,4 +296,4 @@ Copy this template into a new file under `results/` for each run.
 
 ## Provider Setup
 
-See [PROVIDER_SETUP.md](PROVIDER_SETUP.md) for step-by-step setup instructions for each provider (Ollama, LM Studio, NearAI, NVIDIA NIM), including installation, model loading, API keys, gotchas, and example configurations.
+See [PROVIDER_SETUP.md](PROVIDER_SETUP.md) for step-by-step setup instructions for each provider (Ollama, LM Studio, NVIDIA NIM, NearAI), including installation, model loading, API keys, gotchas, and example configurations.

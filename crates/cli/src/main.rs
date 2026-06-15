@@ -2,6 +2,7 @@ mod chat;
 mod file;
 mod gateway;
 mod init;
+mod logs;
 mod profile;
 mod skill;
 
@@ -62,18 +63,35 @@ enum Commands {
         #[command(subcommand)]
         sub: file::FileCmd,
     },
+
+    /// Read and search the gateway's in-memory log buffer
+    Logs {
+        #[command(subcommand)]
+        sub: logs::LogsCmd,
+    },
 }
 
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
 
-    let default_log_filter = match &cli.command {
-        Some(Commands::Gateway { .. }) => "info",
-        _ => "warn",
+    // Load .env from the profile directory before initializing the logger so that
+    // environment-driven configuration like RUST_LOG takes effect.
+    let cli_profile = match &cli.command {
+        Some(Commands::Gateway { profile, .. }) => profile.as_deref(),
+        Some(Commands::Chat { profile, .. }) => profile.as_deref(),
+        _ => None,
     };
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default_log_filter))
-        .init();
+    lib::config::load_profile_env(cli_profile);
+
+    // Use the gateway logger for the gateway command (captures to ring buffer
+    // for the `logs` WebSocket method), plain env_logger for everything else.
+    if matches!(&cli.command, Some(Commands::Gateway { .. })) {
+        lib::logging::init_gateway_logging();
+    } else {
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("lib=info,cli=info"))
+            .init();
+    }
 
     match cli.command {
         Some(Commands::Version) => {
@@ -81,7 +99,7 @@ async fn main() {
         }
         Some(Commands::Init) => {
             if let Err(e) = init::run_init() {
-                log::error!("init failed: {}", e);
+                eprintln!("init failed: {}", e);
                 std::process::exit(1);
             }
         }
@@ -93,25 +111,31 @@ async fn main() {
         }
         Some(Commands::Chat { profile, session }) => {
             if let Err(e) = chat::run_chat(profile, session).await {
-                log::error!("chat error: {}", e);
+                eprintln!("chat error: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Profile { sub }) => {
             if let Err(e) = profile::run_profile(sub) {
-                log::error!("profile: {}", e);
+                eprintln!("profile: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::Skill { sub }) => {
             if let Err(e) = skill::run_skill(sub) {
-                log::error!("skill: {}", e);
+                eprintln!("skill: {}", e);
                 std::process::exit(1);
             }
         }
         Some(Commands::File { sub }) => {
             if let Err(e) = file::run_file(sub) {
-                log::error!("file: {}", e);
+                eprintln!("file: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Logs { sub }) => {
+            if let Err(e) = logs::run_logs(sub) {
+                eprintln!("logs: {}", e);
                 std::process::exit(1);
             }
         }

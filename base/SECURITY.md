@@ -1,6 +1,6 @@
 # Security
 
-Known security considerations and vulnerabilities in Chai's agent sandboxing model. This document is intended for operators evaluating Chai's security posture and will be summarized in release notes.
+Known security considerations and vulnerabilities in Chai's security model. This document is intended for operators evaluating Chai's security posture and will be summarized in release notes.
 
 ## Threat Model
 

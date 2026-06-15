@@ -308,6 +308,9 @@ impl ChaiApp {
                 if !already_has_banner {
                     entry.push(crate::app::ChatMessage::turn_stopped());
                 }
+                // The agent has finished its current iteration — clear the
+                // stopping flag so the Stop button reverts to its idle state.
+                self.chat_stopping = false;
                 self.session_meta
                     .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
                 self.move_session_to_front(&session_id);

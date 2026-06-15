@@ -14,6 +14,7 @@ Always read the relevant convention file before adding or modifying a document i
 | Epic | [EPIC.md](meta/EPIC.md) | Adding or modifying an epic (`epic/*.md`) |
 | Reference | [REF.md](meta/REF.md) | Adding or modifying a reference document (`ref/*.md`) |
 | Spec | [SPEC.md](meta/SPEC.md) | Adding or modifying a spec (`spec/*.md`) |
+| Tag | [TAG.md](meta/TAG.md) | Adding or modifying a release tag file (`tag/*.md`) |
 
 ## Directory Layout
 
@@ -24,6 +25,7 @@ Always read the relevant convention file before adding or modifying a document i
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
+| **`tag/`** | Release tag files: per-version release notes (`tag/V0_1_0.md`). Source of truth for annotated git tags and platform release notes. |
 | **root** | Index and entry points (`README.md`), release process (`RELEASE.md`), security considerations (`SECURITY.md`), project vision (`VISION.md`), and working notes tracked in AGENTS.md. |
 
 ## Current Documents
@@ -51,6 +53,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[EPIC.md](meta/EPIC.md)** — Epic lifecycle, frontmatter, structure, naming, maintenance.
 - **[REF.md](meta/REF.md)** — Reference doc frontmatter, structure, naming, maintenance.
 - **[SPEC.md](meta/SPEC.md)** — Spec frontmatter, structure, naming, and maintenance rules.
+- **[TAG.md](meta/TAG.md)** — Tag file structure, naming, format, and maintenance rules.
 
 ### `/ref`
 
@@ -96,3 +99,7 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, URLs and keys, discovery, native vs OpenAI-compat paths.
 - **[MODELS.md](spec/MODELS.md)** — Model strings, families, repo inventory, tool-calling expectations.
+
+### `/tag`
+
+- **[V0_1_0.md](tag/V0_1_0.md)** — v0.1.0 release notes (pending).

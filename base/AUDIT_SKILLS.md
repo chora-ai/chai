@@ -18,6 +18,7 @@ Cross-skill audit of all bundled skills in `chai/crates/lib/config/skills/`, gui
 | `kb-daily` | Daily note creation | ✅ | ✅ | TODO |
 | `kb-frontmatter` | Frontmatter manipulation | ✅ | ✅ | TODO |
 | `kb-wikilink` | Wikilink resolution and rename | ✅ | ✅ | TODO |
+| `logs` | Chai process logs | - | - | TODO |
 | `rss` | RSS feed reading | ✅ | ✅ | TODO |
 | `skills` | Skill creation and modification | ✅ | ✅ | TODO |
 | `skills-design` | Design principles for skill tools | ✅ | ✅ | TODO |
@@ -35,11 +36,15 @@ NOTE: files_replace was added since the last audit and needs to be thoroughly te
 
 NOTE: files_write_lines was updated since the last audit and needs to be thoroughly tested
 
+QUESTION: is the same extra line logic applied to the opening line? would this reduce inference cost?
+
 ---
 
-### Skillset 2: git, git-read, git-remote, rss
+### Skillset 2: git, git-read, git-remote, logs, rss
 
 TODO
+
+NOTE: logs is a new skill that was added since the last audit
 
 ---
 
@@ -50,6 +55,8 @@ TODO
 NOTE: kb_replace was added since the last audit and needs to be thoroughly tested
 
 NOTE: kb_write_lines was updated since the last audit and needs to be thoroughly tested
+
+QUESTION: is the same extra line logic applied to the opening line? would this reduce inference cost?
 
 NOTE: Redundant `resolveCommand` removed from kb-family skills — see below
 

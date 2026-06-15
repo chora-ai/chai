@@ -1,313 +1,175 @@
-# RELEASE: Release Process Design
+# Release
 
-Track requirements and open questions for the Chai release process — both the first release (v0.1.0) and subsequent releases. This is a working document for designing how releases are tagged, tracked, documented, and distributed.
+This document defines the official release process for Chai: how releases are planned, tagged, documented, and distributed.
 
-## Problem Statement
+## Versioning
 
-Chai does not have a defined release process. There are no tagged releases, no release notes, no changelog, and no workflow for producing release artifacts. Before v0.1.0 can be tagged, the project needs to decide:
+Chai follows [Semantic Versioning](https://semver.org/). Before v1.0.0, breaking changes increment the minor version (e.g., v0.1.0 → v0.2.0). After v1.0.0, breaking changes increment the major version. Patch versions are reserved for bug fixes that do not change public interfaces.
 
-1. How release requirements are tracked and documented
-2. Where release notes live and in what format
-3. How changes are tracked between releases (changelog approach)
-4. Whether each release has its own branch and/or tracking document
-5. How release artifacts are built and distributed
+## Release Branches
 
-## Current State
+Each release has a branch named `release/vX.Y.Z`, created from `main`. The release branch exists for the lifetime of that version — it is the target for patch releases.
 
-- **No tagged releases** — The repository has no git tags or release branches.
-- **No CHANGELOG.md** — Changes are tracked informally through `base/` working notes and structured docs.
-- **No CI/CD for releases** — No automated workflow for building release artifacts.
-- **Working notes in `base/`** — `AUDIT_*`, `BUG_*`, `FEAT_*` files track active work but are not release-oriented.
-- **`base/VISION.md`** — Describes project state and goals but is not a release document.
-- **`base/` structured docs** — `adr/`, `epic/`, `ref/`, `spec/` capture decisions, features, and behavior but not release history.
+The release commit (version bump, tag file, doc updates, working document deletion) is made on `main`. The release branch is then created from that commit. This ensures `main` reflects the current release and the tag file is accessible on `main`.
 
-## Design Questions
+For patch releases, fixes are committed on the release branch. See [Patch Releases](#patch-releases).
 
-### 1. Should each release have a tracking document in `chai/base`?
+## Changelog
 
-**Option A: Per-release tracking document in `base/`**
+`CHANGELOG.md` in the repository root is the cumulative record of all notable changes. It follows [Keep a Changelog](https://keepachangelog.com/) format and uses a `## [Unreleased]` section to track changes between releases.
 
-Each release gets a `RELEASE_V0_1_0.md`, `RELEASE_V0_2_0.md`, etc. in the root of `base/`. These documents track the requirements checklist, scope decisions, and open questions for that specific release. After the release is tagged, the document becomes a historical reference.
+When a release is prepared, the `## [Unreleased]` heading is replaced with the version number and date. After tagging, a new `## [Unreleased]` heading is added at the top for subsequent changes.
 
-- **Pro:** Keeps release planning in the same location as other working notes. Consistent with the `AUDIT_*`/`BUG_*`/`FEAT_*` pattern.
-- **Pro:** Easy to find what was in scope for a given release.
-- **Con:** Proliferates files in `base/` root over time.
+## Tag Files
 
-**Option B: Release tracking in `base/release/` directory**
+Tag files live in `base/tag/` as per-version files named `VX_Y_Z.md` (e.g., `tag/V0_1_0.md`). A tag file contains only the changes for that specific release — it is a snapshot, not a cumulative record. Always read `base/meta/TAG.md` before creating or modifying a tag file.
 
-A dedicated `base/release/` directory holds per-release documents. Keeps the root of `base/` focused on active work.
+### Annotated Tags
 
-- **Pro:** Organized; doesn't clutter `base/` root.
-- **Con:** Adds a new directory to the structure; requires updating `base/README.md`.
+All git tags must be annotated. The annotation message contains the exact contents of the corresponding tag file:
 
-**Option C: No persistent tracking document; use GitHub Releases**
-
-Release requirements are tracked in issues/milestones and the release itself is documented via GitHub Releases (or equivalent).
-
-- **Pro:** No additional files in the repository.
-- **Con:** Release context lives outside the repo; not available to agents or offline workflows.
-
-**Recommendation:** Option A (per-release document in `base/` root) for v0.1.0. This is consistent with existing conventions and the file count will be low in the near term. If the number of release documents grows, graduate to Option B (`base/release/`) at that time.
-
-### 2. Should the working document graduate into a release document?
-
-When a release is tagged, should the `RELEASE_V*` working document be:
-
-**Option A: Left as-is (historical working note)**
-
-The document stays in `base/` as a record of what was planned and what was completed. No format change.
-
-- **Pro:** Simple; no additional ceremony.
-- **Con:** Mixes working-note style with release-record style; may not be as useful for historical reference.
-
-**Option B: Converted to a structured release document**
-
-Before tagging, the working document is reformatted into a standard release document (similar to how working notes graduate into structured docs). The release document would follow a standard format: version, date, summary, changes, known issues, breaking changes.
-
-- **Pro:** Clean historical record; consistent format across releases.
-- **Pro:** The release document could be the source of truth for release notes / CHANGELOG entries.
-- **Con:** Additional step before tagging; requires defining the standard format.
-
-**Option C: Supplemented by a separate release record**
-
-The working document stays as-is, and a separate `RELEASE.md` is added at the repository root (or in a release branch) at tag time. The working document records the *planning*; the release document records the *result*.
-
-- **Pro:** Separation of concerns — planning vs. record.
-- **Con:** Two documents per release; potential for drift.
-
-**Recommendation:** Option B (convert to structured release document). The working document tracks requirements during development; before tagging, it is updated to reflect the final state (checked-off items, resolved open questions, summary). This is analogous to how `FEAT_*` notes graduate into structured docs. The format should be defined in `base/meta/` alongside the other convention files (see "Conventions" below).
-
-### 3. Where should release notes live?
-
-**Option A: `CHANGELOG.md` in the repository root**
-
-A single file, appended to with each release. Standard format (e.g., [Keep a Changelog](https://keepachangelog.com/)).
-
-- **Pro:** Industry standard; easy to find; works offline; grep-friendly.
-- **Pro:** Git-tracked; visible to agents.
-- **Con:** Can grow large over time; requires discipline to maintain.
-
-**Option B: Per-release `RELEASE.md` on a release branch**
-
-Each release branch (e.g., `release/v0.1.0`) contains a `RELEASE.md` at the repository root with the notes for that release. The `main` branch does not have a cumulative changelog.
-
-- **Pro:** Clean separation; no large file on `main`.
-- **Con:** Historical changelog requires checking multiple branches; not grep-friendly across releases.
-
-**Option C: GitHub Releases (or equivalent) only**
-
-Release notes live in the forge, not in the repository.
-
-- **Pro:** No repo file to maintain.
-- **Con:** Not available offline or to agents; not git-tracked.
-
-**Option D: `CHANGELOG.md` on `main` + detailed release notes on release branches**
-
-A `CHANGELOG.md` on `main` provides a cumulative summary (version, date, one-line summary, link to details). Full release notes live in per-release branches or GitHub Releases.
-
-- **Pro:** Best of both worlds — quick overview in-repo, detailed notes per-release.
-- **Con:** More maintenance; two sources of truth.
-
-**Recommendation:** Option A (`CHANGELOG.md` in the repository root) for v0.1.0. It's the simplest approach that keeps release history accessible. The file can be started at v0.1.0 and maintained going forward. If it grows unwieldy, it can be split or archived later. Adopt [Keep a Changelog](https://keepachangelog.com/) format as a starting point.
-
-### 4. Should each release have its own branch?
-
-**Option A: Tag `main` directly**
-
-No release branches. Tags are applied directly to `main`. Changes after a release are committed to `main` and included in the next release.
-
-- **Pro:** Simple; no branch management overhead.
-- **Con:** No way to make patch fixes to an older release without including all subsequent changes on `main`.
-- **Con:** If a `RELEASE.md` is added before tagging, that commit exists on `main` but is only relevant for the release.
-
-**Option B: Release branches (`release/v0.1.0`)**
-
-Each release gets a branch from `main`. The branch may contain a `RELEASE.md` commit, last-minute fixes, or version bumps before the tag is applied. `main` continues to receive changes for the next release.
-
-- **Pro:** Clean separation; patch releases possible from the branch.
-- **Pro:** `RELEASE.md` or version-bump commits live on the branch, not on `main`.
-- **Con:** Branch management overhead; merge discipline required.
-
-**Option C: Tag `main` directly; no release-specific commits on `main`**
-
-Tags are applied to `main` without any release-specific commits. Release notes live in `CHANGELOG.md` (already on `main`) and/or GitHub Releases. No `RELEASE.md` file is added.
-
-- **Pro:** Simple; `main` stays clean.
-- **Pro:** `CHANGELOG.md` is updated before tagging as a normal commit.
-- **Con:** No patch release mechanism.
-
-**Recommendation:** Option C (tag `main` directly; changelog-driven) for v0.1.0 and the near term. The project is pre-v0.1.0 and patch releases are unlikely to be needed immediately. If patch releases become necessary later, adopt Option B at that time. This avoids premature process complexity.
-
-### 5. How should changes be tracked after v0.1.0?
-
-After v0.1.0 ships, backwards compatibility becomes a concern (per sandbox `AGENTS.md`). Changes need to be visible and well-documented.
-
-**Approach:** Adopt `CHANGELOG.md` with [Keep a Changelog](https://keepachangelog.com/) format:
-
-```markdown
-# Changelog
-
-All notable changes to this project will be documented in this file.
-
-The format is based on [Keep a Changelog](https://keepachangelog.com/),
-and this project adheres to [Semantic Versioning](https://semver.org/).
-
-## [Unreleased]
-
-## [0.1.0] - 2025-06-XX
-
-### Added
-- Initial release of Chai multi-agent management system.
-- Telegram, Matrix (optional), and Signal (BYO signal-cli) messaging channels.
-- ...
+```bash
+git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md
 ```
 
-**Breaking changes** should be called out explicitly in the changelog under a `### Changed` or `### Removed` section. After v0.1.0, breaking changes require a minor version bump (v0.2.0) per semver.
+### Platform Release Notes
 
-**Working notes** (`BUG_*`, `FEAT_*`, etc.) continue to track active development. When a change ships, the working note is updated and the changelog entry is added. This mirrors the graduation pattern already established in `base/AGENTS.md`.
+When creating a release on Codeberg, GitHub, or another Git hosting platform, use the exact contents of the tag file as the release description. The tag file and the platform release notes must be identical.
 
-### 6. Should experimental feature binaries be shipped as release assets?
+### Build Instructions in Tag Files
 
-Matrix (`--features matrix`) and potentially Signal (if it becomes `--features signal`) are optional Cargo features. The question is whether the release artifacts should include pre-built binaries with these features enabled, or whether experimental features are only available to users who build from source.
+If a supported platform does not have a pre-built binary in the release assets, the tag file must include a **Build Instructions** section with the commands to build from source for that platform. Remove this section once pre-built binaries are included in the release assets.
 
-**Option A: Default binaries only; experimental features require manual builds**
+## Working Documents
 
-Ship a single set of release binaries per platform (CLI + desktop) built without optional features. Users who want Matrix or Signal build from source via `cargo install --path crates/cli --features matrix`.
+Each release has a working document in the root of `base/` named `RELEASE_VX_Y_Z.md` (e.g., `RELEASE_V0_1_0.md`). This document tracks requirements, scope decisions, and open questions while the release is in progress. It is not a permanent record.
 
-- **Pro:** Minimal release artifacts; simpler CI; no confusion about which binary to download.
-- **Pro:** Clear signal that optional features are secondary — they work, but the project doesn't distribute them as first-class assets.
-- **Con:** Users must have a Rust toolchain to use experimental features; raises the barrier for Matrix/Signal adopters.
-- **Con:** No way to validate that experimental feature builds work correctly in CI unless you add a separate build step (which is essentially Option B without the published artifacts).
+### Lifecycle
 
-**Option B: Separate experimental binaries as additional release assets**
+1. **Creation** — When a release is scoped, create the working document with requirements and open questions.
+2. **Updates** — Check off requirements as they are completed; record decisions; add new items as needed.
+3. **Deletion** — After the release is tagged, delete the working document. It does not become the tag file.
 
-Ship default binaries *and* additional binaries with experimental features enabled. Naming convention distinguishes them:
+If a working document captures an architectural decision or design insight that should outlive the release, that content graduates into the appropriate structured documentation (e.g., a new ADR) before the working document is deleted. In most cases, following the release process will already have updated the structured documentation, so the working document is simply deleted.
 
+## Release Process
+
+### Initial Release
+
+1. **Scope the release** — Create `base/RELEASE_VX_Y_Z.md` with requirements and open questions.
+2. **Complete all requirements** — Check off each item as it is completed.
+3. **Update structured documentation** — Ensure all specs, refs, ADRs, and other structured docs in `base/` are current with the release.
+4. **Update user documentation** — Ensure `docs/` and the repository `README.md` are current.
+5. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
+6. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section.
+7. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
+8. **Bump versions** — Update all `Cargo.toml` files to the release version.
+9. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
+10. **Commit** — Stage all changes (version bump, tag file, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
+11. **Create the release branch** — `git branch release/vX.Y.Z` from the release commit.
+12. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md`.
+13. **Push** — Push `main`, the release branch, and the tag to origin.
+14. **Build release binaries** — Build release binaries from the tag using the flake (see [Build and Distribution](#build-and-distribution)).
+15. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
+16. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
+17. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
+
+### Patch Releases
+
+1. **Make fixes** — Apply bug fixes to the `release/vX.Y.Z` branch.
+2. **Write the tag file** — Create `base/tag/VX_Y_Z_P.md` for the patch version.
+3. **Update the changelog** — Add a `## [X.Y.P] - YYYY-MM-DD` entry in `CHANGELOG.md` with the patch changes.
+4. **Bump the patch version** — Update `Cargo.toml` files to `X.Y.P`.
+5. **Commit and tag** — Commit on the release branch with message `vX.Y.P`, then create an annotated tag using the tag file.
+6. **Push** — Push the release branch and the new tag to origin.
+7. **Build release binaries** — Build release binaries from the tag using the flake.
+8. **Publish platform release notes** — Create a release on Codeberg/GitHub using the tag file contents. Attach release binaries as assets.
+9. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly.
+10. **Merge fixes to `main`** — Cherry-pick or merge the fixes and changelog entry from the release branch into `main`.
+
+## Build and Distribution
+
+### Nix Flake
+
+The `flake.nix` in the repository root defines all release build targets. Binaries are built with `nix build` from the release tag.
+
+**Supported platforms:**
+
+| Platform | Nix System | CLI | Desktop |
+|----------|-----------|-----|---------|
+| Linux (x86_64) | `x86_64-linux` | ✅ | ✅ |
+| Linux (ARM64) | `aarch64-linux` | ✅ | ✅ |
+| macOS (ARM64) | `aarch64-darwin` | ✅ | ✅ |
+
+**Flake outputs:**
+
+| Output | Command | Description |
+|--------|---------|-------------|
+| `default` | `nix build` | All default workspace members (cli + desktop) |
+| `cli` | `nix build .#cli` | `chai` CLI binary only |
+| `desktop` | `nix build .#desktop` | `chai-desktop` GUI binary only |
+
+**Building from a release tag:**
+
+```bash
+git checkout vX.Y.Z
+nix build .#cli
+nix build .#desktop
 ```
-chai-0.1.0-x86_64-linux.tar.gz              # default build
-chai-0.1.0-x86_64-linux-matrix.tar.gz       # + matrix feature
-chai-0.1.0-x86_64-linux-matrix-signal.tar.gz # + matrix + signal features
-```
 
-Or a single "all features" variant:
+The resulting binaries are in `result/bin/`.
 
-```
-chai-0.1.0-x86_64-linux.tar.gz              # default build
-chai-0.1.0-x86_64-linux-all-features.tar.gz # + matrix + signal
-```
+**Release asset naming:**
 
-- **Pro:** Users can try experimental features without a Rust toolchain.
-- **Pro:** CI validates that experimental feature builds compile and link correctly on every release.
-- **Con:** Doubles (or more) the number of release assets; more CI matrix complexity.
-- **Con:** Naming and documentation burden — users must understand which binary to choose.
-- **Con:** "Experimental" labeling on a release asset sends a mixed signal: it's published and downloadable but not officially supported.
-
-**Option C: Default binaries + CI validation only**
-
-Ship default binaries only, but add CI steps that build with `--features matrix` (and `--features signal` if applicable) on every release to catch compilation errors. The experimental builds are not published as release assets — they exist only as CI artifacts for maintainers.
-
-- **Pro:** Experimental features are validated in CI without bloating the release.
-- **Pro:** Users who want experimental features still build from source, but they can be confident the build compiles on their platform.
-- **Con:** Same barrier as Option A for users without a Rust toolchain.
-- **Con:** CI-only artifacts may not catch runtime issues that only appear with the feature enabled.
-
-**Recommendation:** Option C (default binaries + CI validation) for v0.1.0. It provides the most important benefit — knowing that experimental feature builds compile — without the complexity and mixed messaging of publishing experimental binaries. The Matrix adapter has a documented `--features matrix` build path; if Signal becomes an optional feature, it would follow the same pattern. Users comfortable with experimental features are likely also comfortable with `cargo install`.
-
-If demand for pre-built experimental binaries emerges after v0.1.0, escalate to Option B. The CI validation step from Option C makes this transition low-risk since the build is already automated.
-
-### 7. How should chai-examples be versioned alongside chai?
-
-The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Without version alignment, users cannot tell which examples work with which release — a profile or skill written for one version may reference config fields, tools, or agent model behavior that has changed in another.
-
-**Option A: Aligned tags, no separate process**
-
-Tag `chai-examples` with the same version numbers as chai (`v0.1.0`, `v0.2.0`, etc.) but without a separate release process. The chai release checklist includes a review step for the examples repository. When chai is tagged, the same tag is applied to `chai-examples` after the review.
-
-- **Pro:** Simple — one version scheme, one tagging cadence. Users see `v0.1.0` in both repos and know they match.
-- **Pro:** No separate release process to maintain for `chai-examples`. The examples are treated as a companion artifact, not an independent project.
-- **Pro:** The release review catches drift (stale profiles, outdated skill schemas) before users encounter it.
-- **Con:** `chai-examples` tags may include only documentation or config changes with no code — the tag semantics differ from chai's (code release vs. example alignment).
-- **Con:** If `chai-examples` needs a mid-release update (e.g., a new example), the aligned tag scheme has no mechanism for it until the next chai release.
-
-**Option B: Aligned tags with patch increments for example-only changes**
-
-Tag `chai-examples` with the same major.minor as chai but allow independent patch versions (e.g., chai `v0.1.0` → examples `v0.1.0`; a mid-release example addition → examples `v0.1.1`). The major.minor always matches the compatible chai version.
-
-- **Pro:** Allows `chai-examples` to evolve between chai releases without breaking version alignment.
-- **Pro:** Users can still identify compatibility at a glance (`v0.1.x` works with chai `v0.1.0`).
-- **Con:** Slightly more complex — two patch version sequences to track.
-- **Con:** Risk of drift if patches accumulate without a corresponding chai release to anchor them.
-
-**Option C: No version alignment; reference chai version in README**
-
-`chai-examples` is not tagged. Instead, `chai-examples/README.md` states which chai version the examples are tested against (e.g., "These examples are compatible with chai v0.1.0"). Update the README when a new chai release ships.
-
-- **Pro:** No tagging ceremony for `chai-examples`.
-- **Con:** No git-level version signal — users must read the README. Git history alone doesn't tell you which commit corresponds to which chai version.
-- **Con:** If the README falls out of date, there's no automated check.
-
-**Recommendation:** Option A (aligned tags, no separate process). The `chai-examples` repository is small and changes infrequently — it doesn't need its own release cadence. Tying it to the chai release process means:
-
-1. Every chai release includes a **review step** for the examples repository (check profiles against current config schema, check skills against current tools schema, update README if needed).
-2. After the chai tag is applied, the same tag is applied to `chai-examples`.
-3. No separate CHANGELOG for `chai-examples` — the chai CHANGELOG entry can note if examples were updated.
-
-This keeps the process simple while giving users a clear compatibility signal. If `chai-examples` grows to the point where it needs independent releases, that's the time to reconsider.
-
-## Requirements
-
-### For v0.1.0
-
-- [ ] Define release process (this document)
-- [ ] Create `CHANGELOG.md` in the repository root with v0.1.0 entry
-- [ ] Create CI workflow for release builds with binary assets
-- [ ] Add CI step to validate experimental feature builds (`--features matrix`, `--features signal` if applicable) without publishing them
-- [ ] Review `chai-examples` against v0.1.0 config schema, agent model, and skill format (see [RELEASE_V0_1_0.md](RELEASE_V0_1_0.md) chai-examples Alignment section)
-- [ ] Tag v0.1.0 on `main` after all `RELEASE_V0_1_0.md` requirements are met
-- [ ] Tag v0.1.0 on `chai-examples` after examples review is complete
-- [ ] Convert `RELEASE_V0_1_0.md` to structured release record before tagging
-
-### For Subsequent Releases
-
-- [ ] Maintain `CHANGELOG.md` with every release
-- [ ] Use `## [Unreleased]` section to track changes between releases
-- [ ] Call out breaking changes explicitly in the changelog
-- [ ] Follow semantic versioning after v0.1.0 (breaking = minor bump while pre-1.0)
-- [ ] Review `chai-examples` as part of every release checklist; tag `chai-examples` with the same version after review
-- [ ] Evaluate release branches if patch releases become necessary
-- [ ] Consider creating a `base/meta/RELEASE.md` convention file for release document format
-
-## Conventions (Proposed)
-
-If the per-release tracking document pattern is adopted, a convention file should be added to `base/meta/` defining the format. Draft structure:
-
-### `base/meta/RELEASE.md` — Release Document Conventions
-
-**Naming:** `RELEASE_V<major>_<minor>_<patch>.md` in `base/` root (e.g., `RELEASE_V0_1_0.md`).
-
-**Lifecycle:**
-
-| State | Meaning |
+| Asset | Pattern |
 |-------|---------|
-| Planning | Requirements being gathered; scope not finalized |
-| Scoped | Requirements finalized; implementation in progress |
-| Ready | All requirements met; ready to tag |
-| Released | Tag applied; document is historical reference |
+| CLI binary | `chai-vX.Y.Z-{system}.tar.gz` |
+| Desktop binary | `chai-desktop-vX.Y.Z-{system}.tar.gz` |
 
-**Required sections:**
+Example for Linux x86_64:
 
-1. **Title** — `# RELEASE: vX.Y.Z Release`
-2. **Scope** — Epics and features in scope for this release
-3. **Requirements** — Checklist of deliverables (`- [ ]` / `- [x]`)
-4. **Open Questions** — Unresolved decisions blocking the release
-5. **Release Summary** — Added when converting to release record (version, date, summary of changes)
+```bash
+tar -czf chai-v0.1.0-x86_64-linux.tar.gz -C result/bin chai
+```
 
-**Optional sections:** Known Issues, Breaking Changes, Deferred Items
+### Windows Builds
 
-## Related Documents
+Windows binaries are not built with Nix. Build from source using `cargo` on a Windows host or cross-compiler:
 
-- [RELEASE_V0_1_0.md](RELEASE_V0_1_0.md) — v0.1.0 specific requirements
-- [VISION.md](VISION.md) — Project vision and current state
-- [chai-examples](../../chai-examples/) — Example profiles and skills (versioned alongside chai)
-- [Keep a Changelog](https://keepachangelog.com/) — Proposed changelog format
-- [Semantic Versioning](https://semver.org/) — Versioning scheme
+```bash
+cargo build --release --manifest-path crates/cli/Cargo.toml
+cargo build --release --manifest-path crates/desktop/Cargo.toml
+```
+
+Until Windows binaries are included in release assets, tag files must include a Build Instructions section with these commands.
+
+### Experimental Features
+
+Matrix (`--features matrix`) and Signal (`--features signal`) are optional Cargo features. They are not included in published release binaries. CI validates that experimental feature builds compile and link correctly on every release, but the resulting binaries are not published.
+
+Experimental feature builds use `cargo` directly (not Nix), because their dependency trees (e.g., `matrix-sdk` with E2EE) require system libraries that are not currently wired into the flake:
+
+```bash
+# Matrix adapter
+cargo build --release --manifest-path crates/cli/Cargo.toml --features matrix
+
+# Signal adapter
+cargo build --release --manifest-path crates/cli/Cargo.toml --features signal
+
+# Both adapters
+cargo build --release --manifest-path crates/cli/Cargo.toml --features matrix,signal
+```
+
+Users who want experimental features build from source:
+
+```bash
+cargo install --path crates/cli --features matrix
+```
+
+## chai-examples Versioning
+
+`chai-examples` is versioned alongside chai using the same tag numbers. There is no separate release process for `chai-examples`:
+
+- Every chai release includes a review of `chai-examples` (profiles against current config schema, skills against current tools schema).
+- After the chai tag is applied, the same version tag is applied to `chai-examples`.
+- No separate changelog for `chai-examples` — the chai tag file notes if examples were updated.

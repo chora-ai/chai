@@ -1,8 +1,8 @@
+pub mod agent;
 pub mod chat;
 pub mod config;
-pub mod context;
 pub mod files;
-pub mod logs;
+pub mod gateway;
+pub mod logging;
 pub mod skills;
-pub mod status;
 pub mod tools;

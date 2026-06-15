@@ -144,7 +144,7 @@ The `<VAR_NAME>` syntax keeps secrets out of `config.json`. Environment variable
 
 #### `.env` File
 
-If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assistant/.env`), it is loaded at startup. Variables from `.env` are set in the process environment **only if they are not already set** — shell environment variables always take precedence.
+If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assistant/.env`), it is loaded at startup — before logger initialization — so that all supported environment variables take effect. Variables from `.env` are set in the process environment **only if they are not already set** — shell environment variables always take precedence.
 
 ```
 # ~/.chai/profiles/assistant/.env

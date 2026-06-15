@@ -74,29 +74,6 @@ LM Studio runs locally and uses the `"openai-compat"` endpoint type with LM Stud
 - `autoLoad: "lmstudio"` automatically loads an unloaded model and retries when LM Studio returns an "unloaded" error.
 - All LM Studio models accept the tools parameter, but some models are not trained on tool use — results may be unreliable.
 
-## NearAI
-
-NearAI is a remote OpenAI-compatible API that requires an API key.
-
-1. **Create a NearAI account** at [near.ai](https://near.ai).
-2. **Generate an API key** from the NearAI dashboard.
-3. **Configure the provider:**
-
-   ```json
-   {
-     "providers": [{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }],
-     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" }]
-   }
-   ```
-
-4. **API key:** The `apiKey` value `<NEAR_API_KEY>` is an environment variable reference — the gateway reads the `NEAR_API_KEY` variable at startup. Set it in your shell environment or in a `.env` file in the profile directory (e.g. `~/.chai/profiles/assistant/.env`). You can also use a literal key string instead: `"apiKey": "sk-..."`.
-5. **Model catalog:** Check [near.ai](https://near.ai) for available models. Default model discovery uses `GET /v1/models`.
-
-**Notes:**
-
-- NearAI is a cloud service — conversation data is sent to NearAI's servers.
-- Other OpenAI-compatible servers (vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, etc.) follow the same `"openai-compat"` pattern with a different `baseUrl` and `apiKey`.
-
 ## NVIDIA NIM
 
 NVIDIA NIM is a remote OpenAI-compatible API (free tier) that requires an API key.
@@ -126,3 +103,26 @@ NVIDIA NIM is a remote OpenAI-compatible API (free tier) that requires an API ke
 - **Privacy:** NVIDIA NIM hosted API is not a privacy-preserving option. All requests and conversation data are sent to NVIDIA's servers. Use it as a free scratchpad to try open-source models before investing in local or self-hosted hardware.
 - **Rate limits:** The free tier allows approximately 40 requests per minute. Expect 429 responses under heavier use.
 - **Model ids:** Must match the NIM catalog exactly (e.g. `meta/llama-3.1-8b-instruct`). See the [NVIDIA LLM APIs reference](https://docs.api.nvidia.com/nim/reference/llm-apis) for the full catalog.
+
+## NearAI
+
+NearAI is a remote OpenAI-compatible API that requires an API key.
+
+1. **Create a NearAI account** at [near.ai](https://near.ai).
+2. **Generate an API key** from the NearAI dashboard.
+3. **Configure the provider:**
+
+   ```json
+   {
+     "providers": [{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }],
+     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" }]
+   }
+   ```
+
+4. **API key:** The `apiKey` value `<NEAR_API_KEY>` is an environment variable reference — the gateway reads the `NEAR_API_KEY` variable at startup. Set it in your shell environment or in a `.env` file in the profile directory (e.g. `~/.chai/profiles/assistant/.env`). You can also use a literal key string instead: `"apiKey": "sk-..."`.
+5. **Model catalog:** Check [near.ai](https://near.ai) for available models. Default model discovery uses `GET /v1/models`.
+
+**Notes:**
+
+- NearAI is a cloud service — conversation data is sent to NearAI's servers.
+- Other OpenAI-compatible servers (vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, etc.) follow the same `"openai-compat"` pattern with a different `baseUrl` and `apiKey`.

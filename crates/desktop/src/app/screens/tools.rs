@@ -9,9 +9,9 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
         ui,
         "Tools",
         Some(if running {
-            "Per-agent tool definitions from gateway status (same list each role receives on a turn)."
+            "Tool definitions loaded on each agent turn."
         } else {
-            "Start the gateway to load the tool definitions."
+            "Start the gateway to load agent tools."
         }),
         |ui| {
             if !running {
@@ -32,31 +32,29 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 .clone()
                 .unwrap_or_else(|| orch_owned.clone());
 
-            if gs.agent_system_contexts.len() > 1 {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Agent").strong());
-                    egui::ComboBox::from_id_source("tools_agent_pick")
-                        .selected_text(&selected_id)
-                        .width(220.0)
-                        .show_ui(ui, |ui| {
-                            for id in gs.agent_system_contexts.keys() {
-                                let suffix = if id == orch_id {
-                                    " — orchestrator"
-                                } else {
-                                    " — worker"
-                                };
-                                let label = format!("{}{}", id, suffix);
-                                if ui
-                                    .selectable_label(selected_id == id.as_str(), label)
-                                    .clicked()
-                                {
-                                    app.dashboard_agent_id = Some(id.clone());
-                                }
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Agent").strong());
+                egui::ComboBox::from_id_source("tools_agent_pick")
+                    .selected_text(&selected_id)
+                    .width(220.0)
+                    .show_ui(ui, |ui| {
+                        for id in gs.agent_system_contexts.keys() {
+                            let suffix = if id == orch_id {
+                                " — orchestrator"
+                            } else {
+                                " — worker"
+                            };
+                            let label = format!("{}{}", id, suffix);
+                            if ui
+                                .selectable_label(selected_id == id.as_str(), label)
+                                .clicked()
+                            {
+                                app.dashboard_agent_id = Some(id.clone());
                             }
-                        });
-                });
-                ui.add_space(spacing::SUBSECTION);
-            }
+                        }
+                    });
+            });
+            ui.add_space(spacing::SUBSECTION);
 
             let tools_str = effective_tools_json(gs, selected_id.as_str(), orch_id);
 

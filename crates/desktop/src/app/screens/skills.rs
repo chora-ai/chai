@@ -14,7 +14,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let skills_root = lib::config::default_skills_dir(&paths.chai_home);
 
     let Some(ref cached) = app.cached_skills else {
-        let subtitle = format!("Values below are loaded from {}", skills_root.display());
+        let subtitle = format!("Values below are from {}", skills_root.display());
         crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
             ui.label("Loading skills...");
         });
@@ -24,7 +24,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let mut skills = cached.clone();
 
     if skills.is_empty() {
-        let subtitle = format!("Values below are loaded from {}", skills_root.display());
+        let subtitle = format!("Values below are from {}", skills_root.display());
         crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
             ui.label("No skills found in the configured directories.");
         });
@@ -36,7 +36,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let skill_agent_map = build_skill_agent_map(&config, app.gateway_status.as_ref());
 
     let subtitle = format!(
-        "Skill packages are loaded from {}.",
+        "Skill packages loaded from {}.",
         skills_root.display()
     );
 

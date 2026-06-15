@@ -5,7 +5,7 @@ use lib::orchestration::{
     EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 
-const CHAT_INPUT_HEIGHT: f32 = 130.0;
+const CHAT_INPUT_HEIGHT: f32 = 148.0; // 8 rows
 const CHAT_MESSAGES_MIN_HEIGHT: f32 = 80.0;
 
 /// Amber border color used for tool loop limit warnings.
@@ -69,10 +69,16 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
         ui.add_space(8.0);
 
         let text_response = ui.add_enabled_ui(can_send_base, |ui| {
-            ui.add_sized(
-                [ui.available_width(), CHAT_INPUT_HEIGHT],
-                egui::TextEdit::multiline(&mut app.chat_input),
-            )
+            egui::ScrollArea::vertical()
+                .max_height(CHAT_INPUT_HEIGHT)
+                .show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut app.chat_input)
+                            .desired_rows(10)
+                            .desired_width(ui.available_width()),
+                    )
+                })
+                .inner
         });
         let response = text_response.inner;
         ui.add_space(8.0);
@@ -153,9 +159,9 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .add_enabled(can_send, egui::Button::new("Send"))
                     .on_hover_text("ctrl/cmd+enter to send");
 
-                // Stop button: shows "Stopping…" while a stop request is in flight.
+                // Stop button: shows "Stopping…" while a stop request is in progress.
                 ui.add_space(4.0);
-                let stopping = app.stop_receiver.is_some();
+                let stopping = app.chat_stopping;
                 let can_stop = turn_in_progress && !stopping;
                 let stop_label = if stopping { "Stopping…" } else { "Stop" };
                 let stop_hover = if stopping {

@@ -136,6 +136,52 @@ impl ChaiApp {
             self.status_receiver = Some(rx);
         }
     }
+
+    /// Poll for gateway log fetch result and optionally start a new fetch. Call each frame.
+    ///
+    /// Only fetches logs from the gateway when the gateway is **external** (not owned
+    /// by the desktop). When the desktop spawns the gateway itself, it already captures
+    /// the gateway's stderr/stdout directly, so the WS method is unnecessary.
+    ///
+    /// Uses `gateway_logs_cursor` (a sequence number) to skip lines already ingested,
+    /// avoiding duplicates.
+    pub(crate) fn poll_gateway_logs_fetch(&mut self, owned: bool) {
+        if let Some(rx) = &self.gateway_logs_receiver {
+            if let Ok(result) = rx.try_recv() {
+                if let Ok((lines, max_seq)) = result {
+                    for line in lines {
+                        crate::app::state::logs::push_log_line(line);
+                    }
+                    self.gateway_logs_cursor = max_seq;
+                }
+                self.gateway_logs_receiver = None;
+            }
+        }
+        // Only fetch logs from external gateways.
+        if owned || !self.gateway_responds || self.gateway_logs_receiver.is_some() {
+            // When the gateway is owned or not responding, reset the cursor,
+            // frame counter, and any in-flight receiver so the next external
+            // gateway starts fresh.
+            if owned || !self.gateway_responds {
+                self.gateway_logs_cursor = 0;
+                self.frames_since_gateway_logs = 0;
+                self.gateway_logs_receiver = None;
+            }
+            return;
+        }
+        self.frames_since_gateway_logs = self.frames_since_gateway_logs.saturating_add(1);
+        if self.frames_since_gateway_logs >= STATUS_INTERVAL_FRAMES {
+            self.frames_since_gateway_logs = 0;
+            let (tx, rx) = mpsc::channel();
+            let profile_override = self.effective_profile_override().map(String::from);
+            let after_seq = self.gateway_logs_cursor;
+            std::thread::spawn(move || {
+                let result = fetch_gateway_logs(profile_override.as_deref(), after_seq);
+                let _ = tx.send(result);
+            });
+            self.gateway_logs_receiver = Some(rx);
+        }
+    }
 }
 
 /// Parse the `providers` block from gateway status into per-provider info.
@@ -366,8 +412,15 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                                 .map(String::from);
                             agent_rt.skills_context_bodies = sk_obj
                                 .get("skillsContextBodies")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
+                                .and_then(|v| v.as_object())
+                                .map(|obj| {
+                                    obj.iter()
+                                        .filter_map(|(k, v)| {
+                                            v.as_str().map(|s| (k.clone(), s.to_string()))
+                                        })
+                                        .collect()
+                                })
+                                .unwrap_or_default();
                         }
                         details.agent_skills.insert(id.clone(), agent_rt);
 
@@ -538,6 +591,135 @@ pub(crate) fn build_connect_params(
         }
         Ok(params)
     }
+}
+
+/// Fetch new gateway log lines via the `logs` WebSocket method.
+///
+/// Connects to the gateway, authenticates, sends a `logs` request with
+/// `afterSeq`, and returns the new lines plus the max sequence number.
+/// Used by the desktop to display gateway logs when connected to an
+/// external (non-owned) gateway.
+///
+/// Returns `(new_lines, max_seq)`.
+pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64) -> Result<(Vec<String>, u64), String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Read challenge.
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+
+        // Connect.
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for hello-ok.
+        let hello = ws
+            .next()
+            .await
+            .ok_or("no hello-ok frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(hello_text) = hello else {
+            return Err("expected text hello-ok frame".to_string());
+        };
+        let hello_val: serde_json::Value =
+            serde_json::from_str(&hello_text).map_err(|e| e.to_string())?;
+        if !hello_val
+            .get("ok")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false)
+        {
+            let err = hello_val
+                .get("error")
+                .and_then(|v| v.as_str())
+                .unwrap_or("hello-ok not ok");
+            if err == "invalid device token" {
+                let _ = std::fs::remove_file(paths.device_token_path());
+            }
+            return Err(err.to_string());
+        }
+        if let Some(auth) = hello_val.get("payload").and_then(|p| p.get("auth")) {
+            if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+            }
+        }
+
+        // Send logs request.
+        let logs_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "logs",
+            "params": { "afterSeq": after_seq }
+        });
+        ws.send(Message::Text(logs_req.to_string()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Read logs response.
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("logs request failed");
+                    return Err(err.to_string());
+                }
+                let payload = res.get("payload").ok_or("missing payload")?;
+                let max_seq = payload
+                    .get("maxSeq")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let lines_arr = payload
+                    .get("lines")
+                    .and_then(|v| v.as_array())
+                    .ok_or("missing lines array")?;
+                let log_lines: Vec<String> = lines_arr
+                    .iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect();
+                return Ok((log_lines, max_seq));
+            }
+        }
+        Err("no logs response".to_string())
+    })
 }
 
 pub(crate) fn resolve_chai_binary() -> Option<PathBuf> {

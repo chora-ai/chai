@@ -18,15 +18,15 @@ enum Screen {
     #[default]
     Chat,
     Files,
-    Status,
-    Context,
+    Gateway,
+    Agent,
     Tools,
     Config,
     Skills,
-    Logs,
+    Logging,
 }
 
-/// **Status** screen: human-readable dashboard vs full `status` WebSocket response JSON.
+/// **Gateway** screen: human-readable dashboard vs full `status` WebSocket response JSON.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum StatusViewMode {
     #[default]
@@ -82,6 +82,9 @@ pub struct ChaiApp {
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
     /// When Some, a stop request is in flight; we read the result here.
     stop_receiver: Option<mpsc::Receiver<Result<bool, String>>>,
+    /// True after the user requests a stop, until the chat turn actually completes.
+    /// Persists across frames even after the stop RPC completes so the UI shows "Stopping…".
+    chat_stopping: bool,
     /// User message we sent for the in-flight turn (used when reply creates a new session).
     pending_user_message: Option<String>,
     /// True when the in-flight turn was started for a new (previously unbound) session.
@@ -98,7 +101,7 @@ pub struct ChaiApp {
     current_model: Option<String>,
     /// Default model from config (cached for display / fallback).
     default_model: Option<String>,
-    /// Current screen (Chat, Status, Context, Tools, Config, Skills, Logs).
+    /// Current screen (Chat, Gateway, Agent, Tools, Config, Skills, Logging).
     current_screen: Screen,
     /// Session whose messages are shown in the chat area (None = "New session" / desktop buffer).
     selected_session_id: Option<String>,
@@ -110,11 +113,11 @@ pub struct ChaiApp {
     selected_skill_name: Option<String>,
     /// Cached list of enabled providers for the chat provider dropdown (invalidated when Config screen is shown).
     cached_enabled_providers: Option<Vec<String>>,
-    /// Status screen: show parsed fields or the raw `status` response JSON.
+    /// **Gateway** screen: show parsed fields or the raw `status` response JSON.
     status_view_mode: StatusViewMode,
     /// Stable buffer for **Tools** screen `TextEdit` (updated when the effective tools JSON changes).
     tools_display_buffer: String,
-    /// **Context**, **Tools**, and **Skills**: which agent id is selected (orchestrator or worker).
+    /// **Agent**, **Tools**, and **Skills**: which agent id is selected (orchestrator or worker).
     dashboard_agent_id: Option<String>,
     /// Config screen: dashboard vs raw file.
     config_view_mode: ConfigViewMode,
@@ -142,10 +145,18 @@ pub struct ChaiApp {
     skills_fetch_receiver: Option<mpsc::Receiver<Result<Vec<lib::skills::SkillEntry>, String>>>,
     /// Frames since we last started a skills fetch.
     frames_since_skills_fetch: u32,
+    /// When Some, a gateway log fetch is in flight; we read the result here.
+    /// Used for external (non-owned) gateways to pull logs via the `logs` WS method.
+    gateway_logs_receiver: Option<mpsc::Receiver<Result<(Vec<String>, u64), String>>>,
+    /// Frames since we last started a gateway log fetch.
+    frames_since_gateway_logs: u32,
+    /// Sequence cursor for gateway log deduplication. Tracks the `maxSeq` from
+    /// the last successful `logs` WS response so subsequent fetches only get new lines.
+    gateway_logs_cursor: u64,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
-/// gap at the bottom. Use for full-screen panels (Context, Skills, Status, Config).
+/// gap at the bottom. Use for full-screen panels (Agent, Skills, Gateway, Config).
 pub fn ui_screen(
     ui: &mut egui::Ui,
     title: &str,
@@ -195,6 +206,7 @@ impl Default for ChaiApp {
             chat_error: None,
             chat_turn_receiver: None,
             stop_receiver: None,
+            chat_stopping: false,
             pending_user_message: None,
             chat_turn_is_new_session: false,
             session_messages: BTreeMap::new(),
@@ -224,6 +236,9 @@ impl Default for ChaiApp {
             cached_skills: None,
             skills_fetch_receiver: None,
             frames_since_skills_fetch: 0,
+            gateway_logs_receiver: None,
+            frames_since_gateway_logs: 0,
+            gateway_logs_cursor: 0,
         }
     }
 }
@@ -303,7 +318,7 @@ impl ChaiApp {
         self.cached_enabled_providers = None;
     }
 
-    /// After **`status`** refresh, keep **Context** / **Tools** / **Skills** agent selection valid.
+    /// After **`status`** refresh, keep **Agent** / **Tools** / **Skills** agent selection valid.
     pub(crate) fn reconcile_dashboard_agent_selection(&mut self) {
         let Some(details) = self.gateway_status.as_ref() else {
             self.dashboard_agent_id = None;
@@ -367,6 +382,7 @@ impl ChaiApp {
         // previous server session (which would make the next send continue that history).
         self.chat_turn_receiver = None;
         self.stop_receiver = None;
+        self.chat_stopping = false;
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.chat_messages.clear();
@@ -383,6 +399,7 @@ impl ChaiApp {
         self.chat_error = None;
         self.chat_turn_receiver = None;
         self.stop_receiver = None;
+        self.chat_stopping = false;
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.session_messages.clear();
@@ -401,6 +418,14 @@ impl ChaiApp {
         if let Some(rx) = &self.chat_turn_receiver {
             if let Ok(result) = rx.try_recv() {
                 self.chat_turn_receiver = None;
+                // When the turn was stopped, keep chat_stopping true until the
+                // turn_stopped banner appears via session events — the stop RPC
+                // returns immediately but the agent is still finishing its
+                // current iteration.
+                let was_stopped = matches!(&result, Ok(r) if r.stopped);
+                if !was_stopped {
+                    self.chat_stopping = false;
+                }
                 match result {
                     Ok(reply) => {
                         // Use chat_turn_is_new_session (set in start_chat_turn when
@@ -549,6 +574,11 @@ impl ChaiApp {
                             if !already_has_banner {
                                 entry.push(ChatMessage::turn_stopped());
                             }
+                            // The turn_stopped banner is now visible — clear the
+                            // stopping flag so the Stop button reverts to its idle state.
+                            // This handles the RPC fallback path when the WebSocket
+                            // turn_stopped event hasn't arrived yet.
+                            self.chat_stopping = false;
                         }
                         // Retain only the most recent pre-session error so it doesn't disappear
                         // when we switch to the new session, without piling every past failure
@@ -577,6 +607,7 @@ impl ChaiApp {
                         }
                     }
                     Err(e) => {
+                        self.chat_stopping = false;
                         self.pending_user_message = None;
                         self.chat_turn_is_new_session = false;
                         let err_text = e.clone();
@@ -633,7 +664,7 @@ impl ChaiApp {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if std::env::var_os("RUST_LOG").is_none() {
-            cmd.env("RUST_LOG", "info");
+            cmd.env("RUST_LOG", "lib=info,cli=info");
         }
         // Propagate the effective profile override so the spawned gateway uses the
         // same profile as the desktop. Use --profile flag which is unambiguous (vs
@@ -649,7 +680,9 @@ impl ChaiApp {
                         let reader = std::io::BufReader::new(stderr);
                         for line in reader.lines() {
                             if let Ok(l) = line {
-                                state::logs::push_log_line(format!("[gateway] {}", l));
+                                // Gateway logger already formats lines as
+                                // `[timestamp LEVEL gateway] msg`; push as-is.
+                                state::logs::push_log_line(l);
                             }
                         }
                     });
@@ -659,7 +692,7 @@ impl ChaiApp {
                         let reader = std::io::BufReader::new(stdout);
                         for line in reader.lines() {
                             if let Ok(l) = line {
-                                state::logs::push_log_line(format!("[gateway] {}", l));
+                                state::logs::push_log_line(l);
                             }
                         }
                     });
@@ -771,7 +804,7 @@ impl ChaiApp {
             Some(ref id) => id.clone(),
             None => return,
         };
-        if self.stop_receiver.is_some() {
+        if self.chat_stopping {
             return;
         }
         let profile_override = self.effective_profile_override().map(String::from);
@@ -781,6 +814,7 @@ impl ChaiApp {
             let _ = tx.send(result);
         });
         self.stop_receiver = Some(rx);
+        self.chat_stopping = true;
     }
 
     /// Poll for the stop request result. Call each frame.
@@ -841,6 +875,7 @@ impl eframe::App for ChaiApp {
         // Now that gateway_lock_profile is up-to-date, poll for status and events.
         self.poll_status_fetch();
         self.poll_skills_fetch();
+        self.poll_gateway_logs_fetch(owned);
         self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
         self.poll_chat_turn();
@@ -932,29 +967,29 @@ impl eframe::App for ChaiApp {
                 ui::layout::central_padded(ui, |ui| {
                     screens::files::ui_files_screen(self, ui, running);
                 });
-            } else if self.current_screen == Screen::Status {
+            } else if self.current_screen == Screen::Skills {
                 ui::layout::central_padded(ui, |ui| {
-                    screens::status::ui_status_screen(self, ui, running);
+                    screens::skills::ui_skills_screen(self, ui);
                 });
-            } else if self.current_screen == Screen::Config {
+            } else if self.current_screen == Screen::Agent {
                 ui::layout::central_padded(ui, |ui| {
-                    screens::config::ui_config_screen(self, ui);
-                });
-            } else if self.current_screen == Screen::Context {
-                ui::layout::central_padded(ui, |ui| {
-                    screens::context::ui_context_screen(self, ui, running);
+                    screens::agent::ui_agent_screen(self, ui, running);
                 });
             } else if self.current_screen == Screen::Tools {
                 ui::layout::central_padded(ui, |ui| {
                     screens::tools::ui_tools_screen(self, ui, running);
                 });
-            } else if self.current_screen == Screen::Skills {
+            } else if self.current_screen == Screen::Config {
                 ui::layout::central_padded(ui, |ui| {
-                    screens::skills::ui_skills_screen(self, ui);
+                    screens::config::ui_config_screen(self, ui);
                 });
-            } else if self.current_screen == Screen::Logs {
+            } else if self.current_screen == Screen::Gateway {
                 ui::layout::central_padded(ui, |ui| {
-                    screens::logs::ui_logs_screen(self, ui);
+                    screens::gateway::ui_gateway_screen(self, ui, running);
+                });
+            } else if self.current_screen == Screen::Logging {
+                ui::layout::central_padded(ui, |ui| {
+                    screens::logging::ui_logging_screen(self, ui);
                 });
             }
         });

@@ -6,6 +6,7 @@
 //! Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
 
 use anyhow::{Context, Result};
+use log::{error, info};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -969,28 +970,42 @@ pub fn worker_skills_enabled_list(worker: &WorkerConfig) -> &[String] {
     worker.skills_enabled.as_deref().unwrap_or(&[])
 }
 
-/// Load config for the resolved profile (`CHAI_PROFILE`, `chai gateway --profile`, or `~/.chai/active`).
-/// Missing `config.json` in the profile => default config.
+/// Load `.env` from the resolved profile directory into the process environment.
 ///
-/// If a `.env` file exists in the profile directory, variables from it are loaded into the
-/// process environment (existing variables are not overwritten). This allows `apiKey` values
-/// using the `<VAR_NAME>` syntax to resolve against profile-local environment variables.
-/// The `.env` file is loaded at most once per process; subsequent calls are no-ops.
-pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile::ChaiPaths)> {
-    let paths = crate::profile::resolve_profile_dir(cli_profile)?;
-
-    // Load `.env` from the profile directory at most once per process.
-    // dotenvy does not overwrite existing env vars, so after the first load this is a no-op.
+/// Variables from `.env` are set **only if not already present** in the process
+/// environment — shell/environment variables always take precedence. This function
+/// is idempotent: the `.env` file is loaded at most once per process; subsequent
+/// calls are no-ops.
+///
+/// Call this early (before logger initialization) so that environment-driven
+/// configuration like `RUST_LOG` takes effect.
+pub fn load_profile_env(cli_profile: Option<&str>) {
     static DOTENV_LOADED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
     DOTENV_LOADED.get_or_init(|| {
+        let paths = match crate::profile::resolve_profile_dir(cli_profile) {
+            Ok(p) => p,
+            Err(_) => return,
+        };
         let env_path = paths.profile_dir.join(".env");
         if env_path.is_file() {
             match dotenvy::from_path(&env_path) {
-                Ok(_) => log::debug!("loaded .env from {}", env_path.display()),
-                Err(e) => log::warn!("failed to load .env at {}: {}", env_path.display(), e),
+                Ok(_) => info!("loaded .env from {}", env_path.display()),
+                Err(e) => error!("failed to load .env at {}: {}", env_path.display(), e),
             }
         }
     });
+}
+
+/// Load config for the resolved profile (`CHAI_PROFILE`, `chai gateway --profile`, or `~/.chai/active`).
+/// Missing `config.json` in the profile => default config.
+///
+/// Also loads the profile's `.env` file (via [`load_profile_env`]) if not already loaded.
+/// See [`load_profile_env`] for details on `.env` semantics.
+pub fn load_config(cli_profile: Option<&str>) -> Result<(Config, crate::profile::ChaiPaths)> {
+    let paths = crate::profile::resolve_profile_dir(cli_profile)?;
+
+    // Ensure .env is loaded (no-op if already loaded by an earlier call to load_profile_env).
+    load_profile_env(cli_profile);
 
     let path = &paths.config_path;
     let config = if !path.exists() {

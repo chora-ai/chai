@@ -102,8 +102,9 @@ Merged Tools JSON from `status`.
 
 ### Logs
 
-In-memory buffer fed by gateway stderr/stdout when started from desktop. Monospace display. No clear button, no line cap.
+In-memory buffer (2000 lines, monospace display) fed by gateway stderr/stdout when started from desktop, or by the `logs` WebSocket method when connected to an external gateway. No clear button.
 
+See [LOGGING.md](LOGGING.md) for the full logging specification.
 ## Shared UI Helpers
 
 The desktop uses shared UI modules for consistency:
@@ -125,9 +126,7 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | Gap | Source | Notes |
 |-----|--------|-------|
 | HTTP health endpoint | Gateway `GET /` | Desktop uses TCP probe only |
-| Remote log tail | N/A | Logs only capture subprocess output when app started the gateway |
 | Clear buffer button | Logs screen | No in-memory log clear button |
-| Line cap for logs | Logs screen | In-memory buffer has no line cap |
 
 ## Related Documents
 
@@ -138,4 +137,5 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | [spec/CONTEXT.md](CONTEXT.md) | Gateway context strings |
 | [spec/TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` validation reference |
 | [spec/GATEWAY_STATUS.md](GATEWAY_STATUS.md) | WebSocket `status` payload |
+| [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |
 | [spec/CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks |

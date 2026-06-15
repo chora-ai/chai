@@ -65,7 +65,7 @@ Effective configuration combines the file with **`config.rs`** resolution: **`re
 
 ### `.env` File
 
-If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assistant/.env`), it is loaded at startup. Variables from `.env` are set in the process environment only if they are not already set — shell environment variables always take precedence. This enables `apiKey` values using the `<VAR_NAME>` syntax to resolve against profile-local secrets without hardcoding them in `config.json`. See [PROVIDERS.md](PROVIDERS.md) for the full `apiKey` resolution semantics.
+If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assistant/.env`), it is loaded at startup — before logger initialization — so that environment-driven configuration like `RUST_LOG` takes effect. Variables from `.env` are set in the process environment only if they are not already set — shell environment variables always take precedence. This enables `apiKey` values using the `<VAR_NAME>` syntax to resolve against profile-local secrets without hardcoding them in `config.json`, and also supports runtime environment variables like `RUST_LOG`, `CHAI_BIN`, and channel tokens (e.g. `TELEGRAM_BOT_TOKEN`). See [PROVIDERS.md](PROVIDERS.md) for the full `apiKey` resolution semantics.
 
 ---
 

@@ -44,15 +44,16 @@ use axum::{
     body::Bytes,
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        State,
+        Query, State,
     },
     http::{HeaderMap, StatusCode},
     response::Response,
     routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use serde_json::json;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -291,17 +292,15 @@ fn build_skill_context_full(skills: &[Skill]) -> String {
     out
 }
 
-/// Build skill bodies only (no overview, no added headers). Used for desktop display in read-on-demand so the panel shows exactly what read_skill returns: each skill's body (frontmatter stripped), concatenated.
-fn build_skill_bodies_only(skills: &[Skill]) -> String {
-    if skills.is_empty() {
-        return String::new();
-    }
-    let mut out = String::new();
+/// Build per-skill body map (name → frontmatter-stripped body). Used for desktop display in
+/// read-on-demand so the panel can render each skill in its own box with a name header.
+fn build_skill_bodies_map(skills: &[Skill]) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
     for s in skills {
-        out.push_str(strip_skill_frontmatter(&s.content));
-        out.push_str("\n\n");
+        let body = strip_skill_frontmatter(&s.content).to_string();
+        map.insert(s.name.clone(), body);
     }
-    out
+    map
 }
 
 /// Build compact skill list (name + description only). Used when context mode is ReadOnDemand; model uses read_skill to load full docs.
@@ -335,25 +334,31 @@ fn skill_runtime_json(skills: &[Skill], mode: SkillContextMode) -> serde_json::V
         SkillContextMode::ReadOnDemand => build_skill_context_compact(skills),
     };
     let skills_context_full = build_skill_context_full(skills);
-    let skills_context_bodies = match mode {
-        SkillContextMode::ReadOnDemand => build_skill_bodies_only(skills),
-        SkillContextMode::Full => String::new(),
+    let skills_context_bodies_map = match mode {
+        SkillContextMode::ReadOnDemand => build_skill_bodies_map(skills),
+        SkillContextMode::Full => BTreeMap::new(),
     };
     let enabled_skills: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
     let context_mode_wire = match mode {
         SkillContextMode::Full => "full",
         SkillContextMode::ReadOnDemand => "readOnDemand",
     };
+    let bodies_json = if skills_context_bodies_map.is_empty() {
+        serde_json::Value::Null
+    } else {
+        serde_json::Value::Object(
+            skills_context_bodies_map
+                .into_iter()
+                .map(|(k, v)| (k, serde_json::Value::String(v)))
+                .collect(),
+        )
+    };
     json!({
         "enabledSkills": enabled_skills,
         "contextMode": context_mode_wire,
         "skillsContext": skills_context,
         "skillsContextFull": skills_context_full,
-        "skillsContextBodies": if skills_context_bodies.is_empty() {
-            serde_json::Value::Null
-        } else {
-            serde_json::Value::String(skills_context_bodies)
-        },
+        "skillsContextBodies": bodies_json,
     })
 }
 
@@ -1158,6 +1163,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     let app = Router::new()
         .route("/", get(health_http))
         .route("/ws", get(ws_handler))
+        .route("/logs", get(logs_http))
         .route("/telegram/webhook", post(telegram_webhook));
     #[cfg(feature = "matrix")]
     let app = app
@@ -1313,6 +1319,31 @@ async fn health_http(State(state): State<GatewayState>) -> Json<serde_json::Valu
     }))
 }
 
+/// Query parameters for the `/logs` HTTP endpoint.
+#[derive(Deserialize)]
+struct LogsQuery {
+    /// Return lines with sequence numbers greater than this value.
+    #[serde(default)]
+    after_seq: u64,
+    /// Maximum number of lines to return (default 200, max 2000).
+    #[serde(default = "default_log_lines")]
+    lines: usize,
+}
+
+fn default_log_lines() -> usize {
+    200
+}
+
+/// GET /logs?afterSeq=N&lines=M returns log lines from the gateway's ring buffer.
+async fn logs_http(Query(params): Query<LogsQuery>) -> Json<serde_json::Value> {
+    let lines_limit = params.lines.min(2000);
+    let (lines, max_seq) = crate::logging::log_lines_after(params.after_seq);
+    let lines: Vec<String> = lines.into_iter().take(lines_limit).collect();
+    Json(json!({
+        "lines": lines,
+        "maxSeq": max_seq,
+    }))
+}
 fn non_empty_cfg_opt(s: &Option<String>) -> bool {
     s.as_ref().map(|x| !x.trim().is_empty()).unwrap_or(false)
 }
@@ -1968,6 +1999,17 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     log::debug!("stop: no active turn for session {}, ignoring", params.session_id);
                 }
                 let res = WsResponse::ok(&req.id, json!({ "stopped": true }));
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+            }
+            "logs" => {
+                let after_seq = req.params.get("afterSeq").and_then(|v| v.as_u64()).unwrap_or(0);
+                let lines_limit = req.params.get("lines").and_then(|v| v.as_u64()).unwrap_or(200) as usize;
+                let (lines, max_seq) = crate::logging::log_lines_after(after_seq);
+                let lines: Vec<String> = lines.into_iter().take(lines_limit).collect();
+                let res = WsResponse::ok(&req.id, json!({
+                    "lines": lines,
+                    "maxSeq": max_seq,
+                }));
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
             }
             _ => {

@@ -60,7 +60,7 @@ Send **`/new`** (case-insensitive) to start a **new session** for that conversat
 
 ## Wire-only Check (no Gateway)
 
-`cargo run -p chai-spike --bin signal-probe` — see **`crates/spike/README.md`**.
+`cargo run -p chai-spike --bin signal-probe` — requires `SIGNAL_CLI_HTTP` and `SIGNAL_CLI_ACCOUNT` environment variables.
 
 ## Summary
 

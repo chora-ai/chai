@@ -223,3 +223,23 @@ chai file rename-note --from <OLD_PATH> --to <NEW_PATH> --root <SEARCH_DIR>
 ```
 
 Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikilinks in `.md` files under `--root`. The parent directory of `--to` must exist.
+
+## `chai logs`
+
+Read and search the gateway's in-memory log buffer. These commands query the running gateway via its HTTP API — the gateway must be running for them to return data.
+
+### Recent Lines
+
+```bash
+chai logs recent [--lines N] [--level LEVEL]
+```
+
+Return the most recent N lines from the gateway log buffer. The `--lines` flag controls how many lines to return (default: 50, max: 200). Use `--level` to filter by severity (`info`, `warn`, `error`, `debug`).
+
+### Search
+
+```bash
+chai logs search --pattern <PATTERN> [--context N]
+```
+
+Search log lines for a substring pattern. Matching lines are prefixed with `>` and surrounded by context lines (default: 2). Useful for finding specific events like `finish_reason`, token counts, or error messages.

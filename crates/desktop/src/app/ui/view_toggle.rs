@@ -1,4 +1,4 @@
-//! Dashboard vs raw JSON view toggles (Config / Status screens).
+//! Dashboard vs raw JSON view toggles (Config / Gateway screens).
 
 use eframe::egui;
 

@@ -4,7 +4,7 @@ This document provides an overview of the vision for this project.
 
 ## Current State
 
-An exploratory project (proof-of-concept + partially completed epics).
+An exploratory project (proof-of-concept).
 
 ## Long-Term Goals
 

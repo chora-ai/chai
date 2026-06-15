@@ -4,14 +4,14 @@ use crate::app::types::GatewayStatusDetails;
 use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
-pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
+pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     crate::app::ui_screen(
         ui,
-        "Context",
+        "Agent",
         Some(if running {
-            "Static system context per agent from gateway status (orchestrator and each worker)."
+            "Context loaded at the beginning of a session."
         } else {
-            "Start the gateway to load the system context."
+            "Start the gateway to load agent context."
         }),
         |ui| {
             if !running {
@@ -33,31 +33,29 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let is_orchestrator_view =
                 gs.agent_system_contexts.is_empty() || selected_id.as_str() == orch_id;
 
-            if gs.agent_system_contexts.len() > 1 {
-                ui.horizontal(|ui| {
-                    ui.label(egui::RichText::new("Agent").strong());
-                    egui::ComboBox::from_id_source("context_agent_pick")
-                        .selected_text(&selected_id)
-                        .width(220.0)
-                        .show_ui(ui, |ui| {
-                            for id in gs.agent_system_contexts.keys() {
-                                let suffix = if id == orch_id {
-                                    " — orchestrator"
-                                } else {
-                                    " — worker"
-                                };
-                                let label = format!("{}{}", id, suffix);
-                                if ui
-                                    .selectable_label(selected_id == id.as_str(), label)
-                                    .clicked()
-                                {
-                                    app.dashboard_agent_id = Some(id.clone());
-                                }
+            ui.horizontal(|ui| {
+                ui.label(egui::RichText::new("Agent").strong());
+                egui::ComboBox::from_id_source("context_agent_pick")
+                    .selected_text(&selected_id)
+                    .width(220.0)
+                    .show_ui(ui, |ui| {
+                        for id in gs.agent_system_contexts.keys() {
+                            let suffix = if id == orch_id {
+                                " — orchestrator"
+                            } else {
+                                " — worker"
+                            };
+                            let label = format!("{}{}", id, suffix);
+                            if ui
+                                .selectable_label(selected_id == id.as_str(), label)
+                                .clicked()
+                            {
+                                app.dashboard_agent_id = Some(id.clone());
                             }
-                        });
-                });
-                ui.add_space(spacing::SUBSECTION);
-            }
+                        }
+                    });
+            });
+            ui.add_space(spacing::SUBSECTION);
 
             let context_text = effective_system_context(gs, selected_id.as_str());
 
@@ -110,8 +108,8 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let status_bodies = gs
                 .agent_skills
                 .get(&selected_id)
-                .and_then(|rt| rt.skills_context_bodies.clone())
-                .filter(|s| !s.is_empty());
+                .map(|rt| rt.skills_context_bodies.clone())
+                .filter(|m| !m.is_empty());
             let status_full = gs
                 .agent_skills
                 .get(&selected_id)
@@ -125,13 +123,6 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     if use_read_on_demand_two_columns {
                         dashboard::dashboard_two_columns(ui, |ui_left, ui_right| {
                             if let Some(text) = context_text {
-                                let left_title = if is_orchestrator_view {
-                                    "System Context"
-                                } else {
-                                    "Worker system context"
-                                };
-                                ui_left.label(egui::RichText::new(left_title).strong());
-                                ui_left.add_space(spacing::LINE);
                                 let mut buf = text.to_string();
                                 let scroll_height = ui_left.available_height();
                                 let scroll_id = if is_orchestrator_view {
@@ -153,15 +144,7 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                 ui_left.label("No context loaded.");
                             }
 
-                            if let Some(bodies_text) = &status_bodies {
-                                // Gateway is running and has skill bodies — use them directly.
-                                let right_title = if is_orchestrator_view {
-                                    "Skill bodies (orchestrator)"
-                                } else {
-                                    "Skill bodies (worker)"
-                                };
-                                ui_right.label(egui::RichText::new(right_title).strong());
-                                ui_right.add_space(spacing::LINE);
+                            if let Some(bodies_map) = &status_bodies {
                                 let scroll_id = if is_orchestrator_view {
                                     "context_skills_scroll"
                                 } else {
@@ -171,22 +154,62 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                     .id_source(scroll_id)
                                     .max_height(ui_right.available_height())
                                     .show(ui_right, |ui| {
-                                        let mut buf = bodies_text.to_string();
-                                        egui::TextEdit::multiline(&mut buf)
-                                            .code_editor()
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .show(ui);
+                                        for (skill_name, skill_body) in bodies_map {
+                                            let has_body = !skill_body.trim().is_empty();
+                                            egui::Frame::group(ui.style())
+                                                .inner_margin(egui::Margin::same(
+                                                    spacing::GROUP_INNER_MARGIN,
+                                                ))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(ui.available_width());
+                                                    ui.vertical(|ui| {
+                                                        ui.label(
+                                                            egui::RichText::new(skill_name)
+                                                                .strong(),
+                                                        );
+                                                        ui.add_space(spacing::GROUP_TITLE_AFTER);
+                                                        let sep_stroke = egui::Stroke::new(
+                                                            1.0,
+                                                            ui.visuals()
+                                                                .widgets
+                                                                .noninteractive
+                                                                .bg_stroke
+                                                                .color,
+                                                        );
+                                                        let sep_w = ui.available_width();
+                                                        let (sep_rect, _) = ui
+                                                            .allocate_exact_size(
+                                                                egui::vec2(sep_w, 1.0),
+                                                                egui::Sense::hover(),
+                                                            );
+                                                        ui.painter().hline(
+                                                            sep_rect.x_range(),
+                                                            sep_rect.center().y,
+                                                            sep_stroke,
+                                                        );
+                                                        ui.add_space(
+                                                            spacing::GROUP_AFTER_SEPARATOR,
+                                                        );
+
+                                                        if has_body {
+                                                            let mut buf =
+                                                                skill_body.to_string();
+                                                            egui::TextEdit::multiline(&mut buf)
+                                                                .code_editor()
+                                                                .desired_width(
+                                                                    ui.available_width(),
+                                                                )
+                                                                .interactive(false)
+                                                                .show(ui);
+                                                        } else {
+                                                            ui.label("No SKILL.md content.");
+                                                        }
+                                                    });
+                                                });
+                                            ui.add_space(spacing::SUBSECTION);
+                                        }
                                     });
                             } else if let Some(full_text) = &status_full {
-                                // Full mode — show the full skills context from gateway.
-                                let right_title = if is_orchestrator_view {
-                                    "Skills context (orchestrator)"
-                                } else {
-                                    "Skills context (worker)"
-                                };
-                                ui_right.label(egui::RichText::new(right_title).strong());
-                                ui_right.add_space(spacing::LINE);
                                 let scroll_id = if is_orchestrator_view {
                                     "context_skills_scroll"
                                 } else {
@@ -246,10 +269,6 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                                     .label("No enabled skills were loaded.");
                                             } else {
                                                 entries.sort_by(|a, b| a.name.cmp(&b.name));
-                                                ui_right.label(
-                                                    egui::RichText::new(right_title).strong(),
-                                                );
-                                                ui_right.add_space(spacing::LINE);
                                                 let scroll_id = if is_orchestrator_view {
                                                     "context_skills_scroll"
                                                 } else {
@@ -265,26 +284,67 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                                             );
                                                             let has_body =
                                                                 !body.trim().is_empty();
+                                                            egui::Frame::group(ui.style())
+                                                                .inner_margin(egui::Margin::same(
+                                                                    spacing::GROUP_INNER_MARGIN,
+                                                                ))
+                                                                .show(ui, |ui| {
+                                                                    ui.set_width(
+                                                                        ui.available_width(),
+                                                                    );
+                                                                    ui.vertical(|ui| {
+                                                                        ui.label(
+                                                                            egui::RichText::new(
+                                                                                &entry.name,
+                                                                            )
+                                                                            .strong(),
+                                                                        );
+                                                                        ui.add_space(
+                                                                            spacing::GROUP_TITLE_AFTER,
+                                                                        );
+                                                                        let sep_stroke =
+                                                                            egui::Stroke::new(
+                                                                                1.0,
+                                                                                ui.visuals()
+                                                                                    .widgets
+                                                                                    .noninteractive
+                                                                                    .bg_stroke
+                                                                                    .color,
+                                                                            );
+                                                                        let sep_w =
+                                                                            ui.available_width();
+                                                                        let (sep_rect, _) = ui
+                                                                            .allocate_exact_size(
+                                                                                egui::vec2(
+                                                                                    sep_w,
+                                                                                    1.0,
+                                                                                ),
+                                                                                egui::Sense::hover(),
+                                                                            );
+                                                                        ui.painter().hline(
+                                                                            sep_rect.x_range(),
+                                                                            sep_rect.center().y,
+                                                                            sep_stroke,
+                                                                        );
+                                                                        ui.add_space(
+                                                                            spacing::GROUP_AFTER_SEPARATOR,
+                                                                        );
 
-                                                            ui.label(
-                                                                egui::RichText::new(&entry.name)
-                                                                    .strong(),
-                                                            );
-                                                            ui.add_space(spacing::LINE);
-
-                                                            if has_body {
-                                                                let mut buf = body.to_string();
-                                                                egui::TextEdit::multiline(
-                                                                    &mut buf,
-                                                                )
-                                                                .code_editor()
-                                                                .desired_width(
-                                                                    ui.available_width(),
-                                                                )
-                                                                .interactive(false)
-                                                                .show(ui);
-                                                            }
-
+                                                                        if has_body {
+                                                                            let mut buf =
+                                                                                body.to_string();
+                                                                            egui::TextEdit::multiline(&mut buf)
+                                                                                .code_editor()
+                                                                                .desired_width(
+                                                                                    ui.available_width(),
+                                                                                )
+                                                                                .interactive(false)
+                                                                                .show(ui);
+                                                                        } else {
+                                                                            ui.label("No SKILL.md content.");
+                                                                        }
+                                                                    });
+                                                                });
                                                             ui.add_space(spacing::SUBSECTION);
                                                         }
                                                     });
@@ -300,14 +360,6 @@ pub fn ui_context_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                             }
                         });
                     } else {
-                        let title = if is_orchestrator_view {
-                            "System Context"
-                        } else {
-                            "Worker system context"
-                        };
-                        ui.label(egui::RichText::new(title).strong());
-                        ui.add_space(spacing::LINE);
-
                         if let Some(text) = context_text {
                             let mut buf = text.to_string();
                             let scroll_height = ui.available_height();

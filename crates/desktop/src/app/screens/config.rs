@@ -19,7 +19,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 
     let subtitle = if !config_path.as_os_str().is_empty() {
         Some(format!(
-            "Values below are loaded from {}",
+            "Values loaded from {}",
             config_path.display()
         ))
     } else {

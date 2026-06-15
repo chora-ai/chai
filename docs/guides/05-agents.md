@@ -38,15 +38,7 @@ See the [Configuration → Agents](03-configuration.md#agents) reference for fie
 
 Each agent references a `defaultProvider` and `defaultModel` that determine which backend handles its turns. The orchestrator's `enabledProviders` field controls which providers are polled for model discovery at startup.
 
-For provider configuration, model id conventions, and the full endpoint type reference, see [Configuration → Configuring Providers](03-configuration.md#configuring-providers). For a decision guide on choosing a provider based on hardware, privacy, and use case, see [Choosing a Provider and Model](10-choosing-a-provider.md).
-
-For deeper reference material, the chai source tree includes provider and model documentation under the `base/` knowledge base:
-
-- **Provider taxonomy and API comparisons** — `base/spec/PROVIDERS.md`
-- **Model ids, inventory, and tool-fit notes** — `base/spec/MODELS.md`
-- **Per-backend wire protocol references** — `base/ref/OLLAMA.md`, `base/ref/LM_STUDIO.md`, `base/ref/NVIDIA_NIM.md`, `base/ref/OPENAI.md`
-- **Repeatable model test playbooks** — `docs/testing/`
-These paths are relative to the chai source tree, not the guides directory. They are intended for contributors and advanced users working inside the repository.
+For provider configuration, model id conventions, and the full endpoint type reference, see [Configuration → Configuring Providers](03-configuration.md#configuring-providers). For a decision guide on choosing a provider based on hardware, privacy, and use case, see [Choosing a Provider and Model](10-choosing-a-provider.md). For repeatable model test playbooks, see [User Testing](../testing/README.md).
 
 ## Agent Context On Disk
 

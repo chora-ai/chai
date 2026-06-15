@@ -1,8 +1,8 @@
-# Third-Party NearAI Llama
+# Third-Party NearAI GLM
 
 ## Scope
 
-Third-party NearAI API runs for Llama-family models.
+Third-party NearAI API runs for zai-org-family models.
 
 ## Setup
 
@@ -26,4 +26,4 @@ Follow the shared protocol in [README.md](README.md): message sequence, expectat
 
 ## See Also
 
-- [Provider setup](PROVIDER_SETUP.md#nearai) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Provider spec](../../base/spec/PROVIDERS.md) · [Model spec](../../base/spec/MODELS.md)
+- [Provider setup](PROVIDER_SETUP.md#nearai) · [Configuration → Providers](../guides/03-configuration.md#configuring-providers) · [Model selection](../guides/10-choosing-a-provider.md)

@@ -9,6 +9,7 @@ pub mod device;
 pub mod exec;
 pub mod gateway;
 pub mod init;
+pub mod logging;
 pub mod orchestration;
 pub mod profile;
 pub mod providers;

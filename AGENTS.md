@@ -6,7 +6,9 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 This document and the `base` directory are the primary resources for agents.
 
-**Always read [base/README.md](base/README.md)** — the entry point for the `base` directory.
+## Issues and Pull Requests
+
+Always follow `CONTRIBUTING.md` when submitting issues or pull requests.
 
 ## Architecture Overview
 
@@ -43,10 +45,18 @@ This document and the `base` directory are the primary resources for agents.
 
 ## User Documentation
 
-### `./README.md`
+### `docs/`
+
+- This directory provides user guides, step-by-step journeys, and testing playbooks. User documentation is isolated: do not link outside `docs/`; bring relevant content into the user doc instead. Guidelines and conventions are in `docs/AGENTS.md` and each subdirectory's `AGENTS.md`.
+
+### `CHANGELOG.md`
+
+- This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed.
+
+### `CONTRIBUTING.md`
+
+- This document describes how to submit issues and pull requests. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
+
+### `README.md`
 
 - This document provides instructions on how to build, install, and run the runtime. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
-
-### `./docs/`
-
-- This directory provides user guides for getting started and adanced configurations, step-by-step journeys to learn and exercise the stack, and playbooks to compare models and providers.

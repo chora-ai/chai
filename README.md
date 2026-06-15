@@ -12,61 +12,69 @@ For user guides and other documentation, see [docs](docs/README.md).
 - **`crates/desktop`** — Graphical user interface for the multi-agent management system
 - **`crates/lib`** — Shared business logic for the multi-agent management system
 
-## Build
-
-```bash
-# Build everything (Telegram channel included by default)
-cargo build
-
-# Build with the experimental Matrix adapter
-cargo build --features matrix
-
-# Build with the experimental Signal adapter
-cargo build --features signal
-
-# Build with both experimental adapters
-cargo build --features matrix,signal
-```
-
 ## Test
 
 ```bash
+# Test all crates
 cargo test
+
+# Test a specific crate
+cargo test -p cli
+cargo test -p desktop
+cargo test -p lib
+```
+
+## Build
+
+```bash
+# Build all crates
+cargo build
+
+# Build CLI
+cargo build -p cli
+
+# Build Desktop
+cargo build -p desktop
+
+# Build with experimental adapters
+cargo build -p cli --features matrix,signal
+cargo build -p desktop --features matrix,signal
 ```
 
 ## Install
 
 ```bash
-# CLI (Telegram included by default)
+# Install CLI
 cargo install --path crates/cli
 
-# Desktop (Telegram included by default)
+# Install Desktop
 cargo install --path crates/desktop
 
-# With optional channel adapters
-cargo install --path crates/cli --features matrix
-cargo install --path crates/cli --features signal
+# Install with experimental adapters
 cargo install --path crates/cli --features matrix,signal
+cargo install --path crates/desktop --features matrix,signal
 ```
 
 ## Run
 
 ```bash
-# CLI
+# Run CLI
 chai help
-chai gateway
-chai chat
 
-# Desktop
+# Run Desktop
 chai-desktop
 ```
 
 ## Channels
 
 | Channel | Build Feature | Status |
-|---------|--------------|--------|
-| Telegram | (always on) | Supported |
+|---------|---------------|--------|
+| Telegram | (always included) | Supported |
 | Matrix | `--features matrix` | Experimental (opt-in) |
 | Signal | `--features signal` | Experimental (opt-in) |
 
 Telegram is included by default. Matrix and Signal require opt-in feature flags at build time and are experimental — they work for basic messaging but are still being hardened. See [Connections](docs/guides/04-connections.md) for setup instructions.
+
+## License
+
+Licensed under the LGPL-3.0: https://www.gnu.org/licenses/lgpl-3.0.en.html

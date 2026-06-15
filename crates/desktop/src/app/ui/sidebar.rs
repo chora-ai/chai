@@ -45,10 +45,10 @@ pub fn sidebar(current_screen: &mut Screen, ctx: &egui::Context) {
                     }
                     section_heading(ui, "Agents");
                     if ui
-                        .selectable_label(*current_screen == Screen::Context, "Context")
+                        .selectable_label(*current_screen == Screen::Agent, "Agent")
                         .clicked()
                     {
-                        *current_screen = Screen::Context;
+                        *current_screen = Screen::Agent;
                     }
                     ui.add_space(12.0);
                     if ui
@@ -66,17 +66,17 @@ pub fn sidebar(current_screen: &mut Screen, ctx: &egui::Context) {
                     }
                     ui.add_space(12.0);
                     if ui
-                        .selectable_label(*current_screen == Screen::Status, "Status")
+                        .selectable_label(*current_screen == Screen::Gateway, "Gateway")
                         .clicked()
                     {
-                        *current_screen = Screen::Status;
+                        *current_screen = Screen::Gateway;
                     }
                     ui.add_space(12.0);
                     if ui
-                        .selectable_label(*current_screen == Screen::Logs, "Logs")
+                        .selectable_label(*current_screen == Screen::Logging, "Logging")
                         .clicked()
                     {
-                        *current_screen = Screen::Logs;
+                        *current_screen = Screen::Logging;
                     }
                 });
         });
