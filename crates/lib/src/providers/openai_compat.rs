@@ -5,10 +5,10 @@
 //!
 //! - **Model discovery**: standard `GET /v1/models`, LM Studio native `GET /api/v1/models`,
 //!   or static model lists from config.
-//! - **Auto-load**: On "unloaded" error (LM Studio), call `POST /api/v1/models/load` and
-//!   retry the chat request once.
+//! - **Retry on unload**: When `modelDiscovery: "lmstudio"` is configured and a chat request
+//!   returns an "unloaded" error, the client calls `POST /api/v1/models/load` and retries the
+//!   chat request once.
 
-use crate::config::AutoLoad;
 use crate::providers::{ChatMessage, ChatResponse, FinishReason, Provider, ProviderError, ToolCall, ToolCallFunction, ToolDefinition, Usage};
 use async_trait::async_trait;
 use futures_util::StreamExt;
@@ -22,19 +22,21 @@ pub enum OpenAiCompatError {
     Api(String),
 }
 
-/// HTTP client for `POST /v1/chat/completions`, `GET /v1/models`, and optional LM Studio
-/// auto-load (`POST /api/v1/models/load`) and native model list (`GET /api/v1/models`).
+/// HTTP client for `POST /v1/chat/completions`, `GET /v1/models`, LM Studio native model list
+/// (`GET /api/v1/models`), and LM Studio model load (`POST /api/v1/models/load`).
 #[derive(Clone)]
 pub struct OpenAiCompatClient {
     base_url: String,
     client: reqwest::Client,
     api_key: Option<String>,
-    auto_load: AutoLoad,
+    /// When true, retry on "unloaded" error by calling `POST /api/v1/models/load` and retrying
+    /// the chat request once. Automatically enabled when `modelDiscovery: "lmstudio"`.
+    retry_on_unload: bool,
 }
 
 impl OpenAiCompatClient {
-    /// Constructor that accepts auto-load config for LM Studio behavior.
-    pub fn new_with_auto_load(base_url: String, api_key: Option<String>, auto_load: AutoLoad) -> Self {
+    /// Constructor with explicit retry-on-unload control.
+    pub fn new(base_url: String, api_key: Option<String>, retry_on_unload: bool) -> Self {
         let base_url = base_url.trim_end_matches('/').to_string();
         let api_key = api_key
             .map(|s| s.trim().to_string())
@@ -43,13 +45,13 @@ impl OpenAiCompatClient {
             base_url,
             client: reqwest::Client::new(),
             api_key,
-            auto_load,
+            retry_on_unload,
         }
     }
 
-    /// Constructor for direct use as an `openai-compat` endpoint type provider (no auto-load).
+    /// Constructor for direct use as an `openai-compat` endpoint type provider (no retry on unload).
     pub fn new_adapter(base_url: String, api_key: Option<String>) -> Self {
-        Self::new_with_auto_load(base_url, api_key, AutoLoad::None)
+        Self::new(base_url, api_key, false)
     }
 
     pub fn base_url(&self) -> &str {
@@ -152,8 +154,8 @@ impl OpenAiCompatClient {
 
     // --- Chat ---
 
-    /// Non-streaming chat via `/v1/chat/completions`. When `autoLoad` is `"lmstudio"` and the
-    /// error indicates "unloaded", loads the model and retries once.
+    /// Non-streaming chat via `/v1/chat/completions`. When `retry_on_unload` is enabled and the
+    /// error indicates "unloaded" (LM Studio), loads the model and retries once.
     pub async fn chat(
         &self,
         model: &str,
@@ -164,7 +166,7 @@ impl OpenAiCompatClient {
         match self.chat_openai(model, &messages, tools.clone()).await {
             Ok(r) => Ok(r),
             Err(e) => {
-                if self.auto_load == AutoLoad::Lmstudio && Self::is_unloaded_error(&e.to_string()) {
+                if self.retry_on_unload && Self::is_unloaded_error(&e.to_string()) {
                     self.ensure_model_loaded(model).await?;
                     self.chat_openai(model, &messages, tools).await
                 } else {
@@ -199,9 +201,9 @@ impl OpenAiCompatClient {
         openai_response_to_chat_response(data)
     }
 
-    /// Streaming chat via `/v1/chat/completions` with `stream: true`. When `autoLoad` is
-    /// `"lmstudio"` and the error indicates "unloaded", loads the model and retries once with
-    /// a single non-streaming call (to avoid invoking `on_chunk` twice if partial data was
+    /// Streaming chat via `/v1/chat/completions` with `stream: true`. When `retry_on_unload` is
+    /// enabled and the error indicates "unloaded" (LM Studio), loads the model and retries once
+    /// with a single non-streaming call (to avoid invoking `on_chunk` twice if partial data was
     /// already streamed).
     pub async fn chat_stream(
         &self,
@@ -213,7 +215,7 @@ impl OpenAiCompatClient {
         match self.chat_stream_openai(model, &messages, tools.clone(), on_chunk).await {
             Ok(r) => Ok(r),
             Err(e) => {
-                if self.auto_load == AutoLoad::Lmstudio && Self::is_unloaded_error(&e.to_string()) {
+                if self.retry_on_unload && Self::is_unloaded_error(&e.to_string()) {
                     self.ensure_model_loaded(model).await?;
                     // Retry with a single non-streaming call so we don't invoke on_chunk twice.
                     let out = self.chat_openai(model, &messages, tools).await?;
@@ -768,7 +770,7 @@ mod tests {
         assert_eq!(resp.tool_calls().len(), 1);
     }
 
-    // --- AutoLoad ---
+    // --- Retry on Unload ---
 
     #[test]
     fn is_unloaded_error_detects_unloaded() {

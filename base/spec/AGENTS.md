@@ -27,7 +27,7 @@ Exactly one entry with `"role": "orchestrator"`. The orchestrator runs the main 
 | `skillsEnabled` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` — how this agent's skill text appears in system context |
 | `maxSessionMessages` | When set and > 0, only the last N messages are sent per turn |
-| `maxToolLoopIterations` | Maximum LLM round-trips per turn (default 100). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
+| `maxToolLoopIterations` | Maximum LLM round-trips per turn (default 500). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
 | `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider` | Delegation caps |
 
 ### Workers
@@ -142,5 +142,6 @@ See [GATEWAY_STATUS.md](GATEWAY_STATUS.md) for the full payload specification.
 | [ORCHESTRATION.md](ORCHESTRATION.md) | Delegation, worker turn behavior, `delegate_task` |
 | [CONFIGURATION.md](CONFIGURATION.md) | `config.json` agent entries and fields |
 | [PROFILES.md](PROFILES.md) | Profile directory structure (`agents/<id>/` under profiles) |
-| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill package layout and `tools.json` |
+| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, frontmatter, and `tools.json` |
+| [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Skill package versioned layout, startup validation, and CLI commands |
 | [GATEWAY_STATUS.md](GATEWAY_STATUS.md) | `status.agents.entries` payload |

@@ -13,8 +13,8 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 | Channel | Feature Gate | Status in v0.1.0 | Notes |
 |---------|-------------|-------------------|-------|
 | **Telegram** | Always on | Supported | Default channel; long-poll and webhook modes. |
-| **Matrix** | `--features matrix` (opt-in) | Experimental | Separate adapter crate (`crates/adapters/matrix`); E2EE, room allowlist, SAS verification; hardening in progress. |
-| **Signal** | `--features signal` (opt-in) | Experimental | Separate adapter crate (`crates/adapters/signal`); BYO signal-cli; basic text only; hardening in progress. |
+| **Matrix** | `--features matrix` (opt-in) | Experimental | Separate adapter package (`crates/adapters/matrix`); E2EE, room allowlist, SAS verification; hardening in progress. |
+| **Signal** | `--features signal` (opt-in) | Experimental | Separate adapter package (`crates/adapters/signal`); BYO signal-cli; basic text only; hardening in progress. |
 
 ### Epics Explicitly Out of Scope
 
@@ -30,12 +30,6 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### Skills Audit and Refinement
 
 - [ ] Complete cross-skill audit ([AUDIT_SKILLS.md](AUDIT_SKILLS.md)) — all bundled skills reviewed
-- [ ] Confirm [BUG_FILES_REPLACE.md](BUG_FILES_REPLACE.md) and [BUG_FILES_WRITE_LINES.md](BUG_FILES_WRITE_LINES.md) are resolved
-
-### Messaging Channels
-
-- [ ] Test Signal integration via `crates/spike` (signal-probe) and gateway end-to-end
-- [ ] Test Matrix integration via `crates/spike` (matrix-probe) and gateway end-to-end
 
 ### Code Quality and Structure
 
@@ -46,6 +40,11 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 - [ ] Review and update `chai/docs/` for accuracy against shipped features
 - [ ] Review and update `tag/V0_1_0.md` for accuracy against shipped features 
+
+### Experimental Channels
+
+- [ ] Test Signal integration via `crates/spike` (signal-probe) and gateway end-to-end
+- [ ] Test Matrix integration via `crates/spike` (matrix-probe) and gateway end-to-end
 
 ### Release Build and Distribution
 

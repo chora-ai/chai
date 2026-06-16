@@ -129,7 +129,7 @@ The gateway defaults to a single Ollama provider at `http://127.0.0.1:11434` wit
 ```json
 {
   "providers": [
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
@@ -142,7 +142,7 @@ The gateway defaults to a single Ollama provider at `http://127.0.0.1:11434` wit
 }
 ```
 
-LM Studio uses `modelDiscovery: "lmstudio"` to list models via its native `GET /api/v1/models` endpoint (instead of `GET /v1/models`), and `autoLoad: "lmstudio"` to automatically load an unloaded model and retry when LM Studio returns an "unloaded" error.
+LM Studio uses `modelDiscovery: "lmstudio"` to list models via its native `GET /api/v1/models` endpoint (instead of `GET /v1/models`). When this is set, the gateway also automatically retries chat requests that fail with an "unloaded" error by loading the model and retrying once.
 
 **NearAI (remote OpenAI-compatible API):**
 
@@ -200,7 +200,7 @@ NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is us
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" },
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" },
     { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
   ],
   "agents": [
@@ -236,10 +236,6 @@ When omitted, `modelDiscovery` defaults to `"default"`, which uses `GET /api/tag
 #### Static Models
 
 The `staticModels` field is an array of model id strings used when `modelDiscovery: "static"`. This is useful for providers that lack a model list endpoint or when you want to curate the list yourself.
-
-#### Auto-Load
-
-The `autoLoad` field controls whether a failed chat request triggers a model-load retry. Set to `"lmstudio"` for LM Studio's auto-load feature (on "unloaded" error, call `POST /api/v1/models/load` and retry). Default is `false`.
 
 ### Model Id Reference
 
@@ -346,7 +342,7 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
@@ -453,9 +449,8 @@ The `providers` array contains provider definitions. Each provider has a unique 
 | `baseUrl` | `string` | No | Per-endpoint type default | Override the endpoint type's default base URL. |
 | `apiKey` | `string` | No | Per-endpoint type env var | API key override. Env var takes precedence when set. |
 | `defaultModel` | `string` | No | Per-endpoint type default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
-| `modelDiscovery` | `string` | No | `"default"` | One of: `"default"`, `"lmstudio"`, `"static"`. |
+| `modelDiscovery` | `string` | No | `"default"` | One of: `"default"`, `"lmstudio"`, `"static"`. When `"lmstudio"`, the gateway automatically retries chat requests on "unloaded" errors. |
 | `staticModels` | `string[]` | No | `[]` | Model list when `modelDiscovery: "static"`. |
-| `autoLoad` | `false` or `"lmstudio"` | No | `false` | Auto-load on "unloaded" error. |
 
 **Endpoint type defaults:**
 
@@ -466,13 +461,12 @@ The `providers` array contains provider definitions. Each provider has a unique 
 
 **Common provider configurations:**
 
-| Provider `id` | `endpointType` | `baseUrl` | `modelDiscovery` | `autoLoad` | Notes |
-|---------------|-----------|-----------|-------------------|-----------|-------|
-| `ollama` | `"ollama"` | (default) | (default) | `false` | Default localhost Ollama |
-| `lms` | `"openai-compat"` | (default) | `"lmstudio"` | `"lmstudio"` | LM Studio with auto-load |
-| `nearai` | `"openai-compat"` | `https://cloud-api.near.ai/v1` | (default) | `false` | Set `apiKey` |
-| `nim` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | `false` | Set `staticModels` with your model list |
-
+| Provider `id` | `endpointType` | `baseUrl` | `modelDiscovery` | Notes |
+|---------------|-----------|-----------|-------------------|-------|
+| `ollama` | `"ollama"` | (default) | (default) | Default localhost Ollama |
+| `lms` | `"openai-compat"` | (default) | `"lmstudio"` | LM Studio with automatic retry on unload |
+| `nearai` | `"openai-compat"` | `https://cloud-api.near.ai/v1` | (default) | Set `apiKey` |
+| `nim` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | Set `staticModels` with your model list |
 ### Agents
 
 The `agents` array contains exactly one `"role": "orchestrator"` and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
@@ -489,7 +483,7 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `skillsEnabled` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
 | `contextMode` | `full` | same | `full` or `readOnDemand`. |
 | `maxSessionMessages` | All messages (no trim) | same | Orchestrator only. When set and `> 0`, only the last N messages are sent; full history stays in the session store. |
-| `maxToolLoopIterations` | `100` | `100` | Orchestrator only. Maximum LLM round-trips per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
+| `maxToolLoopIterations` | `500` | `500` | Orchestrator only. Maximum LLM round-trips per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
 | `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |
 | `maxDelegationsPerSession` | No limit | same | Orchestrator only. |
 | `maxDelegationsPerProvider` | No per-provider cap | same | Orchestrator only. Keys are provider ids; values are max successful delegations per session. |

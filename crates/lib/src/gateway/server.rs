@@ -310,8 +310,8 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     }
     let mut out = String::new();
     out.push_str("## Skills\n\n");
-    out.push_str("You have skills. Skills have tools. You can:\n\n");
-    out.push_str("- call `read_skill` to read a skill\n\n");
+    out.push_str("You have skills. Skills have tools.\n\n");
+    out.push_str("You can call `read_skill` to read a skill.\n\n");
     out.push_str("Available skills:\n\n");
     for s in skills {
         out.push_str("- `");
@@ -637,6 +637,15 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     let (tools, tool_executor) = state.tools_and_executor();
     let tools = merge_delegate_task(tools, has_workers);
     let worker_tools = worker_tool_list(tools.as_ref());
+    // Get or create the stop flag for this session before building DelegateContext
+    // so the worker turn can also be stopped (used by channel stop if needed).
+    let stop_flag = {
+        let mut flags = state.session_stop_flags.write().await;
+        flags
+            .entry(session_id.clone())
+            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
+            .clone()
+    };
     let delegate = Some(DelegateContext {
         clients: &state.provider_clients,
         providers: &state.config.providers,
@@ -657,18 +666,11 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         }),
         session_store: Some(&state.session_store),
         session_id: Some(session_id.as_str()),
+        stop_flag: Some(stop_flag.clone()),
     });
     let provider_dyn = state.provider_clients.get(&provider_choice)
         .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
         .expect("provider client should exist");
-    // Get or create the stop flag for this session (used by channel stop if needed).
-    let stop_flag = {
-        let mut flags = state.session_stop_flags.write().await;
-        flags
-            .entry(session_id.clone())
-            .or_insert_with(|| Arc::new(AtomicBool::new(false)))
-            .clone()
-    };
     let result = agent::run_turn_dyn(
         &state.session_store,
         &session_id,
@@ -1864,7 +1866,9 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let tools = merge_delegate_task(tools, has_workers);
                 let worker_tools = worker_tool_list(tools.as_ref());
                 // Get or create the stop flag for this session. The flag is cleared
-                // at the start of each new turn inside execute_turn_main.
+                // at the start of each new turn inside execute_turn_main. The same
+                // flag is passed to the worker via DelegateContext so that pressing
+                // stop also interrupts a running worker turn.
                 let stop_flag = {
                     let mut flags = state.session_stop_flags.write().await;
                     flags
@@ -1892,6 +1896,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     }),
                     session_store: Some(&state.session_store),
                     session_id: Some(session_id.as_str()),
+                    stop_flag: Some(stop_flag.clone()),
                 });
                 let provider_dyn = state.provider_clients.get(&provider_choice)
                     .ok_or_else(|| format!("no client for provider '{}'", provider_choice))

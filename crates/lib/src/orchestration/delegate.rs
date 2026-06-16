@@ -15,6 +15,7 @@ use crate::skills::Skill;
 use serde_json::json;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -217,6 +218,9 @@ pub struct DelegateContext<'a> {
     /// When set with [`DelegateContext::session_id`], session policy caps and [`SessionStore::record_delegation`] apply.
     pub session_store: Option<&'a SessionStore>,
     pub session_id: Option<&'a str>,
+    /// When set, the worker turn checks this flag at the top of each loop iteration
+    /// and stops gracefully when the flag becomes true.
+    pub stop_flag: Option<Arc<AtomicBool>>,
 }
 
 /// Tool list passed to the worker: same definitions as the orchestrator minus `delegate_task` (nested delegation is disabled).
@@ -375,11 +379,19 @@ fn resolve_delegate_target(
     })
 }
 
+/// Result of a `delegate_task` tool execution.
+pub struct DelegateTaskResult {
+    /// Formatted JSON result string returned to the orchestrator as the tool output.
+    pub output: String,
+    /// Whether the worker turn was stopped by a stop signal mid-execution.
+    pub stopped: bool,
+}
+
 /// Run a worker turn: delegates to [`crate::agent::run_turn_with_messages_dyn`] (nested `delegate_task` is disabled there).
 pub async fn execute_delegate_task(
     ctx: &DelegateContext<'_>,
     args: &serde_json::Value,
-) -> Result<String, String> {
+) -> Result<DelegateTaskResult, String> {
     let merged = apply_delegation_bracket_match(ctx.agents, args);
     let obj = merged
         .as_object()
@@ -513,7 +525,7 @@ pub async fn execute_delegate_task(
         tool_index_offset: 0,
     });
     let result =
-        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations, worker_obs.as_ref()).await
+        match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations, worker_obs.as_ref(), ctx.stop_flag.clone()).await
         {
             Ok(r) => r,
             Err(e) => {
@@ -540,24 +552,43 @@ pub async fn execute_delegate_task(
     }
 
     if let Some(ref obs) = ctx.observability {
-        let mut extra = json!({
-            "provider": provider_id,
-            "model": model,
-            "workerToolCalls": result.tool_calls.len(),
-            "workerToolResults": result.tool_results.len(),
-            "reply": result.content,
-        });
+        // When the worker was stopped mid-loop, the last iteration's content was
+        // already emitted via `session.assistant_progress` (because that iteration
+        // had tool calls + non-empty content). Since the worker didn't get to make
+        // another model request, `result.content` is the same content — including it
+        // here would duplicate what the desktop already displayed. Omit `reply` when
+        // stopped so the desktop only shows the `assistant_progress` version.
+        let mut extra = if result.stopped {
+            json!({
+                "provider": provider_id,
+                "model": model,
+                "workerToolCalls": result.tool_calls.len(),
+                "workerToolResults": result.tool_results.len(),
+                "stopped": true,
+            })
+        } else {
+            json!({
+                "provider": provider_id,
+                "model": model,
+                "workerToolCalls": result.tool_calls.len(),
+                "workerToolResults": result.tool_results.len(),
+                "reply": result.content,
+            })
+        };
         if let Some(w) = optional_worker_id_from_args(&merged) {
             extra["workerId"] = json!(w);
         }
         obs.send(EVENT_DELEGATE_COMPLETE, obs.merge_base(extra));
     }
 
-    Ok(format_delegate_result(
-        result.content,
-        provider_id,
-        &model,
-    ))
+    Ok(DelegateTaskResult {
+        output: format_delegate_result(
+            result.content,
+            provider_id,
+            &model,
+        ),
+        stopped: result.stopped,
+    })
 }
 
 #[cfg(test)]
@@ -587,7 +618,6 @@ mod tests {
                     default_model: None,
                     model_discovery: Default::default(),
                     static_models: Vec::new(),
-                    auto_load: Default::default(),
                 }
             }).collect(),
         }
@@ -743,6 +773,37 @@ mod tests {
         assert_eq!(payload["reply"], "the worker's text response");
         assert_eq!(payload["provider"], "ollama");
         assert_eq!(payload["workerToolCalls"], 0);
+    }
+
+    #[test]
+    fn delegate_complete_payload_stopped_omits_reply() {
+        let (tx, mut rx) = broadcast::channel::<String>(4);
+        let obs = DelegateObservability {
+            event_tx: tx,
+            session_id: Some("sess-4".to_string()),
+            source: None,
+            tool_index_offset: 0,
+        };
+        // When the worker was stopped, `delegate.complete` omits `reply` and
+        // includes `stopped: true` to avoid duplicating the content already
+        // emitted via `session.assistant_progress`.
+        obs.send(
+            EVENT_DELEGATE_COMPLETE,
+            obs.merge_base(json!({
+                "provider": "ollama",
+                "model": "llama3.2:3b",
+                "workerToolCalls": 1,
+                "workerToolResults": 1,
+                "stopped": true,
+            })),
+        );
+        let frame = rx.try_recv().unwrap();
+        let v: serde_json::Value = serde_json::from_str(&frame).unwrap();
+        assert_eq!(v["event"], EVENT_DELEGATE_COMPLETE);
+        let payload = &v["payload"];
+        assert!(payload.get("reply").is_none(), "reply should be absent when stopped");
+        assert_eq!(payload["stopped"], true);
+        assert_eq!(payload["provider"], "ollama");
     }
 
     #[test]

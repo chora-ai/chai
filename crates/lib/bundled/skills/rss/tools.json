@@ -43,8 +43,10 @@
           }
         }
       ],
+      "successExitCodes": [6, 7],
       "postProcess": {
-        "script": "parse-rss"
+        "script": "parse-rss",
+        "args": ["$feed"]
       }
     },
     {

@@ -50,9 +50,9 @@ Model each `skills/<name>/` tree as a **skill package** with content-addressed r
 
 ## References
 
-- [spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md) — Skill package versioned layout, frontmatter fields, and CLI commands.
+- [spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md) — Skill directory layout, `SKILL.md` content, and frontmatter fields.
+- [spec/SKILL_PACKAGES.md](../spec/SKILL_PACKAGES.md) — Skill package versioned layout, startup validation, and CLI commands.
 - [spec/PROFILES.md](../spec/PROFILES.md) — Per-profile lockfile schema, strictness modes, generation tracking, rollback, and promotion.
 - [spec/CONFIGURATION.md](../spec/CONFIGURATION.md) — `skillLockMode` config field.
-- [spec/CONTEXT.md](../spec/CONTEXT.md) — Startup validation: lockfile verification and capability-tier validation.
 - [adr/RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — Named runtime profiles with restart-required switching.
 - [adr/AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent context and skill configuration.

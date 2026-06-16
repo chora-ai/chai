@@ -17,6 +17,7 @@ signal = ["lib/signal"]
 [dependencies]
 anstyle = "1"
 anyhow = "1"
+dotenvy = "0.15"
 eframe = { version = "0.24", features = ["default"] }
 env_logger = "0.11"
 futures-util = "0.3"

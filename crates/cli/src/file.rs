@@ -54,19 +54,33 @@ pub(crate) enum FileCmd {
         /// Absolute file path
         #[arg(long)]
         path: String,
+        /// Read search pattern from a file instead of passing it as a CLI flag.
+        /// This avoids CLI argument encoding issues for patterns that must
+        /// match file content byte-for-byte (e.g., multi-line patterns with
+        /// real newlines). Takes precedence over --pattern.
+        #[arg(long)]
+        pattern_file: Option<String>,
         /// Search pattern (extended regex, whole-file matching with multiline mode so ^ and $ match line boundaries)
         /// Accepts values that begin with dashes (e.g. `- **bold**`, `--flag`).
+        /// Prefer --pattern-file for multi-line patterns to avoid encoding issues.
         #[arg(long, allow_hyphen_values = true)]
-        pattern: String,
+        pattern: Option<String>,
         /// Replacement string. Use $1-$9 for capture group references. Use $$ for a literal $.
+        /// If omitted, replacement content is read from stdin.
         /// Accepts values that begin with dashes (e.g. `- replacement`, `--flag`).
         #[arg(long, allow_hyphen_values = true)]
-        replacement: String,
+        replacement: Option<String>,
         /// Maximum number of replacements to apply. 0 (default) means unlimited.
         /// Use 1 to replace only the first match and avoid unintended changes
         /// when the same pattern appears in multiple locations.
         #[arg(long, default_value_t = 0)]
         max_replacements: usize,
+        /// Treat the pattern as literal text instead of regex. Use this when the
+        /// pattern contains regex metacharacters (e.g. source code, markdown tables,
+        /// JSON) that should be matched as-is rather than interpreted as regex.
+        /// Capture groups ($1-$9) are not supported in literal mode.
+        #[arg(long)]
+        literal: bool,
         /// Show line numbers in the diff output
         #[arg(long)]
         line_numbers: bool,
@@ -137,9 +151,9 @@ pub(crate) enum FileCmd {
         /// Absolute path to move the note to (parent directory must exist)
         #[arg(long)]
         to: String,
-        /// Root directory to search for wikilinks to update
+        /// Root directory to search for wikilinks to update (defaults to current directory)
         #[arg(long)]
-        root: String,
+        root: Option<String>,
     },
 }
 
@@ -159,9 +173,21 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     })?;
                 }
             }
+            let existing = if target.exists() {
+                let old_content = std::fs::read_to_string(&target)
+                    .unwrap_or_default();
+                let old_lines = old_content.lines().count();
+                Some(old_lines)
+            } else {
+                None
+            };
             std::fs::write(&target, &content)
                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", target.display(), e))?;
-            println!("wrote {} ({} bytes)", target.display(), content.len());
+            if let Some(old_lines) = existing {
+                println!("wrote {} ({} bytes, overwriting existing {} lines)", target.display(), content.len(), old_lines);
+            } else {
+                println!("wrote {} ({} bytes)", target.display(), content.len());
+            }
             Ok(())
         }
         FileCmd::Append { path, content } => {
@@ -179,6 +205,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     })?;
                 }
             }
+            let existed = target.exists();
             let mut file = std::fs::OpenOptions::new()
                 .create(true)
                 .append(true)
@@ -204,7 +231,11 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 file.write_all(b"\n")
                     .map_err(|e| anyhow::anyhow!("failed to append to {}: {}", target.display(), e))?;
             }
-            println!("appended {} bytes to {}", content.len(), target.display());
+            if existed {
+                println!("appended {} bytes to {}", content.len(), target.display());
+            } else {
+                println!("appended {} bytes to {} (created new file)", content.len(), target.display());
+            }
             Ok(())
         }
         FileCmd::Patch { path, start_line, end_line, original_content, original_content_file, content } => {
@@ -295,7 +326,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             );
             Ok(())
         }
-        FileCmd::Replace { path, pattern, replacement, max_replacements, line_numbers } => {
+        FileCmd::Replace { path, pattern_file, pattern, replacement, max_replacements, literal, line_numbers } => {
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -304,23 +335,64 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 anyhow::bail!("not a file: {}", path);
             }
 
+            // Resolve pattern: --pattern-file takes precedence, then --pattern.
+            // File-based passing avoids CLI argument encoding issues for content
+            // that must match file content byte-for-byte (e.g., multi-line
+            // patterns with real newlines).
+            let pattern = if let Some(ref file_path) = pattern_file {
+                std::fs::read_to_string(file_path)
+                    .map_err(|e| anyhow::anyhow!("failed to read pattern-file {}: {}", file_path, e))?
+            } else {
+                pattern.ok_or_else(|| anyhow::anyhow!("either --pattern or --pattern-file is required"))?
+            };
+
+            // Resolve replacement: --replacement flag, then stdin.
+            let replacement = read_content_from_stdin_or(replacement)?;
+
             let original = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
 
-            // Process escape sequences in the replacement string so that
-            // \n becomes a newline, \t becomes a tab, and \\ becomes a
-            // literal backslash. The regex engine interprets \n in the
-            // *pattern* as a newline, but regex::Captures::expand() treats
-            // the replacement as literal text — so \n in the replacement
-            // would produce a literal backslash-n instead of a newline.
-            // Processing escapes here makes the replacement consistent with
-            // the pattern's interpretation of \n.
-            let replacement = process_replacement_escapes(&replacement);
+            if literal {
+                // Literal mode: skip regex entirely and go straight to
+                // literal matching with trailing-whitespace tolerance.
+                // This handles patterns containing regex metacharacters
+                // (source code, markdown tables, JSON, etc.) that would
+                // fail or require impractical escaping as regex.
+                let literal_match = try_literal_trailing_ws_match(
+                    &original, &pattern, &replacement, max_replacements,
+                );
 
-            let re = regex::RegexBuilder::new(&pattern)
-                .multi_line(true)
+                match literal_match {
+                    LiteralMatchResult::Matched { new_content, match_count, .. } => {
+                        std::fs::write(target, new_content.as_bytes())
+                            .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+
+                        let diff = format_replace_diff(&original, &new_content, line_numbers);
+                        println!(
+                            "{} replacement(s) in {} (literal match)\n{}",
+                            match_count, path, diff
+                        );
+                        if match_count > 1 && max_replacements == 0 {
+                            println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", match_count);
+                        }
+                        Ok(())
+                    }
+                    LiteralMatchResult::NoMatch { leading_ws_hint } => {
+                        if leading_ws_hint {
+                            println!("0 replacements in {}", path);
+                            println!("\nhint: pattern did not match, but would match with leading-whitespace normalization — check indentation");
+                        } else {
+                            println!("0 replacements in {}", path);
+                        }
+                        Ok(())
+                    }
+                }
+            } else {
+                // Regex mode: build and apply a regex pattern.
+                let re = regex::RegexBuilder::new(&pattern)
+                    .multi_line(true)
                 .build()
-                .map_err(|e| anyhow::anyhow!("invalid pattern: {}", e))?;
+                .map_err(|e| anyhow::anyhow!("invalid pattern: {}. If the pattern should be matched as literal text (not regex), use literal: true.", e))?;
 
             // Collect all captures, then apply up to max_replacements.
             // max_replacements == 0 means unlimited.
@@ -372,23 +444,25 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                         "{} replacement(s) in {}\n{}",
                         count, path, diff
                     );
+                    if count > 1 && max_replacements == 0 {
+                        println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", count);
+                    }
                 }
                 return Ok(());
             }
 
             // Regex matched 0 times. Fall back to a trailing-whitespace-
             // tolerant literal search: treat the pattern as literal text
-            // (escaping all regex metacharacters) and match per-line with
-            // trailing whitespace stripped from both the pattern and the
-            // file content. This handles the common case where the LLM
-            // drops trailing whitespace when copying content from file
-            // reads into the pattern parameter.
+            // and match with trailing whitespace stripped from both the
+            // pattern and the file content. This handles the common case
+            // where the LLM drops trailing whitespace when copying content
+            // from file reads into the pattern parameter.
             let literal_match = try_literal_trailing_ws_match(
                 &original, &pattern, &replacement, max_replacements,
             );
 
             match literal_match {
-                LiteralMatchResult::Matched { new_content, match_count } => {
+                LiteralMatchResult::Matched { new_content, match_count, .. } => {
                     std::fs::write(target, new_content.as_bytes())
                         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
@@ -397,13 +471,22 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                         "{} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
                         match_count, path, diff
                     );
+                    if match_count > 1 && max_replacements == 0 {
+                        println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", match_count);
+                    }
                     Ok(())
                 }
-                LiteralMatchResult::NoMatch => {
-                    println!("0 replacements in {}", path);
+                LiteralMatchResult::NoMatch { leading_ws_hint } => {
+                    if leading_ws_hint {
+                        println!("0 replacements in {}", path);
+                        println!("\nhint: pattern did not match, but would match with leading-whitespace normalization — check indentation");
+                    } else {
+                        println!("0 replacements in {}", path);
+                    }
                     Ok(())
                 }
             }
+            } // else (regex mode)
         }
         FileCmd::ReadLines { path, start_line, end_line } => {
             let target = std::path::Path::new(&path);
@@ -475,7 +558,9 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     Ok(())
                 }
                 None => {
-                    anyhow::bail!("no frontmatter found in {}", path);
+                    println!("no frontmatter found in {}", path);
+                    println!("\nhint: no frontmatter found — use kb_frontmatter_edit to create one");
+                    std::process::exit(1);
                 }
             }
         }
@@ -496,6 +581,10 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             std::fs::write(target, &new_content)
                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
             println!("set {}={} in {}", key, value, path);
+            // Show resulting frontmatter after edit.
+            if let Some(fm) = extract_frontmatter(&new_content) {
+                println!("\n{}", fm.trim_end());
+            }
             Ok(())
         }
         FileCmd::FrontmatterDelete { path, key } => {
@@ -511,7 +600,10 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
         FileCmd::RenameNote { from, to, root } => {
             let from_path = std::path::Path::new(&from);
             let to_path = std::path::Path::new(&to);
-            let root_path = std::path::Path::new(&root);
+            let root_path = match root {
+                Some(ref r) => std::path::PathBuf::from(r),
+                None => std::env::current_dir()?,
+            };
 
             if !from_path.exists() {
                 anyhow::bail!("source does not exist: {}", from);
@@ -531,7 +623,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 }
             }
             if !root_path.is_dir() {
-                anyhow::bail!("root is not a directory: {}", root);
+                anyhow::bail!("root is not a directory: {}", root_path.display());
             }
 
             // Extract note names (filename without .md extension) for link updating.
@@ -551,8 +643,10 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             // Update wikilinks if the note name changed.
             if old_name != new_name {
-                let updated = update_wikilinks(root_path, old_name, new_name)?;
-                println!("updated wikilinks in {} file(s)", updated);
+                let updated = update_wikilinks(&root_path, old_name, new_name)?;
+                if updated > 0 {
+                    println!("updated wikilinks in {} file(s)", updated);
+                }
             }
 
             Ok(())
@@ -696,10 +790,12 @@ fn format_replace_diff(original: &str, new: &str, line_numbers: bool) -> String 
             }
         }
 
-        // Added lines
+        // Added lines — use original-file line numbers so the diff is internally
+        // consistent (all line numbers refer to the original file). The first
+        // added line corresponds to the original start of the hunk.
         for (offset, line_idx) in (hunk.new_start..hunk.new_end).enumerate() {
             if line_numbers {
-                diff.push_str(&format!("+{}|{}\n", hunk.new_start + offset + 1, new_lines[line_idx]));
+                diff.push_str(&format!("+{}|{}\n", hunk.orig_start + offset + 1, new_lines[line_idx]));
             } else {
                 diff.push_str(&format!("+{}\n", new_lines[line_idx]));
             }
@@ -916,52 +1012,6 @@ fn fold_unicode_to_ascii(s: &str) -> String {
     out
 }
 
-/// Process escape sequences in a replacement string. The regex engine
-/// interprets `\n` in the *pattern* as a newline, but
-/// `regex::Captures::expand()` treats the replacement as literal text —
-/// so `\n` in the replacement produces a literal backslash-n instead of
-/// a newline. This function processes common escape sequences so the
-/// replacement is consistent with the pattern:
-///
-/// - `\n` → newline
-/// - `\t` → tab
-/// - `\\` → literal backslash
-///
-/// Backslashes that don't precede a recognized escape are left as-is
-/// (e.g., `\$` for a literal dollar sign in replacement text, or `\1`
-/// for a backreference — though the correct backreference syntax in
-/// expand() is `$1`, not `\1`).
-fn process_replacement_escapes(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    let mut chars = s.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.peek() {
-                Some('n') => { chars.next(); result.push('\n'); }
-                Some('t') => { chars.next(); result.push('\t'); }
-                Some('\\') => { chars.next(); result.push('\\'); }
-                _ => result.push(ch), // unknown escape, keep as-is
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
-}
-
-/// Process escape sequences in a pattern string for the trailing-whitespace-
-/// tolerant literal fallback. The regex engine interprets `\n` as a newline,
-/// `\t` as a tab, and `\\` as a literal backslash in the pattern. When the
-/// fallback treats the pattern as literal text, it must apply the same
-/// interpretations so that multi-line patterns are matched correctly.
-///
-/// This uses the same logic as `process_replacement_escapes` but is named
-/// separately for clarity — the pattern and replacement have the same set
-/// of recognized escape sequences.
-fn process_pattern_escapes_for_literal(s: &str) -> String {
-    process_replacement_escapes(s)
-}
-
 /// Result of a trailing-whitespace-tolerant literal match attempt.
 enum LiteralMatchResult {
     /// A match was found and the replacement was applied.
@@ -970,7 +1020,12 @@ enum LiteralMatchResult {
         match_count: usize,
     },
     /// No match found even with whitespace tolerance.
-    NoMatch,
+    /// `leading_ws_hint` is true when the pattern would match if leading
+    /// whitespace (indentation) were normalized — this helps the agent
+    /// diagnose why the pattern didn't match.
+    NoMatch {
+        leading_ws_hint: bool,
+    },
 }
 
 /// Attempt a trailing-whitespace-tolerant literal match when the regex
@@ -979,53 +1034,70 @@ enum LiteralMatchResult {
 /// the pattern parameter.
 ///
 /// The algorithm:
-/// 1. Process escape sequences in the pattern (\n → newline, \t → tab, \\ → backslash)
-///    so that the literal search matches the same content the regex engine would match.
-/// 2. Treat the pattern as literal text (regex metacharacters are not interpreted).
-/// 3. Strip trailing whitespace from each line of both the pattern and the file content.
-/// 4. Search for the stripped pattern in the stripped file content.
-/// 5. If found, map the match back to the original (unstripped) content.
-/// 6. Apply the replacement, preserving the original trailing whitespace
+/// 1. Treat the pattern as literal text (regex metacharacters are not interpreted).
+/// 2. Strip trailing whitespace from each line of both the pattern and the file content.
+/// 3. Search for the stripped pattern in the stripped file content.
+/// 4. If found, map the match back to the original (unstripped) content.
+/// 5. Apply the replacement, preserving the original trailing whitespace
 ///    for lines that are kept from the match (not added by the replacement).
+/// 6. If no match is found, check whether the pattern would match with
+///    leading-whitespace normalization (strip leading whitespace from each
+///    line) and return a hint if so.
 fn try_literal_trailing_ws_match(
     original: &str,
     pattern: &str,
     replacement: &str,
     max_replacements: usize,
 ) -> LiteralMatchResult {
-    // Process escape sequences in the pattern so that \n is treated as a
-    // real newline, matching the regex engine's interpretation. Without
-    // this step, multi-line patterns using \n would never match in the
-    // literal fallback because strip_trailing_ws_per_line splits on
-    // actual newlines, not on the two-character sequence backslash-n.
-    let pattern = process_pattern_escapes_for_literal(pattern);
-
     // Strip trailing whitespace from each line of the pattern and the
     // file content, then search for the stripped pattern as literal text.
-    let stripped_pattern = strip_trailing_ws_per_line(&pattern);
+    let stripped_pattern = strip_trailing_ws_per_line(pattern);
     let stripped_original = strip_trailing_ws_per_line(original);
 
     // Don't attempt fallback for empty or single-character patterns
     // (too likely to produce false positives).
     if stripped_pattern.len() <= 1 {
-        return LiteralMatchResult::NoMatch;
+        return LiteralMatchResult::NoMatch { leading_ws_hint: false };
     }
 
     // Find all matches of the stripped pattern in the stripped content.
+    // Only accept matches that start and end at line boundaries — i.e.,
+    // the pattern must match one or more complete lines, not a substring
+    // within a line. This prevents an unindented pattern like "let x = 1;"
+    // from matching an indented line like "    let x = 1;" as a substring,
+    // which would bypass the leading-whitespace hint.
     // Respect max_replacements: 0 means unlimited.
     let mut match_ranges: Vec<(usize, usize)> = Vec::new();
     let mut search_start = 0;
     while let Some(pos) = stripped_original[search_start..].find(&stripped_pattern) {
         let abs_pos = search_start + pos;
-        match_ranges.push((abs_pos, abs_pos + stripped_pattern.len()));
-        if max_replacements > 0 && match_ranges.len() >= max_replacements {
-            break;
+        let abs_end = abs_pos + stripped_pattern.len();
+
+        // Check that the match starts at a line boundary.
+        let starts_at_line_boundary = abs_pos == 0
+            || stripped_original.as_bytes().get(abs_pos - 1) == Some(&b'\n');
+
+        // Check that the match ends at a line boundary.
+        let ends_at_line_boundary = abs_end == stripped_original.len()
+            || stripped_original.as_bytes().get(abs_end) == Some(&b'\n');
+
+        if starts_at_line_boundary && ends_at_line_boundary {
+            match_ranges.push((abs_pos, abs_end));
+            if max_replacements > 0 && match_ranges.len() >= max_replacements {
+                break;
+            }
         }
+
         search_start = abs_pos + 1;
     }
 
     if match_ranges.is_empty() {
-        return LiteralMatchResult::NoMatch;
+        // Check if the pattern would match with leading-whitespace
+        // normalization (strip leading whitespace from each line of
+        // both the pattern and the file content). This helps the agent
+        // diagnose indentation mismatches.
+        let leading_ws_hint = check_leading_ws_hint(&stripped_original, &stripped_pattern);
+        return LiteralMatchResult::NoMatch { leading_ws_hint };
     }
 
     log::warn!(
@@ -1090,6 +1162,31 @@ fn try_literal_trailing_ws_match(
         new_content: result,
         match_count,
     }
+}
+
+/// Check whether a pattern would match if leading whitespace (indentation)
+/// were stripped from each line of both the content and the pattern. Returns
+/// true if the leading-whitespace-stripped pattern is found in the
+/// leading-whitespace-stripped content.
+///
+/// This is used to provide a diagnostic hint when a pattern fails to match,
+/// helping the agent understand that the mismatch is due to indentation
+/// differences rather than content differences.
+fn check_leading_ws_hint(stripped_original: &str, stripped_pattern: &str) -> bool {
+    // strip_trailing_ws_per_line has already been applied; now also strip
+    // leading whitespace from each line.
+    let strip_both_ws = |s: &str| -> String {
+        s.lines().map(|l| l.trim()).collect::<Vec<_>>().join("\n")
+    };
+    let both_stripped_original = strip_both_ws(stripped_original);
+    let both_stripped_pattern = strip_both_ws(stripped_pattern);
+
+    // Don't report hints for very short patterns (likely false positives)
+    if both_stripped_pattern.len() <= 1 {
+        return false;
+    }
+
+    both_stripped_original.contains(&both_stripped_pattern)
 }
 
 /// Strip trailing whitespace from each line of a string, preserving
@@ -1466,9 +1563,9 @@ mod tests {
     use super::delete_frontmatter_key;
     use super::patch_string;
     use super::format_patch_diff;
+    use super::format_replace_diff;
     use super::verify_original;
     use super::fold_unicode_to_ascii;
-    use super::process_replacement_escapes;
     use super::try_literal_trailing_ws_match;
     use super::strip_trailing_ws_per_line;
     use super::build_stripped_to_original_offset_map;
@@ -1677,6 +1774,59 @@ mod tests {
         assert!(diff.contains("-2|b"));
         assert!(diff.contains("-3|c"));
         assert!(!diff.contains("+"));
+    }
+
+    // --- format_replace_diff tests ---
+
+    #[test]
+    fn format_replace_diff_added_lines_use_original_line_numbers() {
+        // Replace line 3 ("c") with two lines ("x" and "y").
+        // Added lines should use original-file line numbers (3 and 4),
+        // not new-file line numbers.
+        let original = "a\nb\nc\nd\ne";
+        let new = "a\nb\nx\ny\nd\ne";
+        let diff = format_replace_diff(original, new, true);
+        assert!(diff.contains("-3|c"), "should show removed line with original line number");
+        assert!(diff.contains("+3|x"), "added line should use original start line number");
+        assert!(diff.contains("+4|y"), "second added line should use original start + 1");
+    }
+
+    #[test]
+    fn format_replace_diff_context_uses_original_line_numbers() {
+        let original = "a\nb\nc\nd\ne";
+        let new = "a\nb\nX\nd\ne";
+        let diff = format_replace_diff(original, new, true);
+        // Context before: lines from original before the change
+        assert!(diff.contains(" 2|b"), "context before should use original line number");
+        // Context after: lines from original after the change
+        assert!(diff.contains(" 4|d"), "context after should use original line number");
+    }
+
+    #[test]
+    fn format_replace_diff_removal_only_shows_original_line_numbers() {
+        let original = "a\nb\nc\nd\ne";
+        let new = "a\nb\ne";  // removed lines 3 and 4
+        let diff = format_replace_diff(original, new, true);
+        assert!(diff.contains("-3|c"), "removed line should use original line number");
+        assert!(diff.contains("-4|d"), "removed line should use original line number");
+        assert!(!diff.contains("+"), "no added lines expected");
+    }
+
+    #[test]
+    fn format_replace_diff_all_line_numbers_consistent() {
+        // Multi-line replacement where added lines exceed removed lines.
+        // All line numbers in the diff should refer to the original file.
+        let original = "line1\nline2\nline3\nline4\nline5";
+        let new =    "line1\nline2\nnew_a\nnew_b\nnew_c\nline4\nline5";
+        let diff = format_replace_diff(original, new, true);
+        // Removed: line 3 of original
+        assert!(diff.contains("-3|line3"));
+        // Added: 3 new lines starting at original position 3
+        assert!(diff.contains("+3|new_a"));
+        assert!(diff.contains("+4|new_b"));
+        assert!(diff.contains("+5|new_c"));
+        // Context after: line 4 of original
+        assert!(diff.contains(" 4|line4"));
     }
 
     // --- verify_original tests ---
@@ -1918,46 +2068,6 @@ mod tests {
         );
     }
 
-    // --- process_replacement_escapes tests ---
-
-    #[test]
-    fn escape_newline() {
-        assert_eq!(process_replacement_escapes("line1\\nline2"), "line1\nline2");
-    }
-
-    #[test]
-    fn escape_tab() {
-        assert_eq!(process_replacement_escapes("col1\\tcol2"), "col1\tcol2");
-    }
-
-    #[test]
-    fn escape_backslash() {
-        assert_eq!(process_replacement_escapes("path\\\\file"), "path\\file");
-    }
-
-    #[test]
-    fn unknown_escape_kept_as_is() {
-        assert_eq!(process_replacement_escapes("\\$5"), "\\$5");
-    }
-
-    #[test]
-    fn no_escapes() {
-        assert_eq!(process_replacement_escapes("hello world"), "hello world");
-    }
-
-    #[test]
-    fn multiple_escapes() {
-        assert_eq!(
-            process_replacement_escapes("line1\\nline2\\nline3"),
-            "line1\nline2\nline3"
-        );
-    }
-
-    #[test]
-    fn trailing_backslash() {
-        assert_eq!(process_replacement_escapes("end\\"), "end\\");
-    }
-
     // --- strip_trailing_ws_per_line tests ---
 
     #[test]
@@ -2017,7 +2127,7 @@ mod tests {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nbar\nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2030,7 +2140,7 @@ mod tests {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nBAR   \nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2040,7 +2150,7 @@ mod tests {
         let result = try_literal_trailing_ws_match(original, "qux", "QUX", 0);
         match result {
             LiteralMatchResult::Matched { .. } => panic!("expected no match"),
-            LiteralMatchResult::NoMatch => {}
+            LiteralMatchResult::NoMatch { .. } => {}
         }
     }
 
@@ -2053,7 +2163,7 @@ mod tests {
                 assert_eq!(match_count, 2);
                 assert_eq!(new_content, "FOO   \nbar   \nFOO\nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2067,7 +2177,7 @@ mod tests {
                 // Only the first "foo" is replaced; trailing ws preserved
                 assert!(new_content.starts_with("FOO   \nbar   \nfoo\nbaz\n"));
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2077,7 +2187,7 @@ mod tests {
         let result = try_literal_trailing_ws_match(original, "a", "X", 0);
         match result {
             LiteralMatchResult::Matched { .. } => panic!("expected no match for short pattern"),
-            LiteralMatchResult::NoMatch => {}
+            LiteralMatchResult::NoMatch { .. } => {}
         }
     }
 
@@ -2091,7 +2201,7 @@ mod tests {
             LiteralMatchResult::Matched { new_content, .. } => {
                 assert_eq!(new_content, "FOO   \nBAR   \nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2104,7 +2214,7 @@ mod tests {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nbar\nfoo  \nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
         }
     }
 
@@ -2117,7 +2227,63 @@ mod tests {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO\nbar\nbaz\n");
             }
-            LiteralMatchResult::NoMatch => panic!("expected a match"),
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
+        }
+    }
+
+    // --- check_leading_ws_hint tests ---
+
+    #[test]
+    fn no_match_with_leading_ws_hint() {
+        // Pattern lacks indentation that the file has — should get a hint
+        let original = "fn main() {\n    let x = 1;\n}\n";
+        let result = try_literal_trailing_ws_match(original, "let x = 1;", "let y = 2;", 0);
+        match result {
+            LiteralMatchResult::NoMatch { leading_ws_hint } => {
+                assert!(leading_ws_hint, "expected leading_ws_hint to be true");
+            }
+            LiteralMatchResult::Matched { .. } => panic!("expected no match"),
+        }
+    }
+
+    #[test]
+    fn no_match_without_leading_ws_hint() {
+        // Pattern doesn't match at all, even with indentation stripped
+        let original = "fn main() {\n    let x = 1;\n}\n";
+        let result = try_literal_trailing_ws_match(original, "nonexistent content", "replacement", 0);
+        match result {
+            LiteralMatchResult::NoMatch { leading_ws_hint } => {
+                assert!(!leading_ws_hint, "expected leading_ws_hint to be false");
+            }
+            LiteralMatchResult::Matched { .. } => panic!("expected no match"),
+        }
+    }
+
+    #[test]
+    fn literal_match_line_boundary_rejects_mid_line_substring() {
+        // Pattern "x = 1" is a substring of "    let x = 1;" but does not
+        // start at a line boundary — should be rejected, with a hint.
+        let original = "fn main() {\n    let x = 1;\n}\n";
+        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0);
+        match result {
+            LiteralMatchResult::NoMatch { leading_ws_hint } => {
+                assert!(leading_ws_hint, "expected leading_ws_hint to be true");
+            }
+            LiteralMatchResult::Matched { .. } => panic!("expected no match for mid-line substring"),
+        }
+    }
+
+    #[test]
+    fn literal_match_line_boundary_accepts_full_line() {
+        // Pattern "    let x = 1;" matches the complete line including indent
+        let original = "fn main() {\n    let x = 1;\n}\n";
+        let result = try_literal_trailing_ws_match(original, "    let x = 1;", "    let y = 2;", 0);
+        match result {
+            LiteralMatchResult::Matched { new_content, match_count } => {
+                assert_eq!(match_count, 1);
+                assert_eq!(new_content, "fn main() {\n    let y = 2;\n}\n");
+            }
+            LiteralMatchResult::NoMatch { .. } => panic!("expected a match for full line"),
         }
     }
 }

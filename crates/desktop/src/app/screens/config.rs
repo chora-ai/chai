@@ -248,12 +248,6 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
                 });
                 ui.add_space(spacing::TABLE_BLOCK_AFTER);
             }
-            // Auto-load.
-            let autoload_label = match def.auto_load {
-                lib::config::AutoLoad::None => "off",
-                lib::config::AutoLoad::Lmstudio => "lmstudio",
-            };
-            dashboard::kv(ui, "auto load", autoload_label);
         }
     });
 }

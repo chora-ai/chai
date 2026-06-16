@@ -80,7 +80,8 @@
           },
           "line_numbers": {
             "type": "boolean",
-            "description": "Show line numbers in output"
+            "description": "Show line numbers in output",
+            "default": true
           },
           "case_insensitive": {
             "type": "boolean",
@@ -106,6 +107,10 @@
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
       "maxOutputLines": 500
     },
     {
@@ -116,7 +121,12 @@
         { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
         { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true }
-      ]
+      ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
+      "maxOutputLines": 500
     },
     {
       "tool": "files_list_dir",
@@ -127,6 +137,7 @@
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
         { "param": "path", "kind": "positional", "readPath": true }
       ],
+      "maxOutputLines": 200,
       "postProcess": {
         "script": "sanitize-ls"
       },
@@ -150,7 +161,8 @@
         {
           "param": "line_numbers",
           "kind": "flagifboolean",
-          "flagIfTrue": "--line-number"
+          "flagIfTrue": "--line-number",
+          "absentDefault": true
         },
         {
           "param": "case_insensitive",
@@ -166,6 +178,9 @@
         { "param": "path", "kind": "positional", "readPath": true }
       ],
       "successExitCodes": [0, 1],
+      "postProcess": {
+        "script": "hint-search-results"
+      },
       "maxOutputLines": 200
     }
   ]

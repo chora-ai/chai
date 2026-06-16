@@ -5,7 +5,10 @@
 # Handles both RSS 2.0 (<item>) and Atom (<entry>) feeds.
 # Limits output to the 20 most recent entries.
 #
-# Usage: curl <feed_url> | parse-rss.sh
+# Args: $1 = feed parameter value (name or URL), for hint detection
+# Usage: curl <feed_url> | parse-rss.sh [feed_name]
+
+feed="$1"
 
 tmpfile=$(mktemp)
 trap 'rm -f "$tmpfile"' EXIT
@@ -128,4 +131,23 @@ done
 # If the while loop (subshell) produced no output, print fallback
 if ! printf '%s\n' "$blocks" | grep -q '<title\|<pubDate\|<published\|<link'; then
     echo "No entries found in feed."
+    # Hint: if the feed parameter is a name (not a URL) that isn't in the
+    # configured feeds file, suggest rss_list_feeds.
+    is_url=false
+    case "$feed" in
+        http://*|https://*) is_url=true ;;
+    esac
+    if [ "$is_url" = false ] && [ -n "$feed" ]; then
+        feeds_file="$HOME/.chai/active/sandbox/rss-feeds.txt"
+        if [ -f "$feeds_file" ]; then
+            url=$(grep "^${feed}|" "$feeds_file" | head -1 | cut -d'|' -f2)
+            if [ -z "$url" ]; then
+                echo ""
+                echo "hint: feed '$feed' not found in configuration — use rss_list_feeds to see available feeds"
+            fi
+        else
+            echo ""
+            echo "hint: feed '$feed' not found in configuration — use rss_list_feeds to see available feeds"
+        fi
+    fi
 fi

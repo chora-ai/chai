@@ -98,7 +98,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 | `baseUrl` | `String` | No | `http://127.0.0.1:11434` | Base URL for the Ollama server. Change this when Ollama runs on a remote host. |
 | `defaultModel` | `String` | No | `llama3.2:3b` | Default model id for this provider. Must match `ollama list` exactly. |
 
-The `"ollama"` endpoint type has no configurable behaviors (no `modelDiscovery` or `autoLoad` options). Model discovery always uses `GET /api/tags`.
+The `"ollama"` endpoint type has no configurable behaviors (no `modelDiscovery` options). Model discovery always uses `GET /api/tags`.
 
 ## Possible Future Use
 

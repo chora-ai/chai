@@ -36,7 +36,7 @@ All commits merged into `main` follow the [Conventional Commits](https://www.con
 
 **Types:** `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`
 
-**Scope:** The crate or area affected (e.g., `cli`, `lib`, `desktop`, `matrix`, `signal`, `spike`, `base`, `docs`).
+**Scope:** The package or area affected (e.g., `cli`, `lib`, `desktop`, `matrix`, `signal`, `spike`, `base`, `docs`).
 
 ### Squash Merging
 

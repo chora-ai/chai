@@ -1361,6 +1361,7 @@ version = "0.0.0"
 dependencies = [
  "anstyle",
  "anyhow",
+ "dotenvy",
  "eframe",
  "env_logger",
  "futures-util",

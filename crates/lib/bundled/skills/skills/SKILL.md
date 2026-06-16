@@ -8,14 +8,10 @@ metadata:
 
 ## Skill Directives
 
-- always read the reference skill (`files`) before generating a new skill
+- always read a reference skill (e.g., `skills_read` with `file: 'tools_json'`) before generating a new skill
 - always follow the generation workflow in order (discover, reference, design, generate)
-- always include `capability_tier` and `metadata.requires.bins` in produced SKILL.md frontmatter
-- always include `variant_of` in frontmatter for variant skills
-- always validate tools.json after writing with `skills_validate`
 - never add subcommands to the allowlist that the skill does not use
 - never include `resolveCommand` unless a parameter genuinely needs runtime resolution
-- never delete bundled skills (those that ship with chai) unless explicitly instructed
 
 ## Generation Workflow
 

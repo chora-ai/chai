@@ -20,10 +20,11 @@ mod workers_context;
 pub use choice::{resolve_provider_choice, ProviderChoice};
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
-    worker_tool_list, DelegateContext, DelegateObservability, WorkerDelegateRuntime,
-    EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START, EVENT_TOOL_CALL,
-    DELEGATE_TASK_TOOL_NAME, EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE,
-    EVENT_TOOL_RESULT, EVENT_TOOL_LOOP_LIMIT,
+    worker_tool_list, DelegateContext, DelegateObservability, DelegateTaskResult,
+    WorkerDelegateRuntime, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED,
+    EVENT_DELEGATE_START, EVENT_TOOL_CALL, DELEGATE_TASK_TOOL_NAME,
+    EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE, EVENT_TOOL_RESULT,
+    EVENT_TOOL_LOOP_LIMIT,
 };
 pub use dispatch::ProviderClients;
 pub use model::{resolve_model, DEFAULT_MODEL_FALLBACK};

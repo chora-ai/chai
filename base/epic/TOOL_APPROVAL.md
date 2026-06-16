@@ -27,7 +27,7 @@ Today, tool calls are executed immediately after the model returns them — ther
 
 ### Tool execution (no human gate)
 
-- **Execution model** — In **`crates/lib/src/agent.rs`**, after the model returns **`tool_calls`**, the runtime invokes **`ToolExecutor::execute`** for each call **immediately** (synchronous `execute`), appends **`tool`** role messages, and continues the tool loop (up to **`maxToolLoopIterations`**, default 100) without user input.
+- **Execution model** — In **`crates/lib/src/agent.rs`**, after the model returns **`tool_calls`**, the runtime invokes **`ToolExecutor::execute`** for each call **immediately** (synchronous `execute`), appends **`tool`** role messages, and continues the tool loop (up to **`maxToolLoopIterations`**, default 500) without user input.
 - **Gateway** — **`GenericToolExecutor`** is built from skills; **`ReadOnDemandExecutor`** wraps file reads ([`gateway/server.rs`](../../crates/lib/src/gateway/server.rs)). Channels (**Telegram**, **Matrix**, **Signal**) funnel **`InboundMessage`** into the same session/agent path; there is **no** pending-approval state.
 - **Skill allowlists (not operator approval)** — Declarative skills use **`tools.json`** allowlists (**binary → allowed subcommands**) enforced by [`exec.rs`](../../crates/lib/src/exec.rs) / [`tools/generic.rs`](../../crates/lib/src/tools/generic.rs). That limits **which** commands a skill may run; it does **not** pause for a human before each invocation.
 

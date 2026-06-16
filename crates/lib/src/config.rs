@@ -316,7 +316,7 @@ pub struct AgentsConfig {
 
     /// Maximum number of agent loop iterations (LLM round-trips) per turn. Each iteration is one
     /// call to the provider followed by tool call execution. The loop exits naturally when the model
-    /// returns no tool calls; this limit is a safety net against runaway loops. Default: 100.
+    /// returns no tool calls; this limit is a safety net against runaway loops. Default: 500.
     pub max_tool_loop_iterations: Option<u32>,
 }
 
@@ -577,7 +577,6 @@ fn default_providers_config() -> ProvidersConfig {
             default_model: None,
             model_discovery: ModelDiscovery::Default,
             static_models: Vec::new(),
-            auto_load: AutoLoad::None,
         }],
     }
 }
@@ -665,48 +664,6 @@ pub enum ModelDiscovery {
     Static,
 }
 
-/// Whether a failed chat request triggers a model-load retry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum AutoLoad {
-    /// No auto-load; errors are returned as-is.
-    #[default]
-    None,
-    /// On "unloaded" error, call `POST /api/v1/models/load` with the model id, then retry the
-    /// chat request once. Applicable to `openai-compat` endpoint type only (LM Studio).
-    Lmstudio,
-}
-
-mod auto_load_serde {
-    use super::AutoLoad;
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub fn serialize<S>(value: &AutoLoad, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        match value {
-            AutoLoad::None => false.serialize(serializer),
-            AutoLoad::Lmstudio => "lmstudio".serialize(serializer),
-        }
-    }
-
-    pub fn deserialize<'de, D>(deserializer: D) -> Result<AutoLoad, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        use serde::de;
-
-        let value = serde_json::Value::deserialize(deserializer)?;
-        match value {
-            serde_json::Value::Bool(false) => Ok(AutoLoad::None),
-            serde_json::Value::String(s) if s == "lmstudio" => Ok(AutoLoad::Lmstudio),
-            _ => Err(de::Error::custom(
-                r#"autoLoad must be false or "lmstudio""#,
-            )),
-        }
-    }
-}
-
 /// One provider definition in the `providers` array.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -733,9 +690,6 @@ pub struct ProviderDefinition {
     /// Static model list used when `modelDiscovery: "static"`. No polling.
     #[serde(default)]
     pub static_models: Vec<String>,
-    /// Auto-load behavior on "unloaded" error. `false` (default) or `"lmstudio"`.
-    #[serde(default, with = "auto_load_serde")]
-    pub auto_load: AutoLoad,
 }
 
 impl ProvidersConfig {
@@ -950,7 +904,7 @@ pub fn worker_context_mode(worker: &WorkerConfig) -> SkillContextMode {
 }
 
 /// Default maximum agent loop iterations per turn when `maxToolLoopIterations` is not set.
-pub const DEFAULT_MAX_TOOL_LOOP_ITERATIONS: u32 = 100;
+pub const DEFAULT_MAX_TOOL_LOOP_ITERATIONS: u32 = 500;
 
 /// Resolve the maximum agent loop iterations per turn from config, falling back to
 /// [`DEFAULT_MAX_TOOL_LOOP_ITERATIONS`] when not set.
@@ -1168,13 +1122,12 @@ mod tests {
 
     #[test]
     fn providers_array_round_trips() {
-        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio","autoLoad":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let lms = c.providers.get("lms").expect("lms");
         assert_eq!(lms.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
         assert_eq!(lms.endpoint_type, EndpointType::OpenaiCompat);
         assert_eq!(lms.model_discovery, ModelDiscovery::Lmstudio);
-        assert_eq!(lms.auto_load, AutoLoad::Lmstudio);
         let out = serde_json::to_string(&c).expect("serialize");
         assert!(
             out.contains("\"lms\""),
@@ -1273,36 +1226,6 @@ mod tests {
         let def = c.providers.get("custom").expect("custom");
         assert_eq!(def.model_discovery, ModelDiscovery::Static);
         assert_eq!(def.static_models, vec!["a", "b"]);
-    }
-
-    #[test]
-    fn providers_auto_load_default_is_none() {
-        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
-        let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("ollama").expect("ollama");
-        assert_eq!(def.auto_load, AutoLoad::None);
-    }
-
-    #[test]
-    fn providers_auto_load_lmstudio() {
-        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","autoLoad":"lmstudio"}]}"#;
-        let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("lms").expect("lms");
-        assert_eq!(def.auto_load, AutoLoad::Lmstudio);
-    }
-
-    #[test]
-    fn providers_auto_load_false() {
-        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","autoLoad":false}]}"#;
-        let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("lms").expect("lms");
-        assert_eq!(def.auto_load, AutoLoad::None);
-    }
-
-    #[test]
-    fn providers_rejects_unknown_auto_load() {
-        let j = r#"{"providers":[{"id":"x","endpointType":"openai-compat","autoLoad":"bogus"}]}"#;
-        assert!(serde_json::from_str::<Config>(j).is_err());
     }
 
     #[test]

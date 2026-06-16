@@ -6,14 +6,10 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 This document and the `base` directory are the primary resources for agents.
 
-## Issues and Pull Requests
-
-Always follow `CONTRIBUTING.md` when submitting issues or pull requests.
-
 ## Architecture Overview
 
-| Category | Crate | Purpose |
-|----------|-------|---------|
+| Category | Package | Purpose |
+|----------|---------|---------|
 | User-facing runtime | `crates/cli` | Command-line interface for the multi-agent management system. |
 | User-facing runtime | `crates/desktop` | Graphical user interface for the multi-agent management system. |
 | Shared runtime library | `crates/lib` | Shared business logic for the multi-agent management system. |
@@ -47,15 +43,15 @@ Always follow `CONTRIBUTING.md` when submitting issues or pull requests.
 
 ### `docs/`
 
-- This directory provides user guides, step-by-step journeys, and testing playbooks. User documentation is isolated: do not link outside `docs/`; bring relevant content into the user doc instead. Guidelines and conventions are in `docs/AGENTS.md` and each subdirectory's `AGENTS.md`.
+- This directory provides user guides, step-by-step journeys, and testing playbooks. User documentation is isolated: do not link outside `docs/`; bring relevant content into the user doc instead.
 
 ### `CHANGELOG.md`
 
-- This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed.
+- This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed. Always update this document when notable changes affect users.
 
 ### `CONTRIBUTING.md`
 
-- This document describes how to submit issues and pull requests. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
+- This document describes how to submit issues and pull requests. Treat this as user documentation: keep it concise, up to date, and free of decision notes. Always follow this document when submitting issues or pull requests.
 
 ### `README.md`
 

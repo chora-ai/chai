@@ -27,6 +27,9 @@ pub(crate) fn push_log_line(line: String) {
 /// Initialize global logging for the desktop app.
 ///
 /// Loads the profile `.env` (so `RUST_LOG` takes effect) before building the logger.
+/// Uses the tracked `.env` loader (`state::env::load_profile_env_tracked`) so that
+/// variables can be properly cleaned up when the user switches profiles later.
+///
 /// Uses `env_logger` for formatting and stderr output (consistent with the `chai` CLI),
 /// and pushes plain-text copies of each line to the in-memory ring buffer for the Logging screen.
 ///
@@ -38,7 +41,19 @@ pub(crate) fn push_log_line(line: String) {
 /// chai-only debug output.
 pub fn init_logging() {
     let _ = LOG_LINES.get_or_init(|| Mutex::new(VecDeque::new()));
-    lib::config::load_profile_env(None);
+
+    // Load .env from the resolved profile directory using the tracked loader.
+    // This records which variables were set so they can be removed on profile switch.
+    // Note: errors are written to stderr because the logger is not yet initialized.
+    let profile_dir = lib::profile::resolve_profile_dir(None)
+        .map(|p| p.profile_dir)
+        .ok();
+    if let Some(ref dir) = profile_dir {
+        if let Err(e) = super::env::load_profile_env_tracked(dir) {
+            eprintln!("failed to load .env at {}: {}", dir.display(), e);
+        }
+    }
+
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("desktop=info,lib=info"))
         .format(|buf, record| {
             let target = record.target();

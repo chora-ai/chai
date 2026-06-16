@@ -26,13 +26,13 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 - **LM Studio is configured as an `"openai-compat"` provider** with LM Studio–specific behavior fields. Example:
 
   ```json
-  { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+  { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ```
 
 - **`modelDiscovery: "lmstudio"`** — Uses LM Studio's native `GET /api/v1/models` endpoint to discover models (filters by `type == "llm"`, uses `key` as model id), instead of the standard OpenAI-compat `GET /v1/models`.
-- **`autoLoad: "lmstudio"`** — When a chat request returns a 500 "Model is unloaded" error, automatically calls `POST /api/v1/models/load` with the model id and retries the chat request once.
+- **Automatic retry on unload** — When `modelDiscovery: "lmstudio"` is set and a chat request returns a 500 "Model is unloaded" error, the client automatically calls `POST /api/v1/models/load` with the model id and retries the chat request once. This behavior is always enabled for LM Studio providers — no separate configuration field is needed.
 - **Config** — A provider with `endpointType: "openai-compat"` and `id` such as `"lms"` (user-chosen). `agents.defaultProvider` references this `id`. `agents.defaultModel` is the model id passed as-is (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`). Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
-- **Client** — Uses `OpenAiCompatClient` (shared with all `"openai-compat"` providers). LM Studio–specific model discovery and auto-load are implemented as methods on `OpenAiCompatClient`.
+- **Client** — Uses `OpenAiCompatClient` (shared with all `"openai-compat"` providers). LM Studio–specific model discovery and retry on unload are implemented as methods on `OpenAiCompatClient`.
 
 ### Base URL
 
@@ -43,7 +43,7 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 | Endpoint | Method | Use |
 |----------|--------|-----|
 | **`/api/v1/models`** | GET | `modelDiscovery: "lmstudio"` — model list; returned `key` is the model id for chat. Filter `type == "llm"`. |
-| **`/api/v1/models/load`** | POST | `autoLoad: "lmstudio"` — Called when chat returns 500 "Model is unloaded"; we load then retry chat once. Request body **`{ "model": "<id>" }`** only. If load fails (e.g. VRAM), use `lms load <model> --gpu 0.5` then chat. |
+| **`/api/v1/models/load`** | POST | Automatically called when `modelDiscovery: "lmstudio"` and chat returns 500 "Model is unloaded"; the client loads the model then retries the chat request once. Request body **`{ "model": "<id>" }`** only. If load fails (e.g. VRAM), use `lms load <model> --gpu 0.5` then chat. |
 | **`/v1/chat/completions`** | POST | Agent turn with messages and optional tools. All errors (400, 500, etc.) are returned; we only retry after load on "unloaded". |
 
 ### Request/Response Shapes (What We Send)
@@ -54,7 +54,7 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 
 ### Where LM Studio Is Referenced
 
-- **Gateway server** — Builds the `OpenAiCompatClient` for the provider with `autoLoad: "lmstudio"`. When the provider `id` is referenced in `defaultProvider`, runs the agent turn via `run_turn_dyn` with that `Provider` and `agents.defaultModel` (passed as-is).
+- **Gateway server** — Builds the `OpenAiCompatClient` for the provider with `retry_on_unload: true` (derived from `modelDiscovery: "lmstudio"`). When the provider `id` is referenced in `defaultProvider`, runs the agent turn via `run_turn_dyn` with that `Provider` and `agents.defaultModel` (passed as-is).
 - **Agent** — `run_turn_dyn` uses the `Provider` trait; the gateway passes the resolved client and model id.
 - **Tools** — The same skill `tools.json` and `ToolDefinition` list are converted to OpenAI tool format when calling LM Studio.
 
@@ -68,7 +68,7 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 ### Model Lifecycle
 
 - **`GET /api/v1/models`** — **Used.** List models when `modelDiscovery: "lmstudio"`; gateway exposes result in WebSocket status.
-- **`POST /api/v1/models/load`** — Called when `autoLoad: "lmstudio"` and chat returns "Model is unloaded"; we load then retry once. Not used proactively.
+- **`POST /api/v1/models/load`** — Automatically called when `modelDiscovery: "lmstudio"` and chat returns "Model is unloaded"; the client loads the model then retries once. Not used proactively.
 - **`POST /api/v1/models/unload`** — Not used. Could add "unload model" from desktop or CLI to free memory.
 
 ### Possible Future Use

@@ -10,8 +10,6 @@ metadata:
 ## Skill Directives
 
 - always validate tools.json before reporting a skill as conformant
-- always report all errors and warnings from validation, not just the first
-- always use `skills_read` to examine skill contents when diagnosing errors
 
 ## Audit Workflow
 
@@ -20,7 +18,7 @@ metadata:
 
 ## Security Audit
 
-When auditing a skill for security, check every `ArgMapping` in tools.json:
+When auditing a skill for security, check every parameter in the `args` array of each execution spec in tools.json:
 
 1. Does the parameter receive path-like values (absolute paths, `./`-prefixed paths)? If yes, it should be annotated with `readPath: true` or `writePath: true`.
 2. Is it a write target? If yes, it should use `writePath` (auto-creates parent dirs).

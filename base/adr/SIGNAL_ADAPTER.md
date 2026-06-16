@@ -4,7 +4,7 @@ status: accepted
 
 # Signal Adapter Package Design
 
-This document records why Signal lives in a separate adapter crate with an optional Cargo feature, rather than being compiled into the main library unconditionally.
+This document records why Signal lives in a separate adapter package with an optional Cargo feature, rather than being compiled into the main library unconditionally.
 
 ## Context
 
@@ -14,17 +14,17 @@ Signal integration depends on a user-run **signal-cli** HTTP daemon. Not all ope
 
 | Topic | Choice |
 |-------|--------|
-| **Crate** | Signal code lives in **`crates/adapters/signal`** (Cargo package **`signal-channel`**), not in **`crates/lib`**. |
+| **Package** | Signal code lives in **`crates/adapters/signal`** (Cargo package **`signal-channel`**), not in **`crates/lib`**. |
 | **Feature gate** | **`lib`** exposes a **`signal`** Cargo feature (opt-in). **`cli`** and **`desktop`** pass it through via **`--features signal`**. |
 | **Default** | Signal is **off** by default. **`cargo install --path crates/cli`** builds without Signal. Operators who want Signal add **`--features signal`**. |
 | **Stub** | When the feature is off, **`lib`** compiles a stub module (**`signal_stub.rs`**) that provides no-op types so the rest of the gateway compiles without Signal symbols. |
-| **Thin wrapper** | **`crates/lib/src/channels/signal.rs`** contains only a thin **`SignalChannel`** newtype (to implement **`ChannelHandle`** from **`lib`**'s trait) and the **`resolve_signal_daemon_config`** wiring. All signal-cli HTTP/SSE logic stays in the adapter crate. |
+| **Thin wrapper** | **`crates/lib/src/channels/signal.rs`** contains only a thin **`SignalChannel`** newtype (to implement **`ChannelHandle`** from **`lib`**'s trait) and the **`resolve_signal_daemon_config`** wiring. All signal-cli HTTP/SSE logic stays in the adapter package. |
 
 ## Rationale
 
 - **Smaller default binary** — Operators who only use Telegram or Matrix don't carry the Signal adapter code.
-- **Clean separation** — Signal's HTTP/SSE logic and its `reqwest` + `futures-util` dependencies are isolated in a dedicated crate; **`lib`** only sees a small surface area (**`SignalInner`**, **`SignalDaemonConfig`**, **`RawInbound`**).
-- **Consistent pattern** — This adapter-crate + feature-gate pattern is the same one used for Matrix (see [MATRIX_ADAPTER.md](MATRIX_ADAPTER.md)). Future optional integrations (Discord, Slack, etc.) can follow the same approach.
+- **Clean separation** — Signal's HTTP/SSE logic and its `reqwest` + `futures-util` dependencies are isolated in a dedicated package; **`lib`** only sees a small surface area (**`SignalInner`**, **`SignalDaemonConfig`**, **`RawInbound`**).
+- **Consistent pattern** — This adapter-package + feature-gate pattern is the same one used for Matrix (see [MATRIX_ADAPTER.md](MATRIX_ADAPTER.md)). Future optional integrations (Discord, Slack, etc.) can follow the same approach.
 - **Clear expectations** — An opt-in feature flag communicates "this works but is not yet first-class" more honestly than shipping it unconditionally.
 
 ## Alternatives Considered
@@ -38,5 +38,5 @@ Signal integration depends on a user-run **signal-cli** HTTP daemon. Not all ope
 
 ## Related Documents
 
-- [MATRIX_ADAPTER.md](MATRIX_ADAPTER.md) — The same adapter-crate pattern for Matrix.
+- [MATRIX_ADAPTER.md](MATRIX_ADAPTER.md) — The same adapter-package pattern for Matrix.
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec for gateway channel behavior.

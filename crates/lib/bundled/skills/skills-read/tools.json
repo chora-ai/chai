@@ -59,13 +59,23 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "file", "kind": "flag", "flag": "file" }
-      ]
+      ],
+      "maxOutputLines": 500,
+      "postProcess": {
+        "script": "hint-path-annotations",
+        "args": ["$file"]
+      }
     },
     {
       "tool": "skills_validate",
       "binary": "chai",
       "subcommand": "skill validate",
-      "args": [{ "param": "skill_name", "kind": "positional" }]
+      "args": [{ "param": "skill_name", "kind": "positional" }],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-validate-errors",
+        "args": ["$skill_name"]
+      }
     }
   ]
 }

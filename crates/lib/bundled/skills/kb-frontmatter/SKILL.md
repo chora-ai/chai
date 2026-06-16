@@ -8,7 +8,6 @@ metadata:
 
 ## Skill Directives
 
-- always use `kb_frontmatter_read` to inspect frontmatter before editing
 - always use `kb_frontmatter_edit` for single-key updates instead of rewriting the entire note
 - never modify note body content through this skill
 

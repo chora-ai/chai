@@ -50,7 +50,7 @@ The `"openai-compat"` endpoint type follows the OpenAI API specification. When a
 | **`/v1/chat/completions`** | POST | Agent turn: `model`, `messages` (OpenAI format, including tool messages keyed by `tool_call_id`), optional `tools`, `stream`. Used by all `"openai-compat"` providers. |
 | **`/v1/models`** | GET | Model discovery when `modelDiscovery: "default"` (the standard OpenAI list models route). Returns `data[].id`. Not available on all servers — some require `modelDiscovery: "static"` or `"lmstudio"` instead. |
 | **`/api/v1/models`** | GET | LM Studio native model list when `modelDiscovery: "lmstudio"`. Filters `type == "llm"`, uses `key` as model id. Outside the `/v1` path — the client strips the `/v1` suffix from `baseUrl` to reach the LM Studio root. |
-| **`/api/v1/models/load`** | POST | LM Studio auto-load when `autoLoad: "lmstudio"`. On "unloaded" error, loads the model by id and retries the chat request once. Request body: `{ "model": "<id>" }`. |
+| **`/api/v1/models/load`** | POST | Automatically called when `modelDiscovery: "lmstudio"` and chat returns an "unloaded" error; loads the model by id and retries the chat request once. Request body: `{ "model": "<id>" }`. |
 
 ### Request/Response Shapes (What We Send)
 
@@ -137,16 +137,9 @@ The `staticModels` field is an array of model id strings used when `modelDiscove
 }
 ```
 
-### Auto-Load
+### LM Studio Retry on Unload
 
-The `autoLoad` field controls whether a failed chat request triggers a model-load retry. Currently only applies to LM Studio.
-
-| Value | Description |
-|-------|-------------|
-| `false` | No auto-load; errors are returned as-is. (Default.) |
-| `"lmstudio"` | On "unloaded" error (LM Studio 500), call `POST /api/v1/models/load` with the model id, then retry the chat request once. |
-
-When omitted, `autoLoad` defaults to `false`.
+When `modelDiscovery: "lmstudio"` is configured, the gateway automatically retries chat requests that fail with an "unloaded" error. On such an error, the client calls `POST /api/v1/models/load` with the model id, then retries the chat request once. This behavior is always enabled for LM Studio providers — there is no separate configuration field.
 
 The streaming variant retries with a single non-streaming call (to avoid invoking `on_chunk` twice if partial data was already streamed).
 
@@ -159,22 +152,22 @@ Four providers demonstrate the key configuration patterns for `"openai-compat"`.
 The simplest `openai-compat` configuration: no `baseUrl` or `apiKey` needed. LM Studio is the reference local-first option for this endpoint type — the default base URL (`http://127.0.0.1:1234/v1`) is LM Studio's localhost address.
 
 ```json
-{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 - **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
 - **Default base URL:** `http://127.0.0.1:1234/v1` (`openai-compat` default — LM Studio's localhost address)
 - **Model discovery:** `"lmstudio"` — uses LM Studio's native `GET /api/v1/models` endpoint (filters `type == "llm"`, uses `key` as model id)
-- **Auto-load:** `"lmstudio"` — on "unloaded" error, calls `POST /api/v1/models/load` and retries once
+- **Retry on unload:** Automatic — on "unloaded" error, calls `POST /api/v1/models/load` and retries once (always enabled with `modelDiscovery: "lmstudio"`)
 - **Auth:** None (local only)
 - **Privacy:** Full — data stays on your machine
 - **Gotchas:**
   - LM Studio must be installed and running
   - Developer settings must be on with runtime set to CPU
-  - Models must be manually loaded (e.g. `lms load <model path>`) or rely on `autoLoad`
+  - Models must be manually loaded (e.g. `lms load <model path>`) or rely on automatic retry on unload
   - All models support the tools API but some models are not trained on tool use
 
-A bare `{ "id": "local", "endpointType": "openai-compat" }` also connects to LM Studio on localhost, using default model discovery (`GET /v1/models`) and no auto-load.
+A bare `{ "id": "local", "endpointType": "openai-compat" }` also connects to LM Studio on localhost, using default model discovery (`GET /v1/models`) and no automatic retry on unload.
 
 ### NearAI — Cloud
 
@@ -221,7 +214,7 @@ Any other OpenAI-compatible server follows one of the three patterns above:
 
 | Pattern | When to Use | Fields |
 |---------|-------------|--------|
-| LM Studio (local) | Local LM Studio instance | `endpointType: "openai-compat"` + `modelDiscovery: "lmstudio"` + `autoLoad: "lmstudio"` |
+| LM Studio (local) | Local LM Studio instance | `endpointType: "openai-compat"` + `modelDiscovery: "lmstudio"` |
 | Simple remote API | Server has `/v1/models` and standard discovery works | `endpointType: "openai-compat"` + `baseUrl` + `apiKey` |
 | Static model list | Server lacks `/v1/models` or you want to curate the list | Add `modelDiscovery: "static"` + `staticModels` |
 
@@ -238,7 +231,6 @@ For example, vLLM, Hugging Face TGI, and OpenAI itself are all "simple remote AP
 | `defaultModel` | `String` | No | `llama-3.2-3B-instruct` | Default model id for this provider. The endpoint-type default is LM Studio–compatible. |
 | `modelDiscovery` | `ModelDiscovery` | No | `"default"` | How to discover models: `"default"` (`GET /v1/models`), `"lmstudio"` (`GET /api/v1/models`), or `"static"` (from `staticModels`). |
 | `staticModels` | `String[]` | No | `[]` | Model list when `modelDiscovery: "static"`. No polling. |
-| `autoLoad` | `AutoLoad` | No | `false` | Auto-load on error: `false` or `"lmstudio"` (LM Studio `POST /api/v1/models/load` + retry). |
 
 ## OpenAI-Compatible API vs. Ollama API
 
@@ -255,7 +247,7 @@ Comparison of the two endpoint types in Chai, focusing on what the gateway uses 
 | **Auth** | Bearer token (optional; required by remote providers) | None (local only) |
 | **Finish reason** | `finish_reason` field (`"stop"`, `"length"`, `"tool_calls"`) | `done_reason` field (same values, different field name) |
 | **Token usage** | `usage.prompt_tokens` / `usage.completion_tokens` / `usage.total_tokens` | `eval_count` / `prompt_eval_count` (resolved to `Usage` by the client) |
-| **Configurable behaviors** | Model discovery (`default`, `lmstudio`, `static`), auto-load (`lmstudio`) | None — single client, single protocol |
+| **Configurable behaviors** | Model discovery (`default`, `lmstudio`, `static`), automatic retry on unload (with `lmstudio`) | None — single client, single protocol |
 | **Hosting services** | LM Studio, NearAI, NVIDIA NIM, OpenAI, vLLM, Hugging Face TGI, any OpenAI-shaped server | Ollama |
 
 The Chai agent and tool infrastructure are endpoint-agnostic — the same agent loop, tool definitions, and delegation logic work across both endpoint types. The gateway handles the protocol translation internally.

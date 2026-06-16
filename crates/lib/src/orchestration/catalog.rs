@@ -80,7 +80,6 @@ mod tests {
                     default_model: None,
                     model_discovery: Default::default(),
                     static_models: Vec::new(),
-                    auto_load: Default::default(),
                 }
             }).collect(),
         }

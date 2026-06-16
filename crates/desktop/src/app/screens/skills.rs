@@ -304,6 +304,23 @@ fn paint_one_skill(
             ui.painter()
                 .hline(sep_rect.x_range(), sep_rect.center().y, sep_stroke);
             ui.add_space(spacing::GROUP_AFTER_SEPARATOR);
+            ui.add_space(8.0);
+
+            // Show enabled-for agents
+            if let Some(agents) = agents_for_skill {
+                for (agent_id, is_orchestrator) in agents {
+                    let label = format!("Enabled for {}", agent_id);
+                    let rt = if *is_orchestrator {
+                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 150, 120))
+                    } else {
+                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 120, 150))
+                    };
+                    ui.label(rt);
+                }
+            } else {
+                ui.label(egui::RichText::new("Disabled").weak());
+            }
+            ui.add_space(8.0);
 
             if !entry.description.is_empty() {
                 let desc = entry.description.trim();
@@ -314,20 +331,6 @@ fn paint_one_skill(
             let path_str = entry.path.display().to_string();
             skill_field_block(ui, "Path", &path_str, selected);
             ui.add_space(8.0);
-
-            // Show enabled-for agents
-            if let Some(agents) = agents_for_skill {
-                for (agent_id, is_orchestrator) in agents {
-                    let label = format!("This skill is currently enabled for {}.", agent_id);
-                    let rt = if *is_orchestrator {
-                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 150, 120))
-                    } else {
-                        egui::RichText::new(label).color(egui::Color32::from_rgb(120, 120, 150))
-                    };
-                    ui.add_space(8.0);
-                    ui.label(rt);
-                }
-            }
         });
     });
 
@@ -337,6 +340,10 @@ fn paint_one_skill(
         egui::Sense::click(),
     );
     if click.clicked() {
-        app.selected_skill_name = Some(entry.name.clone());
+        if selected {
+            app.selected_skill_name = None;
+        } else {
+            app.selected_skill_name = Some(entry.name.clone());
+        }
     }
 }

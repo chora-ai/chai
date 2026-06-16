@@ -13,7 +13,7 @@
           },
           "level": {
             "type": "string",
-            "description": "Filter by log level: info, warn, error, or debug"
+            "description": "Filter by log level: info, warn, error, or debug. Defaults to warn if omitted."
           }
         }
       }
@@ -38,10 +38,7 @@
     }
   ],
   "allowlist": {
-    "chai": [
-      "logs recent",
-      "logs search"
-    ]
+    "chai": ["logs recent", "logs search"]
   },
   "execution": [
     {
@@ -59,7 +56,8 @@
           "param": "level",
           "kind": "flag",
           "flag": "level",
-          "optional": true
+          "optional": true,
+          "absentDefault": "warn"
         }
       ],
       "maxOutputLines": 200
@@ -81,7 +79,10 @@
           "optional": true
         }
       ],
-      "maxOutputLines": 200
+      "maxOutputLines": 200,
+      "postProcess": {
+        "script": "hint-many-matches"
+      }
     }
   ]
 }

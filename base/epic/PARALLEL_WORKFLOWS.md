@@ -459,7 +459,7 @@ The session module is in...
 
 **System context implication:**
 - Today, **`build_workers_context`** (`crates/lib/src/orchestration/workers_context.rs`) includes the line "`delegate_task` calls execute sequentially — each worker turn completes before the next begins." This line must be removed or made dynamic when this epic is implemented.
-- When `maxParallelWorkflows` is **`1`**, the "sequentially" wording should remain. When it is greater than **`1`**, the context should reflect that delegations may run concurrently (e.g., "`delegate_task` calls may execute concurrently, up to `maxParallelWorkflows` at a time. Combine related subtasks into a single delegation when possible.").
+- When `maxParallelWorkflows` is **`1`**, the "sequentially" wording should remain. When it is greater than **`1`**, the context should ommit the not about sequential execution (i.e., "`delegate_task` calls execute sequentially — each worker turn completes before the next begins.").
 - This is a small but important change — the system context is the orchestrator's primary source of truth about its own capabilities, and an incorrect claim about sequential execution would cause the orchestrator to plan suboptimally.
 
 ### Session Consistency

@@ -10,10 +10,10 @@ For channel-specific reference documentation, see [TELEGRAM.md](../ref/TELEGRAM.
 
 ## Feature Gates
 
-Optional channel integrations are isolated in adapter crates and gated behind Cargo features:
+Optional channel integrations are isolated in adapter packages and gated behind Cargo features:
 
-| Channel | Adapter Crate | Feature | Default | Status |
-|---------|--------------|---------|---------|--------|
+| Channel | Adapter Package | Feature | Default | Status |
+|---------|----------------|---------|---------|--------|
 | **Telegram** | — (in **`lib`**) | — | Always on | Supported |
 | **Matrix** | **`crates/adapters/matrix`** (`matrix-channel`) | **`matrix`** | Off | Experimental (opt-in) |
 | **Signal** | **`crates/adapters/signal`** (`signal-channel`) | **`signal`** | Off | Experimental (opt-in) |
@@ -130,7 +130,7 @@ New channels with extra cleanup (logout, disconnect Matrix client, stop sidecar)
 | **`crates/adapters/matrix`** (package **`matrix-channel`**) | **`MatrixInner`**, **`connect_with_params`**, **`RawInbound`** ([matrix-sdk](https://github.com/matrix-org/matrix-rust-sdk): SQLite + E2EE, **`/sync`**, **`m.room.message`** send). |
 | **`crates/lib/src/channels/matrix.rs`** | **`MatrixChannel`** newtype + **`ChannelHandle`**, bridges **`RawInbound`** → **`InboundMessage`** (when **`lib`** **`matrix`** feature is on). |
 | **`crates/adapters/signal`** (package **`signal-channel`**) | **`SignalInner`**, SSE events loop, JSON-RPC **`send`** (when **`lib`** **`signal`** feature is on; currently in **`crates/lib/src/channels/signal.rs`**). |
-| **`crates/lib/src/channels/signal.rs`** | **`SignalChannel`**, **`resolve_signal_daemon_config`** (thin wrapper; to migrate to adapter crate). |
+| **`crates/lib/src/channels/signal.rs`** | **`SignalChannel`**, **`resolve_signal_daemon_config`** (thin wrapper; to migrate to adapter package). |
 | **`crates/lib/src/channels/registry.rs`** | **`ChannelHandle`**, **`ChannelRegistry`**. |
 | **`crates/lib/src/routing.rs`** | **`SessionBindingStore`**. |
 | **`crates/lib/src/gateway/server.rs`** | **`process_inbound_message`**, queue, registration, shutdown, webhook handlers. |

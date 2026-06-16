@@ -11,7 +11,6 @@ metadata:
 
 - never assume a file exists — use `files_list_dir` to verify first
 - never read binary files — check file type with `files_list_dir` before reading
-- always set `line_numbers` to true when searching for code patterns
 - after using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines
 
 The `pattern` parameter in `files_search_content` supports extended regex (ERE): `|` for alternation, `+` for one-or-more, `?` for zero-or-one, `{m,n}` for repetition, and `()` for grouping.

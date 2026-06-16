@@ -179,7 +179,7 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 |--------|-----------------------|
 | **Agents** (see [AGENTS.md](AGENTS.md)) | Agent context directories live under `<profileRoot>/agents/<agentId>/`. Per-agent `skillsEnabled` and `contextMode` are in that profile's `config.json`. |
 | **Sandbox** (see [SANDBOX.md](SANDBOX.md)) | The write sandbox directory is `<profileRoot>/sandbox/`. All agents in a profile share one sandbox. |
-| **Skills** (see [SKILL_FORMAT.md](SKILL_FORMAT.md)) | Skill packages live in the shared `~/.chai/skills/` store with versioned snapshots. Profiles differ by per-agent enablement and per-profile lockfile pins, not by duplicated package trees. |
+| **Skills** (see [SKILL_PACKAGES.md](SKILL_PACKAGES.md)) | Skill packages live in the shared `~/.chai/skills/` store with versioned snapshots. Profiles differ by per-agent enablement and per-profile lockfile pins, not by duplicated package trees. |
 | **Orchestration** (see [ORCHESTRATION.md](ORCHESTRATION.md)) | Orchestrator settings, delegation policy, and worker definitions come from the active profile's `config.json`. |
 | **Channels** (see [CHANNELS.md](CHANNELS.md)) | Channel stores and session bindings are profile-local. |
 | **Providers** (see [PROVIDERS.md](PROVIDERS.md)) | Provider configuration is in the profile's `config.json`. Discovery scope is per the orchestrator's `enabledProviders`. |
@@ -191,6 +191,7 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 | [adr/RUNTIME_PROFILES.md](../adr/RUNTIME_PROFILES.md) | Architectural decision for the profile model |
 | [CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks, `skillLockMode`, and environment overrides |
 | [AGENTS.md](AGENTS.md) | Per-agent context and skill configuration within profiles |
-| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill package versioned layout and frontmatter |
+| [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, and frontmatter |
+| [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Skill package versioned layout, startup validation, and CLI commands |
 | [SANDBOX.md](SANDBOX.md) | Write sandbox under each profile |
-| [CONTEXT.md](CONTEXT.md) | Capability-tier and variant validation at gateway startup |
+| [CONTEXT.md](CONTEXT.md) | System context assembly, skill context modes, and build order |

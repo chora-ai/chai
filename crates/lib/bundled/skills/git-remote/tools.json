@@ -31,11 +31,11 @@
         "properties": {
           "remote": {
             "type": "string",
-            "description": "Remote name (e.g. 'origin', 'upstream'). Uses tracking remote if omitted."
+            "description": "Remote name (e.g. 'origin', 'upstream'). Must be specified explicitly when the branch has no tracking remote configured."
           },
           "branch": {
             "type": "string",
-            "description": "Branch name to pull (e.g. 'main'). Uses tracking branch if omitted."
+            "description": "Branch name to pull (e.g. 'main'). Must be specified explicitly when the branch has no tracking information configured."
           },
           "path": {
             "type": "string",
@@ -61,7 +61,7 @@
           },
           "branch": {
             "type": "string",
-            "description": "Branch name to push (e.g. 'feature/add-search'). Uses current branch if omitted."
+            "description": "Branch name to push (e.g. 'feature/add-search'). Must be specified explicitly when the branch has no upstream configured."
           },
           "path": {
             "type": "string",
@@ -107,7 +107,11 @@
         { "param": "remote", "kind": "positional", "optional": true },
         { "param": "branch", "kind": "positional", "optional": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "successExitCodes": [1, 128],
+      "postProcess": {
+        "script": "hint-pull-errors"
+      }
     },
     {
       "tool": "git_push",
@@ -124,7 +128,11 @@
           "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
         },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "successExitCodes": [1, 128],
+      "postProcess": {
+        "script": "hint-push-errors"
+      }
     },
     {
       "tool": "git_remote",

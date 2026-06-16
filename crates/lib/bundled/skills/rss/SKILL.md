@@ -17,5 +17,3 @@ arxiv-cs-cr|https://rss.arxiv.org/rss/cs.CR
 
 - always call `rss_list_feeds` first to see what feeds are configured
 - always use feed names from the configured list when available
-- always summarize feed entries rather than returning the raw table
-- never follow external links from feed entries without evaluating relevance

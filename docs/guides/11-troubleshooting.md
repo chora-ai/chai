@@ -24,7 +24,7 @@ chai gateway --port 15152
 
 This almost always means the configured provider is unreachable or the model isn't loaded.
 
-1. **Check the provider is running.** For Ollama: `ollama list` should show your model. For LM Studio: the model must be loaded in the LM Studio UI (or `autoLoad` must be configured).
+1. **Check the provider is running.** For Ollama: `ollama list` should show your model. For LM Studio: the model must be loaded in the LM Studio UI (or `modelDiscovery: "lmstudio"` must be set for automatic retry on unload).
 2. **Check the model id.** The `defaultModel` value must exactly match what the provider expects. Use `ollama list` for Ollama, `GET /api/v1/models` for LM Studio, or the provider's model catalog for cloud APIs.
 3. **Check connectivity.** The gateway defaults to `http://127.0.0.1:11434` for Ollama and `http://127.0.0.1:1234/v1` for LM Studio. If you changed these, verify the URLs are correct.
 4. **Check the logs.** Start with `RUST_LOG=info chai gateway` and look for provider discovery errors or connection failures. If the gateway is already running, use `chai logs recent` or `chai logs search --pattern error` to read from the in-memory log buffer without restarting.
@@ -70,10 +70,10 @@ Then verify it appears in `ollama list`. The model id must match exactly (includ
 The requested model isn't loaded in LM Studio. Either:
 
 - Load the model in the LM Studio UI before sending messages, or
-- Configure `autoLoad: "lmstudio"` so chai requests automatic loading:
+- Configure `modelDiscovery: "lmstudio"` so chai uses LM Studio's native model list and automatically retries on "unloaded" errors:
 
 ```json
-{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 ### Cloud Provider: Authentication Failed
@@ -215,7 +215,7 @@ The desktop spawns `chai gateway` as a subprocess. If it fails immediately, chec
 
 ### Tool Loop Limit Reached
 
-The gateway stops the turn after `maxToolLoopIterations` (default: 100) consecutive tool calls. This is a safety net against runaway loops. The desktop shows an amber banner; the CLI chat emits a `session.tool_loop_limit` event.
+The gateway stops the turn after `maxToolLoopIterations` (default: 500) consecutive tool calls. This is a safety net against runaway loops. The desktop shows an amber banner; the CLI chat emits a `session.tool_loop_limit` event.
 
 - If this happens legitimately (a complex task needs many steps), increase the limit in `config.json`:
   ```json

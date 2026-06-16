@@ -126,6 +126,7 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Catalog and delegation.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery rules.
 - **[PROFILES.md](PROFILES.md)** — Per-profile lockfile (`skills.lock`) and generation tracking.
-- **[SKILL_FORMAT.md](SKILL_FORMAT.md)** — Skill package versioned layout and frontmatter.
-- **[CONTEXT.md](CONTEXT.md)** — Context strings, skills mode, and startup validation.
+- **[SKILL_FORMAT.md](SKILL_FORMAT.md)** — Skill directory layout, `SKILL.md` content, and frontmatter.
+- **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** — Skill package versioned layout, startup validation, and CLI commands.
+- **[CONTEXT.md](CONTEXT.md)** — Context strings, skills mode, and build order.
 - **`crates/lib/src/gateway/protocol.rs`** — WebSocket protocol notes.

@@ -31,7 +31,7 @@ cargo install tauri-cli
 - Great for native-feeling apps
 - Minimal dependency tree
 
-**Dependencies:** Add to the desktop crate `Cargo.toml`:
+**Dependencies:** Add to the desktop package `Cargo.toml`:
 ```toml
 eframe = { version = "0.24", features = ["default"] }
 egui = "0.24"

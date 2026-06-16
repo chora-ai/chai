@@ -28,9 +28,7 @@ Always read [README.md](README.md) and the relevant `meta/` file **before updati
 
 ## Active Work
 
-- **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. Round 3 in progress.
-- **[BUG_FILES_REPLACE.md](BUG_FILES_REPLACE.md)** — fixed multiple issues with `files_replace`; continuing to test and monitor.
-- **[BUG_FILES_WRITE_LINES.md](BUG_FILES_WRITE_LINES.md)** — fixed multiple issues with `files_write_lines`; continuing to test and monitor.
+- **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. Audit complete — all 15 skills reviewed, all diagnostic hints implemented and live-tested.
 - **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.
 - **[RELEASE_V0_1_0.md](RELEASE_V0_1_0.md)** — Requirements and resolved decisions for v0.1.0. Messaging channels epic complete; both Matrix and Signal are experimental opt-in features.
 
@@ -39,4 +37,4 @@ Always read [README.md](README.md) and the relevant `meta/` file **before updati
 - **[README.md](README.md)** is the entry point for this directory's structured documentation.
 - **[RELEASE.md](RELEASE.md)** — Official release process: how releases are planned, tagged, documented, and distributed.
 - **[SECURITY.md](SECURITY.md)** — Known security considerations and vulnerabilities in Chai's agent sandboxing model.
-- **[VISION.md](VISION.md)** — Known security considerations and vulnerabilities in Chai's agent sandboxing model.
+- **[VISION.md](VISION.md)** — Project vision and guiding principles.

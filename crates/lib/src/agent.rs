@@ -8,7 +8,8 @@
 //! when **`workerId`** is set, otherwise the orchestrator’s skill bundle; nested **`delegate_task`** is disabled (see epic).
 
 use crate::orchestration::{
-    execute_delegate_task, DelegateContext, DelegateObservability, DELEGATE_TASK_TOOL_NAME,
+    execute_delegate_task, DelegateContext, DelegateObservability, DelegateTaskResult,
+    DELEGATE_TASK_TOOL_NAME,
 };
 use crate::providers::{ChatMessage, Provider, ProviderError, ToolCall, ToolDefinition};
 use crate::session::SessionStore;
@@ -161,6 +162,7 @@ pub async fn run_turn_with_messages<B: Provider>(
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     max_tool_loop_iterations: u32,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     run_turn_with_messages_dyn(
         provider as &dyn Provider,
@@ -170,6 +172,7 @@ pub async fn run_turn_with_messages<B: Provider>(
         tool_executor,
         max_tool_loop_iterations,
         None,
+        stop_flag,
     )
     .await
 }
@@ -183,6 +186,7 @@ pub async fn run_turn_with_messages_dyn(
     tool_executor: Option<&dyn ToolExecutor>,
     max_tool_loop_iterations: u32,
     observability: Option<&DelegateObservability>,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let mut on_chunk: Option<&mut (dyn FnMut(&str) + Send)> = None;
     execute_turn_worker(
@@ -195,6 +199,7 @@ pub async fn run_turn_with_messages_dyn(
         None,
         max_tool_loop_iterations,
         observability,
+        stop_flag,
     )
     .await
 }
@@ -210,6 +215,7 @@ async fn execute_turn_worker(
     persist: Option<(&SessionStore, &str)>,
     max_tool_loop_iterations: u32,
     observability: Option<&DelegateObservability>,
+    stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
     let model_name = if model_name.is_empty() {
@@ -223,13 +229,26 @@ async fn execute_turn_worker(
     let mut loop_count = 0;
     let mut executed_tool_calls: Vec<ToolCall> = Vec::new();
     let mut executed_tool_results: Vec<String> = Vec::new();
-    let mut last_content: String;
+    let mut last_content = String::new();
     let mut last_tool_calls: Vec<ToolCall>;
     let mut truncated = false;
     let mut loop_limit_reached = false;
     let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
+    let mut stopped = false;
 
     loop {
+        // Check stop flag before each iteration. If set, break out of the loop
+        // gracefully — the current tool call or model request has already completed.
+        // The orchestrator's execute_turn_main loop will emit the session.turn_stopped
+        // event; the worker does not emit it to avoid duplicates.
+        if let Some(ref flag) = stop_flag {
+            if flag.load(Ordering::SeqCst) {
+                log::info!("agent: stop signal received in worker turn, pausing after iteration {}", loop_count);
+                stopped = true;
+                break;
+            }
+        }
+
         let use_stream = on_chunk.is_some() && loop_count == 0;
         let res = if use_stream {
             let cb = on_chunk.as_mut().unwrap();
@@ -413,6 +432,17 @@ async fn execute_turn_worker(
 
         executed_tool_calls.extend(last_tool_calls.clone());
 
+        // Check stop flag after tool execution. If set, break out of the loop
+        // without making another model request — the tools that already ran
+        // are preserved in executed_tool_calls / executed_tool_results.
+        if let Some(ref flag) = stop_flag {
+            if flag.load(Ordering::SeqCst) {
+                log::info!("agent: stop signal received in worker turn after tool execution, pausing after iteration {}", loop_count);
+                stopped = true;
+                break;
+            }
+        }
+
         // If the response was truncated, inject a notice so the model can re-emit
         // any tool calls that were cut off. The tool calls that were present have
         // already been executed above.
@@ -452,7 +482,7 @@ async fn execute_turn_worker(
         truncated,
         loop_limit_reached,
         pending_tool_calls,
-        stopped: false,
+        stopped,
     })
 }
 /// Session-backed tool loop with `delegate_task` (nested worker turns use [`execute_turn_worker`] only).
@@ -651,7 +681,7 @@ async fn execute_turn_main(
                 }
             }
 
-            let result = if name == DELEGATE_TASK_TOOL_NAME {
+            let (result, worker_stopped) = if name == DELEGATE_TASK_TOOL_NAME {
                 delegate_calls_this_turn += 1;
                 if let Some(max) = max_delegations_per_turn {
                     if delegate_calls_this_turn > max {
@@ -664,44 +694,47 @@ async fn execute_turn_main(
                                 obs.emit_rejected(args, "max_delegations_per_turn", Some(max));
                             }
                         }
-                        format!(
-                            "error: max delegations per turn exceeded (maxDelegationsPerTurn={})",
-                            max
+                        (
+                            format!(
+                                "error: max delegations per turn exceeded (maxDelegationsPerTurn={})",
+                                max
+                            ),
+                            false,
                         )
                     } else {
                         match delegate {
                             Some(ref ctx) => match execute_delegate_task(ctx, args).await {
-                                Ok(s) => s,
+                                Ok(DelegateTaskResult { output, stopped }) => (output, stopped),
                                 Err(e) => {
                                     log::warn!("agent: delegate_task failed: {}", e);
-                                    format!("error: {}", e)
+                                    (format!("error: {}", e), false)
                                 }
                             },
                             None => {
                                 log::debug!("agent: delegate_task not available");
-                                "error: delegate_task is not available in this context".to_string()
+                                ("error: delegate_task is not available in this context".to_string(), false)
                             }
                         }
                     }
                 } else {
                     match delegate {
                         Some(ref ctx) => match execute_delegate_task(ctx, args).await {
-                            Ok(s) => s,
+                            Ok(DelegateTaskResult { output, stopped }) => (output, stopped),
                             Err(e) => {
                                 log::warn!("agent: delegate_task failed: {}", e);
-                                format!("error: {}", e)
+                                (format!("error: {}", e), false)
                             }
                         },
                         None => {
                             log::debug!("agent: delegate_task not available");
-                            "error: delegate_task is not available in this context".to_string()
+                            ("error: delegate_task is not available in this context".to_string(), false)
                         }
                     }
                 }
             } else {
                 match tool_executor {
                     Some(executor) => match executor.execute(name, args, persist.map(|(_, sid)| sid)) {
-                        Ok(out) => out.clone(),
+                        Ok(out) => (out.clone(), false),
                         Err(e) => {
                             // Log the short status at warn level; log the
                             // full detail (expected/actual diffs, etc.) at
@@ -712,15 +745,22 @@ async fn execute_turn_main(
                             if !detail.is_empty() {
                                 log::debug!("agent: tool {} failed: {}: {}", name, base, detail);
                             }
-                            format!("error: {}", e)
+                            (format!("error: {}", e), false)
                         }
                     },
                     None => {
                         log::debug!("agent: missing executor for tool");
-                        format!("error: no executor for tool {}", name)
+                        (format!("error: no executor for tool {}", name), false)
                     }
                 }
             };
+            // If the worker turn was stopped by the user, propagate the stop
+            // to the orchestrator loop. The orchestrator will emit the
+            // session.turn_stopped event and break at the top of the next
+            // iteration.
+            if worker_stopped {
+                stopped = true;
+            }
             executed_tool_results.push(result.clone());
 
             // Emit session.tool_result event after execution completes.
@@ -879,6 +919,31 @@ mod tests {
         }
     }
 
+    /// Tool executor wrapper that invokes a callback after each tool execution.
+    /// Used in tests to set a stop flag as a deterministic side effect.
+    struct FlagSettingExecutor<E: ToolExecutor, F: Fn() + Send + Sync> {
+        inner: E,
+        on_execute: F,
+    }
+
+    impl<E: ToolExecutor, F: Fn() + Send + Sync> FlagSettingExecutor<E, F> {
+        fn new(inner: E, on_execute: F) -> Self {
+            Self { inner, on_execute }
+        }
+
+        fn inner(&self) -> &E {
+            &self.inner
+        }
+    }
+
+    impl<E: ToolExecutor, F: Fn() + Send + Sync> ToolExecutor for FlagSettingExecutor<E, F> {
+        fn execute(&self, name: &str, args: &serde_json::Value, session_id: Option<&str>) -> Result<String, String> {
+            let result = self.inner.execute(name, args, session_id);
+            (self.on_execute)();
+            result
+        }
+    }
+
     fn make_tool_call(name: &str, args: &str) -> ToolCall {
         ToolCall {
             typ: "function".to_string(),
@@ -933,6 +998,7 @@ mod tests {
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -964,6 +1030,7 @@ mod tests {
             None,
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
         )
         .await
@@ -1013,6 +1080,7 @@ mod tests {
             None,
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
         )
         .await
@@ -1080,6 +1148,7 @@ mod tests {
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1128,6 +1197,7 @@ mod tests {
             None,
             Some(&executor as &dyn ToolExecutor),
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
         )
         .await
@@ -1232,6 +1302,7 @@ mod tests {
             None,
             crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1291,11 +1362,66 @@ mod tests {
             None,
             3,
             None,
+            None,
         )
         .await
         .unwrap();
 
         assert!(result.truncated, "should still report truncation");
         assert!(result.loop_limit_reached, "should hit loop limit with 3 iterations");
+    }
+
+    #[tokio::test]
+    async fn worker_stop_flag_breaks_loop() {
+        // Worker turn with stop flag: the flag is set by the tool executor as a
+        // side effect of running the first tool call. The post-tool-execution
+        // stop-flag check detects it and breaks — returning stopped: true with
+        // the tool result preserved.
+        let flag = Arc::new(AtomicBool::new(false));
+        let provider = MockProvider::new(vec![
+            // First call: returns a tool call so the loop continues.
+            make_chat_response(
+                Some(ChatMessage {
+                    role: "assistant".to_string(),
+                    content: "Reading file.".to_string(),
+                    tool_calls: Some(vec![make_tool_call("read_file", r#"{"path":"a.txt"}"#)]),
+                    tool_name: None,
+                }),
+                true,
+                Some(FinishReason::Stop),
+            ),
+        ]);
+        let executor = MockToolExecutor::new();
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "read".to_string(),
+            tool_calls: None,
+            tool_name: None,
+        }];
+        // Set the stop flag as a side effect of the first tool execution.
+        // This is deterministic: the flag is guaranteed to be set before the
+        // post-tool-execution check runs.
+        let flag_setter = flag.clone();
+        let executor = FlagSettingExecutor::new(executor, move || {
+            flag_setter.store(true, Ordering::SeqCst);
+        });
+        let result = run_turn_with_messages_dyn(
+            &provider as &dyn Provider,
+            "test-model",
+            messages,
+            None,
+            Some(&executor as &dyn ToolExecutor),
+            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
+            Some(flag),
+        )
+        .await
+        .unwrap();
+
+        assert!(result.stopped, "worker turn should be stopped when stop flag is set");
+        // The tool call from the first iteration should still have been executed.
+        let executed = executor.inner().results.lock().unwrap();
+        assert_eq!(executed.len(), 1, "one tool call should execute before stop");
+        assert!(executed[0].starts_with("ok: read_file"));
     }
 }

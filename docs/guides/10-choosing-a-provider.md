@@ -57,7 +57,7 @@ Configuration:
 ```json
 {
   "providers": [
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {

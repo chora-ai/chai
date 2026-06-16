@@ -28,6 +28,10 @@
           "path": {
             "type": "string",
             "description": "Note path relative to the sandbox root (use ./ prefix)"
+          },
+          "kb_root": {
+            "type": "string",
+            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
           }
         }
       }
@@ -116,7 +120,8 @@
           "optional": true
         }
       ],
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     },
     {
       "tool": "kb_wikilink_outlinks",
@@ -130,9 +135,11 @@
         }
       ],
       "postProcess": {
-        "script": "sanitize-outlinks"
+        "script": "sanitize-outlinks",
+        "args": ["$kb_root"]
       },
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     },
     {
       "tool": "kb_wikilink_by_tag",
@@ -154,7 +161,8 @@
           "optional": true
         }
       ],
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     },
     {
       "tool": "kb_wikilink_broken",
@@ -172,7 +180,8 @@
         "args": ["$kb_root"],
         "emptyIsResult": true
       },
-      "successExitCodes": [0, 1]
+      "successExitCodes": [0, 1],
+      "maxOutputLines": 200
     },
     {
       "tool": "kb_wikilink_rename",
@@ -198,7 +207,8 @@
           "readPath": true,
           "optional": true
         }
-      ]
+      ],
+      "maxOutputLines": 200
     }
   ]
 }

@@ -70,7 +70,8 @@
           "flag": "path",
           "readPath": true
         }
-      ]
+      ],
+      "successExitCodes": [1]
     },
     {
       "tool": "kb_frontmatter_edit",

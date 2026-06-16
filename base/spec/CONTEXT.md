@@ -18,15 +18,7 @@ This document describes the **context** the model receives for a turn, as implem
 - **Worker static context** — For each **`role: worker`** entry, a **`WorkerDelegateRuntime`** is built: **`AGENT.md`** from **`worker_context_dir`** (**`<profileRoot>/agents/<workerId>/`**), worker-filtered skills, and **no** **`## Workers`** block (**`build_worker_system_context`**). Cached per worker id until restart.
 - **Tools** — **Per agent** at startup: skill tools from **`tools.json`** for that agent's enabled packages; optional **`read_skill`** when that agent's **`contextMode`** is **`readOnDemand`** and at least one skill is enabled. The **orchestrator** list is merged with **`delegate_task`** via **`merge_delegate_task`** when workers exist. **Worker** lists omit **`delegate_task`**. The same prebuilt list is sent on every turn for that role.
 
-### Startup Validation
-
-After skill loading and config resolution, the gateway runs two validation passes before accepting the configuration:
-
-**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — For each enabled skill that has an entry in the profile's `skills.lock`, the gateway checks whether the `active` symlink target matches the locked hash. Behavior on mismatch is controlled by `skillLockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills (no entry in `skills.lock`) load normally.
-
-**Capability-tier validation** — For each agent's `skillsEnabled` list:
-- **Tier vs model** — Warn when an enabled skill's `capability_tier` assumes more capability than the agent's effective model is likely to provide (e.g., a `full` skill with a 7B local model). Informational warnings only; no strict mode yet.
-- **Variant overlap** — Warn when two enabled skills share a `variant_of` relationship (e.g., both `git` and `git-read` enabled for the same agent), creating redundant or overlapping tool surfaces.
+After skill loading and config resolution, the gateway runs startup validation (lockfile verification and capability-tier checks) before accepting the configuration. See [SKILL_PACKAGES.md](SKILL_PACKAGES.md).
 
 For a **new session**, when the user sends a message, the model receives:
 
@@ -69,9 +61,9 @@ For a **new session**, when the user sends a message, the model receives:
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
-- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents. You can:`**), blank line, bullet (**`- call \`delegate_task\` to delegate a task to a worker agent`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker can perform the task. \`delegate_task\` calls execute sequentially — each worker turn completes before the next begins. Combine related subtasks into a single delegation when possible.`**), blank line, then per worker (via **`lines_for_worker`**):
+- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents.`**), blank line, delegation tool (**`You can call \`delegate_task\` to delegate a task to a worker agent.`**), blank line, delegation guidance (**``delegate_task` calls are self-contained` — each delegationcreates a new worker instance.`**), blank line, delegation guidance (**`\`delegate_task\` calls execute sequentially — each worker turn completes before the next begins.`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker has the relevant skills.`**), blank line, then per worker (via **`lines_for_worker`**):
   - **`### <id>`** heading.
-  - Skill descriptions from **`skill_catalog`** (**`This worker can perform the following tasks:`** + one **`- <description>`** per enabled skill; omitted if no skills enabled).
+  - Skill descriptions from **`skill_catalog`** (**`This worker has the following skills:`** + one **`- <description>`** per enabled skill; omitted if no skills enabled).
   - Bracket prefix line (**`Start your instruction with \`[<id>]\` to delegate to this worker.`**).
   - Example (**`{ "instruction": "[<id>] Do X" }`**).
 
@@ -90,15 +82,15 @@ The **static** portion is cached at gateway startup.
 
 ## Workers
 
-You are the orchestrator agent. You have worker agents. You can:
+You are the orchestrator agent. You have worker agents.
 
-- call `delegate_task` to delegate a task to a worker agent
+You can call `delegate_task` to delegate a task to a worker agent.
 
-Only delegate a task to a worker if the worker can perform the task.
+Only delegate a task to a worker if the worker has the relevant skills.
 
 ### read-only
 
-This worker can perform the following tasks:
+This worker has the following skills:
 
 - Read files, list directories, and search file contents (read-only).
 
@@ -134,9 +126,9 @@ Read files, list directories, search file contents, write files, and delete file
 
 ## Skills
 
-You have skills. Skills have tools. You can:
+You have skills. Skills have tools.
 
-- call `read_skill` to read a skill
+You can call `read_skill` to read a skill.
 
 Available skills:
 

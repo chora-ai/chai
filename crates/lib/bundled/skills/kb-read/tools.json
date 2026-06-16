@@ -80,7 +80,8 @@
           },
           "line_numbers": {
             "type": "boolean",
-            "description": "Show line numbers in output"
+            "description": "Show line numbers in output",
+            "default": true
           },
           "case_insensitive": {
             "type": "boolean",
@@ -112,6 +113,10 @@
           "readPath": true
         }
       ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
       "maxOutputLines": 500
     },
     {
@@ -136,7 +141,12 @@
           "flag": "end-line",
           "optional": true
         }
-      ]
+      ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
+      "maxOutputLines": 500
     },
     {
       "tool": "kb_list",
@@ -159,6 +169,7 @@
           "readPath": true
         }
       ],
+      "maxOutputLines": 200,
       "postProcess": {
         "script": "sanitize-ls"
       },
@@ -182,7 +193,8 @@
         {
           "param": "line_numbers",
           "kind": "flagifboolean",
-          "flagIfTrue": "--line-number"
+          "flagIfTrue": "--line-number",
+          "absentDefault": true
         },
         {
           "param": "case_insensitive",
@@ -205,6 +217,9 @@
         }
       ],
       "successExitCodes": [0, 1],
+      "postProcess": {
+        "script": "hint-search-results"
+      },
       "maxOutputLines": 200
     }
   ]

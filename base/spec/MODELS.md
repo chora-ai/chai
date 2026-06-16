@@ -30,7 +30,7 @@ This endpoint type covers LM Studio, NVIDIA NIM, NEAR AI, and any other server s
 
 #### LM Studio
 
-Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Provider config: `endpointType: "openai-compat"`, `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"`. Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
+Models are identified by the model id shown in LM Studio (e.g. from the in-app list or `GET /v1/models`). Provider config: `endpointType: "openai-compat"`, `modelDiscovery: "lmstudio"`. Optional `baseUrl` (default `http://127.0.0.1:1234/v1`). Retry on "unloaded" error is automatic with `modelDiscovery: "lmstudio"`.
 
 | Model id (example) | Notes |
 |--------------------|-------|

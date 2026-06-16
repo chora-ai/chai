@@ -171,7 +171,8 @@
       "args": [
         { "param": "binary", "kind": "positional" },
         { "param": "subcommand", "kind": "flag", "flag": "subcommand" }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "skills_list",
@@ -186,13 +187,19 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "file", "kind": "flag", "flag": "file" }
-      ]
+      ],
+      "maxOutputLines": 500
     },
     {
       "tool": "skills_validate",
       "binary": "chai",
       "subcommand": "skill validate",
-      "args": [{ "param": "skill_name", "kind": "positional" }]
+      "args": [{ "param": "skill_name", "kind": "positional" }],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-validate-errors",
+        "args": ["$skill_name"]
+      }
     },
     {
       "tool": "skills_init",
@@ -201,7 +208,10 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "description", "kind": "flag", "flag": "description" }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-init-next-steps"
+      }
     },
     {
       "tool": "skills_write_skill_md",
@@ -210,7 +220,11 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "content", "kind": "stdin" }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-skill-md-checks",
+        "args": ["$skill_name"]
+      }
     },
     {
       "tool": "skills_write_tools_json",
@@ -219,7 +233,10 @@
       "args": [
         { "param": "skill_name", "kind": "positional" },
         { "param": "content", "kind": "stdin" }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-validate-on-write"
+      }
     },
     {
       "tool": "skills_write_script",
@@ -235,7 +252,9 @@
       "tool": "skills_delete",
       "binary": "chai",
       "subcommand": "skill delete",
-      "args": [{ "param": "skill_name", "kind": "positional" }]
+      "args": [
+        { "param": "skill_name", "kind": "positional", "denyPattern": "^(files|files-read|git|git-read|git-remote|kb|kb-read|kb-daily|kb-frontmatter|kb-wikilink|logs|rss|skills|skills-design|skills-read)$" }
+      ]
     }
   ]
 }

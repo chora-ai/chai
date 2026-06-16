@@ -48,7 +48,7 @@ However, `sideRead` does not apply the same path-like value check that unannotat
 
 The `successExitCodes` field allows non-zero exit codes to be treated as success. An agent could infer filesystem state from exit codes: a binary that exits with code 0 when a file exists and code 1 when it doesn't reveals whether the file exists, even if the file's contents are not returned. This is an inherent property of command execution and cannot be fully mitigated without eliminating all filesystem-interacting commands.
 
-**Mitigation**: Operators who consider this a risk can reduce `maxToolLoopIterations` (default 100) to limit the number of probes per turn.
+**Mitigation**: Operators who consider this a risk can reduce `maxToolLoopIterations` (default 500) to limit the number of probes per turn.
 
 ### Relative Path CWD Confinement (Accepted, Defense-in-Depth)
 

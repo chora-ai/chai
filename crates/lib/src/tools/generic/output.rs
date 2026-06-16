@@ -80,7 +80,10 @@ pub(crate) fn apply_side_read(
 
 /// Truncate tool output to `max_lines` lines, appending a notice when
 /// the output exceeds the limit. The notice includes the total line count
-/// and a hint for narrowing the query.
+/// and a hint for narrowing the query. Lines starting with `hint:` are
+/// preserved (moved after the truncated body, before the truncation notice)
+/// so that diagnostic hints appended by postProcess scripts or the binary
+/// are never lost to truncation.
 pub(crate) fn truncate_output(output: &str, max_lines: usize) -> String {
     let lines: Vec<&str> = output.lines().collect();
     let total = lines.len();
@@ -88,15 +91,39 @@ pub(crate) fn truncate_output(output: &str, max_lines: usize) -> String {
         return output.to_string();
     }
 
-    let truncated: String = lines[..max_lines].join("\n");
-    let omitted = total - max_lines;
-    format!(
-        "{}\n\n[output truncated: {} of {} lines shown; {} lines omitted. \
-         Narrow your query path, pattern, or range to reduce results.]",
-        truncated, max_lines, total, omitted
-    )
-}
+    // Separate hint lines from non-hint lines so hints survive truncation.
+    let mut hint_lines: Vec<&str> = Vec::new();
+    let mut non_hint_lines: Vec<&str> = Vec::new();
+    for line in &lines {
+        if line.starts_with("hint:") {
+            hint_lines.push(line);
+        } else {
+            non_hint_lines.push(line);
+        }
+    }
 
+    let non_hint_total = non_hint_lines.len();
+    let kept = std::cmp::min(max_lines, non_hint_total);
+    let omitted = non_hint_total - kept;
+
+    let mut result = non_hint_lines[..kept].join("\n");
+
+    if !hint_lines.is_empty() {
+        result.push('\n');
+        for hint in &hint_lines {
+            result.push('\n');
+            result.push_str(hint);
+        }
+    }
+
+    result.push_str(&format!(
+        "\n\n[output truncated: {} of {} lines shown; {} lines omitted. \
+         Narrow your query path, pattern, or range to reduce results.]",
+        kept, total, omitted
+    ));
+
+    result
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,5 +355,60 @@ mod tests {
         let output = "a\nb\nc\nd\ne";
         let result = truncate_output(output, 2);
         assert!(result.contains("Narrow your query"));
+    }
+
+    #[test]
+    fn truncate_output_preserves_hint_lines() {
+        let output = "line1\nline2\nline3\nline4\nline5\nhint: check indentation";
+        let result = truncate_output(output, 3);
+        assert!(result.starts_with("line1\nline2\nline3"), "first 3 non-hint lines kept");
+        assert!(result.contains("hint: check indentation"), "hint preserved after truncation");
+        assert!(result.contains("output truncated"), "truncation notice present");
+        assert!(result.contains("3 of 6 lines shown"), "total includes hint line");
+        assert!(result.contains("2 lines omitted"), "omits non-hint lines beyond limit");
+    }
+
+    #[test]
+    fn truncate_output_preserves_multiple_hints() {
+        let output = "line1\nhint: first\nline2\nhint: second\nline3\nline4\nline5";
+        let result = truncate_output(output, 2);
+        assert!(result.contains("hint: first"), "first hint preserved");
+        assert!(result.contains("hint: second"), "second hint preserved");
+        assert!(result.contains("output truncated"));
+    }
+
+    #[test]
+    fn truncate_output_hint_not_counted_against_limit() {
+        // 4 non-hint lines + 1 hint line, limit 3
+        // Should keep 3 non-hint lines + hint + notice
+        let output = "a\nb\nc\nd\nhint: useful tip";
+        let result = truncate_output(output, 3);
+        assert!(result.contains("a"), "line a kept");
+        assert!(result.contains("b"), "line b kept");
+        assert!(result.contains("c"), "line c kept");
+        assert!(!result.contains("\nd\n"), "line d truncated");
+        assert!(result.contains("hint: useful tip"), "hint preserved");
+        assert!(result.contains("3 of 5 lines shown"), "total counts all lines");
+        assert!(result.contains("1 lines omitted"), "only 1 non-hint line omitted");
+    }
+
+    #[test]
+    fn truncate_output_all_hints_no_content() {
+        let output = "hint: a\nhint: b\nhint: c";
+        let result = truncate_output(output, 2);
+        // 0 non-hint lines, 3 hint lines. total=3, kept=min(2,0)=0, omitted=0
+        assert!(result.contains("hint: a"), "first hint preserved");
+        assert!(result.contains("hint: b"), "second hint preserved");
+        assert!(result.contains("hint: c"), "third hint preserved");
+        assert!(result.contains("0 of 3 lines shown"), "kept is 0 non-hint lines");
+    }
+
+    #[test]
+    fn truncate_output_hint_appears_before_notice() {
+        let output = "line1\nline2\nline3\nline4\nhint: check this";
+        let result = truncate_output(output, 2);
+        let hint_pos = result.find("hint: check this").expect("hint present");
+        let notice_pos = result.find("[output truncated").expect("notice present");
+        assert!(hint_pos < notice_pos, "hint appears before truncation notice");
     }
 }

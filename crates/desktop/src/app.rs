@@ -369,6 +369,14 @@ impl ChaiApp {
             self.profile_switch_error = Some(e.to_string());
             return;
         }
+
+        // Reload .env for the new profile: remove tracked variables from the previous
+        // profile's .env and load the new profile's .env.
+        let profile_dir = lib::profile::profile_dir(&chai_home, &name);
+        if let Err(e) = state::env::load_profile_env_tracked(&profile_dir) {
+            log::error!("failed to load .env for profile {}: {}", name, e);
+        }
+
         self.profile_active = name;
         self.invalidate_enabled_providers_cache();
         self.invalidate_skills_cache();
@@ -643,7 +651,7 @@ impl ChaiApp {
 
     fn start_gateway(&mut self) {
         self.gateway_error = None;
-        let (config, _) = match lib::config::load_config(self.effective_profile_override()) {
+        let (config, paths) = match lib::config::load_config(self.effective_profile_override()) {
             Ok(pair) => pair,
             Err(e) => {
                 self.gateway_error = Some(format!("failed to load config: {}", e));
@@ -658,12 +666,22 @@ impl ChaiApp {
                 return;
             }
         };
+
+        // Build a clean environment for the gateway child process based on the
+        // effective profile's .env. This prevents stale .env variables from a
+        // previous profile from leaking into the gateway. The gateway will also
+        // load its own .env via lib::config::load_profile_env, but that function
+        // won't override variables already present in the inherited environment.
+        let env_map = state::env::build_gateway_env(&paths.profile_dir);
+
         let mut cmd = std::process::Command::new(&binary);
         cmd.args(["gateway", "--port", &port.to_string()])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        if std::env::var_os("RUST_LOG").is_none() {
+            .stderr(Stdio::piped())
+            .env_clear()
+            .envs(&env_map);
+        if !env_map.contains_key("RUST_LOG") {
             cmd.env("RUST_LOG", "lib=info,cli=info");
         }
         // Propagate the effective profile override so the spawned gateway uses the

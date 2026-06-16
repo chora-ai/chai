@@ -15,7 +15,7 @@ pub use ollama::{
 };
 pub use openai_compat::OpenAiCompatClient;
 
-use crate::config::{EndpointType, ProviderDefinition, ProvidersConfig};
+use crate::config::{EndpointType, ModelDiscovery, ProviderDefinition, ProvidersConfig};
 use std::sync::Arc;
 
 /// Common error type for any provider and for agent/session errors.
@@ -66,7 +66,8 @@ pub fn build_provider_client(
             let base = base_url.ok_or_else(|| {
                 format!("provider '{}' uses endpoint type 'openai-compat' but baseUrl could not be resolved", def.id)
             })?;
-            Ok(Arc::new(OpenAiCompatClient::new_with_auto_load(base, api_key, def.auto_load)))
+            let retry_on_unload = def.model_discovery == ModelDiscovery::Lmstudio;
+            Ok(Arc::new(OpenAiCompatClient::new(base, api_key, retry_on_unload)))
         }
     }
 }

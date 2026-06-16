@@ -83,7 +83,12 @@
             "args": ["$param", "$kb_root"]
           }
         }
-      ]
+      ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
+      "maxOutputLines": 500
     },
     {
       "tool": "kb_daily_write",
@@ -105,7 +110,10 @@
           "param": "content",
           "kind": "stdin"
         }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-daily-overwrite"
+      }
     },
     {
       "tool": "kb_daily_append",
@@ -127,7 +135,10 @@
           "param": "content",
           "kind": "stdin"
         }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-daily-overwrite"
+      }
     }
   ]
 }

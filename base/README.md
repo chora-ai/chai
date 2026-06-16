@@ -13,7 +13,7 @@ Always read the relevant convention file before adding or modifying a document i
 | ADR | [ADR.md](meta/ADR.md) | Adding or modifying an architecture decision record (`adr/*.md`) |
 | Epic | [EPIC.md](meta/EPIC.md) | Adding or modifying an epic (`epic/*.md`) |
 | Reference | [REF.md](meta/REF.md) | Adding or modifying a reference document (`ref/*.md`) |
-| Spec | [SPEC.md](meta/SPEC.md) | Adding or modifying a spec (`spec/*.md`) |
+| Specification | [SPEC.md](meta/SPEC.md) | Adding or modifying a specification (`spec/*.md`) |
 | Tag | [TAG.md](meta/TAG.md) | Adding or modifying a release tag file (`tag/*.md`) |
 
 ## Directory Layout
@@ -25,26 +25,29 @@ Always read the relevant convention file before adding or modifying a document i
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
 | **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
-| **`tag/`** | Release tag files: per-version release notes (`tag/V0_1_0.md`). Source of truth for annotated git tags and platform release notes. |
-| **root** | Index and entry points (`README.md`), release process (`RELEASE.md`), security considerations (`SECURITY.md`), project vision (`VISION.md`), and working notes tracked in AGENTS.md. |
+| **`tag/`** | Release tag files: per-version release notes. Source of truth for git tags and release notes. |
+| **root** | Index and entry points (`README.md`), release process (`RELEASE.md`), security considerations (`SECURITY.md`), project vision (`VISION.md`), and working notes (`AUDIT_*`/`BUG_*`/`FEAT_*`/`RELEASE_*`). |
 
 ## Current Documents
 
 ### `/adr`
 
-- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why the runtime and tools are implemented in Rust.
-- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why the desktop UI uses egui and eframe.
-- **[MATRIX_ADAPTER.md](adr/MATRIX_ADAPTER.md)** — Why Matrix lives in a separate adapter crate with an optional Cargo feature (experimental).
-- **[SIGNAL_ADAPTER.md](adr/SIGNAL_ADAPTER.md)** — Why Signal lives in a separate adapter crate with an optional Cargo feature (experimental).
-- **[ORCHESTRATION.md](adr/ORCHESTRATION.md)** — Why Chai uses an orchestrator–worker delegation model with a single `agents` array in config.
-- **[AGENT_ISOLATION.md](adr/AGENT_ISOLATION.md)** — Why each agent has its own context directory and skill configuration.
+- **[PROGRAMMING_LANGUAGE.md](adr/PROGRAMMING_LANGUAGE.md)** — Why the runtime is implemented in Rust.
+- **[DESKTOP_FRAMEWORK.md](adr/DESKTOP_FRAMEWORK.md)** — Why the desktop application uses egui and eframe.
+- **[ORCHESTRATION.md](adr/ORCHESTRATION.md)** — Why Chai uses an orchestrator–worker delegation model.
+- **[AGENT_ISOLATION.md](adr/AGENT_ISOLATION.md)** — Why each agent has its own context and skill configuration.
 - **[RUNTIME_PROFILES.md](adr/RUNTIME_PROFILES.md)** — Why Chai uses named runtime profiles with restart-required switching.
-- **[WRITE_SANDBOX.md](adr/WRITE_SANDBOX.md)** — Why write-path tools are validated against a per-profile sandbox with symlink-as-authorization.
-- **[SKILL_PACKAGES.md](adr/SKILL_PACKAGES.md)** — Why skill packages use content-addressed versioning with per-profile lockfiles and generation-level rollback.
+- **[WRITE_SANDBOX.md](adr/WRITE_SANDBOX.md)** — Why tools are validated against a per-profile sandbox with symlink-as-authorization.
+- **[SKILL_PACKAGES.md](adr/SKILL_PACKAGES.md)** — Why skill packages use content-addressed versioning with per-profile lockfiles.
+- **[MATRIX_ADAPTER.md](adr/MATRIX_ADAPTER.md)** — Why Matrix lives in a separate adapter package with an optional Cargo feature (experimental).
+- **[SIGNAL_ADAPTER.md](adr/SIGNAL_ADAPTER.md)** — Why Signal lives in a separate adapter package with an optional Cargo feature (experimental).
+- **[DIAGNOSTIC_HINTS.md](adr/DIAGNOSTIC_HINTS.md)** — Why chai skill tools use diagnostic hints in tool output instead of directives in SKILL.md.
 
 ### `/epic`
 
-- **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (in-progress) File explorer and constrained file editing for Chai config, agent context, and skill files.
+- **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and file editing for Chai config, agent context, and skill files.
+- **[PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md)** — (draft) Enable the orchestrator agent to run multiple delegation calls in parallel.
+- **[PERSISTENT_SESSIONS.md](epic/PERSISTENT_SESSIONS.md)** — (draft) Persist chat sessions to disk so they survive gateway and desktop restarts.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
 ### `/meta`
@@ -60,13 +63,13 @@ Always read the relevant convention file before adding or modifying a document i
 #### Channels (External APIs)
 
 - **[TELEGRAM.md](ref/TELEGRAM.md)** — Bot API: config, long-poll, webhook, and gateway wiring.
-- **[SIGNAL.md](ref/SIGNAL.md)** — BYO signal-cli: SSE inbound, JSON-RPC send, experimental adapter crate.
-- **[MATRIX.md](ref/MATRIX.md)** — Optional adapter crate (experimental): E2EE, allowlist, SAS routes on the gateway.
+- **[SIGNAL.md](ref/SIGNAL.md)** — BYO signal-cli: SSE inbound, JSON-RPC send, experimental adapter package.
+- **[MATRIX.md](ref/MATRIX.md)** — Optional adapter package (experimental): E2EE, allowlist, SAS routes on the gateway.
 
 #### Providers (External APIs)
 
 - **[OLLAMA.md](ref/OLLAMA.md)** — Ollama endpoint type: native chat, tags, and how Chai calls them.
-- **[OPENAI.md](ref/OPENAI.md)** — OpenAI-compatible endpoint type: wire protocol, model discovery, auto-load, and provider patterns (LM Studio, NearAI, NVIDIA NIM).
+- **[OPENAI.md](ref/OPENAI.md)** — OpenAI-compatible endpoint type: wire protocol, model discovery, auto-load, and provider patterns.
 - **[LM_STUDIO.md](ref/LM_STUDIO.md)** — OpenAI-compat chat and native `/api/v1/models` listing.
 - **[NVIDIA_NIM.md](ref/NVIDIA_NIM.md)** — OpenAI-compat: keys, quotas, privacy, static model list.
 
@@ -75,20 +78,17 @@ Always read the relevant convention file before adding or modifying a document i
 #### Configuration and Runtime
 
 - **[CONFIGURATION.md](spec/CONFIGURATION.md)** — On-disk `config.json` blocks, `skillLockMode`, env overrides, pairing with `status`.
-- **[PROFILES.md](spec/PROFILES.md)** — Profile directory structure, active profile resolution, gateway lock, skill lockfile and generation tracking, switching.
-- **[GATEWAY_STATUS.md](spec/GATEWAY_STATUS.md)** — WebSocket `status` shape, key order, redaction, runtime snapshot.
+- **[GATEWAY_STATUS.md](spec/GATEWAY_STATUS.md)** — WebSocket `status` shape, key order, redaction, runtime snapshot, paring with `config.json`.
+- **[PROFILES.md](spec/PROFILES.md)** — Profile directory, active profile, gateway lock, skill lockfile and generation tracking, switching.
 
 #### Agents, Context, and Skills
 
-- **[AGENTS.md](spec/AGENTS.md)** — Per-agent context dirs, skill configuration, system context, and tool lists.
-- **[CONTEXT.md](spec/CONTEXT.md)** — System string, workers roster, skills modes, tools, startup validation (lockfile verification, capability-tier and variant overlap warnings).
-- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill package versioned layout (`versions/<hash>/`, `active` symlink), frontmatter (`description`, `capability_tier`, `variant_of`, `metadata.requires.bins`), CLI lock/rollback commands.
+- **[AGENTS.md](spec/AGENTS.md)** — Per-agent context directories, skill configuration, system context, and tool lists.
+- **[CONTEXT.md](spec/CONTEXT.md)** — Per-agent context loading, system context, workers roster, and skill context modes.
+- **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill directory layout, `SKILL.md` content, frontmatter fields, and `tools.json`.
+- **[SKILL_PACKAGES.md](spec/SKILL_PACKAGES.md)** — Skill package versioned layout, content hashing, rollback, startup validation.
 - **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — Declarative tools, allowlist, argv mapping, scripts, resolvers.
 - **[SANDBOX.md](spec/SANDBOX.md)** — Write-path enforcement, writable roots, symlink-as-authorization.
-
-#### Desktop
-
-- **[DESKTOP.md](spec/DESKTOP.md)** — Current state of the desktop application: screens, data sources, interactions, known gaps.
 
 #### Channels and Orchestration
 
@@ -99,6 +99,10 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, URLs and keys, discovery, native vs OpenAI-compat paths.
 - **[MODELS.md](spec/MODELS.md)** — Model strings, families, repo inventory, tool-calling expectations.
+
+#### Desktop Application
+
+- **[DESKTOP.md](spec/DESKTOP.md)** — Current state of the desktop application: screens, data sources, interactions, known gaps.
 
 ### `/tag`
 

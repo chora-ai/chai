@@ -319,6 +319,18 @@ pub(crate) fn build_argv(
                         argv.push(format_flag(flag));
                         argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
                     }
+                    _ if arg.absent_default.is_some() => {
+                        let default = arg.absent_default.as_ref().unwrap();
+                        let s = json_value_to_string(default).ok_or_else(|| {
+                            format!(
+                                "absentDefault for parameter {} must be a string, number, or boolean",
+                                arg.param
+                            )
+                        })?;
+                        let flag = arg.flag.as_deref().unwrap_or(&arg.param);
+                        argv.push(format_flag(flag));
+                        argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
+                    }
                     _ if arg.optional == Some(true) && arg.resolve_command.is_some() => {
                         let flag = arg.flag.as_deref().unwrap_or(&arg.param);
                         let resolved = transform_param_value(String::new(), arg, allowlist, skill_dir, args);
@@ -348,7 +360,7 @@ pub(crate) fn build_argv(
                 // When the parameter is absent, use absentDefault if set;
                 // otherwise treat as false (the original behavior).
                 let effective_value = if value.is_none() || value == Some(&serde_json::Value::Null) {
-                    arg.absent_default.map(|d| serde_json::Value::Bool(d))
+                    arg.absent_default.clone()
                 } else {
                     value.cloned()
                 };

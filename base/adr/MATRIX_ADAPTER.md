@@ -4,7 +4,7 @@ status: accepted
 
 # Matrix Adapter Package Design
 
-This document records why Matrix lives in a separate adapter crate with an optional Cargo feature, rather than being compiled into the main library unconditionally.
+This document records why Matrix lives in a separate adapter package with an optional Cargo feature, rather than being compiled into the main library unconditionally.
 
 ## Context
 
@@ -14,17 +14,17 @@ Matrix integration depends on **matrix-sdk** and its transitive dependencies (SQ
 
 | Topic | Choice |
 |-------|--------|
-| **Crate** | Matrix code lives in **`crates/adapters/matrix`** (Cargo package **`matrix-channel`**), not in **`crates/lib`**. |
+| **Package** | Matrix code lives in **`crates/adapters/matrix`** (Cargo package **`matrix-channel`**), not in **`crates/lib`**. |
 | **Feature gate** | **`lib`** exposes a **`matrix`** Cargo feature (opt-in). **`cli`** and **`desktop`** pass it through via **`--features matrix`**. |
 | **Default** | Matrix is **off** by default. **`cargo install --path crates/cli`** builds without Matrix. Operators who want Matrix add **`--features matrix`**. |
 | **Stub** | When the feature is off, **`lib`** compiles a stub module (**`matrix_stub.rs`**) that provides no-op types so the rest of the gateway compiles without Matrix symbols. |
-| **Thin wrapper** | **`crates/lib/src/channels/matrix.rs`** contains only a thin **`MatrixChannel`** newtype (to implement **`ChannelHandle`** from **`lib`**'s trait) and the **`connect_matrix_client`** wiring. All matrix-sdk logic stays in the adapter crate. |
+| **Thin wrapper** | **`crates/lib/src/channels/matrix.rs`** contains only a thin **`MatrixChannel`** newtype (to implement **`ChannelHandle`** from **`lib`**'s trait) and the **`connect_matrix_client`** wiring. All matrix-sdk logic stays in the adapter package. |
 
 ## Rationale
 
 - **Smaller default binary** — Operators who only use Telegram or Signal don't pay the matrix-sdk cost.
-- **Clean separation** — matrix-sdk and its crypto dependencies are isolated in a dedicated crate; **`lib`** only sees a small surface area (**`MatrixInner`**, **`connect_with_params`**, **`RawInbound`**).
-- **Consistent pattern** — This adapter-crate + feature-gate pattern is the same one used for Signal (see [SIGNAL_ADAPTER.md](SIGNAL_ADAPTER.md)). Future optional integrations can follow the same approach.
+- **Clean separation** — matrix-sdk and its crypto dependencies are isolated in a dedicated package; **`lib`** only sees a small surface area (**`MatrixInner`**, **`connect_with_params`**, **`RawInbound`**).
+- **Consistent pattern** — This adapter-package + feature-gate pattern is the same one used for Signal (see [SIGNAL_ADAPTER.md](SIGNAL_ADAPTER.md)). Future optional integrations can follow the same approach.
 - **Clear expectations** — An opt-in feature flag communicates "this works but is not yet first-class" more honestly than shipping it unconditionally.
 
 ## Alternatives Considered
@@ -37,5 +37,5 @@ Matrix integration depends on **matrix-sdk** and its transitive dependencies (SQ
 
 ## Related Documents
 
-- [SIGNAL_ADAPTER.md](SIGNAL_ADAPTER.md) — The same adapter-crate pattern for Signal (also experimental).
+- [SIGNAL_ADAPTER.md](SIGNAL_ADAPTER.md) — The same adapter-package pattern for Signal (also experimental).
 - [CHANNELS.md](../spec/CHANNELS.md) — Internal spec for gateway channel behavior.

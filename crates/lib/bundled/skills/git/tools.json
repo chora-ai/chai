@@ -23,7 +23,7 @@
         "properties": {
           "count": {
             "type": "string",
-            "description": "Number of commits to show (e.g. '10'). Defaults to all if omitted."
+            "description": "Number of commits to show (e.g. '10'). Defaults to 10 if omitted."
           },
           "oneline": {
             "type": "boolean",
@@ -203,14 +203,18 @@
       "subcommand": "status",
       "args": [
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "successExitCodes": [128],
+      "postProcess": {
+        "script": "hint-not-repo"
+      }
     },
     {
       "tool": "git_log",
       "binary": "git",
       "subcommand": "log",
       "args": [
-        { "param": "count", "kind": "flag", "flag": "n" },
+        { "param": "count", "kind": "flag", "flag": "n", "optional": true, "absentDefault": "10" },
         { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
         { "param": "file_path", "kind": "positional", "optional": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
@@ -227,7 +231,11 @@
         { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
-      "maxOutputLines": 200
+      "maxOutputLines": 200,
+      "postProcess": {
+        "script": "hint-diff-ref-main",
+        "args": ["$ref"]
+      }
     },
     {
       "tool": "git_show",
@@ -246,7 +254,8 @@
       "args": [
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "git_add",
@@ -272,7 +281,11 @@
           "denyAlwaysResolve": true,
           "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
         }
-      ]
+      ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-commit-status"
+      }
     },
     {
       "tool": "git_branch_create",

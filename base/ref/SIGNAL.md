@@ -6,7 +6,7 @@ status: current
 
 Reference for the **Signal** channel in Chai. Gateway behavior is specified in [CHANNELS.md](../spec/CHANNELS.md). [TELEGRAM.md](TELEGRAM.md) shows the Telegram mapping for comparison. Signal is positioned as a **privacy-preserving** option ([Signal](https://signal.org/)); the service remains **centralized** (Signal-operated servers), which is a different axis from federation.
 
-**Package and feature gate** — Signal lives in **`crates/adapters/signal`** (Cargo package **`signal-channel`**), behind **`lib`**'s optional **`signal`** Cargo feature. This mirrors the Matrix adapter pattern (see [MATRIX_ADAPTER.md](../adr/MATRIX_ADAPTER.md) and [SIGNAL_ADAPTER.md](../adr/SIGNAL_ADAPTER.md)). The thin wrapper in **`crates/lib/src/channels/signal.rs`** implements `ChannelHandle` via a newtype pattern; all signal-cli HTTP/SSE logic resides in the adapter crate.
+**Package and feature gate** — Signal lives in **`crates/adapters/signal`** (Cargo package **`signal-channel`**), behind **`lib`**'s optional **`signal`** Cargo feature. This mirrors the Matrix adapter pattern (see [MATRIX_ADAPTER.md](../adr/MATRIX_ADAPTER.md) and [SIGNAL_ADAPTER.md](../adr/SIGNAL_ADAPTER.md)). The thin wrapper in **`crates/lib/src/channels/signal.rs`** implements `ChannelHandle` via a newtype pattern; all signal-cli HTTP/SSE logic resides in the adapter package.
 
 **Experimental status** — Signal is an **experimental** channel for v0.1.0. Basic text messaging works (SSE inbound, JSON-RPC send). Hardening items (reconnect tuning, richer receive payloads for attachments and edits) remain as follow-ups. Operators opt in via **`--features signal`**; the default build does not include Signal.
 

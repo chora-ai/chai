@@ -60,7 +60,7 @@ LM Studio runs locally and uses the `"openai-compat"` endpoint type with LM Stud
 
    ```json
    {
-     "providers": [{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }],
+     "providers": [{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }],
      "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "lms", "defaultModel": "llama-3.2-3B-instruct" }]
    }
    ```
@@ -69,9 +69,9 @@ LM Studio runs locally and uses the `"openai-compat"` endpoint type with LM Stud
 
 - LM Studio must be running before starting the gateway.
 - Developer settings must be enabled with the runtime set appropriately.
-- Models must be manually loaded before the gateway sends a chat request (`autoLoad: "lmstudio"` handles this for one model).
+- Models must be manually loaded before the gateway sends a chat request (automatic retry on unload handles this for one model when `modelDiscovery: "lmstudio"` is set).
 - `modelDiscovery: "lmstudio"` uses LM Studio's native `GET /api/v1/models` endpoint (filters by `type == "llm"`).
-- `autoLoad: "lmstudio"` automatically loads an unloaded model and retries when LM Studio returns an "unloaded" error.
+- Automatic retry on unload: when `modelDiscovery: "lmstudio"` is set, the gateway automatically loads an unloaded model and retries when LM Studio returns an "unloaded" error.
 - All LM Studio models accept the tools parameter, but some models are not trained on tool use — results may be unreliable.
 
 ## NVIDIA NIM

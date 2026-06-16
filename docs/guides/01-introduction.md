@@ -19,7 +19,7 @@ A **provider** is a model backend — where the inference happens. Chai supports
 | Provider | Where it runs | Endpoint Type | Special behavior | Needs API key |
 |----------|---------------|---------------|------------------|---------------|
 | **Ollama** (`ollama`) | Your machine | `"ollama"` | — | No |
-| **LM Studio** (`lms`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"` | No |
+| **LM Studio** (`lms`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"` | No |
 | **NearAI** (`nearai`) | NearAI cloud | `"openai-compat"` | — | Yes |
 | **NVIDIA NIM** (`nim`) | NVIDIA cloud | `"openai-compat"` | `modelDiscovery: "static"`, `staticModels` | Yes |
 

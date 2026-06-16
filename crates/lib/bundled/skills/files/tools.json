@@ -80,7 +80,8 @@
           },
           "line_numbers": {
             "type": "boolean",
-            "description": "Show line numbers in output"
+            "description": "Show line numbers in output",
+            "default": true
           },
           "case_insensitive": {
             "type": "boolean",
@@ -143,7 +144,7 @@
     },
     {
       "name": "files_replace",
-      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple files_write_lines calls when the same edit applies to many locations in one file. When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content.",
+      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple files_write_lines calls when the same edit applies to many locations in one file. When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (matches must align with line boundaries). Use literal mode when the pattern contains regex metacharacters that should be matched as-is.",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
@@ -154,20 +155,25 @@
           },
           "pattern": {
             "type": "string",
-            "description": "Search pattern (extended regex). Matched against the full file content with multiline mode (^ and $ match line boundaries). \\n matches newlines, enabling multi-line patterns and line deletion."
+            "description": "Search pattern. By default, interpreted as regex matched against the full file content with multiline mode (^ and $ match line boundaries). In literal mode, the pattern is treated as literal text — no regex interpretation. For multi-line patterns, include actual newlines in the string."
           },
           "replacement": {
             "type": "string",
-            "description": "Replacement string. Supports $1-$9 for capture group references. Use $$ for a literal $. Use an empty string to delete matches. Escape sequences \\n (newline), \\t (tab), and \\\\ (literal backslash) are processed in the replacement, consistent with how \\n works in the pattern."
+            "description": "Replacement string. Supports $1-$9 for capture group references (regex mode only). Use $$ for a literal $. Use an empty string to delete matches. For multi-line replacements, include actual newlines in the string."
           },
           "max_replacements": {
             "type": "integer",
             "description": "Maximum number of replacements to apply. 0 (default) means unlimited. Use 1 to replace only the first match and avoid unintended changes when the same pattern appears in multiple locations.",
             "default": 0
           },
+          "literal": {
+            "type": "boolean",
+            "description": "Treat the pattern as literal text instead of regex. Use this when the pattern contains regex metacharacters (especially |, (), [], ., *, +, ?, {}) that should be matched as-is — common in source code, markdown tables, JSON, and URLs. Capture groups ($1-$9) are not supported in literal mode. Default: false."
+          },
           "line_numbers": {
             "type": "boolean",
-            "description": "Show line numbers in the returned diff (default: true)"
+            "description": "Show line numbers in the returned diff (default: true)",
+            "default": true
           }
         }
       }
@@ -220,6 +226,10 @@
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
       "maxOutputLines": 500
     },
     {
@@ -235,7 +245,12 @@
           "flag": "end-line",
           "optional": true
         }
-      ]
+      ],
+      "successExitCodes": [1],
+      "postProcess": {
+        "script": "hint-not-found"
+      },
+      "maxOutputLines": 500
     },
     {
       "tool": "files_list_dir",
@@ -246,6 +261,7 @@
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
         { "param": "path", "kind": "positional", "readPath": true }
       ],
+      "maxOutputLines": 200,
       "postProcess": {
         "script": "sanitize-ls"
       },
@@ -269,7 +285,8 @@
         {
           "param": "line_numbers",
           "kind": "flagifboolean",
-          "flagIfTrue": "--line-number"
+          "flagIfTrue": "--line-number",
+          "absentDefault": true
         },
         {
           "param": "case_insensitive",
@@ -285,6 +302,9 @@
         { "param": "path", "kind": "positional", "readPath": true }
       ],
       "successExitCodes": [0, 1],
+      "postProcess": {
+        "script": "hint-search-results"
+      },
       "maxOutputLines": 200
     },
     {
@@ -297,7 +317,10 @@
           "param": "content",
           "kind": "stdin"
         }
-      ]
+      ],
+      "postProcess": {
+        "script": "hint-overwrite"
+      }
     },
     {
       "tool": "files_write_lines",
@@ -321,7 +344,8 @@
           "param": "content",
           "kind": "stdin"
         }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "files_replace",
@@ -329,8 +353,8 @@
       "subcommand": "file replace",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-        { "param": "pattern", "kind": "flag", "flag": "pattern" },
-        { "param": "replacement", "kind": "flag", "flag": "replacement" },
+        { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
+        { "param": "replacement", "kind": "stdin" },
         {
           "param": "max_replacements",
           "kind": "flag",
@@ -338,12 +362,18 @@
           "optional": true
         },
         {
+          "param": "literal",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--literal"
+        },
+        {
           "param": "line_numbers",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-numbers",
           "absentDefault": true
         }
-      ]
+      ],
+      "maxOutputLines": 200
     },
     {
       "tool": "files_delete_file",

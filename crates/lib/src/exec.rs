@@ -189,6 +189,11 @@ impl Allowlist {
     /// Exit codes in `success_exit_codes` are treated as success (in addition
     /// to 0, which is always success). For example, passing `[1]` causes grep's
     /// "no match" exit to return `Ok(stdout)` instead of `Err(...)`.
+    ///
+    /// When a non-zero exit code is in the success list, stderr is appended to
+    /// stdout (separated by a newline if both are non-empty) so that postProcess
+    /// scripts can inspect error messages that git and other tools write to stderr.
+    /// Exit codes not in this list still surface as tool errors.
     fn collect_output_with_codes(
         output: std::process::Output,
         success_exit_codes: &[i32],
@@ -201,7 +206,17 @@ impl Allowlist {
         // Check if the exit code is in the explicit success list.
         if let Some(code) = output.status.code() {
             if success_exit_codes.contains(&code) {
-                return Ok(stdout);
+                // Treat this exit code as success, but still include stderr
+                // so that postProcess scripts can inspect error messages
+                // (e.g. git writing diagnostics to stderr).
+                let mut result = stdout;
+                if !stderr.is_empty() {
+                    if !result.is_empty() {
+                        result.push(10 as char); // newline
+                    }
+                    result.push_str(&stderr);
+                }
+                return Ok(result);
             }
         }
         let mut msg = stdout;
@@ -663,5 +678,72 @@ mod sandbox_tests {
         assert!(sb.validate(file.to_str().unwrap()).is_ok());
 
         cleanup(&base);
+    }
+}
+
+#[cfg(test)]
+#[cfg(unix)]
+mod collect_output_tests {
+    use super::*;
+    use std::os::unix::process::ExitStatusExt;
+    use std::process::Output;
+
+    fn make_output(stdout: &str, stderr: &str, code: i32) -> Output {
+        Output {
+            stdout: stdout.as_bytes().to_vec(),
+            stderr: stderr.as_bytes().to_vec(),
+            status: ExitStatusExt::from_raw(code << 8),
+        }
+    }
+
+    #[test]
+    fn success_exit_0_returns_stdout() {
+        let output = make_output("hello", "", 0);
+        let result = Allowlist::collect_output_with_codes(output, &[]);
+        assert_eq!(result, Ok("hello".to_string()));
+    }
+
+    #[test]
+    fn error_exit_includes_stderr() {
+        let output = make_output("", "fatal: error", 1);
+        let result = Allowlist::collect_output_with_codes(output, &[]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("fatal: error"));
+    }
+
+    #[test]
+    fn success_exit_code_returns_stdout_and_stderr() {
+        // When exit code 1 is in successExitCodes, output should be Ok
+        // with both stdout and stderr combined.
+        let output = make_output("On branch dev\nnothing to commit", "fatal: error details", 1);
+        let result = Allowlist::collect_output_with_codes(output, &[1]);
+        assert!(result.is_ok());
+        let text = result.unwrap();
+        assert!(text.contains("nothing to commit"), "should include stdout");
+        assert!(text.contains("fatal: error details"), "should include stderr");
+    }
+
+    #[test]
+    fn success_exit_code_empty_stderr_returns_stdout_only() {
+        let output = make_output("matches found", "", 1);
+        let result = Allowlist::collect_output_with_codes(output, &[1]);
+        assert_eq!(result, Ok("matches found".to_string()));
+    }
+
+    #[test]
+    fn success_exit_code_empty_stdout_returns_stderr() {
+        // git writes "not a git repository" to stderr, stdout is empty.
+        let output = make_output("", "fatal: not a git repository", 128);
+        let result = Allowlist::collect_output_with_codes(output, &[128]);
+        assert!(result.is_ok());
+        let text = result.unwrap();
+        assert!(text.contains("not a git repository"), "should include stderr");
+    }
+
+    #[test]
+    fn exit_code_not_in_success_list_still_errors() {
+        let output = make_output("", "fatal: error", 2);
+        let result = Allowlist::collect_output_with_codes(output, &[1]);
+        assert!(result.is_err());
     }
 }

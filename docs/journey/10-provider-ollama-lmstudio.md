@@ -67,7 +67,7 @@ Additional prerequisites per part:
    {
      "providers": [
        { "id": "ollama", "endpointType": "ollama" },
-       { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio", "autoLoad": "lmstudio" }
+       { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
      ],
      "agents": [
        {
@@ -80,8 +80,7 @@ Additional prerequisites per part:
      ]
    }
    ```
-   - `modelDiscovery: "lmstudio"` uses LM Studio's native model list endpoint (`GET /api/v1/models`).
-   - `autoLoad: "lmstudio"` requests automatic model loading on "unloaded" errors.
+   - `modelDiscovery: "lmstudio"` uses LM Studio's native model list endpoint (`GET /api/v1/models`). When this is set, the gateway also automatically retries chat requests on "unloaded" errors.
    - `enabledProviders` tells the gateway to poll both providers for model discovery.
 
 7. **Start the gateway**
@@ -227,7 +226,7 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
 ### LM Studio
 
 - **"provider lms discovered 0 model(s)"** — LM Studio local server is not running or no model is loaded. Start the server and load a model. Verify: `curl http://127.0.0.1:1234/v1/models`.
-- **Model not found / "unloaded" error** — The `defaultModel` value must match what LM Studio reports. Check `GET /api/v1/models` or the LM Studio UI for the exact model id format. If the model exists but is unloaded, ensure `autoLoad: "lmstudio"` is set.
+- **Model not found / "unloaded" error** — The `defaultModel` value must match what LM Studio reports. Check `GET /api/v1/models` or the LM Studio UI for the exact model id format. If the model exists but is unloaded, ensure `modelDiscovery: "lmstudio"` is set (the gateway automatically retries on "unloaded" errors).
 
 ### NearAI
 
@@ -248,7 +247,7 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
 | Part | Provider | Key Config | Discovery | Auth |
 |------|----------|------------|-----------|------|
 | A | Ollama | `defaultModel` change | `GET /api/tags` (default) | None |
-| B | LM Studio | `modelDiscovery: "lmstudio"`, `autoLoad: "lmstudio"` | `GET /api/v1/models` (LM Studio native) | None |
+| B | LM Studio | `modelDiscovery: "lmstudio"` | `GET /api/v1/models` (LM Studio native) | None |
 | C | NearAI | `baseUrl: "https://cloud-api.near.ai/v1"` | `GET /v1/models` (default) | `apiKey` (literal or `<ENV_VAR>`) |
 | D | NVIDIA NIM | `baseUrl`, `modelDiscovery: "static"`, `staticModels` | Static list in config | `apiKey` (literal or `<NVIDIA_API_KEY>`) |
 

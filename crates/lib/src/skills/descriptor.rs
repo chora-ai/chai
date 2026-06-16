@@ -190,14 +190,14 @@ pub struct ArgMapping {
     /// For kind "flagIfBoolean", the flag to emit when the param value is false (e.g. "--append").
     #[serde(default)]
     pub flag_if_false: Option<String>,
-    /// For kind "flagIfBoolean", the boolean value to use when the parameter is
-    /// absent from the tool call JSON. Without this, an absent boolean parameter
-    /// is treated as false. With this, the tool enforces the default — the LLM
-    /// does not need to infer or remember to include the parameter. The schema
-    /// `"default"` field is only a hint to the LLM; `absentDefault` is enforced
-    /// by the executor.
+    /// The value to use when a parameter is absent from the tool call JSON.
+    /// For `flagIfBoolean`, this provides the boolean default (previously,
+    /// absent boolean parameters were always treated as false). For `flag`,
+    /// this provides a string or numeric default (e.g., `"warn"` for a level
+    /// parameter, `"10"` for a count). The schema `"default"` field is only a
+    /// hint to the LLM; `absentDefault` is enforced by the executor.
     #[serde(default, rename = "absentDefault")]
-    pub absent_default: Option<bool>,
+    pub absent_default: Option<serde_json::Value>,
     /// Optional: run this allowlisted command with param value substituted for "$param" in args; use trimmed stdout as the value.
     #[serde(default)]
     pub resolve_command: Option<ResolveCommandSpec>,
