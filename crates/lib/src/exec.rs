@@ -93,6 +93,19 @@ impl Allowlist {
         working_dir: Option<&Path>,
         success_exit_codes: &[i32],
     ) -> Result<String, String> {
+        self.run_with_codes_and_exit(binary, subcommand, args, working_dir, success_exit_codes)
+            .map(|(_, output)| output)
+    }
+
+    /// Like `run_with_codes`, but also returns the exit code on success.
+    pub fn run_with_codes_and_exit(
+        &self,
+        binary: &str,
+        subcommand: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        success_exit_codes: &[i32],
+    ) -> Result<(i32, String), String> {
         let allowed = self
             .bins
             .get(binary)
@@ -141,6 +154,20 @@ impl Allowlist {
         stdin: &[u8],
         success_exit_codes: &[i32],
     ) -> Result<String, String> {
+        self.run_with_stdin_with_codes_and_exit(binary, subcommand, args, working_dir, stdin, success_exit_codes)
+            .map(|(_, output)| output)
+    }
+
+    /// Like `run_with_stdin_with_codes`, but also returns the exit code on success.
+    pub fn run_with_stdin_with_codes_and_exit(
+        &self,
+        binary: &str,
+        subcommand: &str,
+        args: &[String],
+        working_dir: Option<&Path>,
+        stdin: &[u8],
+        success_exit_codes: &[i32],
+    ) -> Result<(i32, String), String> {
         use std::io::Write;
         use std::process::Stdio;
 
@@ -194,30 +221,31 @@ impl Allowlist {
     /// stdout (separated by a newline if both are non-empty) so that postProcess
     /// scripts can inspect error messages that git and other tools write to stderr.
     /// Exit codes not in this list still surface as tool errors.
+    ///
+    /// Returns `Ok((exit_code, output))` on success or `Err(...)` on failure.
     fn collect_output_with_codes(
         output: std::process::Output,
         success_exit_codes: &[i32],
-    ) -> Result<String, String> {
+    ) -> Result<(i32, String), String> {
+        let code = output.status.code().unwrap_or(-1);
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if output.status.success() {
-            return Ok(stdout);
+            return Ok((0, stdout));
         }
         // Check if the exit code is in the explicit success list.
-        if let Some(code) = output.status.code() {
-            if success_exit_codes.contains(&code) {
-                // Treat this exit code as success, but still include stderr
-                // so that postProcess scripts can inspect error messages
-                // (e.g. git writing diagnostics to stderr).
-                let mut result = stdout;
-                if !stderr.is_empty() {
-                    if !result.is_empty() {
-                        result.push(10 as char); // newline
-                    }
-                    result.push_str(&stderr);
+        if success_exit_codes.contains(&code) {
+            // Treat this exit code as success, but still include stderr
+            // so that postProcess scripts can inspect error messages
+            // (e.g. git writing diagnostics to stderr).
+            let mut result = stdout;
+            if !stderr.is_empty() {
+                if !result.is_empty() {
+                    result.push(10 as char); // newline
                 }
-                return Ok(result);
+                result.push_str(&stderr);
             }
+            return Ok((code, result));
         }
         let mut msg = stdout;
         if !stderr.is_empty() {
@@ -700,7 +728,7 @@ mod collect_output_tests {
     fn success_exit_0_returns_stdout() {
         let output = make_output("hello", "", 0);
         let result = Allowlist::collect_output_with_codes(output, &[]);
-        assert_eq!(result, Ok("hello".to_string()));
+        assert_eq!(result, Ok((0, "hello".to_string())));
     }
 
     #[test]
@@ -718,7 +746,8 @@ mod collect_output_tests {
         let output = make_output("On branch dev\nnothing to commit", "fatal: error details", 1);
         let result = Allowlist::collect_output_with_codes(output, &[1]);
         assert!(result.is_ok());
-        let text = result.unwrap();
+        let (code, text) = result.unwrap();
+        assert_eq!(code, 1);
         assert!(text.contains("nothing to commit"), "should include stdout");
         assert!(text.contains("fatal: error details"), "should include stderr");
     }
@@ -727,7 +756,7 @@ mod collect_output_tests {
     fn success_exit_code_empty_stderr_returns_stdout_only() {
         let output = make_output("matches found", "", 1);
         let result = Allowlist::collect_output_with_codes(output, &[1]);
-        assert_eq!(result, Ok("matches found".to_string()));
+        assert_eq!(result, Ok((1, "matches found".to_string())));
     }
 
     #[test]
@@ -736,7 +765,8 @@ mod collect_output_tests {
         let output = make_output("", "fatal: not a git repository", 128);
         let result = Allowlist::collect_output_with_codes(output, &[128]);
         assert!(result.is_ok());
-        let text = result.unwrap();
+        let (code, text) = result.unwrap();
+        assert_eq!(code, 128);
         assert!(text.contains("not a git repository"), "should include stderr");
     }
 

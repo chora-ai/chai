@@ -33,6 +33,7 @@ Each profile gets its own `config.json`, agent context directories, and local st
 | `profiles/<name>/sandbox/AGENTS.md` | Seeded from bundled template if absent; existing content is preserved |
 | `profiles/<name>/sandbox/README.md` | Seeded from bundled template if absent; existing content is preserved |
 
+**Sandbox recovery** — If a profile directory already exists but its `sandbox/` subdirectory has been deleted, `chai init` re-creates the sandbox directory and seeds template files. Other files within the profile are not modified.
 **Bundled skills** — Each bundled skill is extracted into `~/.chai/skills/<name>/` using content-addressed versioning:
 
 | Component | Behavior |
@@ -53,7 +54,8 @@ Each profile gets its own `config.json`, agent context directories, and local st
 Re-running `chai init` is useful when:
 
 - A new version of chai ships updated bundled skills — the new version snapshots will be created on disk (you can adopt them with `chai skill rollback` or by manually updating the `active` symlink)
-- A profile directory or `sandbox/` was accidentally deleted — the missing directories and template files will be re-created
+- A `sandbox/` directory was accidentally deleted — the missing directory and template files will be re-created for existing profiles without affecting other profile files
+- A profile directory was deleted — the entire profile will be re-seeded from scratch
 - You want to ensure the default profile scaffold is complete
 
 ## Profiles
@@ -419,6 +421,7 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 | `gateway.bind` | `127.0.0.1` | - | - |
 | `gateway.auth.mode` | `none` | - | `none` or `token` |
 | `gateway.auth.token` | - | `CHAI_GATEWAY_TOKEN` | Only used if `mode` is `token` |
+| `gateway.unsafeSandbox` | `false` | - | Allow the gateway to start without a sandbox directory. When `false` (default), the gateway refuses to start if the sandbox directory is missing. When `true`, the gateway starts but CWD confinement and path validation are disabled. See [Write Sandbox](07-sandbox.md). |
 | `skillLockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. No effect until `skills.lock` exists for the active profile. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
 
 ### Channels

@@ -63,7 +63,7 @@ pub fn build_workers_context(
     out.push_str("## Workers\n\n");
     out.push_str("You are the orchestrator agent. You have worker agents.\n\n");
     out.push_str("You can call `delegate_task` to delegate a task to a worker agent.\n\n");
-    out.push_str("`delegate_task` calls are self-contained — each delegation creates a new worker instance.\n\n");
+    out.push_str("The worker does not share session history — each worker turn begins with no history.\n\n");
     out.push_str("`delegate_task` calls execute sequentially — each worker turn completes before the next begins.\n\n");
     out.push_str("Only delegate a task to a worker if the worker has the relevant skills.\n\n");
     for w in workers {

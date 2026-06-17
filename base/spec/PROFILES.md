@@ -106,7 +106,7 @@ Each profile has a **per-profile lockfile** at `profiles/<name>/skills.lock` tha
   "skills": {
     "git": { "hash": "a1b2c3d" },
     "files": { "hash": "f8e9d0b" },
-    "kb": { "hash": "9c8d7e6" }
+    "notes": { "hash": "9c8d7e6" }
   },
   "generation": 3
 }
@@ -166,10 +166,10 @@ When the gateway is running, the desktop resolves the **effective profile** usin
 1. Creates two default profiles: `assistant` and `developer` with **equivalent scaffolds** (same defaults, same structure)
 2. Writes default `config.json` and `agents/orchestrator/AGENT.md` under each profile — only when the files do not already exist
 3. Extracts bundled skills to `~/.chai/skills/` — creates version snapshots; sets `active` symlink only for fresh installations (preserves existing user customizations)
-4. Creates `sandbox/` under each profile and seeds template files — only when they do not already exist (see [SANDBOX.md](SANDBOX.md))
+4. Creates `sandbox/` under each profile and seeds template files — only when they do not already exist (see [SANDBOX.md](SANDBOX.md)). If a profile directory already exists but its `sandbox/` subdirectory is missing, the sandbox is re-created and seeded.
 5. Sets `~/.chai/active → profiles/assistant/` — only when no valid `active` symlink already exists; if the symlink points to a valid profile directory, it is left unchanged
 
-**Re-running `chai init`** is fully non-destructive: existing profile files are never overwritten, bundled skill `active` symlinks are left unchanged when they already point to a valid version, and the profile `active` symlink is preserved if it resolves to a valid profile directory. Only a missing or broken `active` symlink triggers the default (`assistant`).
+**Re-running `chai init`** is fully non-destructive: existing profile files are never overwritten, bundled skill `active` symlinks are left unchanged when they already point to a valid version, and the profile `active` symlink is preserved if it resolves to a valid profile directory. A deleted `sandbox/` directory is recovered for existing profiles without modifying other files. Only a missing or broken `active` symlink triggers the default (`assistant`).
 
 Default profile names are **mnemonics**, not different runtime policies. Users may rename profiles, add more, or adjust layout after init.
 

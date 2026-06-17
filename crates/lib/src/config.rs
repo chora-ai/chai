@@ -52,6 +52,13 @@ pub struct GatewayConfig {
     /// Auth settings. When absent, defaults to no auth for loopback bind.
     #[serde(default)]
     pub auth: GatewayAuthConfig,
+
+    /// When `false` (default), the gateway refuses to start when the sandbox
+    /// directory for the active profile does not exist. When `true`, the
+    /// gateway starts without a sandbox and logs a warning that CWD
+    /// confinement and path validation are disabled.
+    #[serde(default)]
+    pub unsafe_sandbox: bool,
 }
 
 /// Gateway auth: token or none (loopback-only when none).
@@ -91,6 +98,7 @@ impl Default for GatewayConfig {
             port: default_gateway_port(),
             bind: default_gateway_bind(),
             auth: GatewayAuthConfig::default(),
+            unsafe_sandbox: false,
         }
     }
 }
@@ -988,6 +996,27 @@ mod tests {
         let g = GatewayConfig::default();
         assert_eq!(g.port, 15151);
         assert_eq!(g.bind, "127.0.0.1");
+        assert!(!g.unsafe_sandbox);
+    }
+
+    #[test]
+    fn default_gateway_unsafe_sandbox_false() {
+        let c: Config = serde_json::from_str("{}").expect("parse");
+        assert!(!c.gateway.unsafe_sandbox);
+    }
+
+    #[test]
+    fn gateway_unsafe_sandbox_true_from_json() {
+        let j = r#"{"gateway":{"unsafeSandbox":true}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert!(c.gateway.unsafe_sandbox);
+    }
+
+    #[test]
+    fn gateway_unsafe_sandbox_false_explicit() {
+        let j = r#"{"gateway":{"unsafeSandbox":false}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert!(!c.gateway.unsafe_sandbox);
     }
 
     #[test]

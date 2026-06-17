@@ -31,7 +31,7 @@ Each element:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `name` | string | Tool name (e.g. `files`, `git`, `kb`). Must match an execution spec. |
+| `name` | string | Tool name (e.g. `files`, `git`, `notes`). Must match an execution spec. |
 | `description` | string (optional) | Short description for the model. |
 | `parameters` | object | JSON Schema for arguments (see **Parameters (JSON Schema)** above). |
 
@@ -89,7 +89,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-feed-path"` → `scripts/resolve-feed-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
 | `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill's allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
-| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value; `"$param_name"` (e.g. `"$kb_root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
+| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value; `"$param_name"` (e.g. `"$root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 When `script` is set, the executor runs `sh <skill_dir>/scripts/<script> <args...>`. When `binary` and `subcommand` are set, the executor runs them via the allowlist. No extra setup (allowlist entry or separate binary) is required for scripts.
 
@@ -104,7 +104,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"parse-rss"`). Same path rules as `resolveCommand.script`. |
 | `binary` | string (optional) | Binary name for allowlisted post-processing (must be in the skill's allowlist). |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). |
-| `args` | array of strings | Additional arguments passed to the script or command. `"$param_name"` (e.g. `"$kb_root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
+| `args` | array of strings | Additional arguments passed to the script or command. `"$param_name"` (e.g. `"$root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 **Design notes:**
 - `postProcess` is set on the **execution spec** (per-tool), not on individual args. It transforms the final stdout, not a parameter value.

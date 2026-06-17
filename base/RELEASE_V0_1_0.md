@@ -29,7 +29,7 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 ### Skills Audit and Refinement
 
-- [ ] Complete cross-skill audit ([AUDIT_SKILLS.md](AUDIT_SKILLS.md)) — all bundled skills reviewed
+- [x] Complete cross-skill audit ([AUDIT_SKILLS.md](AUDIT_SKILLS.md)) — all bundled skills reviewed
 
 ### Code Quality and Structure
 

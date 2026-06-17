@@ -117,6 +117,34 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<bool> {
         orchestrator_agents.display()
     );
 
+    seed_sandbox(profile_dir, profile_name)?;
+
+    Ok(true)
+}
+
+/// Re-create a missing sandbox directory for an existing profile and seed
+/// template files. Returns `true` if the sandbox was re-created, `false` if
+/// it already exists.
+///
+/// Called for every known default profile during `chai init` so that a
+/// deleted sandbox directory can be recovered without deleting the entire
+/// profile.
+fn recover_sandbox(profile_dir: &Path, profile_name: &str) -> Result<bool> {
+    let sandbox_dir = profile_dir.join("sandbox");
+    if sandbox_dir.is_dir() {
+        return Ok(false);
+    }
+    log::info!(
+        "sandbox directory missing for existing profile at {}; re-creating",
+        sandbox_dir.display()
+    );
+    seed_sandbox(profile_dir, profile_name)?;
+    Ok(true)
+}
+
+/// Create the sandbox directory under a profile and seed template files.
+/// Existing files within the sandbox are never overwritten.
+fn seed_sandbox(profile_dir: &Path, profile_name: &str) -> Result<()> {
     let sandbox_dir = profile_dir.join("sandbox");
     std::fs::create_dir_all(&sandbox_dir).with_context(|| {
         format!("creating sandbox directory {}", sandbox_dir.display())
@@ -126,6 +154,9 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<bool> {
     // Seed sandbox template files from the profile config.
     for (rel_path, contents) in bundled_sandbox_templates(profile_name)? {
         let dest = sandbox_dir.join(rel_path);
+        if dest.exists() {
+            continue;
+        }
         if let Some(parent) = dest.parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -134,7 +165,7 @@ fn seed_profile(profile_dir: &Path, profile_name: &str) -> Result<bool> {
         log::info!("seeded sandbox template at {}", dest.display());
     }
 
-    Ok(true)
+    Ok(())
 }
 
 /// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`, and `skills.lock` for newly seeded profiles.
@@ -159,8 +190,14 @@ pub fn init_chai_home() -> Result<PathBuf> {
 
     let mut newly_seeded = Vec::new();
     for name in ["assistant", "developer"] {
-        if seed_profile(&profiles_base.join(name), name)? {
+        let profile_dir = profiles_base.join(name);
+        if seed_profile(&profile_dir, name)? {
             newly_seeded.push(name);
+        } else {
+            // Profile directory already exists — recover sandbox if it was
+            // deleted. This ensures `chai init` can fix a missing sandbox
+            // without requiring the entire profile to be re-created.
+            recover_sandbox(&profile_dir, name)?;
         }
     }
 

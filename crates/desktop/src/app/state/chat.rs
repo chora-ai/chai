@@ -119,6 +119,25 @@ fn format_delegation_line(event_name: &str, data: &serde_json::Value) -> String 
     format!("Delegation: {}", event_name)
 }
 
+/// Compute the index of the first message in the current turn (after the last
+/// user message). Tool indices reset per turn, so scoping to the current turn
+/// prevents false matches against previous turns.
+fn turn_start_index(entry: &[ChatMessage]) -> usize {
+    entry
+        .iter()
+        .rposition(|m| m.role == "user")
+        .map(|i| i + 1)
+        .unwrap_or(0)
+}
+
+/// Check whether any streamed `tool_call` entries exist in the current turn.
+/// Used to decide whether the assistant message's inline `tool_calls`/`tool_results`
+/// should be cleared to avoid duplicating what streamed events already display.
+pub(crate) fn has_streamed_tools_this_turn(entry: &[ChatMessage]) -> bool {
+    let turn_start = turn_start_index(entry);
+    entry[turn_start..].iter().any(|m| m.role == "tool_call")
+}
+
 impl ChaiApp {
     /// Move a session to the front of session_order (most recently active first).
     pub(crate) fn move_session_to_front(&mut self, session_id: &str) {
@@ -194,11 +213,7 @@ impl ChaiApp {
                 // Check for duplicate tool_call within the current turn (can happen on reconnect).
                 // Only check entries after the last user message, since tool_index resets
                 // per turn and would falsely match entries from previous turns.
-                let turn_start = entry
-                    .iter()
-                    .rposition(|m| m.role == "user")
-                    .map(|i| i + 1)
-                    .unwrap_or(0);
+                let turn_start = turn_start_index(entry);
                 let is_dup = entry[turn_start..].iter().any(|m| {
                     m.role == "tool_call"
                         && m.tool_index == ev.tool_index
@@ -231,14 +246,17 @@ impl ChaiApp {
             }
             if ev.role == "tool_result" {
                 // Find the matching tool_call entry by index and fill in the result.
-                // Use rev().find() to match the most recent entry with a given index,
-                // since tool_index resets per turn and older entries may share the same index.
+                // Search only within the current turn so that a tool_result doesn't
+                // match a tool_call from a previous turn that happens to share the
+                // same (index, name, source). Use rev().find() to match the most
+                // recent entry with a given index within the turn.
                 log::debug!(
                     "tool_result event: session={}, name={:?}, index={:?}, has_result={}, entry_len={}",
                     session_id, ev.tool_name, ev.tool_index, ev.tool_result.is_some(), entry.len()
                 );
                 if let Some(idx) = ev.tool_index {
-                    let found = entry.iter_mut().rev().find(|m| {
+                    let turn_start = turn_start_index(entry);
+                    let found = entry[turn_start..].iter_mut().rev().find(|m| {
                         m.role == "tool_call"
                             && m.tool_index == Some(idx)
                             && m.tool_name == ev.tool_name
@@ -258,7 +276,7 @@ impl ChaiApp {
                         log::debug!(
                             "tool_result NO MATCH: index={}, tool_call entries: {:?}",
                             idx,
-                            entry.iter()
+                            entry[turn_start..].iter()
                                 .filter(|m| m.role == "tool_call")
                                 .map(|m| (m.tool_index, m.tool_name.clone()))
                                 .collect::<Vec<_>>()
@@ -345,7 +363,7 @@ impl ChaiApp {
                 }
                 // If streamed tool_call entries already exist for this turn,
                 // clear tool_calls/tool_results so the inline fallback doesn't duplicate.
-                let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
+                let has_streamed_tools = has_streamed_tools_this_turn(entry);
                 if let Some(prev) = last_non_delegation(entry.as_slice()) {
                     if is_duplicate_assistant_row(prev, &ev.role, &ev.content, &ev.tool_calls) {
                         // Find by content only (tool_calls may have been cleared on the
@@ -394,7 +412,7 @@ impl ChaiApp {
                 source: ev.source.clone(),
                 pending_tool_calls: ev.pending_tool_calls.clone(),
             };
-            if ev.role == "assistant" && entry.iter().any(|m| m.role == "tool_call") {
+            if ev.role == "assistant" && has_streamed_tools_this_turn(entry) {
                 ev_msg.tool_calls = None;
                 ev_msg.tool_results = None;
             }

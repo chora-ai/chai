@@ -61,7 +61,21 @@ For a **new session**, when the user sends a message, the model receives:
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
-- Otherwise: **`## Workers`**, blank line, intro (**`You are the orchestrator agent. You have worker agents.`**), blank line, delegation tool (**`You can call \`delegate_task\` to delegate a task to a worker agent.`**), blank line, delegation guidance (**``delegate_task` calls are self-contained` — each delegationcreates a new worker instance.`**), blank line, delegation guidance (**`\`delegate_task\` calls execute sequentially — each worker turn completes before the next begins.`**), blank line, delegation guidance (**`Only delegate a task to a worker if the worker has the relevant skills.`**), blank line, then per worker (via **`lines_for_worker`**):
+- Otherwise:
+```
+## Workers
+
+You are the orchestrator agent. You have worker agents.
+
+You can call `delegate_task` to delegate a task to a worker agent.
+
+The worker does not share session history — each worker turn begins with no history.
+
+`delegate_task` calls execute sequentially — each worker turn completes before the next begins.
+
+Only delegate a task to a worker if the worker has the relevant skills.
+```
+Then per worker (via **`lines_for_worker`**):
   - **`### <id>`** heading.
   - Skill descriptions from **`skill_catalog`** (**`This worker has the following skills:`** + one **`- <description>`** per enabled skill; omitted if no skills enabled).
   - Bracket prefix line (**`Start your instruction with \`[<id>]\` to delegate to this worker.`**).

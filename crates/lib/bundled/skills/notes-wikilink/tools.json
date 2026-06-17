@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "kb_wikilink_backlinks",
+      "name": "notes_wikilink_backlinks",
       "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
       "parameters": {
         "type": "object",
@@ -19,7 +19,7 @@
       }
     },
     {
-      "name": "kb_wikilink_outlinks",
+      "name": "notes_wikilink_outlinks",
       "description": "Extract all wikilink targets from a note. Returns one link target per line (note names only, without brackets).",
       "parameters": {
         "type": "object",
@@ -29,15 +29,15 @@
             "type": "string",
             "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
         }
       }
     },
     {
-      "name": "kb_wikilink_by_tag",
+      "name": "notes_wikilink_by_tag",
       "description": "Find notes that contain a given tag in their content or frontmatter.",
       "parameters": {
         "type": "object",
@@ -55,7 +55,7 @@
       }
     },
     {
-      "name": "kb_wikilink_broken",
+      "name": "notes_wikilink_broken",
       "description": "Check a note for broken wikilinks. Returns a list of link targets that do not resolve to existing notes.",
       "parameters": {
         "type": "object",
@@ -65,16 +65,16 @@
             "type": "string",
             "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
         }
       }
     },
     {
-      "name": "kb_wikilink_rename",
-      "description": "Rename a knowledge base note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes in the knowledge base.",
+      "name": "notes_wikilink_rename",
+      "description": "Rename a note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes.",
       "parameters": {
         "type": "object",
         "required": ["from", "to"],
@@ -87,9 +87,9 @@
             "type": "string",
             "description": "New note path relative to the sandbox root (use ./ prefix)"
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
         }
       }
@@ -101,7 +101,7 @@
   },
   "execution": [
     {
-      "tool": "kb_wikilink_backlinks",
+      "tool": "notes_wikilink_backlinks",
       "binary": "grep",
       "subcommand": "-rn --include=*.md",
       "args": [
@@ -124,7 +124,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "kb_wikilink_outlinks",
+      "tool": "notes_wikilink_outlinks",
       "binary": "grep",
       "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
       "args": [
@@ -136,13 +136,13 @@
       ],
       "postProcess": {
         "script": "sanitize-outlinks",
-        "args": ["$kb_root"]
+        "args": ["$root"]
       },
       "successExitCodes": [0, 1],
       "maxOutputLines": 200
     },
     {
-      "tool": "kb_wikilink_by_tag",
+      "tool": "notes_wikilink_by_tag",
       "binary": "grep",
       "subcommand": "-rn --include=*.md",
       "args": [
@@ -165,7 +165,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "kb_wikilink_broken",
+      "tool": "notes_wikilink_broken",
       "binary": "grep",
       "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
       "args": [
@@ -177,14 +177,14 @@
       ],
       "postProcess": {
         "script": "check-broken-links",
-        "args": ["$kb_root"],
+        "args": ["$root"],
         "emptyIsResult": true
       },
       "successExitCodes": [0, 1],
       "maxOutputLines": 200
     },
     {
-      "tool": "kb_wikilink_rename",
+      "tool": "notes_wikilink_rename",
       "binary": "chai",
       "subcommand": "file rename-note",
       "args": [
@@ -201,7 +201,7 @@
           "writePath": true
         },
         {
-          "param": "kb_root",
+          "param": "root",
           "kind": "flag",
           "flag": "root",
           "readPath": true,

@@ -88,7 +88,12 @@ impl DelegateObservability {
             "payload": payload,
         });
         if let Ok(text) = serde_json::to_string(&frame) {
-            let _ = self.event_tx.send(text);
+            if let Err(e) = self.event_tx.send(text) {
+                log::debug!(
+                    "delegate observability: failed to send {} event: {}",
+                    event, e
+                );
+            }
         }
     }
 
@@ -221,6 +226,10 @@ pub struct DelegateContext<'a> {
     /// When set, the worker turn checks this flag at the top of each loop iteration
     /// and stops gracefully when the flag becomes true.
     pub stop_flag: Option<Arc<AtomicBool>>,
+    /// Offset added to tool call/result `index` values emitted by the worker's
+    /// observability. Set to the count of orchestrator tool calls already executed
+    /// in the current turn so worker indices don't collide with orchestrator indices.
+    pub tool_index_offset: usize,
 }
 
 /// Tool list passed to the worker: same definitions as the orchestrator minus `delegate_task` (nested delegation is disabled).
@@ -522,7 +531,7 @@ pub async fn execute_delegate_task(
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
         source: Some(worker_id.unwrap_or("worker").to_string()),
-        tool_index_offset: 0,
+        tool_index_offset: ctx.tool_index_offset,
     });
     let result =
         match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations, worker_obs.as_ref(), ctx.stop_flag.clone()).await

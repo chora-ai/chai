@@ -1,6 +1,6 @@
 #!/bin/sh
-# Resolve a date to a daily note path within the knowledge base.
-# Usage: resolve-daily-path.sh <date> [kb_root]
+# Resolve a date to a daily note path.
+# Usage: resolve-daily-path.sh <date> [root]
 #
 # If the input is already an absolute path, returns it unchanged. This makes
 # the script idempotent — when the generic executor substitutes a canonical
@@ -9,19 +9,19 @@
 # or appending a second .md extension.
 #
 # The daily notes folder is resolved in order:
-#   1. <kb_dir>/.kb-daily.conf (format: folder=<relative-path>)
-#   2. <kb_dir>/.obsidian/daily-notes.json (format: {"folder": "<relative-path>"})
+#   1. <notes_dir>/.notes-daily.conf (format: folder=<relative-path>)
+#   2. <notes_dir>/.obsidian/daily-notes.json (format: {"folder": "<relative-path>"})
 #   3. Default: "daily"
 #
 # If no date is provided, uses today's date (YYYY-MM-DD).
 #
-# The kb_root parameter is a path relative to the sandbox root. When omitted,
-# the KB directory defaults to the sandbox root.
+# The root parameter is a path relative to the sandbox root. When omitted,
+# the notes directory defaults to the sandbox root.
 #
-# Output: <kb_dir>/<folder>/<date>.md
+# Output: <notes_dir>/<folder>/<date>.md
 
 date="$1"
-kb_root_rel="$2"
+root_rel="$2"
 
 # If the input is already an absolute path, return it as-is.
 case "$date" in
@@ -30,11 +30,11 @@ esac
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
-# Resolve the KB directory from kb_root parameter.
-if [ -z "$kb_root_rel" ]; then
-    kb_dir="$sandbox_root"
+# Resolve the notes directory from root parameter.
+if [ -z "$root_rel" ]; then
+    notes_dir="$sandbox_root"
 else
-    kb_dir="$sandbox_root/$kb_root_rel"
+    notes_dir="$sandbox_root/$root_rel"
 fi
 
 # Default to today if no date provided.
@@ -43,9 +43,9 @@ if [ -z "$date" ]; then
 fi
 
 # Resolve the daily notes folder.
-# 1. Check .kb-daily.conf in the KB directory.
+# 1. Check .notes-daily.conf in the notes directory.
 folder=""
-daily_config="$kb_dir/.kb-daily.conf"
+daily_config="$notes_dir/.notes-daily.conf"
 if [ -f "$daily_config" ]; then
     val=$(sed -n 's/^folder=//p' "$daily_config" 2>/dev/null | head -1 | tr -d '\n')
     if [ -n "$val" ]; then
@@ -53,9 +53,9 @@ if [ -f "$daily_config" ]; then
     fi
 fi
 
-# 2. Fallback: check .obsidian/daily-notes.json in the KB directory.
+# 2. Fallback: check .obsidian/daily-notes.json in the notes directory.
 if [ -z "$folder" ]; then
-    obsidian_config="$kb_dir/.obsidian/daily-notes.json"
+    obsidian_config="$notes_dir/.obsidian/daily-notes.json"
     if [ -f "$obsidian_config" ]; then
         val=$(sed -n 's/.*"folder"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$obsidian_config" 2>/dev/null | head -1 | tr -d '\n')
         if [ -n "$val" ]; then
@@ -69,4 +69,4 @@ if [ -z "$folder" ]; then
     folder="daily"
 fi
 
-echo "$kb_dir/$folder/$date.md"
+echo "$notes_dir/$folder/$date.md"

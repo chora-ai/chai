@@ -19,7 +19,7 @@ Example configuration:
     "role": "orchestrator",
     "defaultProvider": "<provider>",
     "defaultModel": "<model>",
-    "skillsEnabled": ["kb-daily", "files"]
+    "skillsEnabled": ["notes-daily", "files"]
   }]
 }
 ```
@@ -39,7 +39,7 @@ In summary:
 ## Run Procedure
 
 1. Set the playbook model in `agents.defaultModel`.
-2. Ensure both `kb-daily` and `files` are in `skillsEnabled`.
+2. Ensure both `notes-daily` and `files` are in `skillsEnabled`.
 3. Run all five messages in `skills.contextMode: "full"` for three runs.
 4. Repeat in `skills.contextMode: "readOnDemand"` for three runs.
 5. Record error acknowledgment, recovery behavior, response summary, pass/fail, and any errors.

@@ -75,6 +75,30 @@ This convention is not cosmetic. The `truncate_output()` function preserves line
 
 Binary-level hints that previously embedded the hint inline (e.g., `0 replacements in path (hint: …)`) must emit the hint as a separate line to be preserved by truncation. The `postProcess` script pattern of `echo ""` followed by `echo "hint: …"` naturally produces this format.
 
+### `CHAI_EXIT_CODE` Environment Variable
+
+`postProcess` scripts receive the main command's exit code as the `CHAI_EXIT_CODE` environment variable. This is essential for scripts that need to distinguish between a successful command and an error condition admitted by `successExitCodes`.
+
+The canonical pattern for a `postProcess` script that inspects the exit code:
+
+```sh
+input=$(cat)
+
+if [ "${CHAI_EXIT_CODE:-0}" != "0" ]; then
+    printf '%s' "$input"
+    echo ""
+    echo "hint: <message for the error case>"
+else
+    printf '%s' "$input"
+fi
+```
+
+Two implementation rules demonstrated by the `hint-not-found.sh` bug fix:
+
+1. **Buffer stdin before processing** — Use `input=$(cat)` to capture all of stdin into a variable. Never pipe stdin directly into `grep` or any other command that reads stdin, because the first consumer will drain the pipe and subsequent commands (including `cat` used to pass output through) will receive nothing or partial content.
+
+2. **Check `CHAI_EXIT_CODE` instead of pattern-matching output** — When a hint depends on whether the command failed, use the exit code as the signal. Pattern-matching output for error strings produces false positives when the file content itself contains those strings (e.g., documentation, test fixtures, or the script itself). The exit code is an unambiguous signal provided by the runtime.
+
 ## Alternatives Considered
 
 | Alternative | Why Not Chosen |

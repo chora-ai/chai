@@ -11,5 +11,3 @@ metadata:
 
 - always check `git_status` before interpreting diffs to understand the current state
 - always use specific refs (commit hashes, branch names) rather than ambiguous references
-
-Using `ref: "main"` in `git_diff` shows all changes since diverging from main.

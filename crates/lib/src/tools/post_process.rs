@@ -29,7 +29,7 @@ fn pipe_stdin(
 
 /// Substitute `$param_name` placeholders in post-process args with values from
 /// the tool call JSON. Placeholders use the format `$param_name` (e.g.
-/// `$kb_root`). If the parameter is absent or null in the tool call args,
+/// `$root`). If the parameter is absent or null in the tool call args,
 /// the placeholder is replaced with an empty string.
 fn substitute_pp_args(pp_args: &[String], tool_args: &serde_json::Value) -> Vec<String> {
     let obj = match tool_args.as_object() {
@@ -61,10 +61,15 @@ fn substitute_pp_args(pp_args: &[String], tool_args: &serde_json::Value) -> Vec<
 
 /// Run a post-process script or command, piping `input` to its stdin.
 /// Returns the script's stdout on success, or the original input on failure.
+/// `exit_code` is the exit code of the main command, passed to the
+/// post-process script as the `CHAI_EXIT_CODE` environment variable so that
+/// scripts can make decisions based on whether the command succeeded (0)
+/// or returned a non-zero code that was in `successExitCodes`.
 /// `tool_args` provides parameter values for `$param_name` substitution in
-/// `pp.args` (e.g. `$kb_root` is replaced with the `kb_root` parameter value).
+/// `pp.args` (e.g. `$root` is replaced with the `root` parameter value).
 pub fn run_post_process(
     pp: &PostProcessSpec,
+    exit_code: i32,
     input: &str,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
@@ -92,6 +97,7 @@ pub fn run_post_process(
         }
 
         let child = std::process::Command::new("sh")
+            .env("CHAI_EXIT_CODE", exit_code.to_string())
             .arg(&script_path)
             .args(&resolved_args)
             .stdin(Stdio::piped())
@@ -127,7 +133,8 @@ pub fn run_post_process(
 
         let resolved = resolve_binary(binary);
         let mut cmd = std::process::Command::new(&resolved);
-        cmd.args(subcommand.split_whitespace())
+        cmd.env("CHAI_EXIT_CODE", exit_code.to_string())
+            .args(subcommand.split_whitespace())
             .args(&resolved_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -201,7 +208,7 @@ mod tests {
             empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "hello world", &Allowlist::new(), Some(dir.as_path()), &empty_args());
+        let result = run_post_process(&pp, 0, "hello world", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "HELLO WORLD");
         cleanup(&dir);
     }
@@ -220,6 +227,7 @@ mod tests {
 
         let result = run_post_process(
             &pp,
+            0,
             "original output",
             &Allowlist::new(),
             Some(dir.as_path()),
@@ -243,6 +251,7 @@ mod tests {
 
         let result = run_post_process(
             &pp,
+            0,
             "original output",
             &Allowlist::new(),
             Some(dir.as_path()),
@@ -266,6 +275,7 @@ mod tests {
 
         let result = run_post_process(
             &pp,
+            0,
             "original output",
             &Allowlist::new(),
             Some(dir.as_path()),
@@ -288,7 +298,7 @@ mod tests {
         };
 
         let input = "line1\nline2\nline3\nline4\n";
-        let result = run_post_process(&pp, input, &Allowlist::new(), Some(dir.as_path()), &empty_args());
+        let result = run_post_process(&pp, 0, input, &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "line1\nline2\n");
         cleanup(&dir);
     }
@@ -305,13 +315,13 @@ mod tests {
             script: Some("echo-arg".to_string()),
             binary: None,
             subcommand: None,
-            args: vec!["$kb_root".to_string()],
+            args: vec!["$root".to_string()],
             empty_is_result: None,
         };
 
-        let tool_args = serde_json::json!({ "kb_root": "my-kb" });
-        let result = run_post_process(&pp, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
-        assert_eq!(result.trim(), "arg=my-kb");
+        let tool_args = serde_json::json!({ "root": "my-notes" });
+        let result = run_post_process(&pp, 0, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
+        assert_eq!(result.trim(), "arg=my-notes");
         cleanup(&dir);
     }
 
@@ -327,12 +337,12 @@ mod tests {
             script: Some("echo-arg".to_string()),
             binary: None,
             subcommand: None,
-            args: vec!["$kb_root".to_string()],
+            args: vec!["$root".to_string()],
             empty_is_result: None,
         };
 
         let tool_args = serde_json::json!({});
-        let result = run_post_process(&pp, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
+        let result = run_post_process(&pp, 0, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
         assert_eq!(result.trim(), "empty");
         cleanup(&dir);
     }
@@ -349,7 +359,7 @@ mod tests {
             empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "safe", &Allowlist::new(), Some(dir.as_path()), &empty_args());
+        let result = run_post_process(&pp, 0, "safe", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "safe");
         cleanup(&dir);
     }
@@ -368,7 +378,7 @@ mod tests {
             empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "original", &Allowlist::new(), Some(dir.as_path()), &empty_args());
+        let result = run_post_process(&pp, 0, "original", &Allowlist::new(), Some(dir.as_path()), &empty_args());
         assert_eq!(result, "original");
         cleanup(&dir);
     }
@@ -383,7 +393,28 @@ mod tests {
             empty_is_result: None,
         };
 
-        let result = run_post_process(&pp, "original", &Allowlist::new(), None, &empty_args());
+        let result = run_post_process(&pp, 0, "original", &Allowlist::new(), None, &empty_args());
         assert_eq!(result, "original");
+    }
+
+    #[test]
+    fn post_process_passes_exit_code_env_to_script() {
+        let dir = setup_skill_with_script(
+            "pp-exit-code",
+            "check-exit",
+            "#!/bin/sh\necho \"exit=$CHAI_EXIT_CODE\"",
+        );
+
+        let pp = PostProcessSpec {
+            script: Some("check-exit".to_string()),
+            binary: None,
+            subcommand: None,
+            args: vec![],
+            empty_is_result: None,
+        };
+
+        let result = run_post_process(&pp, 1, "input", &Allowlist::new(), Some(dir.as_path()), &empty_args());
+        assert_eq!(result.trim(), "exit=1");
+        cleanup(&dir);
     }
 }

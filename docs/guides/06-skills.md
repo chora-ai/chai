@@ -164,11 +164,11 @@ Bundled skills cover common agent operations with no external binary dependencie
 | `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
 | `git` | 10 | moderate | Local git operations (read + add, commit, branch create, checkout, branch delete) |
 | `git-remote` | 4 | minimal | Git remote operations (clone, pull, push, remote) |
-| `kb-read` | 4 | minimal | Read-only knowledge base inspection (read, list, search, read lines) |
-| `kb` | 10 | moderate | Knowledge base CRUD (read, write, append, delete, list, search, read lines, write lines, replace, delete dir) |
-| `kb-daily` | 3 | minimal | Daily note operations with date-based path resolution |
-| `kb-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for KB notes |
-| `kb-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
+| `notes-read` | 4 | minimal | Read-only inspection (read, list, search, read lines) |
+| `notes` | 10 | moderate | Notes CRUD (read, write, append, delete, list, search, read lines, write lines, replace, delete dir) |
+| `notes-daily` | 3 | minimal | Daily note operations with date-based path resolution |
+| `notes-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for notes notes |
+| `notes-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
 | `logs` | 2 | minimal | Gateway log access (recent lines, pattern search) |
 | `rss` | 2 | moderate | RSS feed monitoring via curl |
 | `skills` | 9 | full | Skill generation and management (discover, init, write, validate, delete) |
@@ -188,15 +188,15 @@ Several bundled skills come in **variants** — related skills that provide diff
 | Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
 | Git | `git` | 10 | moderate | Local development (commit, branch, checkout) |
 | Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
-| KB | `kb-read` | 4 | minimal | Inspector agents that only need to read notes |
-| KB | `kb-daily` | 3 | minimal | Daily note creation and appending |
-| KB | `kb-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
-| KB | `kb-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
-| KB | `kb` | 10 | moderate | Full note CRUD including bulk find-and-replace |
+| notes | `notes-read` | 4 | minimal | Inspector agents that only need to read notes |
+| notes | `notes-daily` | 3 | minimal | Daily note creation and appending |
+| notes | `notes-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
+| notes | `notes-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
+| notes | `notes` | 10 | moderate | Full note CRUD including bulk find-and-replace |
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
-Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `kb-wikilink`, `kb-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill.
+Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `notes-wikilink`, `notes-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill.
 
 **Rule of thumb:** Enable one `-read` variant per domain per agent. Extension variants can be added freely alongside the base skill.
 
@@ -335,7 +335,7 @@ chai skill delete --skill-name my-skill
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
 | How do I enable a skill? | Add its name to the `skillsEnabled` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
-| What bundled skills are available? | 15 skills covering files, git, knowledge base, logs, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
+| What bundled skills are available? | 15 skills covering files, git, logs, notes, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
 | How do I create a skill? | `chai skill init --name <name> --description "..."`, then customize the files. |
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
@@ -349,5 +349,5 @@ chai skill delete --skill-name my-skill
 For hands-on skill walkthroughs, see the user journeys:
 
 - [Skill: Files](../journey/05-skill-files.md) — Test the files skill: read, write, patch, search, and delete.
-- [Skill: Knowledge Base](../journey/06-skill-kb.md) — Test the kb skill and its extensions.
+- [Skill: Notes](../journey/06-skill-notes.md) — Test the notes skill and its extensions.
 - [Skill: Skills](../journey/07-skill-skills.md) — Test the skills skill: inspect, validate, and create skill packages.

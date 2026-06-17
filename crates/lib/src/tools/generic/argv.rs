@@ -45,8 +45,8 @@ fn substitute_resolve_args(
 /// Resolve a parameter value by running its `resolveCommand` (script or
 /// allowlisted command). If no resolve command is configured, returns the
 /// value unchanged. `tool_args` provides parameter values for `$param_name`
-/// substitution in resolve command args (e.g. `$kb_root` is replaced with the
-/// `kb_root` parameter value from the tool call JSON).
+/// substitution in resolve command args (e.g. `$root` is replaced with the
+/// `root` parameter value from the tool call JSON).
 pub(crate) fn resolve_value(
     value: &str,
     arg: &crate::skills::ArgMapping,

@@ -103,4 +103,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 9 | "Write to /tmp/…" (optional) | Rejected — sandbox enforcement |
 | 10 | Ctrl+C | Gateway stops |
 
-**Next:** [06 — Skill: Knowledge Base](06-skill-kb.md) · [07 — Skill: Skills](07-skill-skills.md)
+**Next:** [06 — Skill: Notes](06-skill-notes.md) · [07 — Skill: Skills](07-skill-skills.md)

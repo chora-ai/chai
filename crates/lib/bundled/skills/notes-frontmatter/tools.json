@@ -1,8 +1,8 @@
 {
   "tools": [
     {
-      "name": "kb_frontmatter_read",
-      "description": "Read the YAML frontmatter of a knowledge base note. Returns key-value pairs without the --- delimiters.",
+      "name": "notes_frontmatter_read",
+      "description": "Read the YAML frontmatter of a note. Returns key-value pairs without the --- delimiters.",
       "parameters": {
         "type": "object",
         "required": ["path"],
@@ -15,7 +15,7 @@
       }
     },
     {
-      "name": "kb_frontmatter_edit",
+      "name": "notes_frontmatter_edit",
       "description": "Set a YAML frontmatter key to a value. Adds the key if missing, updates if present. Creates a frontmatter block if the file has none.",
       "parameters": {
         "type": "object",
@@ -37,8 +37,8 @@
       }
     },
     {
-      "name": "kb_frontmatter_delete",
-      "description": "Remove a YAML frontmatter key from a knowledge base note. No-op if the key does not exist.",
+      "name": "notes_frontmatter_delete",
+      "description": "Remove a YAML frontmatter key from a note. No-op if the key does not exist.",
       "parameters": {
         "type": "object",
         "required": ["path", "key"],
@@ -56,11 +56,15 @@
     }
   ],
   "allowlist": {
-    "chai": ["file frontmatter-read", "file frontmatter-edit", "file frontmatter-delete"]
+    "chai": [
+      "file frontmatter-read",
+      "file frontmatter-edit",
+      "file frontmatter-delete"
+    ]
   },
   "execution": [
     {
-      "tool": "kb_frontmatter_read",
+      "tool": "notes_frontmatter_read",
       "binary": "chai",
       "subcommand": "file frontmatter-read",
       "args": [
@@ -74,7 +78,7 @@
       "successExitCodes": [1]
     },
     {
-      "tool": "kb_frontmatter_edit",
+      "tool": "notes_frontmatter_edit",
       "binary": "chai",
       "subcommand": "file frontmatter-edit",
       "args": [
@@ -97,7 +101,7 @@
       ]
     },
     {
-      "tool": "kb_frontmatter_delete",
+      "tool": "notes_frontmatter_delete",
       "binary": "chai",
       "subcommand": "file frontmatter-delete",
       "args": [

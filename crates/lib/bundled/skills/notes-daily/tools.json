@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "kb_daily_read",
+      "name": "notes_daily_read",
       "description": "Read a daily note by date. Defaults to today if no date is provided.",
       "parameters": {
         "type": "object",
@@ -11,15 +11,15 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
         }
       }
     },
     {
-      "name": "kb_daily_write",
+      "name": "notes_daily_write",
       "description": "Create or overwrite a daily note by date. Defaults to today if no date is provided.",
       "parameters": {
         "type": "object",
@@ -29,9 +29,9 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           },
           "content": {
             "type": "string",
@@ -41,7 +41,7 @@
       }
     },
     {
-      "name": "kb_daily_append",
+      "name": "notes_daily_append",
       "description": "Append content to a daily note by date. Creates the file if it does not exist. Defaults to today if no date is provided.",
       "parameters": {
         "type": "object",
@@ -51,9 +51,9 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "kb_root": {
+          "root": {
             "type": "string",
-            "description": "Path to the knowledge base directory relative to the sandbox root (e.g. 'my-kb'). Omit when the KB is at the sandbox root."
+            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           },
           "content": {
             "type": "string",
@@ -69,7 +69,7 @@
   },
   "execution": [
     {
-      "tool": "kb_daily_read",
+      "tool": "notes_daily_read",
       "binary": "cat",
       "subcommand": "",
       "args": [
@@ -80,7 +80,7 @@
           "optional": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$kb_root"]
+            "args": ["$param", "$root"]
           }
         }
       ],
@@ -91,7 +91,7 @@
       "maxOutputLines": 500
     },
     {
-      "tool": "kb_daily_write",
+      "tool": "notes_daily_write",
       "binary": "chai",
       "subcommand": "file write",
       "args": [
@@ -103,7 +103,7 @@
           "writePath": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$kb_root"]
+            "args": ["$param", "$root"]
           }
         },
         {
@@ -116,7 +116,7 @@
       }
     },
     {
-      "tool": "kb_daily_append",
+      "tool": "notes_daily_append",
       "binary": "chai",
       "subcommand": "file append",
       "args": [
@@ -128,7 +128,7 @@
           "writePath": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$kb_root"]
+            "args": ["$param", "$root"]
           }
         },
         {

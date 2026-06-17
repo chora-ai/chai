@@ -50,11 +50,11 @@ For each `writePath`-annotated argument, before execution:
 3. **Prefix check** — the canonical path must start with at least one writable root.
 4. If validation passes, execution proceeds. If validation fails, the tool call is rejected with an error message — the command is **never spawned**.
 
-Validation happens at execution time, not startup, so it handles dynamic filesystem changes.
+Path canonicalization happens at execution time (not startup), so renames and moves within writable roots are handled correctly. However, the set of writable roots is frozen at gateway construction time — adding or removing symlinks in the sandbox directory requires a gateway restart to take effect.
 
 ## CWD Restriction
 
-The executor sets `Command::current_dir()` to the sandbox root when a write-path tool runs. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox. Commands like `git commit` that write relative to CWD are constrained.
+When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `gateway.unsafeSandbox` is `true`), no CWD override is applied — the process inherits the gateway's working directory.
 
 ## Read-Path Validation
 
@@ -66,16 +66,21 @@ Arguments of kind `positional` or `flag` with no path annotation are subject to 
 
 Arguments annotated with `unsafePath: true` skip all sandbox validation and the runtime path-like value check. This is an escape hatch for parameters that intentionally need unrestricted path access. **Every use must be justified.** The gateway logs a startup warning for each `unsafePath` parameter in enabled skills.
 
-## Default Working Directory
-
-When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This ensures that relative paths in unannotated parameters resolve within the sandbox boundary, even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`).
-
 ## Missing Sandbox Directory
 
 When the sandbox directory does not exist at profile root, there are no writable roots. All `writePath` and `readPath` validations fail. Skills without path-annotated arguments are **unaffected** — they continue to work normally.
 
-## Symlink-as-Authorization
+### Gateway Startup Check
 
+By default (`gateway.unsafeSandbox: false`), the gateway **refuses to start** when the sandbox directory is missing. The error message includes the expected path and instructions to either re-run `chai init` (which recovers the sandbox for existing profiles) or set `gateway.unsafeSandbox: true`.
+
+When `gateway.unsafeSandbox` is `true`, the gateway starts without a sandbox and logs a warning that CWD confinement and path validation are disabled. This bypasses the default-closed security model and should only be used when the operator explicitly accepts the risk.
+
+### Recovery via `chai init`
+
+`chai init` recovers a deleted sandbox directory for an existing profile: if the profile directory exists but the `sandbox/` subdirectory is missing, it is re-created and seeded with template files. Existing files within the profile are never modified.
+
+## Symlink-as-Authorization
 The critical security property: **agents cannot create symlinks**. The `ln` binary must never appear in any skill's allowlist. Symlink creation is exclusively a user action:
 
 ```bash
@@ -88,7 +93,7 @@ ln -s ~/.chai/profiles/assistant/agents/orchestrator ~/.chai/profiles/assistant/
 
 Each symlink is **declarative authorization**:
 - **Creating** a symlink grants write access to its target
-- **Removing** a symlink revokes access — immediately, no restart required (validation is at execution time)
+- **Removing** a symlink revokes access on the next gateway restart — the writable root set is frozen at construction time, so runtime changes to the sandbox directory's symlinks are not detected until the gateway is restarted
 - No configuration file, no capability tier — **the filesystem IS the policy**
 
 ### Agent Context via Symlink
@@ -113,6 +118,8 @@ The sandbox is **per-profile**, shared by the orchestrator and all workers withi
 ## Initialization
 
 `chai init` creates `<profileRoot>/sandbox/` under each default profile, seeded with template files (`AGENTS.md`, `README.md`) from the bundled profile configuration. Template files are only written when they do not already exist — re-running `chai init` preserves user modifications.
+
+If a profile directory already exists but its `sandbox/` subdirectory has been deleted, `chai init` re-creates the sandbox and seeds template files without modifying other profile files.
 
 ## Related Documents
 

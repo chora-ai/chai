@@ -494,7 +494,7 @@ async fn execute_turn_main(
     tool_executor: Option<&dyn ToolExecutor>,
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
-    delegate: Option<DelegateContext<'_>>,
+    mut delegate: Option<DelegateContext<'_>>,
     max_tool_loop_iterations: u32,
     stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
@@ -672,6 +672,13 @@ async fn execute_turn_main(
         for (idx, call) in last_tool_calls.iter().enumerate() {
             let name = call.function.name.as_str();
             let args = &call.function.arguments;
+
+            // Update tool_index_offset so the worker's tool indices don't
+            // collide with orchestrator indices. The offset accounts for all
+            // orchestrator tool calls in the current batch (including this one).
+            if let Some(ref mut ctx) = delegate {
+                ctx.tool_index_offset = executed_tool_calls.len() + last_tool_calls.len();
+            }
 
             // Emit session.tool_call event before execution so the desktop can
             // render tool calls as separate timeline entries as they happen.

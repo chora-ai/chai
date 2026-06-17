@@ -102,6 +102,16 @@ SKILL.md is loaded into context every turn. Keep it lean:
 
 Keep only examples that demonstrate composed workflows or non-obvious parameter relationships that the schema alone cannot convey.
 
+### Section Structure
+
+SKILL.md uses a consistent section hierarchy so the agent can distinguish hard rules from helpful context:
+
+- **`## Skill Directives`** — hard rules the agent must follow (safety, workflow constraints, tool-choice guidance). Every directive applies to all relevant calls, not just error cases.
+- **`## Skill Guidelines`** (optional) — soft context that helps the agent use the skill correctly but does not constrain behavior (configuration formats, non-obvious tool behavior, resolution order). Guidelines are not rules — the agent should not hesitate or second-guess when they don't apply.
+- **`## <Named Workflow>`** (optional, for meta-skills) — composed multi-step procedures (e.g., generation workflow, security audit). Only use when the skill's purpose is to guide the agent through a structured process.
+
+Do not add prose paragraphs after the directives list. Any additional content that survives the sizing filter belongs in a distinct section with a clear heading so the agent understands the difference between must-follow directives and helpful guidelines.
+
 ## Content-Passing Channel Selection
 
 Choose the correct `ArgKind` for each parameter based on content type:
@@ -158,7 +168,7 @@ Skills are organized into **base skills** and **variant skills** using a naming 
 
 ### Base Skills
 
-A base skill has no hyphen in its name (e.g., `git`, `files`, `kb`, `skills`). It provides the standard set of operations for its domain.
+A base skill has no hyphen in its name (e.g., `git`, `files`, `notes`, `skills`). It provides the standard set of operations for its domain.
 
 ### Variant Skills
 

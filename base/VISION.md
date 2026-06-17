@@ -19,6 +19,18 @@ Chai's thesis: critical guarantees — correctness, privacy, capability boundari
 - **Privacy by construction** — Sensitive data stays on the local machine, handled by local models. Skill authoring operates only on non-sensitive structural artifacts, may be performed by cloud models. Runtime profiles enforce trust boundaries architecturally — a developer profile *cannot* access an assistant profile's content.
 - **Three-tier execution** — Scripts handle deterministic work. Schemas handle structured operations. The model handles what genuinely requires reasoning. Every task pushed down the tiers reduces the capability requirement and increases reliability.
 
+### Security Approach
+
+Security in Chai follows the same architectural philosophy: constraints are structural, not advisory. The system is designed so that the agent cannot bypass its boundaries even if the model produces malicious requests:
+
+- **Default-closed execution** — The allowlist blocks all commands by default; only explicitly declared (binary, subcommand) pairs can run. No shell execution eliminates injection. Deny patterns enforce semantic constraints that schemas cannot express.
+- **Sandboxed filesystem access** — Write and read paths are validated against per-profile writable roots before execution. The agent cannot write to or read from arbitrary locations on the host. Symlink-as-authorization makes the filesystem the policy — explicit, auditable, and revocable.
+- **Per-profile isolation** — Each profile is a trust domain with its own device identity, pairing state, secrets, and sandbox. Profiles share a skill package store but differ in enablement and lockfile pins.
+- **Agent isolation** — Workers receive only their own context and tools. No orchestrator identity, no delegation capability. Role confusion cannot escalate privileges.
+- **Integrity verification** — Skill lockfiles pin content hashes. In strict mode, the gateway refuses to start if any skill has been tampered with.
+
+These mechanisms compose into defense-in-depth: the skill schema constrains what the model knows, the allowlist constrains what operations can run, and the sandbox constrains where writes land. No single layer is sufficient; together they compensate for model limitations. See [SECURITY.md](SECURITY.md) for the full threat model and known vulnerabilities.
+
 ### Guiding Principles
 
 - **Minimalism** — Single Rust binary. Static skill files. No container runtime, no WASM sandbox, no heavy infrastructure.

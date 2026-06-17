@@ -48,6 +48,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and file editing for Chai config, agent context, and skill files.
 - **[PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md)** — (draft) Enable the orchestrator agent to run multiple delegation calls in parallel.
 - **[PERSISTENT_SESSIONS.md](epic/PERSISTENT_SESSIONS.md)** — (draft) Persist chat sessions to disk so they survive gateway and desktop restarts.
+- **[SPLIT_DEPLOYMENT.md](epic/SPLIT_DEPLOYMENT.md)** — (draft) Enable a hosted-gateway deployment model with secure data transfer.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
 ### `/meta`
@@ -60,13 +61,13 @@ Always read the relevant convention file before adding or modifying a document i
 
 ### `/ref`
 
-#### Channels (External APIs)
+#### Channels
 
 - **[TELEGRAM.md](ref/TELEGRAM.md)** — Bot API: config, long-poll, webhook, and gateway wiring.
 - **[SIGNAL.md](ref/SIGNAL.md)** — BYO signal-cli: SSE inbound, JSON-RPC send, experimental adapter package.
 - **[MATRIX.md](ref/MATRIX.md)** — Optional adapter package (experimental): E2EE, allowlist, SAS routes on the gateway.
 
-#### Providers (External APIs)
+#### Providers
 
 - **[OLLAMA.md](ref/OLLAMA.md)** — Ollama endpoint type: native chat, tags, and how Chai calls them.
 - **[OPENAI.md](ref/OPENAI.md)** — OpenAI-compatible endpoint type: wire protocol, model discovery, auto-load, and provider patterns.

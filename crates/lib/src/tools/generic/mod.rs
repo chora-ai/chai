@@ -119,7 +119,7 @@ impl ToolExecutor for GenericToolExecutor {
 
         let success_codes = spec.success_exit_codes.as_deref().unwrap_or(&[]);
         let result = if let Some(ref content) = stdin_content {
-            allowlist.run_with_stdin_with_codes(
+            allowlist.run_with_stdin_with_codes_and_exit(
                 &spec.binary,
                 &spec.subcommand,
                 &argv,
@@ -128,7 +128,7 @@ impl ToolExecutor for GenericToolExecutor {
                 success_codes,
             )
         } else {
-            allowlist.run_with_codes(
+            allowlist.run_with_codes_and_exit(
                 &spec.binary,
                 &spec.subcommand,
                 &argv,
@@ -142,12 +142,12 @@ impl ToolExecutor for GenericToolExecutor {
             let _ = std::fs::remove_file(path);
         }
 
-        let result = result?;
+        let (exit_code, output) = result?;
 
         let result = if let Some(ref pp) = spec.post_process {
-            run_post_process(pp, &result, allowlist, skill_dir.as_deref(), effective_args)
+            run_post_process(pp, exit_code, &output, allowlist, skill_dir.as_deref(), effective_args)
         } else {
-            result
+            output
         };
 
         let result = if let Some(max_lines) = spec.max_output_lines {

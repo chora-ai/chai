@@ -508,7 +508,7 @@ impl ChaiApp {
                             );
                             // Check dedup before clearing tool_calls so the comparison
                             // matches against WebSocket entries that still have tool_calls.
-                            let has_streamed_tools = entry.iter().any(|m| m.role == "tool_call");
+                            let has_streamed_tools = state::chat::has_streamed_tools_this_turn(entry);
                             let last_is_same = state::chat::last_non_delegation(entry.as_slice())
                                 .map(|m| {
                                     state::chat::is_duplicate_assistant_row(
@@ -700,7 +700,7 @@ impl ChaiApp {
                             if let Ok(l) = line {
                                 // Gateway logger already formats lines as
                                 // `[timestamp LEVEL gateway] msg`; push as-is.
-                                state::logs::push_log_line(l);
+                                state::logs::push_gateway_log_line(l);
                             }
                         }
                     });
@@ -710,7 +710,7 @@ impl ChaiApp {
                         let reader = std::io::BufReader::new(stdout);
                         for line in reader.lines() {
                             if let Ok(l) = line {
-                                state::logs::push_log_line(l);
+                                state::logs::push_gateway_log_line(l);
                             }
                         }
                     });

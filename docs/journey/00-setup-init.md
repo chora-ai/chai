@@ -119,4 +119,4 @@
 | 7 | `chai chat` → send message | Model replies |
 | 8 | Ctrl+C gateway | Process exits |
 
-**Next:** Continue to [01 — Gateway (CLI): health and WebSocket connect](01-gateway-cli-health-and-ws.md) to test the WebSocket protocol, or pick a channel journey ([04 — Telegram](04-channel-telegram.md), [08 — Matrix](08-channel-matrix.md), [09 — Signal](09-channel-signal.md)) or a skill journey ([05 — Files](05-skill-files.md), [06 — Knowledge Base](06-skill-kb.md), [07 — Skills](07-skill-skills.md)) to explore further.
+**Next:** Continue to [01 — Gateway (CLI): health and WebSocket connect](01-gateway-cli-health-and-ws.md) to test the WebSocket protocol, or pick a channel journey ([04 — Telegram](04-channel-telegram.md), [08 — Matrix](08-channel-matrix.md), [09 — Signal](09-channel-signal.md)) or a skill journey ([05 — Files](05-skill-files.md), [06 — Notes](06-skill-notes.md), [07 — Skills](07-skill-skills.md)) to explore further.

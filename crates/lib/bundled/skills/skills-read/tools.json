@@ -18,7 +18,7 @@
         "properties": {
           "skill_name": {
             "type": "string",
-            "description": "Skill directory name (e.g. 'files', 'git', 'kb')"
+            "description": "Skill directory name (e.g. 'files', 'git', 'notes')"
           },
           "file": {
             "type": "string",

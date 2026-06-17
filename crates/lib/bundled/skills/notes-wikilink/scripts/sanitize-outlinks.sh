@@ -5,25 +5,25 @@
 # 2. Count links that don't resolve to existing files and append a hint.
 #
 # Receives wikilink targets on stdin (one per line, from grep -oP).
-# Usage: sanitize-outlinks.sh [kb_root]
+# Usage: sanitize-outlinks.sh [root]
 #
-# The kb_root parameter may be:
-# - Empty/omitted: KB directory defaults to the sandbox root
+# The root parameter may be:
+# - Empty/omitted: notes directory defaults to the sandbox root
 # - A relative path: resolved relative to the sandbox root
 # - An absolute path: used as-is (canonical path from the executor)
 
-kb_root="$1"
+root="$1"
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
-# Resolve kb_root to an absolute path.
-case "$kb_root" in
-    /*) kb_dir="$kb_root" ;;
+# Resolve root to an absolute path.
+case "$root" in
+    /*) notes_dir="$root" ;;
     *)
-        if [ -z "$kb_root" ]; then
-            kb_dir="$sandbox_root"
+        if [ -z "$root" ]; then
+            notes_dir="$sandbox_root"
         else
-            kb_dir="$sandbox_root/$kb_root"
+            notes_dir="$sandbox_root/$root"
         fi
         ;;
 esac
@@ -49,14 +49,14 @@ ${target}"
     total=$((total + 1))
 
     # Check if the link resolves.
-    if [ -f "$kb_dir/$target.md" ] || [ -f "$kb_dir/$target" ] || [ -d "$kb_dir/$target" ]; then
+    if [ -f "$notes_dir/$target.md" ] || [ -f "$notes_dir/$target" ] || [ -d "$notes_dir/$target" ]; then
         continue
     fi
 
     # Recursive search for bare wikilinks.
     basename=$(printf '%s' "$target" | sed 's|.*/||')
     if [ -n "$basename" ]; then
-        found=$(find "$kb_dir" -name "$basename.md" -type f 2>/dev/null | head -1)
+        found=$(find "$notes_dir" -name "$basename.md" -type f 2>/dev/null | head -1)
         if [ -n "$found" ]; then
             continue
         fi
@@ -73,5 +73,5 @@ fi
 # Append broken-link hint if any were found.
 if [ "$broken" -gt 0 ]; then
     echo ""
-    echo "hint: ${broken} broken link(s) — use kb_wikilink_broken for details"
+    echo "hint: ${broken} broken link(s) — use notes_wikilink_broken for details"
 fi

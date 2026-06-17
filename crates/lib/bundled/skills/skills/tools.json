@@ -36,7 +36,7 @@
         "properties": {
           "skill_name": {
             "type": "string",
-            "description": "Skill directory name (e.g. 'files', 'git', 'kb')"
+            "description": "Skill directory name (e.g. 'files', 'git', 'notes')"
           },
           "file": {
             "type": "string",
@@ -253,7 +253,11 @@
       "binary": "chai",
       "subcommand": "skill delete",
       "args": [
-        { "param": "skill_name", "kind": "positional", "denyPattern": "^(files|files-read|git|git-read|git-remote|kb|kb-read|kb-daily|kb-frontmatter|kb-wikilink|logs|rss|skills|skills-design|skills-read)$" }
+        {
+          "param": "skill_name",
+          "kind": "positional",
+          "denyPattern": "^(files|files-read|git|git-read|git-remote|notes|notes-read|notes-daily|notes-frontmatter|notes-wikilink|logs|rss|skills|skills-design|skills-read)$"
+        }
       ]
     }
   ]

@@ -15,7 +15,7 @@ Step-by-step walkthroughs for setting up chai, verifying its behavior, and testi
 3. **02 — Agent & send over WebSocket** — send a message, get a reply, test the `send` method.
 4. **03 — Desktop** — (optional) use the desktop app to manage the gateway.
 5. **Pick a channel** — connect Telegram (04), Matrix (08), or Signal (09) for end-to-end messaging.
-6. **Pick a skill** — test files (05), knowledge base (06), or skills management (07).
+6. **Pick a skill** — test files (05), notes (06), or skills management (07).
 7. **Go deeper** — providers (10), multi-agent (11), gateway auth (12), profile management (13).
 
 ## Journeys
@@ -28,7 +28,7 @@ Step-by-step walkthroughs for setting up chai, verifying its behavior, and testi
 | 03 | [Desktop: start/stop gateway](03-desktop-start-stop-gateway.md) | Use the desktop app to start and stop the gateway, and verify external gateway detection. |
 | 04 | [Channel: Telegram](04-channel-telegram.md) | Connect Telegram (long-poll or webhook), send a message, and verify the bot replies. |
 | 05 | [Skill: Files](05-skill-files.md) | Test the files skill: read, write, patch, search, and delete files in the write sandbox. |
-| 06 | [Skill: Knowledge Base](06-skill-kb.md) | Test the kb skill: create, read, search, append, list, and delete notes. Covers kb-daily, kb-frontmatter, and kb-wikilink extensions. |
+| 06 | [Skill: Notes](06-skill-notes.md) | Test the notes skill: create, read, search, append, list, and delete notes. Covers notes-daily, notes-frontmatter, and notes-wikilink extensions. |
 | 07 | [Skill: Skills](07-skill-skills.md) | Test the skills skill: list, read, validate, discover, init, write, and delete skill packages. |
 | 08 | [Channel: Matrix (Experimental)](08-channel-matrix.md) | Connect Matrix, verify message round-trip, and optionally test E2EE device verification. Requires `--features matrix`. |
 | 09 | [Channel: Signal (Experimental)](09-channel-signal.md) | Connect Signal via signal-cli, send a message, and verify the agent replies. Requires `--features signal`. |

@@ -667,6 +667,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         session_store: Some(&state.session_store),
         session_id: Some(session_id.as_str()),
         stop_flag: Some(stop_flag.clone()),
+        tool_index_offset: 0,
     });
     let provider_dyn = state.provider_clients.get(&provider_choice)
         .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
@@ -751,7 +752,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     let required_token = require_connect_token(&config);
     let paired_path = paths.paired_json();
     let pairing_store = Arc::new(PairingStore::load(paired_path).await);
-    let (event_tx, _) = broadcast::channel(64);
+    let (event_tx, _) = broadcast::channel(256);
     let channel_tasks = Arc::new(tokio::sync::RwLock::new(Vec::new()));
 
     // Build provider clients and runtime state dynamically from the providers array.
@@ -839,12 +840,17 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             paths.sandbox_dir().display()
         );
         Some(sandbox)
-    } else {
-        log::debug!(
-            "write sandbox: no sandbox directory at {}",
+    } else if config.gateway.unsafe_sandbox {
+        log::warn!(
+            "no sandbox directory at {}; CWD confinement and path validation are disabled (gateway.unsafeSandbox is enabled)",
             paths.sandbox_dir().display()
         );
         None
+    } else {
+        anyhow::bail!(
+            "sandbox directory not found at {}; set gateway.unsafeSandbox to true to start without a sandbox",
+            paths.sandbox_dir().display()
+        );
     };
     let orch_built =
         build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
@@ -1897,6 +1903,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     session_store: Some(&state.session_store),
                     session_id: Some(session_id.as_str()),
                     stop_flag: Some(stop_flag.clone()),
+                    tool_index_offset: 0,
                 });
                 let provider_dyn = state.provider_clients.get(&provider_choice)
                     .ok_or_else(|| format!("no client for provider '{}'", provider_choice))

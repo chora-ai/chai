@@ -145,8 +145,8 @@ When choosing a model, consider the **capability tier** of the skills you plan t
 
 | Tier | Model size | Skills example |
 |------|-----------|----------------|
-| `minimal` | 7B+ | `files-read`, `git-read`, `git-remote`, `kb-daily`, `logs`, `skills-read` |
-| `moderate` | 13B–30B | `git`, `kb`, `kb-frontmatter`, `kb-wikilink`, `rss` |
+| `minimal` | 7B+ | `files-read`, `git-read`, `git-remote`, `notes-daily`, `logs`, `skills-read` |
+| `moderate` | 13B–30B | `git`, `notes`, `notes-frontmatter`, `notes-wikilink`, `rss` |
 | `full` | 70B+ or cloud | `files`, `skills` |
 
 The gateway warns at startup when an enabled skill's tier exceeds the likely capability of the configured model. If you see these warnings, consider either:

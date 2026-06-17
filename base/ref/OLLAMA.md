@@ -59,7 +59,7 @@ The `"ollama"` endpoint type covers **any server** speaking the native Ollama RE
 
 - **Gateway server** — Holds **`OllamaClient`** for any provider with `endpointType: "ollama"`; model lists are stored per provider id. Resolves model via **`resolve_model`** from **`agents.defaultModel`**; runs **`run_turn_dyn`** with the Ollama **`Provider`** when a provider with `endpointType: "ollama"` is referenced in `defaultProvider` (inbound messages and WebSocket **`agent`** requests).
 - **Agent** — **`run_turn_dyn`** builds messages and calls the provider's **`chat`** / **`chat_stream`**; when the backend is Ollama, that is **`OllamaClient`**. Model id comes from config or override (**`agents.defaultModel`** in JSON). Handles **`tool_calls`** and re-calls up to a fixed max iterations.
-- **Tools** — Skills with a `tools.json` descriptor (e.g. files, git, kb) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
+- **Tools** — Skills with a `tools.json` descriptor (e.g. files, git, notes) expose Ollama-format `ToolDefinition` (type, function with name, description, parameters); the generic executor runs tool calls via the descriptor allowlist (including optional scripts for param resolution via `resolveCommand.script`). Tool results are sent back as assistant/tool messages.
 
 ## Ollama API Overview
 

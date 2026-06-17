@@ -559,7 +559,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 }
                 None => {
                     println!("no frontmatter found in {}", path);
-                    println!("\nhint: no frontmatter found — use kb_frontmatter_edit to create one");
+                    println!("\nhint: no frontmatter found — use notes_frontmatter_edit to create one");
                     std::process::exit(1);
                 }
             }

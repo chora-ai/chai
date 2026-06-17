@@ -150,7 +150,7 @@ impl ChaiApp {
             if let Ok(result) = rx.try_recv() {
                 if let Ok((lines, max_seq)) = result {
                     for line in lines {
-                        crate::app::state::logs::push_log_line(line);
+                        crate::app::state::logs::push_gateway_log_line(line);
                     }
                     self.gateway_logs_cursor = max_seq;
                 }

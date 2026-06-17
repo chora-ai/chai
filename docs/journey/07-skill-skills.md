@@ -39,16 +39,16 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 3. **List installed skills**
    - Send an agent message: "List all installed skills."
-   - **Expect:** The agent uses `skills_list` and returns a table showing each skill's name, SKILL.md status, tools.json status, and tool count. Bundled skills like `files`, `kb`, `git`, etc. should appear.
+   - **Expect:** The agent uses `skills_list` and returns a table showing each skill's name, SKILL.md status, tools.json status, and tool count. Bundled skills like `files`, `notes`, `git`, etc. should appear.
 
 4. **Read a skill's definition**
-   - Send: "Read the SKILL.md for the 'kb' skill."
-   - **Expect:** The agent uses `skills_read` with `file: "skill_md"` and returns the full content of the kb skill's SKILL.md.
-   - Then: "Read the tools.json for the 'kb' skill."
+   - Send: "Read the SKILL.md for the 'notes' skill."
+   - **Expect:** The agent uses `skills_read` with `file: "skill_md"` and returns the full content of the notes skill's SKILL.md.
+   - Then: "Read the tools.json for the 'notes' skill."
    - **Expect:** The agent uses `skills_read` with `file: "tools_json"` and returns the tool definitions, allowlist, and execution mapping.
 
 5. **Validate a skill**
-   - Send: "Validate the 'kb' skill."
+   - Send: "Validate the 'notes' skill."
    - **Expect:** The agent uses `skills_validate` and reports the result. A conformant skill shows "PASS"; errors or warnings are listed if found.
 
 6. **Discover a CLI interface**
@@ -111,8 +111,8 @@ Every turn the model receives the full system context (skills), full conversatio
 | 1 | Confirm `skills` in `skillsEnabled` | Config includes the skill |
 | 2 | `chai gateway` | At least 1 skill loaded |
 | 3 | "List installed skills" | Agent returns skill inventory |
-| 4 | "Read kb SKILL.md and tools.json" | Agent returns skill definitions |
-| 5 | "Validate the kb skill" | Agent reports PASS or lists issues |
+| 4 | "Read notes SKILL.md and tools.json" | Agent returns skill definitions |
+| 5 | "Validate the notes skill" | Agent reports PASS or lists issues |
 | 6 | "Discover the git binary" | Agent returns git subcommands |
 | 7 | "Init test-skill" | Skill directory created |
 | 8 | "Write tools.json for test-skill" | Tool definitions written and validated |
@@ -121,4 +121,4 @@ Every turn the model receives the full system context (skills), full conversatio
 | 11 | "Delete test-skill" | Skill removed |
 | 12 | Ctrl+C | Gateway stops |
 
-**See also:** [05 — Skill: Files](05-skill-files.md) · [06 — Skill: Knowledge Base](06-skill-kb.md)
+**See also:** [05 — Skill: Files](05-skill-files.md) · [06 — Skill: Notes](06-skill-notes.md)
