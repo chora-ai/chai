@@ -51,9 +51,9 @@ The hash is a truncated SHA-256 of the canonical skill content:
 
 After skill loading and config resolution, the gateway runs two validation passes before accepting the configuration:
 
-**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — For each enabled skill that has an entry in the profile's `skills.lock`, the gateway checks whether the `active` symlink target matches the locked hash. Behavior on mismatch is controlled by `skillLockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills (no entry in `skills.lock`) load normally.
+**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — For each enabled skill that has an entry in the profile's `skills.lock`, the gateway checks whether the `active` symlink target matches the locked hash. Behavior on mismatch is controlled by `skills.lockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills (no entry in `skills.lock`) load normally.
 
-**Capability-tier validation** — For each agent's `skillsEnabled` list:
+**Capability-tier validation** — For each agent's `enabledSkills` list:
 - **Tier vs model** — Warn when an enabled skill's `capability_tier` assumes more capability than the agent's effective model is likely to provide (e.g., a `full` skill with a 7B local model). Informational warnings only; no strict mode yet.
 - **Variant overlap** — Warn when two enabled skills share a `variant_of` relationship (e.g., both `git` and `git-read` enabled for the same agent), creating redundant or overlapping tool surfaces.
 
@@ -77,7 +77,7 @@ For lockfile schema and generation tracking, see [PROFILES.md](PROFILES.md).
 |----------|---------|
 | [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, frontmatter fields, and `tools.json` |
 | [PROFILES.md](PROFILES.md) | Per-profile lockfile (`skills.lock`), generation tracking, and lock verification |
-| [CONFIGURATION.md](CONFIGURATION.md) | `skillLockMode` config field |
+| [CONFIGURATION.md](CONFIGURATION.md) | `skills.lockMode` config field |
 | [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` schema: tools array, allowlist, execution mapping |
-| [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`skillsEnabled`, `contextMode`) |
-| [CONTEXT.md](CONTEXT.md) | System context assembly, skill context modes, and build order |
+| [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`enabledSkills`, `contextMode`) |
+| [CONTEXT.md](CONTEXT.md) | Context on every turn: system message, session history, tool schemas |

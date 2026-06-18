@@ -53,7 +53,7 @@ The sidebar organizes screens into groups:
 - Session list with `session.message` / orchestration events for timelines.
 - Hint for `/help` and Ctrl/Cmd+Enter when gateway is running.
 - **First-turn session binding**: streamed tool calls and results appear in real time on the first turn of a new chat session. When the first WebSocket session event arrives while `chat_session_id` is `None` and `pending_user_message` is `Some`, both IDs are immediately bound.
-- **Tool loop limit banner**: when `maxToolLoopIterations` is reached, a `session.tool_loop_limit` WebSocket event (and/or the `agent` RPC response with `loopLimitReached: true`) produces a banner in the chat timeline. The banner explains the turn was interrupted, lists the pending tool call names, and notes that `maxToolLoopIterations` is configurable. The user must send another message to continue. Dedup guards prevent duplicate `assistant` messages when both the WebSocket event and RPC response arrive for the same limit hit.
+- **Tool loop limit banner**: when `maxToolLoopsPerTurn` is reached, a `session.tool_loop_limit` WebSocket event (and/or the `agent` RPC response with `loopLimitReached: true`) produces a banner in the chat timeline. The banner explains the turn was interrupted, lists the pending tool call names, and notes that `maxToolLoopsPerTurn` is configurable. The user must send another message to continue. Dedup guards prevent duplicate `assistant` messages when both the WebSocket event and RPC response arrive for the same limit hit.
 - **Stop button**: next to the send button in the chat input area. Enabled when an agent turn is in progress (when `chat_turn_receiver` is `Some`). Clicking it sends a `stop` WebSocket method to the gateway, which sets the stop flag for the active session. The agent finishes the current tool call or model request, then pauses before the next iteration. The stop request is idempotent — stopping an idle session is a no-op. The send button is disabled while an agent turn is in progress; both the send and stop buttons transition once the turn completes or is stopped.
 - **Turn stopped banner**: when the agent turn is stopped (either via the stop button or the `session.turn_stopped` WebSocket event), an amber-bordered info banner appears in the chat timeline. The banner explains that the agent turn was stopped and the user can send a new message to continue. The `agent` RPC response includes a `stopped: true` field; the desktop adds the banner on receipt if not already present from the WebSocket event. Dedup guards prevent duplicate banners when both the WebSocket event and RPC response arrive for the same stop.
 - **Worker reply rendering**: when `orchestration.delegate.complete` arrives with a `reply` field, the desktop emits a separate chat message with role `"worker"` and source `"worker"`, rendered with a blue border and the worker id as a label. This shows the worker's actual text response as a first-class chat line, not only inside the collapsed `delegate_task` tool result JSON.
@@ -64,7 +64,7 @@ Gateway `status` only — no `config.json` fallback when the gateway is down or 
 
 | Section | Content |
 |---------|---------|
-| **Agents** | Orchestrator (id, date, default provider/model) and workers (id, effective provider/model) from `status.agents.entries`. |
+| **Agents** | Orchestrator (id, date, default provider/model) and workers (id, effective provider/model) from `status.agents`. |
 | **Models** | Discovery lists for all backends from `status.providers`. Orchestration catalog shows all rows. |
 
 ### Config
@@ -73,28 +73,27 @@ Read-only summary of `config.json` (loaded via `lib::config::load_config`, same 
 
 | Field | Shown |
 |-------|-------|
-| Orchestrator agent context directory (`orchestrator_context_dir` → `agents/<orchestratorId>/`) | ✓ |
 | Workers with `effective_worker_defaults` | ✓ |
-| `maxSessionMessages` | ✓ |
-| Delegation caps (per turn, per session, per provider) | ✓ |
+| `maxToolLoopsPerTurn` | ✓ |
+| Delegation caps (per turn, per session, per worker) | ✓ |
 | Worker provider/model defaults | ✓ |
 | Instruction routes | ✓ |
 | Full providers block enumeration | ✓ (all provider entries with endpoint type, resolved base URL, API key status, default model, model discovery, static models, and auto load) |
 
 ### Context
 
-`status.agents.entries` supplies the data. Agent combo (orchestrator vs each worker) selects from each row's `systemContext`.
+`status.agents` supplies the data. Agent combo (orchestrator vs each worker) selects from each row's `systemContext`.
 
 | Agent | Layout |
 |-------|--------|
-| Orchestrator | Two columns: system text + skill bodies from gateway status (`skillsContextBodies` / `skillsContextFull`); falls back to disk when gateway is down. |
+| Orchestrator | Two columns: system text + skill bodies from gateway status (`skillsContext`); falls back to disk when gateway is down. |
 | Workers | Single scroll: full text from gateway. |
 
-Falls back to a single orchestrator string when `entries` is absent.
+Falls back to a single orchestrator string when the `agents` array is absent.
 
 ### Skills
 
-All available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents.entries[].skills` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for the orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
+All available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents[]` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for the orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
 
 ### Tools
 
@@ -134,7 +133,7 @@ These gaps describe what the system exposes but the desktop does not yet surface
 |----------|---------|
 | [epic `DESKTOP_FILES`](../epic/DESKTOP_FILES.md) | File explorer and file writing work |
 | [adr/DESKTOP_FRAMEWORK.md](../adr/DESKTOP_FRAMEWORK.md) | Why egui/eframe |
-| [spec/CONTEXT.md](CONTEXT.md) | Gateway context strings |
+| [spec/CONTEXT.md](CONTEXT.md) | Context on every turn: system message, session history, tool schemas |
 | [spec/TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` validation reference |
 | [spec/GATEWAY_STATUS.md](GATEWAY_STATUS.md) | WebSocket `status` payload |
 | [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |

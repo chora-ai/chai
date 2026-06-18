@@ -119,7 +119,7 @@ Set `channels.signal.httpBase` or `SIGNAL_CLI_HTTP` to match the daemon's addres
 
 ### Skills Not Loading
 
-1. **Check `skillsEnabled`.** Skills must be explicitly listed on each agent entry in `config.json`. An empty or omitted `skillsEnabled` means no skills are loaded.
+1. **Check `enabledSkills`.** Skills must be explicitly listed on each agent entry in `config.json`. An empty or omitted `enabledSkills` means no skills are loaded.
 2. **Check the skill exists.** Run `chai skill list` to see installed skills and their status.
 3. **Check the `active` symlink.** Each skill under `~/.chai/skills/` should have an `active` symlink pointing to `versions/<hash>/`. If the symlink is broken, the skill won't load.
 4. **Check `metadata.requires.bins`.** Skills that declare required binaries (e.g., `["git"]`) are only loaded when every binary is on `PATH`.
@@ -145,17 +145,19 @@ The directory name under `versions/` must be the 12-hex-character truncated SHA-
 
 ### Skills Lock Verification Failure
 
-The gateway refuses to start in `strict` mode (the default `skillLockMode`) when an enabled skill's active version doesn't match its pinned hash in `skills.lock`. This can happen when:
+The gateway refuses to start in `strict` mode (the default `skills.lockMode`) when an enabled skill's active version doesn't match its pinned hash in `skills.lock`. This can happen when:
 
 - You updated a skill with `chai skill write-*` but didn't re-lock — Run `chai skill lock` to update the lock.
 - You rolled back a skill manually by repointing the `active` symlink — Run `chai skill lock` to re-pin.
 - The lock file is stale after a `chai init` update — Run `chai skill lock` to re-pin at the current versions.
 
-To bypass the check temporarily, set `skillLockMode: "warn"` in your profile's `config.json`:
+To bypass the check temporarily, set `skills.lockMode` to `"warn"` in your profile's `config.json`:
 
 ```json
 {
-  "skillLockMode": "warn"
+  "skills": {
+    "lockMode": "warn"
+  }
 }
 ```
 
@@ -215,11 +217,11 @@ The desktop spawns `chai gateway` as a subprocess. If it fails immediately, chec
 
 ### Tool Loop Limit Reached
 
-The gateway stops the turn after `maxToolLoopIterations` (default: 500) consecutive tool calls. This is a safety net against runaway loops. The desktop shows an amber banner; the CLI chat emits a `session.tool_loop_limit` event.
+The gateway stops the turn after `maxToolLoopsPerTurn` (when set) consecutive tool calls. This is a safety net against runaway loops. The desktop shows an amber banner; the CLI chat emits a `session.tool_loop_limit` event.
 
 - If this happens legitimately (a complex task needs many steps), increase the limit in `config.json`:
   ```json
-  { "agents": [{ "id": "orchestrator", "role": "orchestrator", "maxToolLoopIterations": 200 }] }
+  { "agents": [{ "id": "orchestrator", "role": "orchestrator", "maxToolLoopsPerTurn": 200 }] }
   ```
 - If the loop seems stuck, the model may be repeating the same tool call — this usually indicates the model is confused. Send a corrective message to redirect it.
 

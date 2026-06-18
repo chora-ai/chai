@@ -58,15 +58,6 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     );
 }
 
-/// Friendly display names for well-known endpoint types.
-fn endpoint_type_display_name(endpoint_type: &str) -> &str {
-    match endpoint_type {
-        "ollama" => "Ollama",
-        "openai-compat" => "OpenAI-Compatible",
-        _ => endpoint_type,
-    }
-}
-
 fn status_summary_dashboard(
     ui: &mut egui::Ui,
     status: Option<&GatewayStatusDetails>,
@@ -77,9 +68,11 @@ fn status_summary_dashboard(
             status_column_left(ui, status, gateway_error);
         });
         right.vertical(|ui| {
-            status_column_agents(ui, status);
+            status_sandbox_section(ui, status);
             ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
-            status_skill_packages_section(ui, status);
+            status_agents_section(ui, status);
+            ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+            status_skills_section(ui, status);
         });
     });
 }
@@ -121,16 +114,16 @@ fn status_gateway_section(
 ) {
     dashboard::section_group(ui, "Gateway", |ui| {
         if let Some(s) = status {
+            dashboard::kv(ui, "Bind", s.bind.trim());
+            dashboard::kv(ui, "Port", &s.port.to_string());
+            dashboard::kv(ui, "Auth", s.auth.trim());
+            dashboard::kv(ui, "Protocol", &s.protocol.to_string());
             let st = s.status.trim();
             dashboard::kv(
                 ui,
-                "status",
+                "Status",
                 if st.is_empty() { "(not reported)" } else { st },
             );
-            dashboard::kv(ui, "protocol", &s.protocol.to_string());
-            dashboard::kv(ui, "port", &s.port.to_string());
-            dashboard::kv(ui, "bind", s.bind.trim());
-            dashboard::kv(ui, "auth", s.auth.trim());
         } else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
         }
@@ -169,7 +162,7 @@ fn status_channels_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetai
             ui.label(egui::RichText::new(&name).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
             let Some(po) = per.as_object() else {
-                dashboard::kv(ui, "value", &channel_status_field_display(per, 120));
+                dashboard::kv(ui, "Value", &channel_status_field_display(per, 120));
                 continue;
             };
             let mut keys: Vec<_> = po.keys().cloned().collect();
@@ -178,11 +171,57 @@ fn status_channels_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetai
                 let Some(val) = po.get(&k) else {
                     continue;
                 };
-                dashboard::kv(ui, k.as_str(), &channel_status_field_display(val, 160));
+                // Capitalize first letter of the camelCase key for display.
+                let display_key = format_display_key(&k);
+                dashboard::kv(ui, &display_key, &channel_status_field_display(val, 160));
             }
         }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+}
+
+/// Convert a camelCase or snake_case JSON key to the preferred display format:
+/// uppercase first letter of first word, single space between words.
+fn format_display_key(key: &str) -> String {
+    // Split camelCase: insert space before uppercase letters that follow lowercase.
+    let mut words: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for ch in key.chars() {
+        if ch.is_uppercase() && !current.is_empty() {
+            words.push(current.clone());
+            current.clear();
+            current.extend(ch.to_lowercase());
+        } else if ch == '_' {
+            if !current.is_empty() {
+                words.push(current.clone());
+                current.clear();
+            }
+        } else {
+            current.extend(ch.to_lowercase());
+        }
+    }
+    if !current.is_empty() {
+        words.push(current);
+    }
+    if words.is_empty() {
+        return key.to_string();
+    }
+    // Uppercase first letter of first word; rest stay lowercase.
+    let mut result = String::new();
+    for (i, word) in words.iter().enumerate() {
+        if i > 0 {
+            result.push(' ');
+        }
+        if i == 0 {
+            if let Some(first) = word.chars().next() {
+                result.extend(first.to_uppercase());
+                result.push_str(&word[first.len_utf8()..]);
+            }
+        } else {
+            result.push_str(word);
+        }
+    }
+    result
 }
 
 fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
@@ -198,42 +237,38 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
 
         for pid in &provider_ids {
             let info = s.provider_info.get(pid.as_str()).unwrap();
-            // Use the provider id as the section title; append the endpoint type for clarity.
-            let title = if **pid == info.endpoint_type || info.endpoint_type == "unknown" {
-                (*pid).clone()
-            } else {
-                format!("{} ({})", pid, endpoint_type_display_name(&info.endpoint_type))
-            };
-
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            ui.label(egui::RichText::new(title).strong());
+            ui.label(egui::RichText::new(pid.as_str()).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            dashboard::kv(ui, "endpoint type", endpoint_type_display_name(&info.endpoint_type));
-            dashboard::kv(ui, "discovery", if info.discovery { "on" } else { "off" });
+            dashboard::kv(ui, "Endpoint type", &info.endpoint_type);
+            dashboard::kv(ui, "Model discovery", &info.model_discovery);
 
             if info.models.is_empty() {
-                let empty_label = if !info.discovery {
-                    "(discovery off)"
+                if info.model_discovery.contains("static") {
+                    dashboard::kv(ui, "Models", "(no models provided)");
                 } else {
-                    "(no models discovered)"
-                };
-                ui.label(egui::RichText::new(empty_label).weak());
+                    dashboard::kv(ui, "Models", "(no models discovered)");
+                }
             } else {
-                egui::Grid::new(format!("status_providers_models_{pid}"))
-                    .num_columns(1)
-                    .striped(true)
-                    .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
+                let label = format!("Models — {} model{}", info.models.len(), if info.models.len() == 1 { "" } else { "s" });
+                ui.add_space(spacing::COLLAPSING_HEADER_BEFORE);
+                egui::CollapsingHeader::new(&label)
+                    .default_open(false)
                     .show(ui, |ui| {
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "model"));
-                        });
-                        ui.end_row();
-                        for m in &info.models {
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(m)));
+                        ui.add_space(spacing::COLLAPSING_BODY_INSET);
+                        egui::Grid::new(format!("status_provider_models_grid_{pid}"))
+                            .num_columns(1)
+                            .striped(true)
+                            .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
+                            .show(ui, |ui| {
+                                for m in &info.models {
+                                    dashboard::grid_cell(ui, |ui| {
+                                        ui.add(egui::Label::new(egui::RichText::new(m)));
+                                    });
+                                    ui.end_row();
+                                }
                             });
-                            ui.end_row();
-                        }
+                        ui.add_space(spacing::COLLAPSING_BODY_INSET);
                     });
             }
             ui.add_space(spacing::TABLE_BLOCK_AFTER);
@@ -244,31 +279,6 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
         }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
-}
-
-fn status_skill_packages_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
-    dashboard::section_group(ui, "Skill Packages", |ui| {
-        let Some(s) = status else {
-            ui.label(egui::RichText::new("Loading from gateway status...").weak());
-            return;
-        };
-        match (
-            s.skill_packages_discovery_root.as_deref(),
-            s.skill_packages_discovered,
-        ) {
-            (Some(root), Some(n)) if !root.trim().is_empty() => {
-                dashboard::kv(ui, "discovery root", root.trim());
-                dashboard::kv(ui, "packages discovered", &n.to_string());
-            }
-            (Some(root), _) if !root.trim().is_empty() => {
-                dashboard::kv(ui, "discovery root", root.trim());
-                ui.label(egui::RichText::new("(package count not reported)").weak());
-            }
-            _ => {
-                ui.label(egui::RichText::new("(not reported)").weak());
-            }
-        }
-    });
 }
 
 fn status_column_left(
@@ -286,156 +296,155 @@ fn context_mode_for_agent(s: &GatewayStatusDetails, agent_id: &str) -> String {
     if let Some(m) = s.agent_context_modes.get(id) {
         return m.clone();
     }
-    let orch = s
-        .orchestrator_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|t| !t.is_empty())
-        .unwrap_or("orchestrator");
-    if id == orch {
-        if let Some(ref m) = s.context_mode {
+    if let Some(rt) = s.agent_skills.get(id) {
+        if let Some(ref m) = rt.context_mode {
             return m.clone();
         }
     }
     "—".to_string()
 }
 
-fn status_column_agents(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
+fn status_sandbox_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
+    dashboard::section_group(ui, "Sandbox", |ui| {
+        if let Some(s) = status {
+            dashboard::kv(ui, "Disabled", &s.sandbox_disabled.to_string());
+            dashboard::kv(ui, "Roots", &s.sandbox_roots.to_string());
+        } else {
+            ui.label(egui::RichText::new("Loading from gateway status...").weak());
+        }
+    });
+}
+
+fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
     dashboard::section_group(ui, "Agents", |ui| {
         if let Some(s) = status {
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            ui.label(egui::RichText::new("Orchestrator").strong());
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
             let oid = s
                 .orchestrator_id
                 .as_deref()
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .unwrap_or("orchestrator");
-            dashboard::kv(ui, "id", oid);
-            if let Some(ref dir) = s.orchestrator_context_dir {
-                let t = dir.trim();
-                if !t.is_empty() {
-                    dashboard::kv(ui, "context directory", t);
-                }
-            }
+
+            // Orchestrator subsection — title is just the lowercase agent id.
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            ui.label(egui::RichText::new(oid).strong());
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            dashboard::kv(ui, "Role", "orchestrator");
             let dp = s.default_provider.as_deref().unwrap_or("—");
             let dm = s.default_model.as_deref().unwrap_or("—");
-            dashboard::kv(ui, "default provider", dp);
-            dashboard::kv(ui, "default model", dm);
-            dashboard::kv(ui, "context mode", context_mode_for_agent(s, oid).as_str());
+            dashboard::kv(ui, "Default provider", dp);
+            dashboard::kv(ui, "Default model", dm);
+            let orch_ep = s
+                .enabled_providers
+                .as_ref()
+                .map(|list| {
+                    let v: Vec<String> = list
+                        .iter()
+                        .map(|s| s.trim())
+                        .filter(|s| !s.is_empty())
+                        .map(String::from)
+                        .collect();
+                    if v.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        v.join(", ")
+                    }
+                })
+                .unwrap_or_else(|| "(none)".to_string());
+            dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
+            let orch_skills_csv = s.orchestrator_enabled_skills.join(", ");
+            dashboard::kv(
+                ui,
+                "Enabled skills",
+                if s.orchestrator_enabled_skills.is_empty() {
+                    "(none)"
+                } else {
+                    orch_skills_csv.as_str()
+                },
+            );
+            dashboard::kv(ui, "Context mode", context_mode_for_agent(s, oid).as_str());
 
-            let cat_rows: Vec<_> = s.orchestration_catalog.iter().collect();
-            let n_cat = cat_rows.len();
-
-            ui.add_space(spacing::TABLE_BLOCK_AFTER);
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            ui.label(egui::RichText::new("Workers").strong());
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            if s.workers.is_empty() {
-                ui.label(egui::RichText::new("none configured").weak());
-                if n_cat > 0 {
-                    ui.add_space(spacing::TABLE_BLOCK_AFTER);
+            // Orchestrator limit fields (same order as config screen).
+            let mut any_limit = false;
+            if let Some(n) = s.max_tool_loops_per_turn {
+                dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
+                any_limit = true;
+            }
+            if let Some(n) = s.max_delegations_per_turn {
+                dashboard::kv(ui, "Max delegations per turn", &n.to_string());
+                any_limit = true;
+            }
+            if let Some(n) = s.max_delegations_per_session {
+                dashboard::kv(ui, "Max delegations per session", &n.to_string());
+                any_limit = true;
+            }
+            if let Some(ref m) = s.max_delegations_per_worker {
+                if !m.is_empty() {
+                    let display: Vec<String> = m
+                        .iter()
+                        .map(|(k, v)| format!("{} ({})", k, v))
+                        .collect();
+                    dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
+                    any_limit = true;
                 }
-            } else {
-                egui::Grid::new("status_workers_grid")
-                    .num_columns(4)
-                    .striped(true)
-                    .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                    .show(ui, |ui| {
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "worker"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "default provider"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "default model"));
-                        });
-                        dashboard::grid_cell(ui, |ui| {
-                            ui.label(dashboard::grid_header_rich(ui, "context mode"));
-                        });
-                        ui.end_row();
-                        for w in &s.workers {
-                            let wid = w.id.trim();
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(wid)));
-                            });
-                            let wp = w.default_provider.trim();
-                            let wm = w.default_model.trim();
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(if wp.is_empty() {
-                                    "—"
-                                } else {
-                                    wp
-                                })));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(if wm.is_empty() {
-                                    "—"
-                                } else {
-                                    wm
-                                })));
-                            });
-                            let cm = context_mode_for_agent(s, wid);
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.add(egui::Label::new(egui::RichText::new(cm)));
-                            });
-                            ui.end_row();
-                        }
-                    });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
+            }
+            if any_limit {
+                ui.add_space(spacing::LINE);
             }
 
-            if n_cat > 0 {
-                ui.add_space(spacing::COLLAPSING_HEADER_BEFORE);
-                egui::CollapsingHeader::new(format!(
-                    "Orchestration catalog — {} entries (merged discovery + allowlist)",
-                    n_cat
-                ))
-                .default_open(false)
-                .show(ui, |ui| {
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                    egui::Grid::new("status_catalog_grid")
-                        .num_columns(3)
-                        .striped(true)
-                        .spacing([spacing::GRID_CELL_SPACING, spacing::GRID_CELL_SPACING])
-                        .show(ui, |ui| {
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "provider"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "model"));
-                            });
-                            dashboard::grid_cell(ui, |ui| {
-                                ui.label(dashboard::grid_header_rich(ui, "flags"));
-                            });
-                            ui.end_row();
-                            for row in &cat_rows {
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(&row.provider)));
-                                });
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(egui::RichText::new(&row.model)));
-                                });
-                                let mut bits: Vec<String> = Vec::new();
-                                if !row.discovered {
-                                    bits.push("not in discovery".to_string());
-                                }
-                                dashboard::grid_cell(ui, |ui| {
-                                    ui.add(egui::Label::new(
-                                        egui::RichText::new(bits.join(" · ")).weak(),
-                                    ));
-                                });
-                                ui.end_row();
-                            }
-                        });
-                    ui.add_space(spacing::COLLAPSING_BODY_INSET);
-                });
-                ui.add_space(spacing::TABLE_BLOCK_AFTER);
+            // Worker subsections — each title is just the lowercase worker id.
+            if !s.workers.is_empty() {
+                for w in &s.workers {
+                    let wid = w.id.trim();
+                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                    ui.label(egui::RichText::new(wid).strong());
+                    ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                    dashboard::kv(ui, "Role", "worker");
+                    let wp = w.default_provider.trim();
+                    let wm = w.default_model.trim();
+                    dashboard::kv(ui, "Default provider", if wp.is_empty() { "—" } else { wp });
+                    dashboard::kv(ui, "Default model", if wm.is_empty() { "—" } else { wm });
+                    let skills_list = w.enabled_skills.join(", ");
+                    dashboard::kv(
+                        ui,
+                        "Enabled skills",
+                        if w.enabled_skills.is_empty() {
+                            "(none)"
+                        } else {
+                            skills_list.as_str()
+                        },
+                    );
+                    let cm = w.context_mode.as_deref().unwrap_or("—");
+                    dashboard::kv(ui, "Context mode", cm);
+                }
             }
         } else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
+        }
+    });
+}
+
+fn status_skills_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
+    dashboard::section_group(ui, "Skills", |ui| {
+        let Some(s) = status else {
+            ui.label(egui::RichText::new("Loading from gateway status...").weak());
+            return;
+        };
+        if let Some(mode) = s.skills_lock_mode.as_deref() {
+            dashboard::kv(ui, "Lock mode", mode);
+        }
+        if let Some(gen) = s.skills_lock_generation {
+            dashboard::kv(ui, "Lock generation", &gen.to_string());
+        } else {
+            dashboard::kv(ui, "Lock generation", "(no lockfile)");
+        }
+        if let Some(count) = s.skills_locked_count {
+            dashboard::kv(ui, "Locked count", &count.to_string());
+        }
+        if let Some(n) = s.skills_packages_discovered {
+            dashboard::kv(ui, "Packages Discovered", &n.to_string());
+        } else {
+            ui.label(egui::RichText::new("(none)").weak());
         }
     });
 }

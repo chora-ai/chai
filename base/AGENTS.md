@@ -30,6 +30,7 @@ Always read [README.md](README.md) and the relevant `meta/` file **before updati
 
 - **[AUDIT_SKILLS.md](AUDIT_SKILLS.md)** — Cross-skill audit of all bundled skills: identify redundancies between SKILL.md and tool schemas, classify directives by enforceability, evaluate examples, review frontmatter field purposes and context costs, and find cross-skill patterns. Audit complete — all 15 skills reviewed, all diagnostic hints implemented and live-tested.
 - **[FEAT_BINARY_WRAPPER.md](FEAT_BINARY_WRAPPER.md)** — Add `binaryWrapper` to execution specs and OR-group semantics for `metadata.requires.bins`, so skills can invoke binaries through a wrapper (e.g. `nix develop --command`) when the declared binary is not directly on PATH.
+- **[FEAT_DESKTOP_JSON.md](FEAT_DESKTOP_JSON.md)** — Add `desktop.json` at the chai home root for desktop-application settings and gateway connection configuration (`gateway.connectUrl`), separating client-side concerns from the server-side `config.json`.
 - **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.
 - **[RELEASE_V0_1_0.md](RELEASE_V0_1_0.md)** — Requirements and resolved decisions for v0.1.0. Messaging channels epic complete; both Matrix and Signal are experimental opt-in features.
 

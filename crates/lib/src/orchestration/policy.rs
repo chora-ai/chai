@@ -1,6 +1,6 @@
 //! Delegation policy: session and per-turn caps (see `base/adr/ORCHESTRATION.md`).
 
-use crate::config::{AgentsConfig, ProvidersConfig};
+use crate::config::AgentsConfig;
 use crate::session::SessionStore;
 
 /// Match `[workerId]` at the start of the instruction, inject `workerId`, and strip the bracketed prefix.
@@ -64,13 +64,12 @@ pub fn apply_delegation_bracket_match(agents: &AgentsConfig, args: &serde_json::
     v
 }
 
-/// Enforces **`maxDelegationsPerSession`** and **`maxDelegationsPerProvider`** before a delegation runs.
+/// Enforces **`maxDelegationsPerSession`** and **`maxDelegationsPerWorker`** before a delegation runs.
 pub async fn assert_session_delegation_limits(
     store: &SessionStore,
     session_id: &str,
-    _providers: &ProvidersConfig,
     agents: &AgentsConfig,
-    provider_id: &str,
+    worker_id: &str,
 ) -> Result<(), String> {
     let session = store
         .get(session_id)
@@ -86,17 +85,17 @@ pub async fn assert_session_delegation_limits(
         }
     }
 
-    if let Some(ref map) = agents.max_delegations_per_provider {
-        if let Some(&limit) = map.get(provider_id) {
+    if let Some(ref map) = agents.max_delegations_per_worker {
+        if let Some(&limit) = map.get(worker_id) {
             let n = session
-                .delegation_by_provider
-                .get(provider_id)
+                .delegation_by_worker
+                .get(worker_id)
                 .copied()
                 .unwrap_or(0);
             if n >= limit {
                 return Err(format!(
-                    "max delegations to provider {} for this session reached (configure maxDelegationsPerProvider.{})",
-                    provider_id, provider_id
+                    "max delegations to worker {} for this session reached (configure maxDelegationsPerWorker.{})",
+                    worker_id, worker_id
                 ));
             }
         }
@@ -118,7 +117,7 @@ mod tests {
                 id: "read-only".to_string(),
                 default_provider: None,
                 default_model: None,
-                skills_enabled: None,
+                enabled_skills: None,
                 context_mode: None,
             }]),
             ..AgentsConfig::default()
@@ -137,7 +136,7 @@ mod tests {
                 id: "read-only".to_string(),
                 default_provider: None,
                 default_model: None,
-                skills_enabled: None,
+                enabled_skills: None,
                 context_mode: None,
             }]),
             ..AgentsConfig::default()
@@ -157,14 +156,14 @@ mod tests {
                     id: "code".to_string(),
                     default_provider: None,
                     default_model: None,
-                    skills_enabled: None,
+                    enabled_skills: None,
                     context_mode: None,
                 },
                 WorkerConfig {
                     id: "code-review".to_string(),
                     default_provider: None,
                     default_model: None,
-                    skills_enabled: None,
+                    enabled_skills: None,
                     context_mode: None,
                 },
             ]),
@@ -184,7 +183,7 @@ mod tests {
                 id: "w".to_string(),
                 default_provider: None,
                 default_model: None,
-                skills_enabled: None,
+                enabled_skills: None,
                 context_mode: None,
             }]),
             ..AgentsConfig::default()

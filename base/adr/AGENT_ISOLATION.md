@@ -17,10 +17,10 @@ This meant workers could not have their own instructions, could not be given a s
 Each logical agent (orchestrator and each worker) has its **own agent context directory** under `<profileRoot>/agents/<agentId>/`, with `AGENT.md` as the on-disk context file:
 
 - **Per-agent context directories.** The gateway reads `AGENT.md` from `<profileRoot>/agents/<agentId>/` for each agent. The file `workspace/AGENTS.md` is not read by the gateway for any agent. `chai init` creates `agents/orchestrator/AGENT.md` for each default profile and does not create `workspace/AGENTS.md`.
-- **Per-agent skill configuration.** Each agent entry in `config.json` declares its own `skillsEnabled` (array of skill package names) and `contextMode` (`full` | `readOnDemand`). There is no top-level `skills` object in `config.json`. Missing or empty `skillsEnabled` on an agent means no skill tools and no skill context for that agent.
+- **Per-agent skill configuration.** Each agent entry in `config.json` declares its own `enabledSkills` (array of skill package names) and `contextMode` (`full` | `readOnDemand`). There is no top-level `skills` object in `config.json`. Missing or empty `enabledSkills` on an agent means no skill tools and no skill context for that agent.
 - **Separate system context.** The orchestrator's system text includes `AGENT.md`, the worker roster (`## Workers`), and orchestrator skills. Each worker's system text includes only that worker's `AGENT.md` and worker-specific skills — no orchestrator identity, no `delegate_task`, no worker roster.
 - **Per-agent tool lists.** Tool lists are built from each agent's enabled skills. The orchestrator list merges `delegate_task` when workers exist. Worker lists omit `delegate_task` (nested delegation disabled).
-- **Skill discovery is shared.** Packages load from `~/.chai/skills` only. Per-agent `skillsEnabled` selects subsets.
+- **Skill discovery is shared.** Packages load from `~/.chai/skills` only. Per-agent `enabledSkills` selects subsets.
 
 ## Alternatives Considered
 
@@ -35,7 +35,7 @@ Each logical agent (orchestrator and each worker) has its **own agent context di
 ## Consequences
 
 - **Agents are fully independent in context and tools.** Each agent's system prompt and tool set are tailored to its role. Workers are never told they are the orchestrator.
-- **Explicit skill enablement.** Operators must set `skillsEnabled` per agent — there is no implicit inheritance from a global list. Empty means no skills, which is a valid and useful configuration for workers.
+- **Explicit skill enablement.** Operators must set `enabledSkills` per agent — there is no implicit inheritance from a global list. Empty means no skills, which is a valid and useful configuration for workers.
 - **Skill packages are shared, composition is per-agent.** All agents draw from the same `~/.chai/skills` store. Profiles and agents differ by enablement, not by duplicated package trees.
 
 ## References

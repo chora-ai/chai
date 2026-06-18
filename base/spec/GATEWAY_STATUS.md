@@ -8,14 +8,14 @@ This document specifies the gateway **`status`** WebSocket response **payload**:
 
 ## Purpose
 
-**`status`** is **not** a copy of config: it omits secrets and includes derived summaries (context strings, tool JSON, discovery lists).
+**`status`** is **not** a copy of config: it omits secrets and includes derived summaries (context strings, tool JSON, model lists).
 
 ### Relationship To Configuration
 
 | Artifact | Role | Authority |
 |----------|------|-----------|
 | **`config.json`** | What the operator configured. | File |
-| **`status` payload** | What the running gateway is using (listeners, channels, provider discovery, agents, shared skill store). | Runtime |
+| **`status` payload** | What the running gateway is using (listeners, channels, model discovery, agents, shared skill store). | Runtime |
 
 **Protocol:** WebSocket `req` / `res` envelope; method **`"status"`**, params **`{}`**. Payload keys are **camelCase**. **`gateway.protocol`** in the **`status`** payload and in connect **`hello-ok`** is **`1`**.
 
@@ -23,19 +23,20 @@ This document specifies the gateway **`status`** WebSocket response **payload**:
 
 ## Payload Shape
 
-Top-level key order matches **`config.json`** blocks for cross-check, with **`gateway`** first and **`skillPackages`** last: **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. The gateway emits keys in this order (see **`serde_json`** **`preserve_order`** in the gateway build).
+Top-level key order matches **`config.json`** blocks for cross-check: **`gateway`**, **`channels`**, **`providers`**, **`sandbox`**, **`agents`**, **`skills`**. The gateway emits keys in this order (see **`serde_json`** **`preserve_order`** in the gateway build).
 
 ```json
 {
   "gateway": { },
   "channels": { },
   "providers": { },
-  "agents": { },
-  "skillPackages": { }
+  "sandbox": { },
+  "agents": [ ],
+  "skills": { }
 }
 ```
 
-There is **no** top-level **`skills`** object. Skill **packages** on disk are under **`skillPackages`**; per-agent skill **runtime** is in each **`agents.entries[]`** object under **`skills`**.
+The top-level **`skills`** block holds shared skill store metadata (not per-agent). Per-agent skill fields (**`enabledSkills`**, **`contextMode`**, **`skillsContext`**) are flat fields on each **`agents[]`** object, mirroring their placement in **`config.json`**.
 
 ### `gateway`
 
@@ -45,6 +46,13 @@ There is **no** top-level **`skills`** object. Skill **packages** on disk are un
 | **`protocol`** | Wire protocol version (**`1`**). |
 | **`port`**, **`bind`** | Effective listen address. |
 | **`auth`** | **`"none"`** or **`"token"`**. |
+
+### `sandbox`
+
+| Field | Meaning |
+|-------|---------|
+| **`disabled`** | **`true`** when the gateway started without a sandbox directory (CWD confinement and path validation disabled). |
+| **`roots`** | Number of writable roots in the sandbox (0 when sandbox is missing). |
 
 ### `channels`
 
@@ -62,49 +70,39 @@ Keys: provider ids from the `providers` array (e.g. **`ollama`**, **`lms`**, **`
 
 | Field | Meaning |
 |-------|---------|
-| **`discovery`** | Whether model discovery ran for this id (per orchestrator **`enabledProviders`** in config; see [PROVIDERS.md](PROVIDERS.md)). |
-| **`models`** | Array of model objects (includes **`name`** where applicable); empty when discovery is off or the backend is unreachable. |
+| **`endpointType`** | Wire protocol: **`"ollama"`** or **`"openai-compat"`**. |
+| **`modelDiscovery`** | Discovery method: **`"auto"`**, **`"lmstudio"`**, or **`"static"`** (mirrors config `providers[].modelDiscovery`). |
+| **`models`** | Array of model name strings; empty when the provider is not in the orchestrator's **`enabledProviders`** scope or the backend is unreachable. |
 
-### `skillPackages`
+### `skills`
 
-Shared skill store on disk (not per-agent):
+Shared skill store on disk and lockfile state (not per-agent):
 
 | Field | Meaning |
 |-------|---------|
-| **`discoveryRoot`** | Directory the gateway scans for packages (resolved at startup; default layout under **`~/.chai`** — see **`README.md`**). |
-| **`packagesDiscovered`** | Package count on disk before per-agent **`skillsEnabled`** filtering. |
-| **`lockGeneration`** | Current generation number from the profile's `skills.lock`, or `null` when no lockfile exists. |
+| **`packagesDiscovered`** | Package count on disk before per-agent **`enabledSkills`** filtering. |
+| **`lockMode`** | Effective lock mode from **`config.json`** **`skills.lockMode`**: **`"strict"`** or **`"warn"`**. |
+| **`lockGeneration`** | Current generation number from the profile's `skills.lock`, or **`null`** when no lockfile exists. |
 | **`lockedSkills`** | Number of skills pinned in the lockfile (0 when no lockfile exists). |
 
 ### `agents`
 
-| Field | Meaning |
-|-------|---------|
-| **`orchestrationCatalog`** | Merged discovery rows (**`{ provider, model, discovered }`**). |
-| **`entries`** | Per-agent runtime rows (below). Orchestrator first (**`role`**: **`orchestrator`**), then workers sorted by **`id`**. |
-
-#### `agents.entries[]`
-
-Each object corresponds to one **`config.json`** agent row (orchestrator or worker):
+Array of per-agent runtime rows. Orchestrator first (**`role`**: **`orchestrator`**), then workers sorted by **`id`**. Each object corresponds to one **`config.json`** agent row (orchestrator or worker):
 
 | Field | Meaning |
 |-------|---------|
 | **`id`**, **`role`** | Agent id; **`orchestrator`** or **`worker`**. |
-| **`contextDirectory`** | Absolute path to **`AGENT.md`** home (**`<profile>/agents/<id>/`**). Workers use **`""`** when not resolved. |
 | **`defaultProvider`**, **`defaultModel`** | Effective routing defaults for that row. |
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
-| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). |
-| **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. |
-| **`skills`** | Per-agent skill runtime (below). |
-
-#### `agents.entries[].skills`
-
-| Field | Meaning |
-|-------|---------|
-| **`enabledSkills`** | Skill package names loaded for that agent (subset under **`skillPackages.discoveryRoot`**). |
-| **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. |
-| **`skillsContext`**, **`skillsContextFull`**, **`skillsContextBodies`** | Skill text slices (see [CONTEXT.md](CONTEXT.md)). |
-
+| **`enabledSkills`** | Skill package names loaded for that agent. Mirrors **`config.json`** **`agents[].enabledSkills`**. |
+| **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
+| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). Injected as `messages[0]` on every turn; not persisted in the session store. |
+| **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. Sent as a separate top-level field in the provider request; never part of the messages array. |
+| **`skillsContext`** | Per-skill body (name → frontmatter-stripped body). Always populated in both modes (see [CONTEXT.md](CONTEXT.md)). **`null`** when no skills are loaded. |
+| **`maxToolLoopsPerTurn`** | Orchestrator: maximum tool loops per turn (integer or **`null`**; omitted = no limit; applies globally to both orchestrator and worker turns). Workers: **`null`**. |
+| **`maxDelegationsPerTurn`** | Orchestrator: optional cap on **`delegate_task`** calls per turn (integer or **`null`**). Workers: **`null`**. |
+| **`maxDelegationsPerSession`** | Orchestrator: optional cap on **`delegate_task`** calls per session (integer or **`null`**). Workers: **`null`**. |
+| **`maxDelegationsPerWorker`** | Orchestrator: optional per-worker delegation caps (object or **`null`**). Workers: **`null`**. |
 ---
 
 ## Status Blocks And Redaction
@@ -113,9 +111,10 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 |-------|---------|------|
 | **`gateway`** | Bind, port, auth mode, protocol | Secrets |
 | **`channels`** | Active vs configured, transport hints | Tokens, passwords, Matrix access tokens |
-| **`providers`** | Discovery flag, model lists | API keys, URLs that embed credentials |
-| **`agents`** | Effective defaults, catalog, **`entries`** | Full raw **`config.json`** |
-| **`skillPackages`** | Store root path, disk package count, lockfile generation, locked skill count | Full directory trees |
+| **`providers`** | Endpoint type, model discovery method, model lists | API keys, URLs that embed credentials |
+| **`sandbox`** | Disabled flag, root count, directory path | — |
+| **`agents`** | Effective defaults, per-agent runtime rows | Full raw **`config.json`** |
+| **`skills`** | Disk package count, lock mode, lockfile generation, locked skill count | Full directory trees |
 
 ---
 
@@ -128,5 +127,5 @@ Each object corresponds to one **`config.json`** agent row (orchestrator or work
 - **[PROFILES.md](PROFILES.md)** — Per-profile lockfile (`skills.lock`) and generation tracking.
 - **[SKILL_FORMAT.md](SKILL_FORMAT.md)** — Skill directory layout, `SKILL.md` content, and frontmatter.
 - **[SKILL_PACKAGES.md](SKILL_PACKAGES.md)** — Skill package versioned layout, startup validation, and CLI commands.
-- **[CONTEXT.md](CONTEXT.md)** — Context strings, skills mode, and build order.
+- **[CONTEXT.md](CONTEXT.md)** — Context on every turn: system message, session history, and tool schemas.
 - **`crates/lib/src/gateway/protocol.rs`** — WebSocket protocol notes.

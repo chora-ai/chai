@@ -10,14 +10,14 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 
 - **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - **Ollama** running with a model that supports **tool/function calling** (e.g. `llama3.2:3b`).
-- **`files` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"files"` to the `skillsEnabled` array on the orchestrator agent:
+- **`files` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"files"` to the `enabledSkills` array on the orchestrator agent:
   ```json
   {
     "agents": [
       {
         "id": "orchestrator",
         "role": "orchestrator",
-        "skillsEnabled": ["files"]
+        "enabledSkills": ["files"]
       }
     ]
   }
@@ -29,11 +29,11 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 1. **Confirm the files skill is enabled**
 
    - Check your config: `cat ~/.chai/profiles/assistant/config.json`
-   - **Expect:** `skillsEnabled` includes `"files"`.
+   - **Expect:** `enabledSkills` includes `"files"`.
 
 2. **Start the gateway**
    - `chai gateway` (or `cargo run -p cli -- gateway`). Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, the skill is not in `skillsEnabled` or the config was not saved correctly.
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, the skill is not in `enabledSkills` or the config was not saved correctly.
 
 3. **Read a file**
    - Send an agent message: "List the files in the current directory, then read the config.json file."
@@ -75,13 +75,13 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 
 ## Context Size
 
-Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
+Every turn the model receives the full system context (AGENT.md, workers roster, skills), the session history (including tool calls and results), and tool schemas (sent as a separate field from the messages). If the combined size is large, the model can be slow or fail to respond.
 
 - **Mitigations:** Prefer a model with a larger context window (e.g. 32K+). Keep skill content concise. For long chats, type `/new` to start a fresh session.
 
 ## If Something Fails
 
-- **"loaded 0 skill(s)"** — The `files` skill is not in `skillsEnabled` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
+- **"loaded 0 skill(s)"** — The `files` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the files_search_content tool to find files containing 'config' and show me the results."
 - **"agent: tool files_write_file failed: path not in writable roots"** — The file path is outside the sandbox. All write operations target the sandbox directory (`~/.chai/profiles/<active>/sandbox/`). Use relative paths; the skill's directives instruct the model to use `./`-relative paths.
 - **"agent: tool files_write_lines failed: original_content mismatch"** — The file changed between the read and the write. The agent should re-read and retry; this is expected behavior for the verification mechanism.
@@ -92,7 +92,7 @@ Every turn the model receives the full system context (skills), full conversatio
 
 | Step | Action | Expected Outcome |
 |------|--------|-------------------|
-| 1 | Confirm `files` in `skillsEnabled` | Config includes the skill |
+| 1 | Confirm `files` in `enabledSkills` | Config includes the skill |
 | 2 | `chai gateway` | At least 1 skill loaded |
 | 3 | "List files, read config.json" | Agent lists directory and reads file |
 | 4 | "Search for 'agent'" | Agent returns matches with line numbers |

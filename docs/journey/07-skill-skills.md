@@ -12,14 +12,14 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 - **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - **Ollama** running with a model that supports **tool/function calling** (e.g. `llama3.2:3b`).
-- **`skills` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"skills"` to the `skillsEnabled` array:
+- **`skills` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"skills"` to the `enabledSkills` array:
   ```json
   {
     "agents": [
       {
         "id": "orchestrator",
         "role": "orchestrator",
-        "skillsEnabled": ["skills"]
+        "enabledSkills": ["skills"]
       }
     ]
   }
@@ -31,11 +31,11 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 1. **Confirm the skills skill is enabled**
    - Check your config: `cat ~/.chai/profiles/assistant/config.json`
-   - **Expect:** `skillsEnabled` includes `"skills"`.
+   - **Expect:** `enabledSkills` includes `"skills"`.
 
 2. **Start the gateway**
    - `chai gateway` (or `cargo run -p cli -- gateway`). Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, the skill is not in `skillsEnabled` or the config was not saved correctly.
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more). If you see `loaded 0 skill(s)`, the skill is not in `enabledSkills` or the config was not saved correctly.
 
 3. **List installed skills**
    - Send an agent message: "List all installed skills."
@@ -72,7 +72,7 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 10. **Verify the custom skill loads**
     - Stop the gateway (Ctrl+C), then restart it: `chai gateway`.
-    - **Expect:** The gateway starts, and `test-skill` is included in the loaded skill count (if it is also added to `skillsEnabled`). Alternatively, confirm the skill exists: `chai skill list` should show `test-skill`.
+    - **Expect:** The gateway starts, and `test-skill` is included in the loaded skill count (if it is also added to `enabledSkills`). Alternatively, confirm the skill exists: `chai skill list` should show `test-skill`.
 
 11. **Clean up: delete the test skill**
     - Send: "Delete the 'test-skill' skill."
@@ -89,18 +89,18 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 ## Context Size
 
-Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
+Every turn the model receives the full system context (AGENT.md, workers roster, skills), the session history (including tool calls and results), and tool schemas (sent as a separate field from the messages). If the combined size is large, the model can be slow or fail to respond.
 
 - **Mitigations:** Prefer a model with a larger context window (e.g. 32K+). Keep skill content concise. For long chats, type `/new` to start a fresh session.
 
 ## If Something Fails
 
-- **"loaded 0 skill(s)"** — The `skills` skill is not in `skillsEnabled` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
+- **"loaded 0 skill(s)"** — The `skills` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the skills_list tool to show all installed skills."
 - **`skills_init` fails with "already exists"** — A skill with that name already exists. Choose a different name or delete the existing one first.
 - **`skills_validate` reports errors** — The tools.json may have structural issues. The agent (or you) can use `skills_read` with `file: "tools_json"` to inspect the content and identify the problem. Fix the JSON and write again.
 - **`skills_write_tools_json` reports JSON parse error** — The content is not valid JSON. This can happen when the model's output is malformed. Re-send the request with the correct JSON structure.
-- **Custom skill not loaded after restart** — The skill was created but not added to `skillsEnabled` in `config.json`. Add it to the array and restart the gateway.
+- **Custom skill not loaded after restart** — The skill was created but not added to `enabledSkills` in `config.json`. Add it to the array and restart the gateway.
 - **`skills_delete` fails** — The skill name may be wrong. Use `skills_list` first to confirm the exact directory name.
 - **Agent deletes a bundled skill** — The `skills` skill directive says "never delete bundled skills unless explicitly instructed." If this happens, re-running `chai init` will restore the bundled skill snapshots.
 
@@ -108,7 +108,7 @@ Every turn the model receives the full system context (skills), full conversatio
 
 | Step | Action | Expected Outcome |
 |------|--------|-------------------|
-| 1 | Confirm `skills` in `skillsEnabled` | Config includes the skill |
+| 1 | Confirm `skills` in `enabledSkills` | Config includes the skill |
 | 2 | `chai gateway` | At least 1 skill loaded |
 | 3 | "List installed skills" | Agent returns skill inventory |
 | 4 | "Read notes SKILL.md and tools.json" | Agent returns skill definitions |
@@ -117,7 +117,7 @@ Every turn the model receives the full system context (skills), full conversatio
 | 7 | "Init test-skill" | Skill directory created |
 | 8 | "Write tools.json for test-skill" | Tool definitions written and validated |
 | 9 | "Write SKILL.md for test-skill" | Skill instructions written |
-| 10 | Restart gateway | Custom skill loads (if in skillsEnabled) |
+| 10 | Restart gateway | Custom skill loads (if in enabledSkills) |
 | 11 | "Delete test-skill" | Skill removed |
 | 12 | Ctrl+C | Gateway stops |
 

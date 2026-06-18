@@ -496,8 +496,7 @@ fn render_chat_message(
             ui.add_space(6.0);
             ui.label(
                 egui::RichText::new(
-                    "Adjust maxToolLoopIterations in config.json to change the limit \
-                     (default: 500 per agent).",
+                    "Adjust maxToolLoopsPerTurn in config.json to set a limit (omitted = no limit).",
                 )
                 .small()
                 .weak(),

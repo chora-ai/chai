@@ -56,8 +56,7 @@ pub async fn run_turn<B: Provider>(
     provider: &B,
     model: &str,
     system_context: Option<&str>,
-    max_session_messages: Option<usize>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
@@ -70,8 +69,7 @@ pub async fn run_turn<B: Provider>(
         provider as &dyn Provider,
         model,
         system_context,
-        max_session_messages,
-        max_tool_loop_iterations,
+        max_tool_loops_per_turn,
         tools,
         tool_executor,
         delegate,
@@ -88,8 +86,7 @@ pub async fn run_turn_dyn(
     provider: &dyn Provider,
     model: &str,
     system_context: Option<&str>,
-    max_session_messages: Option<usize>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
     delegate: Option<DelegateContext<'_>>,
@@ -111,13 +108,6 @@ pub async fn run_turn_dyn(
             tool_name: m.tool_name.clone(),
         })
         .collect();
-
-    if let Some(limit) = max_session_messages {
-        if limit > 0 && messages.len() > limit {
-            let start = messages.len() - limit;
-            messages = messages[start..].to_vec();
-        }
-    }
 
     if let Some(ctx) = system_context {
         if !ctx.trim().is_empty() {
@@ -142,7 +132,7 @@ pub async fn run_turn_dyn(
         &mut on_chunk,
         Some((store, session_id)),
         delegate,
-        max_tool_loop_iterations,
+        max_tool_loops_per_turn,
         stop_flag,
     )
     .await
@@ -152,7 +142,7 @@ pub async fn run_turn_dyn(
 ///
 /// Use this for **worker** or **delegated** subtasks: build `messages` (e.g. system + user instruction), pick a
 /// [`Provider`] and model id, then consume [`AgentTurnResult`]. The same tool loop as [`run_turn`] applies
-/// (`max_tool_loop_iterations` iterations); nothing is persisted — the orchestrator merges results into the main session.
+/// (`max_tool_loops_per_turn` iterations); nothing is persisted — the orchestrator merges results into the main session.
 ///
 /// Streaming is not supported here (`on_chunk` is unused); add later if needed.
 pub async fn run_turn_with_messages<B: Provider>(
@@ -161,7 +151,7 @@ pub async fn run_turn_with_messages<B: Provider>(
     messages: Vec<ChatMessage>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     run_turn_with_messages_dyn(
@@ -170,7 +160,7 @@ pub async fn run_turn_with_messages<B: Provider>(
         messages,
         tools,
         tool_executor,
-        max_tool_loop_iterations,
+        max_tool_loops_per_turn,
         None,
         stop_flag,
     )
@@ -184,7 +174,7 @@ pub async fn run_turn_with_messages_dyn(
     mut messages: Vec<ChatMessage>,
     tools: Option<Vec<ToolDefinition>>,
     tool_executor: Option<&dyn ToolExecutor>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     observability: Option<&DelegateObservability>,
     stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
@@ -197,7 +187,7 @@ pub async fn run_turn_with_messages_dyn(
         tool_executor,
         &mut on_chunk,
         None,
-        max_tool_loop_iterations,
+        max_tool_loops_per_turn,
         observability,
         stop_flag,
     )
@@ -213,7 +203,7 @@ async fn execute_turn_worker(
     tool_executor: Option<&dyn ToolExecutor>,
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     observability: Option<&DelegateObservability>,
     stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
@@ -343,13 +333,15 @@ async fn execute_turn_worker(
                 messages.push(assistant_msg);
                 messages.push(notice_msg);
                 loop_count += 1;
-                if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-                    log::warn!("agent: max tool loop iterations reached after truncation");
-                    loop_limit_reached = true;
-                    if !last_tool_calls.is_empty() {
-                        pending_tool_calls = last_tool_calls.clone();
+                if let Some(max) = max_tool_loops_per_turn {
+                    if loop_count >= (max as usize).try_into().unwrap() {
+                        log::warn!("agent: max tool loop iterations reached after truncation");
+                        loop_limit_reached = true;
+                        if !last_tool_calls.is_empty() {
+                            pending_tool_calls = last_tool_calls.clone();
+                        }
+                        break;
                     }
-                    break;
                 }
                 continue;
             }
@@ -357,11 +349,13 @@ async fn execute_turn_worker(
         }
 
         loop_count += 1;
-        if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-            log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
-            loop_limit_reached = true;
-            pending_tool_calls = last_tool_calls.clone();
-            break;
+        if let Some(max) = max_tool_loops_per_turn {
+            if loop_count >= (max as usize).try_into().unwrap() {
+                log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
+                loop_limit_reached = true;
+                pending_tool_calls = last_tool_calls.clone();
+                break;
+            }
         }
 
         let needs_executor = last_tool_calls
@@ -463,13 +457,15 @@ async fn execute_turn_worker(
                     .map_err(|e| ProviderError::Session(e.to_string()))?;
             }
             messages.push(notice_msg);
-            if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-                log::warn!("agent: max tool loop iterations reached after truncation");
-                loop_limit_reached = true;
-                if !last_tool_calls.is_empty() {
-                    pending_tool_calls = last_tool_calls.clone();
+            if let Some(max) = max_tool_loops_per_turn {
+                if loop_count >= (max as usize).try_into().unwrap() {
+                    log::warn!("agent: max tool loop iterations reached after truncation");
+                    loop_limit_reached = true;
+                    if !last_tool_calls.is_empty() {
+                        pending_tool_calls = last_tool_calls.clone();
+                    }
+                    break;
                 }
-                break;
             }
             continue;
         }
@@ -495,7 +491,7 @@ async fn execute_turn_main(
     on_chunk: &mut Option<&mut (dyn FnMut(&str) + Send)>,
     persist: Option<(&SessionStore, &str)>,
     mut delegate: Option<DelegateContext<'_>>,
-    max_tool_loop_iterations: u32,
+    max_tool_loops_per_turn: Option<u32>,
     stop_flag: Option<Arc<AtomicBool>>,
 ) -> Result<AgentTurnResult, ProviderError> {
     let model_name = model.trim();
@@ -639,13 +635,15 @@ async fn execute_turn_main(
                 messages.push(assistant_msg);
                 messages.push(notice_msg);
                 loop_count += 1;
-                if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-                    log::warn!("agent: max tool loop iterations reached after truncation");
-                    loop_limit_reached = true;
-                    if !last_tool_calls.is_empty() {
-                        pending_tool_calls = last_tool_calls.clone();
+                if let Some(max) = max_tool_loops_per_turn {
+                    if loop_count >= (max as usize).try_into().unwrap() {
+                        log::warn!("agent: max tool loop iterations reached after truncation");
+                        loop_limit_reached = true;
+                        if !last_tool_calls.is_empty() {
+                            pending_tool_calls = last_tool_calls.clone();
+                        }
+                        break;
                     }
-                    break;
                 }
                 continue;
             }
@@ -653,11 +651,13 @@ async fn execute_turn_main(
         }
 
         loop_count += 1;
-        if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-            log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
-            loop_limit_reached = true;
-            pending_tool_calls = last_tool_calls.clone();
-            break;
+        if let Some(max) = max_tool_loops_per_turn {
+            if loop_count >= (max as usize).try_into().unwrap() {
+                log::warn!("agent: max tool loop iterations reached ({}), some tool calls were not executed", loop_count);
+                loop_limit_reached = true;
+                pending_tool_calls = last_tool_calls.clone();
+                break;
+            }
         }
 
         let needs_executor = last_tool_calls
@@ -814,13 +814,15 @@ async fn execute_turn_main(
                     .map_err(|e| ProviderError::Session(e.to_string()))?;
             }
             messages.push(notice_msg);
-            if loop_count >= (max_tool_loop_iterations as i32).try_into().unwrap() {
-                log::warn!("agent: max tool loop iterations reached after truncation");
-                loop_limit_reached = true;
-                if !last_tool_calls.is_empty() {
-                    pending_tool_calls = last_tool_calls.clone();
+            if let Some(max) = max_tool_loops_per_turn {
+                if loop_count >= (max as usize).try_into().unwrap() {
+                    log::warn!("agent: max tool loop iterations reached after truncation");
+                    loop_limit_reached = true;
+                    if !last_tool_calls.is_empty() {
+                        pending_tool_calls = last_tool_calls.clone();
+                    }
+                    break;
                 }
-                break;
             }
             continue;
         }
@@ -1003,7 +1005,7 @@ mod tests {
             messages,
             None,
             None,
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1036,7 +1038,7 @@ mod tests {
             messages,
             None,
             None,
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1086,7 +1088,7 @@ mod tests {
             messages,
             None,
             Some(&executor as &dyn ToolExecutor),
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1153,7 +1155,7 @@ mod tests {
             messages,
             None,
             Some(&executor as &dyn ToolExecutor),
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1203,7 +1205,7 @@ mod tests {
             messages,
             None,
             Some(&executor as &dyn ToolExecutor),
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1307,7 +1309,7 @@ mod tests {
             messages,
             None,
             None,
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             None,
         )
@@ -1367,7 +1369,7 @@ mod tests {
             messages,
             None,
             None,
-            3,
+            Some(3),
             None,
             None,
         )
@@ -1418,7 +1420,7 @@ mod tests {
             messages,
             None,
             Some(&executor as &dyn ToolExecutor),
-            crate::config::DEFAULT_MAX_TOOL_LOOP_ITERATIONS,
+            None,
             None,
             Some(flag),
         )

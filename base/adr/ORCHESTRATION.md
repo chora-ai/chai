@@ -18,7 +18,7 @@ Chai uses an **orchestrator–worker** model:
 - **Workers** handle narrow, well-defined subtasks. Each worker has a single `defaultProvider` / `defaultModel` pair and its own skill configuration. Workers do not see the orchestrator's identity, the worker roster, or the `delegate_task` tool (nested delegation is disabled).
 - Agent definitions live in a single **`agents` array** in `config.json`. Each entry has an `id`, a `role` (`"orchestrator"` or `"worker"`), and fields for provider/model defaults and skill enablement. Exactly one orchestrator is required; zero or more workers may be defined.
 - **`providers`** (connection plumbing: base URLs, API keys) and **`agents`** (routing: which provider/model per role, which skills) are separate top-level config concerns. `providers` describes how to reach each backend; `agents` describes which backend each role uses.
-- Delegation policy is config-driven: caps (`maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider`) and bracket-prefix worker targeting. No interactive human approval queue — the policy is enforced mechanically.
+- Delegation policy is config-driven: caps (`maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker`) and bracket-prefix worker targeting. No interactive human approval queue — the policy is enforced mechanically.
 
 ### Workers Use a Single Provider and Model
 

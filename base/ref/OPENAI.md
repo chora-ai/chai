@@ -48,7 +48,7 @@ The `"openai-compat"` endpoint type follows the OpenAI API specification. When a
 | Endpoint | Method | Use |
 |----------|--------|-----|
 | **`/v1/chat/completions`** | POST | Agent turn: `model`, `messages` (OpenAI format, including tool messages keyed by `tool_call_id`), optional `tools`, `stream`. Used by all `"openai-compat"` providers. |
-| **`/v1/models`** | GET | Model discovery when `modelDiscovery: "default"` (the standard OpenAI list models route). Returns `data[].id`. Not available on all servers — some require `modelDiscovery: "static"` or `"lmstudio"` instead. |
+| **`/v1/models`** | GET | Model discovery when `modelDiscovery: "auto"` (the standard OpenAI list models route). Returns `data[].id`. Not available on all servers — some require `modelDiscovery: "static"` or `"lmstudio"` instead. |
 | **`/api/v1/models`** | GET | LM Studio native model list when `modelDiscovery: "lmstudio"`. Filters `type == "llm"`, uses `key` as model id. Outside the `/v1` path — the client strips the `/v1` suffix from `baseUrl` to reach the LM Studio root. |
 | **`/api/v1/models/load`** | POST | Automatically called when `modelDiscovery: "lmstudio"` and chat returns an "unloaded" error; loads the model by id and retries the chat request once. Request body: `{ "model": "<id>" }`. |
 
@@ -99,7 +99,7 @@ The primary route used for agent turns. All `"openai-compat"` providers share th
 
 ### List Models (`GET /v1/models`)
 
-- **What we use:** `modelDiscovery: "default"` — polls `GET /v1/models` at gateway startup and returns `data[].id`. Result is stored in gateway state and exposed in WebSocket `status`.
+- **What we use:** `modelDiscovery: "auto"` — polls `GET /v1/models` at gateway startup and returns `data[].id`. Result is stored in gateway state and exposed in WebSocket `status`.
 - **Availability:** Not all OpenAI-compatible servers expose this route. NVIDIA NIM and some self-hosted servers do not — those require `modelDiscovery: "static"` with a user-curated list.
 
 ### Streaming
@@ -117,11 +117,11 @@ The `modelDiscovery` field controls how a provider's available model list is obt
 
 | Value | Description | Route Used |
 |-------|-------------|-----------|
-| `"default"` | Standard OpenAI model list. | `GET /v1/models` → `data[].id` |
+| `"auto"` | Standard OpenAI model list. | `GET /v1/models` → `data[].id` |
 | `"lmstudio"` | LM Studio native model list. | `GET /api/v1/models` → filter `type == "llm"`, use `key` as model id |
 | `"static"` | User-curated list from `staticModels` config field. No polling. | — |
 
-When omitted, `modelDiscovery` defaults to `"default"`.
+When omitted, `modelDiscovery` defaults to `"auto"`.
 
 ### Static Models
 
@@ -167,7 +167,7 @@ The simplest `openai-compat` configuration: no `baseUrl` or `apiKey` needed. LM 
   - Models must be manually loaded (e.g. `lms load <model path>`) or rely on automatic retry on unload
   - All models support the tools API but some models are not trained on tool use
 
-A bare `{ "id": "local", "endpointType": "openai-compat" }` also connects to LM Studio on localhost, using default model discovery (`GET /v1/models`) and no automatic retry on unload.
+A bare `{ "id": "local", "endpointType": "openai-compat" }` also connects to LM Studio on localhost, using auto model discovery (`GET /v1/models`) and no automatic retry on unload.
 
 ### NearAI — Cloud
 
@@ -229,7 +229,7 @@ For example, vLLM, Hugging Face TGI, and OpenAI itself are all "simple remote AP
 | `baseUrl` | `String` | No | `http://127.0.0.1:1234/v1` | Base URL for the OpenAI-compatible server. The default is LM Studio's localhost address. Remote providers must set this explicitly. |
 | `apiKey` | `String` | No | — | API key for Bearer auth. When unset, no auth header is sent (suitable for local servers). |
 | `defaultModel` | `String` | No | `llama-3.2-3B-instruct` | Default model id for this provider. The endpoint-type default is LM Studio–compatible. |
-| `modelDiscovery` | `ModelDiscovery` | No | `"default"` | How to discover models: `"default"` (`GET /v1/models`), `"lmstudio"` (`GET /api/v1/models`), or `"static"` (from `staticModels`). |
+| `modelDiscovery` | `ModelDiscovery` | No | `"auto"` | How to discover models: `"auto"` (`GET /v1/models`), `"lmstudio"` (`GET /api/v1/models`), or `"static"` (from `staticModels`). |
 | `staticModels` | `String[]` | No | `[]` | Model list when `modelDiscovery: "static"`. No polling. |
 
 ## OpenAI-Compatible API vs. Ollama API

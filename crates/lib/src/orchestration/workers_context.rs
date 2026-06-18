@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use crate::config::{
-    canonical_provider_id, worker_skills_enabled_list, AgentsConfig, ProvidersConfig, WorkerConfig,
+    canonical_provider_id, worker_enabled_skills_list, AgentsConfig, ProvidersConfig, WorkerConfig,
 };
 use crate::skills::SkillEntry;
 
@@ -93,7 +93,7 @@ fn lines_for_worker(
     out.push_str(id);
     out.push_str("\n\n");
 
-    let names = worker_skills_enabled_list(w);
+    let names = worker_enabled_skills_list(w);
     if !names.is_empty() {
         out.push_str("This worker has the following skills:\n\n");
         for name in names.iter() {
@@ -132,7 +132,7 @@ mod tests {
             id: "bob".to_string(),
             default_provider: Some("ollama".to_string()),
             default_model: Some("llama3.2:3b".to_string()),
-            skills_enabled: None,
+            enabled_skills: None,
             context_mode: None,
         }]);
         a
@@ -171,7 +171,7 @@ mod tests {
             id: "bob".to_string(),
             default_provider: None,
             default_model: None,
-            skills_enabled: None,
+            enabled_skills: None,
             context_mode: None,
         }]);
         let s = build_workers_context(&a, &[]);
@@ -192,7 +192,7 @@ mod tests {
             id: "w1".to_string(),
             default_provider: None,
             default_model: None,
-            skills_enabled: Some(vec!["my-skill".to_string()]),
+            enabled_skills: Some(vec!["my-skill".to_string()]),
             context_mode: None,
         }]);
         a.enabled_providers = Some(vec!["ollama".to_string()]);

@@ -33,9 +33,9 @@ The sidebar provides navigation between screens:
 | **Chat** | Send messages to the orchestrator agent, view replies, see tool calls and delegation events. |
 | **Status** | Runtime snapshot from the gateway: providers, discovered models, agents, channels, skill packages. |
 | **Config** | Read-only view of the active profile's `config.json` with a summary of providers, agents, channels, and delegation rules. Provides the config file path so you can edit it externally. |
-| **Context** | Inspect and edit agent context (`AGENT.md` files) and skill content (`SKILL.md` files) per agent. Shows which skills are enabled and their frontmatter metadata. |
+| **Agent** | Inspect the system message for each agent (built at startup from `AGENT.md`, the workers roster, and skills content). The system message is injected as the first message on every turn, separate from the persistent session history. |
 | **Skills** | Browse installed skill packages, view SKILL.md and tools.json, toggle skills per agent. |
-| **Tools** | Inspect the resolved tool definitions for each agent — what the model sees in its tool schemas. |
+| **Tools** | Inspect the resolved tool schemas for each agent. Tool schemas are sent as a separate top-level field on every turn, outside the messages array. |
 | **Logs** | Gateway log output (stdout/stderr from the spawned process). Useful for diagnosing connection errors or tool failures. |
 
 ## Profile Management
@@ -91,7 +91,7 @@ The chat screen renders different message types visually:
 | **Delegation complete** | Success/event indicator with worker id |
 | **Worker reply** | The worker's text response, shown as a blue-bordered message with the worker id as a label |
 | **Delegation error** | Red-highlighted error from the worker |
-| **Tool loop limit** | Amber warning banner — the orchestrator hit `maxToolLoopIterations`, pending tool calls were paused |
+| **Tool loop limit** | Amber warning banner — the orchestrator hit `maxToolLoopsPerTurn`, pending tool calls were paused |
 | **Turn stopped** | Amber info banner — the agent turn was stopped by the user, send a message to continue |
 
 ## Try It

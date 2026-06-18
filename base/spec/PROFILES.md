@@ -117,7 +117,7 @@ Each profile has a **per-profile lockfile** at `profiles/<name>/skills.lock` tha
 
 ### Strictness
 
-Configurable per profile via `skillLockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)):
+Configurable per profile via `skills.lockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)):
 
 | Mode | Behavior |
 |------|----------|
@@ -177,7 +177,7 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 
 | System | How profiles interact |
 |--------|-----------------------|
-| **Agents** (see [AGENTS.md](AGENTS.md)) | Agent context directories live under `<profileRoot>/agents/<agentId>/`. Per-agent `skillsEnabled` and `contextMode` are in that profile's `config.json`. |
+| **Agents** (see [AGENTS.md](AGENTS.md)) | Agent context directories live under `<profileRoot>/agents/<agentId>/`. Per-agent `enabledSkills` and `contextMode` are in that profile's `config.json`. |
 | **Sandbox** (see [SANDBOX.md](SANDBOX.md)) | The write sandbox directory is `<profileRoot>/sandbox/`. All agents in a profile share one sandbox. |
 | **Skills** (see [SKILL_PACKAGES.md](SKILL_PACKAGES.md)) | Skill packages live in the shared `~/.chai/skills/` store with versioned snapshots. Profiles differ by per-agent enablement and per-profile lockfile pins, not by duplicated package trees. |
 | **Orchestration** (see [ORCHESTRATION.md](ORCHESTRATION.md)) | Orchestrator settings, delegation policy, and worker definitions come from the active profile's `config.json`. |
@@ -189,9 +189,9 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 | Document | Purpose |
 |----------|---------|
 | [adr/RUNTIME_PROFILES.md](../adr/RUNTIME_PROFILES.md) | Architectural decision for the profile model |
-| [CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks, `skillLockMode`, and environment overrides |
+| [CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks, `skills.lockMode`, and environment overrides |
 | [AGENTS.md](AGENTS.md) | Per-agent context and skill configuration within profiles |
 | [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, and frontmatter |
 | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Skill package versioned layout, startup validation, and CLI commands |
 | [SANDBOX.md](SANDBOX.md) | Write sandbox under each profile |
-| [CONTEXT.md](CONTEXT.md) | System context assembly, skill context modes, and build order |
+| [CONTEXT.md](CONTEXT.md) | Context on every turn: system message, session history, tool schemas |

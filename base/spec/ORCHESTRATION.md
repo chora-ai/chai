@@ -24,13 +24,12 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`id`**, **`role`** | Identity; must include exactly one **`orchestrator`**. |
 | **`defaultProvider`**, **`defaultModel`** | Main session defaults. |
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
-| **`skillsEnabled`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
+| **`enabledSkills`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** — how orchestrator skill text appears in system context (and whether **`read_skill`** is offered). |
-| **`maxSessionMessages`** | When set and **`> 0`**, only the last N messages are sent per turn; full history stays in the session store. |
-| **`maxToolLoopIterations`** | Maximum LLM round-trips per turn (default 500). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached on the orchestrator turn, the gateway emits a **`session.tool_loop_limit`** event with the pending tool calls and includes **`loopLimitReached`** + **`pendingToolCalls`** in the `agent` RPC response, so clients can show the interrupted state. When the turn is stopped by the user, the `agent` RPC response includes **`stopped`**: **`true`** and the gateway emits a **`session.turn_stopped`** event. |
+| **`maxToolLoopsPerTurn`** | Maximum tool loops per turn (omitted = no limit). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached on the orchestrator turn, the gateway emits a **`session.tool_loop_limit`** event with the pending tool calls and includes **`loopLimitReached`** + **`pendingToolCalls`** in the `agent` RPC response, so clients can show the interrupted state. When the turn is stopped by the user, the `agent` RPC response includes **`stopped`**: **`true`** and the gateway emits a **`session.turn_stopped`** event. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
 | **`maxDelegationsPerSession`** | Cap on **successful** delegations per persisted session (requires session id on the gateway path). |
-| **`maxDelegationsPerProvider`** | Per-session caps keyed by canonical provider id. |
+| **`maxDelegationsPerWorker`** | Per-session caps keyed by worker id. |
 
 ### Worker entry
 
@@ -38,10 +37,10 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 |-----|---------|
 | **`id`**, **`role`** | Identity; **`id`** is **`workerId`**. |
 | **`defaultProvider`**, **`defaultModel`** | Worker's single `(provider, model)` pair. Falls back to orchestrator defaults when omitted. |
-| **`skillsEnabled`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
+| **`enabledSkills`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker's skill presentation and tools. |
 
-A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**. Workers do not have their own `enabledProviders` field.
+Orchestrator-only fields (**`enabledProviders`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**, **`maxToolLoopsPerTurn`**) are rejected at parse time when set on a worker entry. A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**.
 
 ## Delegation Tool (`delegate_task`)
 
@@ -61,7 +60,7 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on a worker's
 
 ## Worker Turn Behavior
 
-- The worker receives **its own** static system string: **that worker's** **`AGENT.md`**, **that worker's** **`skillsEnabled`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
+- The worker receives **its own** static system string: **that worker's** **`AGENT.md`**, **that worker's** **`enabledSkills`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
 - **Tool list** — Skill tools (and optional **`read_skill`**) match the worker's enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
 - **Messages** — The worker turn is **not** the main session transcript: **`execute_delegate_task`** builds **`[system?, user(instruction)]`** only (see **`delegate.rs`**). Delegation limits may still use the parent **`sessionId`** for caps.
 - Implementation: **`DelegateContext.worker_runtimes`** and **`crates/lib/src/orchestration/delegate.rs`**.
@@ -98,7 +97,7 @@ Tool calls, results, and intermediate thinking are streamed as separate events, 
 | **`session.tool_call`** | A tool is about to execute. Payload includes **`toolName`**, **`toolArgs`**, **`index`**, **`sessionId`**. |
 | **`session.tool_result`** | A tool execution completed. Payload includes **`toolName`**, **`toolResult`**, **`index`**, **`sessionId`**. |
 | **`session.assistant_progress`** | Intermediate content from the model during a tool loop iteration. Payload includes **`content`**, **`iteration`**, **`sessionId`**. Emitted when the model produces non-empty text alongside tool calls; without this event, that content would be invisible since only the final iteration's content is sent as the assistant reply. |
-| **`session.tool_loop_limit`** | The **`maxToolLoopIterations`** limit was reached during an orchestrator turn. Payload includes **`pendingToolCalls`** (array of tool calls generated by the model but not executed) and **`sessionId`**. Worker turns do not emit this event — only the orchestrator turn faces the user. Clients should display an indication that the turn was interrupted and the user must send another message to continue. |
+| **`session.tool_loop_limit`** | The **`maxToolLoopsPerTurn`** limit was reached during an orchestrator turn. Payload includes **`pendingToolCalls`** (array of tool calls generated by the model but not executed) and **`sessionId`**. Worker turns do not emit this event — only the orchestrator turn faces the user. Clients should display an indication that the turn was interrupted and the user must send another message to continue. |
 | **`session.turn_stopped`** | The agent turn was stopped by the user (via the `stop` WebSocket method). Payload includes **`sessionId`** and optional **`source`**. The agent finished the current tool call or model request, then paused before the next iteration. The session transcript remains valid — the user can send a new message to continue. Clients should display an indication that the turn was paused. |
 
 The **`index`** on tool events is a running count within the current agent turn (across all loop iterations of a single `run_turn_dyn` call). It resets when a new turn starts (new user message). Clients matching `tool_result` to `tool_call` entries should search in reverse to find the most recent entry with a given index, since indices may collide across turns.
@@ -109,23 +108,17 @@ Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs
 
 - **`max_delegations_per_turn`** — **`maxDelegationsPerTurn`** exceeded in this orchestrator turn.
 - **`max_delegations_per_session`** — **`maxDelegationsPerSession`** would be exceeded after a successful delegation.
-- **`max_delegations_per_provider`** — Per-provider session cap would be exceeded.
-
-Constants and emission logic live in **`crates/lib/src/orchestration/delegate.rs`**. **Chai Desktop** renders these in the chat timeline (**`state/chat.rs`**, **`screens/chat.rs`**).
-
-## Gateway `status` — `orchestrationCatalog`
-
-The **`status`** WebSocket payload includes **`agents.orchestrationCatalog`**: a merged array of **`{ provider, model, discovered }`** from per-provider discovery. See **`crates/lib/src/orchestration/catalog.rs`**.
+- **`max_delegations_per_worker`** — Per-worker session cap would be exceeded.
 
 ## Gateway `status` — worker rows
 
-The gateway does **not** emit a top-level **`workers`** key on **`status`**. Worker runtime is represented as **`payload.agents.entries`** objects with **`role`**: **`"worker"`** (after the orchestrator row), each including **`id`**, **`defaultProvider`**, and **`defaultModel`** using the same effective **`(provider, model)`** resolution as **`delegate_task`** defaults (see **`crates/lib/src/orchestration/workers_context.rs`**). **Chai Desktop** builds an in-memory list of **`{ id, defaultProvider, defaultModel }`** from those entries for the **Status** screen under **Agents** (see **`crates/desktop/src/app/state/gateway.rs`**).
+The gateway does **not** emit a top-level **`workers`** key on **`status`**. Worker runtime is represented as **`payload.agents[]`** objects with **`role`**: **`"worker"`** (after the orchestrator row), each including **`id`**, **`defaultProvider`**, and **`defaultModel`** using the same effective **`(provider, model)`** resolution as **`delegate_task`** defaults (see **`crates/lib/src/orchestration/workers_context.rs`**). **Chai Desktop** builds an in-memory list of **`{ id, defaultProvider, defaultModel }`** from those entries for the **Status** screen under **Agents** (see **`crates/desktop/src/app/state/gateway.rs`**).
 
 ## Related Documents
 
 | Document | Purpose |
 |----------|---------|
-| **[AGENTS.md](AGENTS.md)** | Per-agent workspace, **`skillsEnabled`**, worker vs orchestrator system context. |
+| **[AGENTS.md](AGENTS.md)** | Per-agent workspace, **`enabledSkills`**, worker vs orchestrator system context. |
 | **[adr/ORCHESTRATION.md](../adr/ORCHESTRATION.md)** | Architectural decision for the orchestrator–worker model. |
 | **[PROVIDERS.md](PROVIDERS.md)** | Provider ids, configuration, API comparison. |
 | **[MODELS.md](MODELS.md)** | Model ids, repository inventory, tool-fit notes. |

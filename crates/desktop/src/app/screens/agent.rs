@@ -9,7 +9,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
         ui,
         "Agent",
         Some(if running {
-            "Context loaded at the beginning of a session."
+            "Injected as a system message on every turn (built at startup, separate from history)."
         } else {
             "Start the gateway to load agent context."
         }),
@@ -60,8 +60,8 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let context_text = effective_system_context(gs, selected_id.as_str());
 
             // Determine context mode: prefer gateway status, fall back to config.
-            let is_read_on_demand_orch = if let Some(mode) = gs.context_mode.as_deref() {
-                mode == "readOnDemand"
+            let is_read_on_demand_orch = if let Some(rt) = gs.agent_skills.get(&selected_id) {
+                rt.context_mode.as_deref() == Some("readOnDemand")
             } else {
                 let config = lib::config::load_config(app.effective_profile_override())
                     .map(|(c, _)| c)
@@ -102,19 +102,14 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let use_read_on_demand_two_columns = (is_orchestrator_view && is_read_on_demand_orch)
                 || (!is_orchestrator_view && is_read_on_demand_worker);
 
-            // Extract skill context strings from gateway status before entering
-            // any closures that also borrow `app`. These are used to prefer
-            // gateway data over disk reads (parity with running gateway).
+            // Extract skill context bodies from gateway status before entering
+            // any closures that also borrow `app`. Used to prefer gateway data
+            // over disk reads (parity with running gateway).
             let status_bodies = gs
                 .agent_skills
                 .get(&selected_id)
-                .map(|rt| rt.skills_context_bodies.clone())
+                .map(|rt| rt.skills_context.clone())
                 .filter(|m| !m.is_empty());
-            let status_full = gs
-                .agent_skills
-                .get(&selected_id)
-                .and_then(|rt| rt.skills_context_full.clone())
-                .filter(|s| !s.is_empty());
 
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), total_height),
@@ -209,23 +204,6 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                             ui.add_space(spacing::SUBSECTION);
                                         }
                                     });
-                            } else if let Some(full_text) = &status_full {
-                                let scroll_id = if is_orchestrator_view {
-                                    "context_skills_scroll"
-                                } else {
-                                    "context_worker_skills_scroll"
-                                };
-                                egui::ScrollArea::vertical()
-                                    .id_source(scroll_id)
-                                    .max_height(ui_right.available_height())
-                                    .show(ui_right, |ui| {
-                                        let mut buf = full_text.to_string();
-                                        egui::TextEdit::multiline(&mut buf)
-                                            .code_editor()
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .show(ui);
-                                    });
                             } else {
                                 // No gateway status skill data — fall back to disk reads.
                                 if let Ok((config, _paths)) =
@@ -234,7 +212,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                     let (skill_names, right_title): (&[String], &'static str) =
                                         if is_orchestrator_view {
                                             (
-                                                lib::config::orchestrator_skills_enabled_list(
+                                                lib::config::orchestrator_enabled_skills_list(
                                                     &config.agents,
                                                 ),
                                                 "Skill bodies (orchestrator)",
@@ -248,7 +226,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                             })
                                         {
                                             (
-                                                lib::config::worker_skills_enabled_list(w),
+                                                lib::config::worker_enabled_skills_list(w),
                                                 "Skill bodies (worker)",
                                             )
                                         } else {
@@ -354,7 +332,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                         }
                                     } else {
                                         ui_right.label(egui::RichText::new(right_title).weak());
-                                        ui_right.label("No skills enabled for this agent.");
+                                        ui_right.label("No enabled skills for this agent.");
                                     }
                                 }
                             }
@@ -403,7 +381,7 @@ fn effective_system_context<'a>(
 
 /// Strip YAML frontmatter (`---` ... `---`) from SKILL.md content so that the
 /// visible body matches what the gateway sends via read_skill and in
-/// skills_context_bodies.
+/// skillsContext.
 fn strip_skill_frontmatter(content: &str) -> &str {
     let rest = content.trim_start();
     let rest = rest

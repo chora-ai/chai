@@ -183,20 +183,16 @@ pub struct SessionEvent {
     pub(crate) pending_tool_calls: Option<Vec<serde_json::Value>>,
 }
 
-/// One worker row derived from gateway **`status`** `payload.agents.entries` (**`role`** **`worker`**): effective defaults for delegation.
+/// One worker row derived from gateway **`status`** `payload.agents` (**`role`** **`worker`**): effective defaults for delegation.
 #[derive(Clone, Default)]
 pub struct StatusWorkerRow {
     pub(crate) id: String,
     pub(crate) default_provider: String,
     pub(crate) default_model: String,
-}
-
-/// One row of the merged orchestration catalog from gateway **`status`** (`payload.agents.orchestrationCatalog`).
-#[derive(Clone, Default)]
-pub struct OrchestrationCatalogRow {
-    pub(crate) provider: String,
-    pub(crate) model: String,
-    pub(crate) discovered: bool,
+    /// **`payload.agents[].enabledSkills`** for this worker.
+    pub(crate) enabled_skills: Vec<String>,
+    /// **`payload.agents[].contextMode`** for this worker.
+    pub(crate) context_mode: Option<String>,
 }
 
 /// Per-provider info parsed from the gateway status `providers` block.
@@ -204,9 +200,9 @@ pub struct OrchestrationCatalogRow {
 pub struct ProviderStatusInfo {
     /// Endpoint type string (e.g. `"ollama"`, `"openai-compat"`).
     pub(crate) endpoint_type: String,
-    /// Whether model discovery is enabled for this provider.
-    pub(crate) discovery: bool,
-    /// Discovered model names (empty if provider unreachable or discovery off).
+    /// Discovery method string (e.g. `"default"`, `"lmstudio"`, `"static"`).
+    pub(crate) model_discovery: String,
+    /// Discovered model names (empty if provider unreachable or not in discovery scope).
     pub(crate) models: Vec<String>,
 }
 
@@ -219,10 +215,12 @@ pub struct GatewayStatusDetails {
     pub(crate) auth: String,
     /// **`payload.gateway.status`** (e.g. **`running`**).
     pub(crate) status: String,
+    /// **`payload.sandbox.disabled`** — whether the gateway is running without a sandbox directory.
+    pub(crate) sandbox_disabled: bool,
+    /// **`payload.sandbox.roots`** — number of writable roots in the sandbox.
+    pub(crate) sandbox_roots: u64,
     /// Resolved orchestrator agent id from config (same id used for the main agent turn).
     pub(crate) orchestrator_id: Option<String>,
-    /// Orchestrator context directory from **`payload.agents.entries`** (**`role`** **`orchestrator`**, **`contextDirectory`**).
-    pub(crate) orchestrator_context_dir: Option<String>,
     /// Resolved default provider id (from config).
     pub(crate) default_provider: Option<String>,
     /// Resolved default model id (from config or provider fallback).
@@ -231,54 +229,57 @@ pub struct GatewayStatusDetails {
     pub(crate) enabled_providers: Option<Vec<String>>,
     /// Per-provider info (endpoint type, discovery, models) keyed by provider id, parsed from `payload.providers`.
     pub(crate) provider_info: HashMap<String, ProviderStatusInfo>,
-    /// Full orchestrator static system context (same string as that agent's **`payload.agents.entries[]`** row with **`role`** **`orchestrator`**).
+    /// Full orchestrator static system context (same string as that agent's **`payload.agents[]`** row with **`role`** **`orchestrator`**).
     pub(crate) system_context: Option<String>,
-    /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents.entries[].systemContext`**.
+    /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents[].systemContext`**.
     pub(crate) agent_system_contexts: BTreeMap<String, String>,
-    /// **`payload.skillPackages.discoveryRoot`**.
-    pub(crate) skill_packages_discovery_root: Option<String>,
-    /// **`payload.skillPackages.packagesDiscovered`**.
-    pub(crate) skill_packages_discovered: Option<u64>,
+    /// **`payload.skills.packagesDiscovered`**.
+    pub(crate) skills_packages_discovered: Option<u64>,
+    /// **`payload.skills.lockMode`** — `"strict"` or `"warn"`.
+    pub(crate) skills_lock_mode: Option<String>,
+    /// **`payload.skills.lockGeneration`** — lockfile generation number, or `None` when no lockfile.
+    pub(crate) skills_lock_generation: Option<u64>,
+    /// **`payload.skills.lockedSkills`** — number of skills pinned in the lockfile.
+    pub(crate) skills_locked_count: Option<u64>,
     /// **`payload.providers`** (full JSON block — kept for raw-json view).
     pub(crate) providers_block: Option<serde_json::Value>,
-    /// Per-agent skill **`contextMode`** from **`payload.agents.entries[].skills`**.
+    /// Per-agent skill **`contextMode`** from **`payload.agents[].contextMode`**.
     pub(crate) agent_context_modes: BTreeMap<String, String>,
-    /// Skills portion of system context (full or compact per context mode).
-    pub(crate) skills_context: Option<String>,
-    /// Full skill content for display (always full; use for UI when present).
-    pub(crate) skills_context_full: Option<String>,
-    /// Per-skill body (name → frontmatter-stripped body). Set when context mode is readOnDemand;
-    /// used for desktop display so each skill can be rendered in its own box.
-    pub(crate) skills_context_bodies: BTreeMap<String, String>,
-    /// Skill context mode: "full" or "readOnDemand".
-    pub(crate) context_mode: Option<String>,
+    /// Per-skill body (name → frontmatter-stripped body) from **`payload.agents[].skillsContext`**.
+    /// Always populated (both full and readOnDemand modes). Used for desktop display so each skill
+    /// can be rendered in its own box.
+    pub(crate) skills_context: BTreeMap<String, String>,
     /// Merged tool definitions sent to the model (including read_skill when context mode is readOnDemand).
     pub(crate) tools: Option<String>,
     /// Per-agent pretty-printed tool JSON (orchestrator + each worker). Same strings as top-level **`tools`** for the orchestrator id.
     pub(crate) agent_tools: BTreeMap<String, String>,
-    /// Discovery + allowlist merge for delegation / UI (see lib `build_orchestration_catalog`).
-    pub(crate) orchestration_catalog: Vec<OrchestrationCatalogRow>,
-    /// Worker rows from **`payload.agents.entries`** (**`role`** **`worker`**).
+    /// Worker rows from **`payload.agents`** (**`role`** **`worker`**).
     pub(crate) workers: Vec<StatusWorkerRow>,
-    /// Per-agent skill runtime data from **`payload.agents.entries[].skills`**, keyed by agent id.
+    /// Per-agent skill runtime data from **`payload.agents[]`**, keyed by agent id.
     pub(crate) agent_skills: BTreeMap<String, AgentSkillsRuntime>,
+    /// Orchestrator **`payload.agents[].maxToolLoopsPerTurn`**.
+    pub(crate) max_tool_loops_per_turn: Option<u32>,
+    /// Orchestrator **`payload.agents[].maxDelegationsPerTurn`**.
+    pub(crate) max_delegations_per_turn: Option<usize>,
+    /// Orchestrator **`payload.agents[].maxDelegationsPerSession`**.
+    pub(crate) max_delegations_per_session: Option<usize>,
+    /// Orchestrator **`payload.agents[].maxDelegationsPerWorker`** — worker id → limit.
+    pub(crate) max_delegations_per_worker: Option<BTreeMap<String, usize>>,
+    /// Orchestrator **`payload.agents[].enabledSkills`**.
+    pub(crate) orchestrator_enabled_skills: Vec<String>,
     /// Pretty-printed JSON for the full WebSocket **`res`** to the `status` request (type, id, ok, payload).
     pub(crate) status_response_json: Option<String>,
     /// Full **`payload.channels`** (active, configured, transport, errors, Matrix verification summary, …).
     pub(crate) channels_block: Option<serde_json::Value>,
 }
 
-/// Per-agent skill runtime data parsed from **`payload.agents.entries[].skills`**.
+/// Per-agent skill runtime data parsed from **`payload.agents[]`**.
 #[derive(Clone, Default)]
 pub struct AgentSkillsRuntime {
     /// Skill package names loaded for this agent.
     pub(crate) enabled_skills: Vec<String>,
     /// Skill context mode: "full" or "readOnDemand".
     pub(crate) context_mode: Option<String>,
-    /// Skills portion of system context (full or compact per context mode).
-    pub(crate) skills_context: Option<String>,
-    /// Full skill content for display (always full; use for UI when present).
-    pub(crate) skills_context_full: Option<String>,
-    /// Per-skill body (name → frontmatter-stripped body). Set when context mode is readOnDemand.
-    pub(crate) skills_context_bodies: BTreeMap<String, String>,
+    /// Per-skill body (name → frontmatter-stripped body) from **`skillsContext`**. Always populated (both modes).
+    pub(crate) skills_context: BTreeMap<String, String>,
 }

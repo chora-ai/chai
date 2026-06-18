@@ -149,17 +149,17 @@ fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
         .to_string()
 }
 
-fn skills_enabled_for_agent<'a>(
+fn enabled_skills_for_agent<'a>(
     agents: &'a lib::config::AgentsConfig,
     agent_id: &str,
     orchestrator_id: &str,
 ) -> &'a [String] {
     if agent_id == orchestrator_id {
-        lib::config::orchestrator_skills_enabled_list(agents)
+        lib::config::orchestrator_enabled_skills_list(agents)
     } else if let Some(ws) = agents.workers.as_ref() {
         ws.iter()
             .find(|w| w.id.trim() == agent_id)
-            .map(lib::config::worker_skills_enabled_list)
+            .map(lib::config::worker_enabled_skills_list)
             .unwrap_or(&[])
     } else {
         &[]
@@ -198,7 +198,7 @@ fn build_skill_agent_map(
         // No gateway connection: fall back to config so the screen still
         // shows something useful.
         let orch_id = orchestrator_id_from_config(&config.agents);
-        for name in skills_enabled_for_agent(&config.agents, &orch_id, &orch_id)
+        for name in enabled_skills_for_agent(&config.agents, &orch_id, &orch_id)
             .iter()
             .map(|s| s.trim().to_string())
         {
@@ -210,7 +210,7 @@ fn build_skill_agent_map(
                 if worker_id.is_empty() || worker_id == orch_id {
                     continue;
                 }
-                for name in skills_enabled_for_agent(&config.agents, &worker_id, &orch_id)
+                for name in enabled_skills_for_agent(&config.agents, &worker_id, &orch_id)
                     .iter()
                     .map(|s| s.trim().to_string())
                 {

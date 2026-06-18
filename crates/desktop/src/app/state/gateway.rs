@@ -185,7 +185,7 @@ impl ChaiApp {
 }
 
 /// Parse the `providers` block from gateway status into per-provider info.
-/// The gateway now sends each provider as `{ "endpointType": "...", "discovery": bool, "models": [string, ...] }`
+/// The gateway now sends each provider as `{ "endpointType": "...", "modelDiscovery": "...", "models": [string, ...] }`
 /// keyed by provider id, instead of the old fixed-field format with `{"name": "..."}` model objects.
 fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collections::HashMap<String, super::super::ProviderStatusInfo> {
     let Some(obj) = providers.and_then(|p| p.as_object()) else {
@@ -197,10 +197,11 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
-        let discovery = val.get("discovery")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        // Models are now flat strings (not {"name": "..."} objects).
+        let model_discovery = val.get("modelDiscovery")
+            .and_then(|v| v.as_str())
+            .unwrap_or("auto")
+            .to_string();
+        // Models are flat strings (not {"name": "..."} objects).
         let models = val.get("models")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -212,7 +213,7 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
             .unwrap_or_default();
         map.insert(pid.clone(), super::super::ProviderStatusInfo {
             endpoint_type,
-            discovery,
+            model_discovery,
             models,
         });
     }
@@ -324,13 +325,17 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                 let providers_pl = payload.get("providers");
                 details.channels_block = payload.get("channels").cloned();
                 details.providers_block = payload.get("providers").cloned();
-                if let Some(sp) = payload.get("skillPackages") {
-                    details.skill_packages_discovery_root = sp
-                        .get("discoveryRoot")
+                if let Some(sp) = payload.get("skills") {
+                    details.skills_packages_discovered =
+                        sp.get("packagesDiscovered").and_then(|v| v.as_u64());
+                    details.skills_lock_mode = sp
+                        .get("lockMode")
                         .and_then(|v| v.as_str())
                         .map(String::from);
-                    details.skill_packages_discovered =
-                        sp.get("packagesDiscovered").and_then(|v| v.as_u64());
+                    details.skills_lock_generation =
+                        sp.get("lockGeneration").and_then(|v| v.as_u64());
+                    details.skills_locked_count =
+                        sp.get("lockedSkills").and_then(|v| v.as_u64());
                 }
                 details.protocol = gateway
                     .and_then(|g| g.get("protocol"))
@@ -355,9 +360,17 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                if let Some(entries) = agents_pl
-                    .and_then(|a| a.get("entries"))
-                    .and_then(|e| e.as_array())
+                details.sandbox_disabled = payload
+                    .get("sandbox")
+                    .and_then(|s| s.get("disabled"))
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                details.sandbox_roots = payload
+                    .get("sandbox")
+                    .and_then(|s| s.get("roots"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if let Some(entries) = agents_pl.and_then(|a| a.as_array())
                 {
                     for entry in entries {
                         let Some(id) = entry
@@ -385,43 +398,32 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                             details.agent_tools.insert(id.clone(), t.to_string());
                         }
 
-                        // Parse per-agent skills runtime data from `entry.skills`.
-                        let sk = entry.get("skills");
+                        // Parse per-agent skill runtime data from flat entry fields.
                         let mut agent_rt = AgentSkillsRuntime::default();
-                        if let Some(sk_obj) = sk.and_then(|v| v.as_object()) {
-                            agent_rt.enabled_skills = sk_obj
-                                .get("enabledSkills")
-                                .and_then(|v| v.as_array())
-                                .map(|arr| {
-                                    arr.iter()
-                                        .filter_map(|v| v.as_str().map(String::from))
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                            agent_rt.context_mode = sk_obj
-                                .get("contextMode")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            agent_rt.skills_context = sk_obj
-                                .get("skillsContext")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            agent_rt.skills_context_full = sk_obj
-                                .get("skillsContextFull")
-                                .and_then(|v| v.as_str())
-                                .map(String::from);
-                            agent_rt.skills_context_bodies = sk_obj
-                                .get("skillsContextBodies")
-                                .and_then(|v| v.as_object())
-                                .map(|obj| {
-                                    obj.iter()
-                                        .filter_map(|(k, v)| {
-                                            v.as_str().map(|s| (k.clone(), s.to_string()))
-                                        })
-                                        .collect()
-                                })
-                                .unwrap_or_default();
-                        }
+                        agent_rt.enabled_skills = entry
+                            .get("enabledSkills")
+                            .and_then(|v| v.as_array())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|v| v.as_str().map(String::from))
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        agent_rt.context_mode = entry
+                            .get("contextMode")
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        agent_rt.skills_context = entry
+                            .get("skillsContext")
+                            .and_then(|v| v.as_object())
+                            .map(|obj| {
+                                obj.iter()
+                                    .filter_map(|(k, v)| {
+                                        v.as_str().map(|s| (k.clone(), s.to_string()))
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
                         details.agent_skills.insert(id.clone(), agent_rt);
 
                         // Backfill agent_context_modes from per-agent runtime data.
@@ -438,10 +440,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                         match role {
                             "orchestrator" => {
                                 details.orchestrator_id = Some(id.clone());
-                                details.orchestrator_context_dir = entry
-                                    .get("contextDirectory")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
                                 details.default_provider = entry
                                     .get("defaultProvider")
                                     .and_then(|v| v.as_str())
@@ -468,16 +466,50 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                                 // Top-level orchestrator shortcuts (mirror from agent_skills).
                                 if let Some(rt) = details.agent_skills.get(&id) {
                                     details.skills_context = rt.skills_context.clone();
-                                    details.skills_context_full = rt.skills_context_full.clone();
-                                    details.skills_context_bodies = rt.skills_context_bodies.clone();
-                                    details.context_mode = rt.context_mode.clone();
+                                    details.orchestrator_enabled_skills = rt.enabled_skills.clone();
                                 }
                                 details.tools = entry
                                     .get("tools")
                                     .and_then(|v| v.as_str())
                                     .map(String::from);
+                                // Orchestrator limit fields.
+                                details.max_tool_loops_per_turn = entry
+                                    .get("maxToolLoopsPerTurn")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|n| n as u32);
+                                details.max_delegations_per_turn = entry
+                                    .get("maxDelegationsPerTurn")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|n| n as usize);
+                                details.max_delegations_per_session = entry
+                                    .get("maxDelegationsPerSession")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|n| n as usize);
+                                details.max_delegations_per_worker = entry
+                                    .get("maxDelegationsPerWorker")
+                                    .and_then(|v| v.as_object())
+                                    .map(|obj| {
+                                        obj.iter()
+                                            .filter_map(|(k, v)| {
+                                                v.as_u64().map(|n| (k.clone(), n as usize))
+                                            })
+                                            .collect()
+                                    });
                             }
                             "worker" => {
+                                let w_skills = entry
+                                    .get("enabledSkills")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(String::from))
+                                            .collect()
+                                    })
+                                    .unwrap_or_default();
+                                let w_ctx_mode = entry
+                                    .get("contextMode")
+                                    .and_then(|v| v.as_str())
+                                    .map(String::from);
                                 details.workers.push(crate::app::types::StatusWorkerRow {
                                     id: id.clone(),
                                     default_provider: entry
@@ -490,6 +522,8 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                                         .and_then(|v| v.as_str())
                                         .unwrap_or("")
                                         .to_string(),
+                                    enabled_skills: w_skills,
+                                    context_mode: w_ctx_mode,
                                 });
                             }
                             _ => {}
@@ -497,39 +531,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                     }
                 }
                 details.provider_info = parse_providers_block(providers_pl);
-                details.orchestration_catalog = agents_pl
-                    .and_then(|a| a.get("orchestrationCatalog"))
-                    .and_then(|v| v.as_array())
-                    .map(|arr| {
-                        arr.iter()
-                            .filter_map(|o| {
-                                let provider = o
-                                    .get("provider")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .trim()
-                                    .to_string();
-                                let model = o
-                                    .get("model")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .trim()
-                                    .to_string();
-                                if provider.is_empty() || model.is_empty() {
-                                    return None;
-                                }
-                                Some(crate::app::types::OrchestrationCatalogRow {
-                                    provider,
-                                    model,
-                                    discovered: o
-                                        .get("discovered")
-                                        .and_then(|v| v.as_bool())
-                                        .unwrap_or(false),
-                                })
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
                 return Ok(details);
             }
         }

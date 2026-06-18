@@ -14,7 +14,7 @@ Before runtime profiles, Chai used a single flat `~/.chai/config.json` with all 
 
 Chai uses a NixOS-like switching model with **named runtime profiles**:
 
-- Each profile is a directory under `~/.chai/profiles/<name>/` containing `config.json`, `agents/<id>/` (on-disk agent context), `paired.json`, device identity, channel stores, and `.env`. Skill packages live in a **shared store** at `~/.chai/skills/` — profiles do not duplicate package trees; they differ by per-agent `skillsEnabled` lists and `contextMode` in that profile's `config.json`.
+- Each profile is a directory under `~/.chai/profiles/<name>/` containing `config.json`, `agents/<id>/` (on-disk agent context), `paired.json`, device identity, channel stores, and `.env`. Skill packages live in a **shared store** at `~/.chai/skills/` — profiles do not duplicate package trees; they differ by per-agent `enabledSkills` lists and `contextMode` in that profile's `config.json`.
 - The **persistent active profile** is a symlink at `~/.chai/active` pointing to `profiles/<name>/`. The symlink is the canonical default — override precedence is CLI `--profile` (ephemeral) → `CHAI_PROFILE` environment variable → `~/.chai/active` symlink. When the symlink is missing, broken, or invalid, the runtime fails rather than silently defaulting.
 - **Switching profiles requires stopping the gateway.** `chai profile switch` rewrites the symlink only when no gateway is running (enforced via an advisory exclusive lock on `~/.chai/gateway.lock`). The desktop disables profile switching while the gateway is running.
 - `chai init` creates two default profiles (`assistant` and `developer`) with equivalent scaffolds and sets `active → profiles/assistant/`. The names are mnemonics, not different runtime policies.

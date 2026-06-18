@@ -28,7 +28,7 @@ By default, chai runs a single orchestrator agent. This journey adds a worker th
          "defaultProvider": "ollama",
          "defaultModel": "llama3.2:3b",
          "enabledProviders": ["ollama"],
-         "skillsEnabled": ["files"]
+         "enabledSkills": ["files"]
        },
        {
          "id": "engineer",
@@ -85,8 +85,6 @@ By default, chai runs a single orchestrator agent. This journey adds a worker th
 
 The `delegate_task` tool behavior is controlled by orchestrator-only configuration fields:
 
-- **`delegateAllowedModels`** — Restrict which provider+model combinations may receive delegated tasks.
-- **`delegateBlockedProviders`** — Prevent delegation to specific providers.
 - **`maxDelegationsPerTurn`** / **`maxDelegationsPerSession`** — Caps on how often delegation occurs.
 
 To target a specific worker, prefix the delegation instruction with the worker's bracket prefix (e.g., `[engineer]`). The system matches `[workerId]` at the start of the instruction, routes to that worker, and strips the prefix before passing the instruction.
@@ -98,7 +96,7 @@ See [Configuration → Agents](../guides/03-configuration.md#agents) for field d
 - **Gateway won't start after config change** — Validate the JSON: `cat ~/.chai/profiles/assistant/config.json | python3 -m json.tool`. Common issues: missing commas, unclosed brackets, or an `agents` array with no `orchestrator` role.
 - **Orchestrator doesn't delegate** — Small models (3B) may not reliably call `delegate_task`. Try a larger model for the orchestrator, or phrase the request more explicitly: "Use the delegate_task tool to send this task to the worker with id 'engineer': ..."
 - **`delegate_task` returns an error** — The worker id must match exactly (case-sensitive). Check the `id` field in the worker's `agents` entry matches the bracket prefix the orchestrator is using.
-- **Worker turn fails** — The worker's `defaultProvider` must be valid and the model must be available. If the worker uses a different provider than the orchestrator, ensure that provider is configured in `providers` and is either the worker's `defaultProvider` or in the worker's `enabledProviders`.
+- **Worker turn fails** — The worker's `defaultProvider` must be valid and the model must be available. If the worker uses a different provider than the orchestrator, ensure that provider is configured in `providers` and is in the orchestrator's `enabledProviders`.
 - **No delegation events in logs** — Delegation may not have occurred. With `RUST_LOG=info`, look for `delegate_task` in the logs. If absent, the orchestrator answered directly (which is normal for questions it can handle).
 - **Orchestrator delegates every message** — The model may be over-eager to delegate. Adjust `AGENT.md` instructions or use `maxDelegationsPerTurn` to limit delegation frequency.
 

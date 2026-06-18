@@ -145,7 +145,7 @@ Thanks for the conversation. Goodbye!
 
 ## Sequence C: Multi-Tool Use
 
-Use this sequence to verify that a model can invoke different tools across turns and correctly choose which tool to use. Requires an agent with multiple skills enabled (e.g., daily note + files).
+Use this sequence to verify that a model can invoke different tools across turns and correctly choose which tool to use. Requires an agent with multiple enabled skills (e.g., daily note + files).
 
 1. Greeting
 
@@ -275,7 +275,7 @@ Copy this template into a new file under `results/` for each run.
 - Provider: <provider id>
 - Model: <model id>
 - Context mode: full / readOnDemand
-- Skills enabled: <comma-separated list>
+- Enabled skills: <comma-separated list>
 
 ## Results
 

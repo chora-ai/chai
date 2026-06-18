@@ -16,7 +16,7 @@ This creates:
 - An `active` symlink → `profiles/assistant/`
 - A shared `skills/` tree (bundled skills extracted from the application)
 - A `sandbox/` directory per profile for write-capable tools
-- A `skills.lock` file per newly seeded profile (pins bundled skill versions so `skillLockMode: strict` takes effect immediately)
+- A `skills.lock` file per newly seeded profile (pins bundled skill versions so `skills.lockMode: strict` takes effect immediately)
 
 Each profile gets its own `config.json`, agent context directories, and local state. The active profile is `assistant` by default.
 
@@ -71,7 +71,7 @@ The gateway refuses profile switches while it is running (it holds an advisory l
 
 ### Creating a New Profile
 
-Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.lock` file that pins bundled skill versions. When you create a profile manually, you must also generate a lock file to activate `skillLockMode: strict` (the default). Without a lock file, the gateway skips lock verification entirely.
+Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.lock` file that pins bundled skill versions. When you create a profile manually, you must also generate a lock file to activate `skills.lockMode: strict` (the default). Without a lock file, the gateway skips lock verification entirely.
 
 1. Create the profile directory and a minimal config:
    ```bash
@@ -89,7 +89,7 @@ Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.l
    chai skill lock
    ```
 
-The `chai skill lock` command records the current active hash for each discovered skill into `~/.chai/profiles/my-profile/skills.lock`. After this, `skillLockMode: strict` will enforce that those skill versions are used on gateway startup. See [Skills → Lockfiles and Rollback](06-skills.md#lockfiles-and-rollback) for the full lock behavior.
+The `chai skill lock` command records the current active hash for each discovered skill into `~/.chai/profiles/my-profile/skills.lock`. After this, `skills.lockMode: strict` will enforce that those skill versions are used on gateway startup. See [Skills → Lockfiles and Rollback](06-skills.md#lockfiles-and-rollback) for the full lock behavior.
 
 ## Configuration File
 
@@ -229,11 +229,11 @@ The `modelDiscovery` field controls how a provider's available model list is obt
 
 | Value | Description | Default For |
 |-------|-------------|-------------|
-| `"default"` | Use the endpoint type's standard discovery method. | All endpoint types |
+| `"auto"` | Use the endpoint type's standard discovery method. | All endpoint types |
 | `"lmstudio"` | LM Studio native: `GET /api/v1/models`, filter `type == "llm"`. | — |
 | `"static"` | Use the `staticModels` config field. No polling. | — |
 
-When omitted, `modelDiscovery` defaults to `"default"`, which uses `GET /api/tags` for `"ollama"` and `GET /v1/models` for `"openai-compat"`.
+When omitted, `modelDiscovery` defaults to `"auto"`, which uses `GET /api/tags` for `"ollama"` and `GET /v1/models` for `"openai-compat"`.
 
 #### Static Models
 
@@ -331,7 +331,7 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
       "role": "orchestrator",
       "defaultProvider": "openai",
       "defaultModel": "llama-3.2-3B-instruct",
-      "skillsEnabled": ["files", "git-read"],
+      "enabledSkills": ["files", "git-read"],
       "contextMode": "full"
     }
   ]
@@ -371,7 +371,7 @@ With workers configured, the orchestrator can delegate subtasks using the built-
 
 - `defaultProvider` / `defaultModel` — Which backend and model the agent uses. The `defaultProvider` must match a provider `id` in the `providers` array.
 - `enabledProviders` — Which providers to poll for model discovery at startup. Provider ids must match entries in the `providers` array. When omitted or empty, only the default provider is discovered.
-- `skillsEnabled` — Which skill packages to load for this agent. Omitted or empty means no skills.
+- `enabledSkills` — Which skill packages to load for this agent. Omitted or empty means no skills.
 - `contextMode` — How skill content appears in the system context: `full` (inlined) or `readOnDemand` (compact list + `read_skill` tool).
 
 ## Securing the Gateway
@@ -421,8 +421,8 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 | `gateway.bind` | `127.0.0.1` | - | - |
 | `gateway.auth.mode` | `none` | - | `none` or `token` |
 | `gateway.auth.token` | - | `CHAI_GATEWAY_TOKEN` | Only used if `mode` is `token` |
-| `gateway.unsafeSandbox` | `false` | - | Allow the gateway to start without a sandbox directory. When `false` (default), the gateway refuses to start if the sandbox directory is missing. When `true`, the gateway starts but CWD confinement and path validation are disabled. See [Write Sandbox](07-sandbox.md). |
-| `skillLockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. No effect until `skills.lock` exists for the active profile. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
+| `sandbox.disabled` | `false` | - | Allow the gateway to start without a sandbox directory. When `false` (default), the gateway refuses to start if the sandbox directory is missing. When `true`, the gateway starts but CWD confinement and path validation are disabled. See [Write Sandbox](07-sandbox.md). |
+| `skills.lockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. No effect until `skills.lock` exists for the active profile. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
 
 ### Channels
 
@@ -452,7 +452,7 @@ The `providers` array contains provider definitions. Each provider has a unique 
 | `baseUrl` | `string` | No | Per-endpoint type default | Override the endpoint type's default base URL. |
 | `apiKey` | `string` | No | Per-endpoint type env var | API key override. Env var takes precedence when set. |
 | `defaultModel` | `string` | No | Per-endpoint type default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
-| `modelDiscovery` | `string` | No | `"default"` | One of: `"default"`, `"lmstudio"`, `"static"`. When `"lmstudio"`, the gateway automatically retries chat requests on "unloaded" errors. |
+| `modelDiscovery` | `string` | No | `"auto"` | One of: `"auto"`, `"lmstudio"`, `"static"`. When `"lmstudio"`, the gateway automatically retries chat requests on "unloaded" errors. |
 | `staticModels` | `string[]` | No | `[]` | Model list when `modelDiscovery: "static"`. |
 
 **Endpoint type defaults:**
@@ -474,7 +474,7 @@ The `providers` array contains provider definitions. Each provider has a unique 
 
 The `agents` array contains exactly one `"role": "orchestrator"` and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
 
-**Orchestrator-only fields** (ignored on worker objects): `maxSessionMessages`, `maxToolLoopIterations`, `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider`, `delegateBlockedProviders`.
+**Orchestrator-only fields** (rejected on worker entries at parse time): `maxToolLoopsPerTurn`, `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker`.
 
 | Field | Default (When Field Omitted) | Default (When `agents` Omitted) | Note |
 |-------|------------------------------|----------------------------------|------|
@@ -482,16 +482,13 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `role` | Required in `agents` array | `orchestrator` | Must be `orchestrator` or `worker`. |
 | `defaultProvider` | Orchestrator: `ollama`. Worker: same as orchestrator | `ollama` | Must match a provider `id` in the `providers` array. Fallback: `ollama`. |
 | `defaultModel` | Orchestrator: provider fallback. Worker: worker string, else orchestrator string, then fallback | `llama3.2:3b` (built-in `defaultProvider` is `ollama`) | Fallbacks come from the endpoint type's `defaultModel`: `"ollama"` → `llama3.2:3b`; `"openai-compat"` → `llama-3.2-3B-instruct`. A provider's `defaultModel` field overrides the endpoint-type default. |
-| `enabledProviders` | Orchestrator: only `defaultProvider` polled. Worker: see Note | same | Provider ids must match entries in the `providers` array. Orchestrator: `null` or `[]` → poll that provider only; non-empty → only those. Worker: `null` → no extra `delegate_task` restriction; `[]` → only default provider; non-empty → only listed providers. |
-| `skillsEnabled` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
+| `enabledProviders` | Only `defaultProvider` polled | same | Orchestrator-only. Provider ids must match entries in the `providers` array. `null` or `[]` → poll `defaultProvider` only; non-empty → only those. Workers do not have `enabledProviders`; a worker's provider must already be enabled at the orchestrator level. |
+| `enabledSkills` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
 | `contextMode` | `full` | same | `full` or `readOnDemand`. |
-| `maxSessionMessages` | All messages (no trim) | same | Orchestrator only. When set and `> 0`, only the last N messages are sent; full history stays in the session store. |
-| `maxToolLoopIterations` | `500` | `500` | Orchestrator only. Maximum LLM round-trips per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
+| `maxToolLoopsPerTurn` | No limit | same | Orchestrator only. Maximum tool loops per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
 | `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |
 | `maxDelegationsPerSession` | No limit | same | Orchestrator only. |
-| `maxDelegationsPerProvider` | No per-provider cap | same | Orchestrator only. Keys are provider ids; values are max successful delegations per session. |
-| `delegateAllowedModels` | Only effective default (provider, model) for that scope | same | Non-empty: only listed `{ provider, model, local?, toolCapable? }`. A non-empty worker list overrides the orchestrator list for that `workerId`. |
-| `delegateBlockedProviders` | Nothing blocked | same | Orchestrator only. Non-empty: those provider ids disallowed for `delegate_task`. |
+| `maxDelegationsPerWorker` | No per-worker cap | same | Orchestrator only. Keys are worker ids; values are max successful delegations per session. |
 ### Environment Variables
 
 | Variable | Overrides | Description |

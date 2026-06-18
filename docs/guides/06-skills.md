@@ -115,7 +115,7 @@ The `args` array maps each JSON parameter to a command-line argument kind: `posi
 
 ## Enabling Skills on an Agent
 
-Skills are discovered globally under `~/.chai/skills/`, but each agent opts in independently. In your `config.json`, set the `skillsEnabled` array on an agent entry:
+Skills are discovered globally under `~/.chai/skills/`, but each agent opts in independently. In your `config.json`, set the `enabledSkills` array on an agent entry:
 
 ```json
 {
@@ -125,13 +125,13 @@ Skills are discovered globally under `~/.chai/skills/`, but each agent opts in i
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
-      "skillsEnabled": ["files-read"]
+      "enabledSkills": ["files-read"]
     }
   ]
 }
 ```
 
-Missing or empty `skillsEnabled` means **no** skill tools and **no** skill context for that agent. Workers can also have their own `skillsEnabled` lists, independent of the orchestrator.
+Missing or empty `enabledSkills` means **no** skill tools and **no** skill context for that agent. Workers can also have their own `enabledSkills` lists, independent of the orchestrator.
 
 ## Context Modes
 
@@ -146,7 +146,7 @@ Set `contextMode` on the agent entry in `config.json`:
 {
   "id": "orchestrator",
   "role": "orchestrator",
-  "skillsEnabled": ["files"],
+  "enabledSkills": ["files"],
   "contextMode": "readOnDemand"
 }
 ```
@@ -292,7 +292,7 @@ After changing skills, whether you need `lock` depends on how strictly you use l
 
 ### Skill Lock Mode
 
-The `skillLockMode` field in `config.json` controls how the gateway handles mismatches between the lockfile and active skill versions at startup:
+The `skills.lockMode` field in `config.json` controls how the gateway handles mismatches between the lockfile and active skill versions at startup:
 
 | Mode | Behavior |
 |------|----------|
@@ -333,7 +333,7 @@ chai skill delete --skill-name my-skill
 | Question | Answer |
 |----------|--------|
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
-| How do I enable a skill? | Add its name to the `skillsEnabled` array on an agent entry in `config.json`. |
+| How do I enable a skill? | Add its name to the `enabledSkills` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
 | What bundled skills are available? | 15 skills covering files, git, logs, notes, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
@@ -341,7 +341,7 @@ chai skill delete --skill-name my-skill
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
 | Can I name a version directory arbitrarily? | No. Under `versions/`, the name must be the 12-hex content hash. |
 | How do I roll back? | `chai skill lock` to save, `chai skill rollback <generation>` to restore. |
-| What is `skillLockMode`? | Controls lock verification at startup: `strict` (default, gateway refuses to start on mismatch) or `warn` (log warning, continue). No effect until a `skills.lock` file exists. |
+| What is `skills.lockMode`? | Controls lock verification at startup: `strict` (default, gateway refuses to start on mismatch) or `warn` (log warning, continue). No effect until a `skills.lock` file exists. |
 | When do I need to run `chai skill lock`? | After creating a profile manually or updating skills. `chai init` generates the lock for profiles it creates. |
 
 ## Try It

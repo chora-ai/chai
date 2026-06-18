@@ -17,7 +17,7 @@ This meant:
 - No **integrity verification** — nothing checked that skill content matched a known-good state.
 - No **promotion workflow** — no controlled path from "developer iterated on this skill" to "assistant profile locks to this version."
 
-Per-agent `skillsEnabled` (see [AGENT_ISOLATION.md](AGENT_ISOLATION.md)) already determined *which* skills each agent loaded, and runtime profiles (see [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)) already isolated *which* config was active — but neither solved the version-integrity problem within the shared `~/.chai/skills/` store.
+Per-agent `enabledSkills` (see [AGENT_ISOLATION.md](AGENT_ISOLATION.md)) already determined *which* skills each agent loaded, and runtime profiles (see [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)) already isolated *which* config was active — but neither solved the version-integrity problem within the shared `~/.chai/skills/` store.
 
 ## Decision
 
@@ -25,7 +25,7 @@ Model each `skills/<name>/` tree as a **skill package** with content-addressed r
 
 - **Content-addressed version storage.** Each skill package stores immutable snapshot directories under `versions/<hash>/`, identified by a truncated SHA-256 content hash. An `active` symlink selects the current version. The loader resolves `active` before reading skill files; if the symlink is missing or broken, the skill is skipped. The directory name *is* the integrity check — no separate verification step.
 - **Per-profile lockfile.** `profiles/<name>/skills.lock` (JSON) maps skill directory name → content hash, with a monotonic generation counter. Different profiles legitimately pin different revisions (developer iterates, assistant pins stable). Lockfile keys on directory name (authoritative).
-- **Startup verification against lock.** On gateway startup, for each enabled skill that has a lock entry, the gateway checks whether the `active` symlink matches the locked hash. Behavior on mismatch is controlled by `skillLockMode` in `config.json`: `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills load normally.
+- **Startup verification against lock.** On gateway startup, for each enabled skill that has a lock entry, the gateway checks whether the `active` symlink matches the locked hash. Behavior on mismatch is controlled by `skills.lockMode` in `config.json`: `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills load normally.
 - **Generation-level rollback.** Each lockfile update increments the generation counter and preserves the previous lockfile as `skills.lock.<N>`. Rollback restores a previous generation's lockfile and updates `active` symlinks to match. This is generation-level (all skills at once), not per-package — matching the NixOS "switch to a previous configuration" contract.
 - **Frontmatter for runtime validation.** `SKILL.md` frontmatter records `capability_tier` (minimal/moderate/full) and `variant_of` (links variant skills). The gateway validates tier/model fit and variant overlap at startup, warning when composition problems are detected.
 
@@ -53,6 +53,6 @@ Model each `skills/<name>/` tree as a **skill package** with content-addressed r
 - [spec/SKILL_FORMAT.md](../spec/SKILL_FORMAT.md) — Skill directory layout, `SKILL.md` content, and frontmatter fields.
 - [spec/SKILL_PACKAGES.md](../spec/SKILL_PACKAGES.md) — Skill package versioned layout, startup validation, and CLI commands.
 - [spec/PROFILES.md](../spec/PROFILES.md) — Per-profile lockfile schema, strictness modes, generation tracking, rollback, and promotion.
-- [spec/CONFIGURATION.md](../spec/CONFIGURATION.md) — `skillLockMode` config field.
+- [spec/CONFIGURATION.md](../spec/CONFIGURATION.md) — `skills.lockMode` config field.
 - [adr/RUNTIME_PROFILES.md](RUNTIME_PROFILES.md) — Named runtime profiles with restart-required switching.
 - [adr/AGENT_ISOLATION.md](AGENT_ISOLATION.md) — Per-agent context and skill configuration.

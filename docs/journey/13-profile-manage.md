@@ -40,7 +40,7 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
    ```bash
    echo '# Orchestrator (testing profile)\n\nYou are a test assistant.' > ~/.chai/profiles/testing/agents/orchestrator/AGENT.md
    ```
-   - Generate a skills lock file so `skillLockMode: strict` (the default) takes effect for this profile:
+   - Generate a skills lock file so `skills.lockMode: strict` (the default) takes effect for this profile:
    ```bash
    chai profile switch testing
    chai skill lock

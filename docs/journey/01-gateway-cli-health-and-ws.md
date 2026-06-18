@@ -33,7 +33,7 @@
 
 5. **Status over WebSocket**
    - Send: `{"type":"req","id":"3","method":"status","params":{}}`
-   - **Expect:** `"ok":true`, payload with top-level keys in order **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. **`gateway`** includes **`status`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
+   - **Expect:** `"ok":true`, payload with top-level keys in order **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skills`**. **`gateway`** includes **`status`**, **`protocol`**, **`port`**, **`bind`**, **`auth`** (**`none`** or **`token`**).
 
 6. **Stop the gateway**
    - In the gateway terminal: Ctrl+C.
@@ -44,7 +44,7 @@
 - **Gateway exits immediately** — Check the error output. Common causes: Ollama not running (start `ollama serve`), another gateway already running (remove `~/.chai/gateway.lock` if stale), or a config error in `config.json`.
 - **`curl` returns "connection refused"** — Gateway not running or wrong port. Check the gateway terminal for the actual port, or set `gateway.port` in config (see [Configuration](../guides/03-configuration.md)).
 - **WebSocket connect returns `"ok":false`** — If token auth is enabled (`gateway.auth.mode` is `"token"`), include the token in the connect params: `"params":{"auth":{"token":"YOUR_TOKEN"}}`.
-- **`status` response missing expected keys** — The protocol or version may differ. Check the gateway version with `chai version` and verify the response includes at least `gateway`, `channels`, `providers`, `agents`, `skillPackages`.
+- **`status` response missing expected keys** — The protocol or version may differ. Check the gateway version with `chai version` and verify the response includes at least `gateway`, `channels`, `providers`, `agents`, `skills`.
 - **Ctrl+C does not stop the gateway** — The process may be stuck. Use `kill` or `killall chai` from another terminal. Remove the stale lock file at `~/.chai/gateway.lock` if needed.
 
 ## Token Auth (Optional)
@@ -62,7 +62,7 @@ If you set `gateway.auth.mode` to `"token"` and configure a token (in config or 
 | 2 | `curl http://127.0.0.1:15151/` | JSON: `"status": "running"`, `"protocol": 1` |
 | 3 | WebSocket `connect` | `"ok":true`, `hello-ok` payload, `"protocol": 1` |
 | 4 | WebSocket `health` | `"ok":true`, `"status": "running"` |
-| 5 | WebSocket `status` | `"ok":true`, keys: `gateway`, `channels`, `providers`, `agents`, `skillPackages` |
+| 5 | WebSocket `status` | `"ok":true`, keys: `gateway`, `channels`, `providers`, `agents`, `skills` |
 | 6 | Ctrl+C | Process exits |
 
 **Next:** [02 — Gateway WebSocket: agent & send](02-gateway-ws-agent.md)

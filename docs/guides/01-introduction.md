@@ -33,7 +33,7 @@ An **agent** is a named configuration entry that ties a provider and model to a 
 
 ### Skills
 
-**Skills** are declarative packages that give an agent instructions and tools. Each skill is a directory containing a `SKILL.md` (instructions the model sees), an optional `tools.json` (typed tool schemas the model can call), and optional scripts. Skills are opt-in per agent via the `skillsEnabled` config field — nothing runs unless you declare it.
+**Skills** are declarative packages that give an agent instructions and tools. Each skill is a directory containing a `SKILL.md` (instructions the model sees), an optional `tools.json` (typed tool schemas the model can call), and optional scripts. Skills are opt-in per agent via the `enabledSkills` config field — nothing runs unless you declare it.
 
 ### Channels
 
@@ -68,7 +68,7 @@ Gateway ─── loads ──→ Config (config.json)
   └── Response ──→ Channel / Desktop / WebSocket
 ```
 
-The gateway loads configuration at startup, discovers model providers and skill packages, then listens for incoming messages. Each user message triggers an **orchestrator turn**: the model receives the system context (agent instructions, skill content, worker roster), the session history, and its tool definitions. If the model calls a tool, the gateway executes it and loops. If the model delegates to a worker, that worker gets its own turn with its own context and tools. The final response goes back through the same channel.
+The gateway loads configuration at startup, discovers model providers and skill packages, then listens for incoming messages. Each user message triggers an **orchestrator turn**: the gateway sends the provider a request with two separate top-level fields — a **messages** array and a **tools** array. The messages array contains a system message (agent instructions, skill content, worker roster — built at startup, injected fresh every turn, never persisted in the session) followed by the session history (user, assistant, tool-call, and tool-result messages). The tools array contains the agent's tool schemas (also built at startup, sent unchanged every turn). If the model calls a tool, the gateway executes it, appends the tool call and result to the session history, and loops. If the model delegates to a worker, that worker gets its own turn with its own system message, tool schemas, and a fresh message list (not the orchestrator's session history). The final response goes back through the same channel.
 
 ## Next Steps
 

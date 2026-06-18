@@ -241,13 +241,48 @@ pub struct ToolCall {
     pub function: ToolCallFunction,
 }
 
+/// Default function for serde: returns an empty JSON object `{}`.
+fn empty_json_object() -> serde_json::Value {
+    serde_json::Value::Object(serde_json::Map::new())
+}
+
+/// Deserializes a JSON value, normalizing `null` and missing fields to an empty
+/// JSON object `{}`. Some models return `"arguments": null` or omit the
+/// `arguments` key entirely in tool calls; this ensures tool executors always
+/// receive an object rather than `Value::Null`.
+fn deserialize_arguments_as_object<'de, D>(deserializer: D) -> Result<serde_json::Value, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<serde_json::Value>::deserialize(deserializer)?;
+    match value {
+        Some(v) if !v.is_null() => {
+            if v.is_object() {
+                Ok(v)
+            } else {
+                log::warn!(
+                    "ollama: tool call arguments were not an object (got {:?}), substituting empty object",
+                    v
+                );
+                Ok(empty_json_object())
+            }
+        }
+        _ => {
+            log::warn!(
+                "ollama: tool call arguments were null or missing, substituting empty object"
+            );
+            Ok(empty_json_object())
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallFunction {
     #[serde(default)]
     pub index: Option<u32>,
     pub name: String,
     /// Arguments as JSON object or string (model-dependent).
-    #[serde(default)]
+    #[serde(default = "empty_json_object", deserialize_with = "deserialize_arguments_as_object")]
     pub arguments: serde_json::Value,
 }
 

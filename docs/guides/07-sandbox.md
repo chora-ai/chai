@@ -73,12 +73,12 @@ If the `sandbox/` directory does not exist for a profile, the sandbox has no wri
 By default, the gateway **refuses to start** when the sandbox directory is missing. This prevents a degraded security state where CWD confinement and path validation are silently disabled. The error message includes the expected sandbox path and instructions to fix the issue:
 
 - **Re-run `chai init`** — This recovers the sandbox directory for existing profiles. Other profile files are not modified.
-- **Set `gateway.unsafeSandbox: true`** — This explicitly opts in to running without a sandbox. The gateway will start and log a warning that CWD confinement and path validation are disabled. This should only be used when you intentionally do not want a sandbox.
+- **Set `sandbox.disabled: true`** — This explicitly opts in to running without a sandbox. The gateway will start and log a warning that CWD confinement and path validation are disabled. This should only be used when you intentionally do not want a sandbox.
 
 ```json
 {
-  "gateway": {
-    "unsafeSandbox": true
+  "sandbox": {
+    "disabled": true
   }
 }
 ```

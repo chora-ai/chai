@@ -8,7 +8,7 @@ This document specifies **on-disk** **`config.json`** at the level of top-level 
 
 ## Purpose
 
-The file expresses operator intent: bind address, channels, providers, agent layout, skills enablement, and delegation policy. Environment variables and helpers in **`config.rs`** resolve effective values at runtime.
+The file expresses operator intent: bind address, channels, providers, agent layout, skills settings, and delegation policy. Environment variables and helpers in **`config.rs`** resolve effective values at runtime.
 
 ### Relationship To Gateway Status
 
@@ -17,7 +17,7 @@ The file expresses operator intent: bind address, channels, providers, agent lay
 | **`config.json`** | Operator intent. | This document; **`config.rs`**; **`README.md`** |
 | **`status` WebSocket payload** | Runtime snapshot (sanitized). | [GATEWAY_STATUS.md](GATEWAY_STATUS.md) |
 
-The desktop app aligns **config** top-level blocks with **`status`** payload blocks in this order: **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**. Per-agent **`skillsEnabled`** and **`contextMode`** in **`config.json`** correspond to the matching row in **`status.agents.entries`** (**`skills.enabledSkills`**, **`skills.contextMode`**, and the skill context fields on that object). **`config.json`** has **no** top-level **`skills`** key.
+The desktop app aligns **config** top-level blocks with **`status`** payload blocks in this order: **`gateway`**, **`channels`**, **`providers`**, **`sandbox`**, **`agents`**, **`skills`**. Per-agent **`enabledSkills`** and **`contextMode`** in **`config.json`** correspond to the matching row in **`status.agents[]`** (**`enabledSkills`**, **`contextMode`**, and the skill context fields on that object). The top-level **`skills`** block in **`config.json`** corresponds to the top-level **`skills`** block in the **`status`** payload.
 
 ---
 
@@ -37,13 +37,18 @@ This spec describes **blocks and policy**, not every optional key.
 {
   "gateway": { },
   "channels": { },
-  "providers": { },
+  "providers": [ ],
+  "sandbox": {
+    "disabled": false
+  },
   "agents": [ ],
-  "skillLockMode": "strict"
+  "skills": {
+    "lockMode": "strict"
+  }
 }
 ```
 
-**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. There is **no** top-level **`skills`** object; per-agent **`skillsEnabled`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skillLockMode`** controls gateway startup behavior when the lockfile does not match active skill versions (see [PROFILES.md](PROFILES.md)).
+**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. The **`skills`** block holds shared skill package settings; per-agent **`enabledSkills`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skills.lockMode`** controls gateway startup behavior when the lockfile does not match active skill versions (see [PROFILES.md](PROFILES.md)).
 
 ---
 
@@ -53,15 +58,16 @@ Counterpart to the status blocks table in [GATEWAY_STATUS.md](GATEWAY_STATUS.md)
 
 | Block | Holds (summary) | Notes |
 |-------|-----------------|-------|
-| **`gateway`** | Listen **`bind`**, **`port`**; **`auth.mode`** (**`none`** \| **`token`**) and optional **`token`** (WebSocket connect); **`unsafeSandbox`** (allow start without sandbox). | Token may be overridden by **`CHAI_GATEWAY_TOKEN`**. Loopback-only semantics for **`none`** auth. **`unsafeSandbox`** defaults to `false`; when `true`, the gateway starts without a sandbox directory and logs a warning that CWD confinement and path validation are disabled. |
+| **`gateway`** | Listen **`bind`**, **`port`**; **`auth.mode`** (**`none`** \| **`token`**) and optional **`token`** (WebSocket connect). | Token may be overridden by **`CHAI_GATEWAY_TOKEN`**. Loopback-only semantics for **`none`** auth. |
+| **`sandbox`** | **`disabled`** (allow start without sandbox). | **`disabled`** defaults to `false`; when `true`, the gateway starts without a sandbox directory and logs a warning that CWD confinement and path validation are disabled. |
 | **`channels`** | Telegram (bot token, webhook), Matrix (homeserver, credentials, room allowlist, store path, …), Signal (HTTP daemon URL, account). | Fields have **`resolve_*`** overrides (see **`config.rs`** and **`README.md`**). Matrix requires the `matrix` Cargo feature (experimental); Signal requires the `signal` Cargo feature (experimental). Config fields for a disabled channel are accepted but have no effect. |
 | **`providers`** | Per-backend entries: **`ollama`**, **`lms`**, **`nearai`**, **`nim`** — plus any other `"openai-compat"` server with a `baseUrl` and `apiKey`. | Model API endpoints; not chat surfaces. Omitted when defaults or env suffice. |
-| **`agents`** | Orchestrator + workers: ids, roles, **`defaultProvider`** / **`defaultModel`**, **`enabledProviders`** (orchestrator-only; discovery scope), **`skillsEnabled`** (package names under the resolved skills root), **`contextMode`** (**`full`** \| **`readOnDemand`**), **`maxSessionMessages`**, **`maxToolLoopIterations`** (default 500; safety net for runaway tool loops), delegation caps (**`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerProvider`**). On-disk **`AGENT.md`** for each entry is **`<profileRoot>/agents/<id>/AGENT.md`**. | Exactly one orchestrator; workers use **`role: worker`**. Each worker has a single `(defaultProvider, defaultModel)` pair — no override parameters or allowlists. Omit **`agents`** for the built-in default orchestrator only. Missing or empty **`skillsEnabled`** on an entry means no skills for that agent. Skill packages are loaded from the shared discovery root (see **`README.md`**); there is **no** top-level **`skills`** block. |
-| **`skillLockMode`** | **`"strict"`** (default) \| **`"warn"`** — how the gateway handles mismatches between the per-profile `skills.lock` and active skill versions at startup. | `"strict"` refuses to start; `"warn"` logs and continues. See [PROFILES.md](PROFILES.md). |
+| **`agents`** | Orchestrator + workers: ids, roles, **`defaultProvider`** / **`defaultModel`**, **`enabledProviders`** (orchestrator-only; discovery scope), **`enabledSkills`** (package names under the resolved skills root), **`contextMode`** (**`full`** \| **`readOnDemand`**), **`maxToolLoopsPerTurn`** (orchestrator-only; omitted = no limit; applies globally to both orchestrator and worker turns), delegation caps (orchestrator-only: **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**). On-disk **`AGENT.md`** for each entry is **`<profileRoot>/agents/<id>/AGENT.md`**. | Exactly one orchestrator; workers use **`role: worker`**. Each worker has a single **`(defaultProvider, defaultModel)`** pair — no override parameters or session/delegation caps. Orchestrator-only fields set on a worker entry are rejected at parse time. Omit **`agents`** for the built-in default orchestrator only. Missing or empty **`enabledSkills`** on an entry means no skills for that agent. Skill packages are loaded from the shared discovery root (see **`README.md`**). |
+| **`skills`** | **`lockMode`** (**`"strict"`** (default) \| **`"warn"`**) — how the gateway handles mismatches between the per-profile `skills.lock` and active skill versions at startup. | `"strict"` refuses to start; `"warn"` logs and continues. See [PROFILES.md](PROFILES.md). |
 
 ## Environment Overrides
 
-Effective configuration combines the file with **`config.rs`** resolution: **`resolve_gateway_token`**, **`resolve_telegram_token`**, **`resolve_matrix_room_allowlist`**, provider API keys. New overrides are implemented in **`config.rs`** and documented in **`README.md`**. **`status`** reflects effective runtime values, not which source supplied a given secret.
+Effective configuration combines the file with **`config.rs`** resolution: **`resolve_gateway_token`**, **`resolve_telegram_token`**, **`resolve_telegram_webhook_secret`**, **`resolve_matrix_homeserver`**, **`resolve_matrix_access_token`**, **`resolve_matrix_user`**, **`resolve_matrix_password`**, **`resolve_matrix_user_id`**, **`resolve_matrix_device_id`**, **`resolve_matrix_room_allowlist`**, **`matrix_channel_configured`**, provider API keys. New overrides are implemented in **`config.rs`** and documented in **`README.md`**. **`status`** reflects effective runtime values, not which source supplied a given secret.
 
 ### `.env` File
 
@@ -75,5 +81,5 @@ If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assista
 - **[CHANNELS.md](CHANNELS.md)** — Channel config and runtime behavior.
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Delegation policy and worker semantics.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery vs **`agents.enabledProviders`**.
-- **[CONTEXT.md](CONTEXT.md)** — Per-agent **`contextMode`** and **`skillsEnabled`** in context and tools.
+- **[CONTEXT.md](CONTEXT.md)** — Per-agent **`contextMode`** and **`enabledSkills`** in context and tools.
 - **[PROFILES.md](PROFILES.md)** — **`profileRoot`**, **`<profileRoot>/agents/<id>/`**, and profile directory structure.

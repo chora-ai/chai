@@ -9,7 +9,6 @@
 //! when workers are configured, the orchestrator may delegate via `delegate_task`; the worker uses a per-worker system context and skill tools when
 //! `workerId` is set (nested `delegate_task` disabled). Gateway inbound and WebSocket `agent` both pass [`DelegateContext`].
 
-mod catalog;
 mod choice;
 mod delegate;
 mod dispatch;
@@ -30,7 +29,6 @@ pub use dispatch::ProviderClients;
 pub use model::{resolve_model, DEFAULT_MODEL_FALLBACK};
 pub use policy::{apply_delegation_bracket_match, assert_session_delegation_limits};
 
-pub use catalog::{build_orchestration_catalog, OrchestrationCatalogEntry};
 pub use workers_context::{build_workers_context, effective_worker_defaults};
 
 pub use crate::agent::{

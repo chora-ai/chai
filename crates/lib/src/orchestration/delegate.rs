@@ -14,7 +14,6 @@ use crate::session::SessionStore;
 use crate::skills::Skill;
 use serde_json::json;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -197,8 +196,6 @@ fn optional_worker_id_from_args(args: &serde_json::Value) -> Option<String> {
 pub struct WorkerDelegateRuntime {
     /// Static system context (no orchestrator roster block).
     pub system_context: String,
-    /// **`AGENT.md`** directory for this worker (`<profile>/agents/<id>/`), if resolved.
-    pub context_directory: Option<PathBuf>,
     pub skills: Arc<Vec<Skill>>,
     pub tools_list: Option<Vec<ToolDefinition>>,
     pub tool_executor: Option<Arc<dyn ToolExecutor>>,
@@ -415,12 +412,18 @@ pub async fn execute_delegate_task(
         return Err("instruction must not be empty".to_string());
     }
 
+    let worker_id = obj
+        .get("workerId")
+        .and_then(|v| v.as_str())
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty());
+
     let target = match resolve_delegate_target(ctx.providers, ctx.agents, &merged) {
         Ok(t) => t,
         Err(e) => {
             if let Some(ref obs) = ctx.observability {
                 let mut extra = json!({ "error": e });
-                if let Some(w) = optional_worker_id_from_args(&merged) {
+                if let Some(w) = worker_id {
                     extra["workerId"] = json!(w);
                 }
                 obs.send(EVENT_DELEGATE_ERROR, obs.merge_base(extra));
@@ -433,26 +436,21 @@ pub async fn execute_delegate_task(
     let model = target.model;
 
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
+        let wid_for_policy = worker_id.unwrap_or(provider_id);
         if let Err(e) =
-            assert_session_delegation_limits(store, sid, ctx.providers, ctx.agents, provider_id).await
+            assert_session_delegation_limits(store, sid, ctx.agents, wid_for_policy).await
         {
             if let Some(ref obs) = ctx.observability {
                 let reason = if e.contains("maxDelegationsPerSession") {
                     "max_delegations_per_session"
                 } else {
-                    "max_delegations_per_provider"
+                    "max_delegations_per_worker"
                 };
                 obs.emit_rejected(&merged, reason, None);
             }
             return Err(e);
         }
     }
-
-    let worker_id = obj
-        .get("workerId")
-        .and_then(|v| v.as_str())
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty());
 
     if let Some(ref obs) = ctx.observability {
         let mut extra = json!({
@@ -526,7 +524,7 @@ pub async fn execute_delegate_task(
     let provider = ctx.clients.get(choice).ok_or_else(|| {
         format!("no client registered for provider '{}'", choice.as_str())
     })?;
-    let max_iterations = crate::config::resolve_max_tool_loop_iterations(ctx.agents);
+    let max_iterations = ctx.agents.max_tool_loops_per_turn;
     let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
@@ -555,7 +553,8 @@ pub async fn execute_delegate_task(
         };
 
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
-        if let Err(e) = store.record_delegation(sid, provider_id).await {
+        let wid_for_record = worker_id.unwrap_or(provider_id);
+        if let Err(e) = store.record_delegation(sid, wid_for_record).await {
             log::warn!("orchestration: record_delegation failed: {}", e);
         }
     }
@@ -701,7 +700,7 @@ mod tests {
                 id: "fast".to_string(),
                 default_provider: Some("lms".to_string()),
                 default_model: Some("worker-model".to_string()),
-                skills_enabled: None,
+                enabled_skills: None,
                 context_mode: None,
             }]),
             ..AgentsConfig::default()

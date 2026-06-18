@@ -326,13 +326,25 @@ impl OpenAiCompatClient {
                         typ: tc.typ,
                         function: ToolCallFunction {
                             index: None,
-                            name: tc.function.name,
-                            arguments: serde_json::from_str(&tc.function.arguments)
-                                .unwrap_or(serde_json::Value::Null),
-                        },
+                            name: tc.function.name.clone(),
+                            arguments: match serde_json::from_str(&tc.function.arguments) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    log::warn!(
+                                        "openai: failed to parse tool '{}' arguments JSON (streaming): {} (raw: {:?})",
+                                        tc.function.name, e, tc.function.arguments
+                                    );
+                                    log::warn!(
+                                        "openai: tool '{}' arguments were null or malformed, substituting empty object",
+                                        tc.function.name
+                                    );
+                                    serde_json::Value::Object(serde_json::Map::new())
+                                }
+                            },
+                        }
                     })
                     .collect(),
-            )
+                )
         };
 
         Ok(ChatResponse {
@@ -595,8 +607,25 @@ fn openai_response_to_chat_response(
                                         .function
                                         .as_ref()
                                         .and_then(|f| f.arguments.as_ref())
-                                        .and_then(|s| serde_json::from_str(s).ok())
-                                        .unwrap_or(serde_json::Value::Null),
+                                        .and_then(|s| {
+                                            match serde_json::from_str(s) {
+                                                Ok(v) => Some(v),
+                                                Err(e) => {
+                                                    log::warn!(
+                                                        "openai: failed to parse tool '{}' arguments JSON: {} (raw: {:?})",
+                                                        name, e, s
+                                                    );
+                                                    None
+                                                }
+                                            }
+                                        })
+                                        .unwrap_or_else(|| {
+                                            log::warn!(
+                                                "openai: tool '{}' arguments were null or missing, substituting empty object",
+                                                name
+                                            );
+                                            serde_json::Value::Object(serde_json::Map::new())
+                                        }),
                                 },
                             })
                         })

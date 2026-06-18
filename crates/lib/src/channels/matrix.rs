@@ -2,7 +2,7 @@
 
 use crate::channels::inbound::InboundMessage;
 use crate::channels::registry::ChannelHandle;
-use crate::config::Config;
+use crate::config::{self, Config};
 use async_trait::async_trait;
 use matrix_channel::MatrixInner;
 use std::ops::Deref;
@@ -22,20 +22,7 @@ fn matrix_store_path(profile_dir: &Path) -> PathBuf {
 fn resolve_device_id_for_token(config: &Config, whoami_device: Option<String>) -> Option<String> {
     whoami_device
         .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            std::env::var("MATRIX_DEVICE_ID")
-                .ok()
-                .filter(|s| !s.trim().is_empty())
-        })
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .device_id
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })
+        .or_else(|| config::resolve_matrix_device_id(config))
 }
 
 /// Newtype around [`MatrixInner`] so this crate can implement [`ChannelHandle`] (orphan rule).
@@ -51,47 +38,14 @@ impl Deref for MatrixChannel {
 
 /// Connect and build a [`MatrixChannel`], or [`None`] if Matrix is not configured.
 pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Option<MatrixChannel> {
-    let homeserver = std::env::var("MATRIX_HOMESERVER")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .homeserver
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })?;
+    let homeserver = config::resolve_matrix_homeserver(config)?;
     let base = homeserver.trim_end_matches('/').to_string();
     let store_path = matrix_store_path(profile_dir);
 
-    let token = std::env::var("MATRIX_ACCESS_TOKEN")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .access_token
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        });
+    let token = config::resolve_matrix_access_token(config);
 
     if let Some(t) = token {
-        let user_id_from_config = std::env::var("MATRIX_USER_ID")
-            .ok()
-            .filter(|s| !s.trim().is_empty())
-            .or_else(|| {
-                config
-                    .channels
-                    .matrix
-                    .user_id
-                    .as_ref()
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-            });
+        let user_id_from_config = config::resolve_matrix_user_id(config);
 
         let whoami = matrix_channel::fetch_whoami(&base, &t).await;
 
@@ -126,38 +80,16 @@ pub async fn connect_matrix_client(config: &Config, profile_dir: &Path) -> Optio
             },
         };
         let client = matrix_channel::connect_with_params(params).await?;
-        let allowlist = crate::config::resolve_matrix_room_allowlist(config);
+        let allowlist = config::resolve_matrix_room_allowlist(config);
         return Some(MatrixChannel(MatrixInner::new(client, allowlist)));
     }
 
-    let password = std::env::var("MATRIX_PASSWORD")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .password
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })?;
-    let user = std::env::var("MATRIX_USER")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            config
-                .channels
-                .matrix
-                .user
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        })?;
+    let password = config::resolve_matrix_password(config)?;
+    let user = config::resolve_matrix_user(config)?;
 
     let params = matrix_channel::password_login_params(base, store_path, user, password)?;
     let client = matrix_channel::connect_with_params(params).await?;
-    let allowlist = crate::config::resolve_matrix_room_allowlist(config);
+    let allowlist = config::resolve_matrix_room_allowlist(config);
     Some(MatrixChannel(MatrixInner::new(client, allowlist)))
 }
 

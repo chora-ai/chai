@@ -6,6 +6,8 @@ status: draft
 
 **Summary** — Enable a hosted-gateway deployment model where a host runs `chai gateway` on a remote server and a client connects to it using `chai-desktop` on a separate machine. Today, the desktop assumes the gateway is a local subprocess; while an "attach" mode exists, it lacks a dedicated connection address, TLS support, attach-only configuration, and origin validation — making remote deployment fragile, insecure, and undocumented.
 
+**Prerequisite** — [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) must be implemented first. The `desktop.json` file at the chai home root provides the persistent source for `gateway.connectUrl` and separates client-side configuration from the server-side `config.json`.
+
 **Status** — **Draft (not implemented).** The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no attach-only mode, and no documentation for the scenario.
 
 ## Problem Statement
@@ -74,8 +76,9 @@ In a split deployment, the two `~/.chai` directories serve different purposes:
 ```
 ~/.chai/
 ├── active → profiles/assistant/
+├── desktop.json              ← desktop settings + gateway.connectUrl (remote address)
 ├── profiles/assistant/
-│   ├── config.json           ← connection stub: remote address, auth token
+│   ├── config.json           ← standard config (gateway.bind:port as fallback)
 │   ├── device.json           ← Ed25519 keypair (client identity)
 │   └── device_token          ← session token from gateway
 └── skills/                   ← unused in remote mode (gateway owns skills)
@@ -129,61 +132,38 @@ The gateway does enforce token auth for non-loopback bindings — it refuses to 
 
 The desktop currently derives the WebSocket URL from `gateway.bind` + `gateway.port`, a field that semantically means "address the server binds to." For split deployment, this creates a semantic conflict: the client sets `gateway.bind` to the remote server's IP, but if they accidentally run `chai gateway` locally, it tries to bind to that remote IP on the local machine.
 
-**Approach A: New `gateway.connectUrl` field**
+**Decision: `gateway.connectUrl` in `desktop.json` + `CHAI_GATEWAY_URL` as override**
 
-Add a top-level `gateway.connectUrl` field to `config.json` that takes precedence over `gateway.bind:gateway.port` when the desktop constructs the WebSocket URL:
+Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). The `gateway.connectUrl` field lives in `~/.chai/desktop.json`, not in `config.json`. This keeps `config.json` as a pure server-side document and gives client-side connection settings their own home. The `CHAI_GATEWAY_URL` environment variable follows the existing env-var-override pattern for ad-hoc use.
 
-```json
-{
-  "gateway": {
-    "bind": "0.0.0.0",
-    "port": 15151,
-    "connectUrl": "wss://gateway.example.com:15151"
-  }
-}
+Precedence chain for the desktop's gateway URL:
+
+```
+CHAI_GATEWAY_URL (env)  →  desktop.json gateway.connectUrl  →  config.json gateway.bind:port (fallback)
 ```
 
-- Pros: Clean separation of server-side bind vs. client-side connect; supports `wss://` directly; explicit and unambiguous.
-- Cons: Adds a new config field; desktop and server configs diverge further.
+When `connectUrl` (or the env var) is set, the desktop uses it for the WebSocket URL and TCP probe instead of deriving from `bind:port`. The `bind` and `port` fields remain server-side only.
 
-**Approach B: Environment variable `CHAI_GATEWAY_URL`**
-
-Add a `CHAI_GATEWAY_URL` environment variable that overrides the WebSocket URL construction:
-
-```bash
-export CHAI_GATEWAY_URL=wss://gateway.example.com:15151
-```
-
-- Pros: No config schema change; easy to set per-session; useful for CI/testing.
-- Cons: Not persisted in config; invisible in the desktop config screen; doesn't solve the semantic bind issue.
-
-**Approach C: Both — `gateway.connectUrl` in config + `CHAI_GATEWAY_URL` as override**
-
-Combine both: add `gateway.connectUrl` to the schema for persisted configuration, and support `CHAI_GATEWAY_URL` as a runtime override (same pattern as `CHAI_PROFILE` overriding the active profile).
-
-- Pros: Persistent config + runtime override; consistent with existing patterns; supports both interactive and scripted use.
-- Cons: Two new mechanisms to document and test.
-
-**Recommendation:** Approach C. The `gateway.connectUrl` field provides a clear, persisted way to configure the remote gateway address, and `CHAI_GATEWAY_URL` follows the existing env-var-override pattern for ad-hoc use. When `connectUrl` (or the env var) is set, the desktop uses it for the WebSocket URL and TCP probe instead of deriving from `bind:port`. The `bind` and `port` fields remain server-side only.
+This supersedes the earlier approaches (A: `connectUrl` in `config.json`, B: env var only, C: both in `config.json` + env var). Moving `connectUrl` to `desktop.json` eliminates the semantic conflict of putting a client-side field in a server-side config file and resolves the open question about a "thin" config format for remote clients — the client's `config.json` is unchanged; the connection details live separately.
 
 ### TLS and `wss://` Support
 
 The gateway will not gain built-in TLS termination — this remains the operator's responsibility (reverse proxy with WSS→WS termination). However, the desktop client must support `wss://` URL construction when `connectUrl` specifies it.
 
-**Decision:** When `gateway.connectUrl` starts with `wss://`, the desktop constructs a TLS WebSocket connection. When it starts with `ws://`, it uses plain WebSocket (current behavior). The `gateway.bind:port` path always uses `ws://` (loopback doesn't need TLS).
+**Decision:** When `gateway.connectUrl` (in `desktop.json` or via `CHAI_GATEWAY_URL`) starts with `wss://`, the desktop constructs a TLS WebSocket connection. When it starts with `ws://`, it uses plain WebSocket (current behavior). The `gateway.bind:port` fallback path always uses `ws://` (loopback doesn't need TLS).
 
 This requires adding a TLS-enabled WebSocket client to the desktop crate's dependencies (e.g., `tokio-tungstenite` with the `native-tls` or `rustls` feature).
 
 ### Attach-Only Mode
 
-When `gateway.connectUrl` (or `CHAI_GATEWAY_URL`) is set, the desktop operates in attach-only mode:
+When `gateway.connectUrl` in `desktop.json` (or `CHAI_GATEWAY_URL`) is set, the desktop operates in attach-only mode:
 
 - The "Start gateway" button is hidden or replaced with a "Connect" indicator.
 - The desktop does not attempt to spawn `chai gateway` as a subprocess.
 - Profile switching is disabled (the gateway's profile is externally managed).
 - The desktop still probes for gateway liveness but uses `connectUrl` as the target.
 
-**Decision:** Attach-only mode is implicitly activated when `connectUrl` is present. No separate `gateway.mode` field is needed — the presence of a remote URL is the signal.
+**Decision:** Attach-only mode is implicitly activated when `connectUrl` is present (in `desktop.json` or via env var). No separate `gateway.mode` field is needed — the presence of a remote URL is the signal. Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md).
 
 ### WebSocket Origin Validation
 
@@ -203,39 +183,39 @@ Check for the presence of an `Origin` header (browser WebSocket APIs always send
 
 In split deployment, the desktop's local `gateway.lock` doesn't exist (the gateway is on a different machine). The desktop currently uses `gateway.lock` to detect a running gateway and determine its profile.
 
-**Decision:** When `connectUrl` is set, the desktop skips `gateway.lock` detection entirely and relies on the TCP probe against the remote address. The profile is determined from the local `config.json` (since the desktop's config is the connection stub). If the remote gateway's profile name differs, the desktop shows the amber hint (existing behavior for profile mismatches).
+**Decision:** When `connectUrl` is set (in `desktop.json` or via `CHAI_GATEWAY_URL`), the desktop skips `gateway.lock` detection entirely and relies on the TCP probe against the remote address. The profile is determined from the local `config.json`. If the remote gateway's profile name differs, the desktop shows the amber hint (existing behavior for profile mismatches).
 
 ### Config Screen Updates
 
 The desktop config screen currently shows "Bind" and "Port" from the local `config.json`. In split deployment, these values are confusing.
 
-**Decision:** When `connectUrl` is set, the config screen shows "Remote gateway" with the connect URL instead of "Bind" / "Port". Auth mode and token are still shown (the client needs them for pairing).
+**Decision:** When `connectUrl` is set (in `desktop.json` or via `CHAI_GATEWAY_URL`), the config screen shows "Remote gateway" with the connect URL instead of "Bind" / "Port". Auth mode and token are still shown (the client needs them for pairing).
 
 ## Requirements
 
 ### Functional
 
-- [ ] **`gateway.connectUrl` config field** — A new optional field in `config.json` under the `gateway` block that specifies the WebSocket URL for the desktop to connect to. Takes precedence over `bind:port` for URL construction and TCP probes.
-- [ ] **`CHAI_GATEWAY_URL` environment variable** — Runtime override for `gateway.connectUrl`. Follows the same precedence pattern as `CHAI_PROFILE`.
-- [ ] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when `connectUrl` specifies `wss://`.
-- [ ] **Attach-only mode** — When `connectUrl` or `CHAI_GATEWAY_URL` is set, the desktop hides the "Start gateway" button, does not attempt to spawn a local gateway subprocess, and disables profile switching.
-- [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections, with a configurable `allowedOrigins` list in `gateway` config.
-- [ ] **Config screen awareness** — The desktop config screen shows "Remote gateway: <url>" when `connectUrl` is set, instead of "Bind" / "Port".
+- [x] **`desktop.json` with `gateway.connectUrl`** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). A new `~/.chai/desktop.json` file provides the persistent source for `gateway.connectUrl`, separating client-side connection configuration from the server-side `config.json`. Takes precedence over `bind:port` for URL construction and TCP probes.
+- [x] **`CHAI_GATEWAY_URL` environment variable** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). Runtime override for `gateway.connectUrl`. Follows the same precedence pattern as `CHAI_PROFILE`.
+- [x] **Attach-only mode** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). When `connectUrl` or `CHAI_GATEWAY_URL` is set, the desktop hides the "Start gateway" button, does not attempt to spawn a local gateway subprocess, and disables profile switching.
+- [ ] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when `connectUrl` specifies `wss://`. The `gateway.bind:port` fallback path always uses `ws://` (loopback doesn't need TLS).
+- [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. Uses Approach A: an `allowedOrigins` list in `gateway` config rejects upgrades whose `Origin` doesn't match. Defaults to `["*"]` when `auth.mode: "token"` is set (token auth already gates access; this is defense-in-depth). When `auth.mode: "none"` on non-loopback (already refused at startup), this is moot. Operators can restrict to specific domains for stricter deployments.
+- [ ] **Config screen awareness** — When `connectUrl` is set (in `desktop.json` or via `CHAI_GATEWAY_URL`), the desktop config screen shows "Remote gateway: \<url\>" instead of "Bind" / "Port". Auth mode and token are still shown (the client needs them for pairing).
 - [ ] **TCP probe uses `connectUrl`** — When `connectUrl` is set, the desktop probes the remote gateway address for liveness instead of `bind:port`.
-- [ ] **Profile detection skips `gateway.lock`** — When `connectUrl` is set, the desktop does not check for `gateway.lock` and relies on the TCP probe.
+- [ ] **Profile detection skips `gateway.lock`** — When `connectUrl` is set, the desktop does not check for `gateway.lock` and relies on the TCP probe. If the remote gateway's profile name differs from the local profile, the desktop shows the amber hint (existing behavior for profile mismatches).
 
 ### Non-functional
 
-- [ ] **Backward compatibility** — When `connectUrl` is not set, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port` and operate in spawn-or-attach mode.
+- [x] **Backward compatibility** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). When `desktop.json` is absent or `connectUrl` is not set, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port` and operate in spawn-or-attach mode.
 - [ ] **No new required dependencies for gateway** — TLS support is client-side only (desktop crate). The gateway does not gain TLS dependencies.
-- [ ] **Config validation** — `connectUrl` must start with `ws://` or `wss://`. Invalid schemes are rejected at config load time.
+- [x] **Config validation** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). `connectUrl` must start with `ws://` or `wss://`. Invalid schemes are rejected at load time.
 - [ ] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
 
 ## Phases
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | `gateway.connectUrl` + `CHAI_GATEWAY_URL` + attach-only mode | Not started |
+| 1 | `desktop.json` with `gateway.connectUrl` + `CHAI_GATEWAY_URL` + attach-only mode | Tracked in [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) |
 | 2 | `wss://` support in desktop client | Not started |
 | 3 | WebSocket origin validation | Not started |
 | 4 | Documentation, user journey, and config screen updates | Not started |
@@ -244,7 +224,7 @@ The desktop config screen currently shows "Bind" and "Port" from the local `conf
 
 - **Should `connectUrl` support HTTP-based gateways behind path-based reverse proxies?** E.g., `wss://example.com/chai/ws` where the reverse proxy routes `/chai/` to the gateway. This would require the desktop to send the full path in the WebSocket upgrade request. The current `ws://bind:port/ws` is always at the root. This could be addressed by allowing `connectUrl` to include a full path, but the gateway's WebSocket handler currently only matches `/ws` at the root.
 
-- **Should the desktop's `config.json` require a minimal subset of fields when `connectUrl` is set?** Currently, the desktop loads the full config (providers, channels, agents) even though only `gateway.*` is relevant for a remote connection. A "thin" config format for remote clients could reduce confusion, but adds a new config variant to maintain.
+- **~~Should the desktop's `config.json` require a minimal subset of fields when `connectUrl` is set?~~** Resolved by `desktop.json` — the connection URL lives in `desktop.json`, not `config.json`. The client's `config.json` is unchanged; only `gateway.bind:port` is used as a fallback when `connectUrl` is not set.
 
 - **Should `allowedOrigins` default to `["*"]` when token auth is enabled, or should it be explicitly empty (block all browser origins)?** A permissive default reduces friction but weakens defense-in-depth. A restrictive default is safer but may surprise operators who expect browser-based tools to work.
 
@@ -256,7 +236,7 @@ A step-by-step guide for setting up common reverse proxies (nginx, Caddy, Traefi
 
 ### Remote Gateway Status Reporting
 
-The `/status` endpoint currently returns server-local absolute paths (`discoveryRoot`, `contextDirectory`). For remote clients, these paths are meaningless. A future enhancement could omit or normalize these fields when the request comes from a non-loopback connection, or add a `remote` flag to the status response.
+The `/status` endpoint previously returned server-local absolute paths (`discoveryRoot`, `contextDirectory`), which were meaningless for remote clients. These fields have been removed from the status payload. No further normalization is needed for this concern.
 
 ### Multi-Client Observability
 
@@ -264,6 +244,7 @@ When multiple desktop clients connect to a single remote gateway, there is no pe
 
 ## Related Epics and Docs
 
+- [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) — Desktop configuration file (prerequisite: `desktop.json`, `gateway.connectUrl`, `CHAI_GATEWAY_URL`, attach-only mode)
 - [SECURITY.md](../SECURITY.md) — Known vulnerabilities and out-of-scope items (TLS, origin validation, session isolation)
 - [DESKTOP.md](../spec/DESKTOP.md) — Desktop application spec (spawn vs. attach modes)
 - [CONFIGURATION.md](../spec/CONFIGURATION.md) — Configuration schema (gateway block, auth, env overrides)

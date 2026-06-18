@@ -78,14 +78,14 @@ Always read the relevant convention file before adding or modifying a document i
 
 #### Configuration and Runtime
 
-- **[CONFIGURATION.md](spec/CONFIGURATION.md)** — On-disk `config.json` blocks, `skillLockMode`, env overrides, pairing with `status`.
+- **[CONFIGURATION.md](spec/CONFIGURATION.md)** — On-disk `config.json` blocks, `skills.lockMode`, env overrides, pairing with `status`.
 - **[GATEWAY_STATUS.md](spec/GATEWAY_STATUS.md)** — WebSocket `status` shape, key order, redaction, runtime snapshot, paring with `config.json`.
 - **[PROFILES.md](spec/PROFILES.md)** — Profile directory, active profile, gateway lock, skill lockfile and generation tracking, switching.
 
 #### Agents, Context, and Skills
 
 - **[AGENTS.md](spec/AGENTS.md)** — Per-agent context directories, skill configuration, system context, and tool lists.
-- **[CONTEXT.md](spec/CONTEXT.md)** — Per-agent context loading, system context, workers roster, and skill context modes.
+- **[CONTEXT.md](spec/CONTEXT.md)** — Per-agent context on every turn: system message (not persisted), session history (including tool calls/results), and tool schemas (separate from messages).
 - **[SKILL_FORMAT.md](spec/SKILL_FORMAT.md)** — Skill directory layout, `SKILL.md` content, frontmatter fields, and `tools.json`.
 - **[SKILL_PACKAGES.md](spec/SKILL_PACKAGES.md)** — Skill package versioned layout, content hashing, rollback, startup validation.
 - **[TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md)** — Declarative tools, allowlist, argv mapping, scripts, resolvers.

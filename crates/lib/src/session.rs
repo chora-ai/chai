@@ -60,8 +60,8 @@ pub struct Session {
     pub messages: Vec<SessionMessage>,
     /// Successful **`delegate_task`** completions this session (for policy caps).
     pub delegation_count: usize,
-    /// Successful delegations per canonical provider id (`ollama`, `lms`, …).
-    pub delegation_by_provider: HashMap<String, usize>,
+    /// Successful delegations per worker id (`search`, `code`, …).
+    pub delegation_by_worker: HashMap<String, usize>,
 }
 
 /// In-memory store for sessions (create, get, append).
@@ -89,7 +89,7 @@ impl SessionStore {
             id: id.clone(),
             messages: Vec::new(),
             delegation_count: 0,
-            delegation_by_provider: HashMap::new(),
+            delegation_by_worker: HashMap::new(),
         };
         self.inner.write().await.insert(id.clone(), session);
         id
@@ -105,7 +105,7 @@ impl SessionStore {
             id: id.clone(),
             messages: Vec::new(),
             delegation_count: 0,
-            delegation_by_provider: HashMap::new(),
+            delegation_by_worker: HashMap::new(),
         };
         self.inner.write().await.insert(id.clone(), session);
         id
@@ -154,11 +154,11 @@ impl SessionStore {
         Ok(())
     }
 
-    /// Increment successful delegation counters for policy (`maxDelegationsPerSession`, per-provider caps).
+    /// Increment successful delegation counters for policy (`maxDelegationsPerSession`, per-worker caps).
     pub async fn record_delegation(
         &self,
         id: &str,
-        provider_canonical: &str,
+        worker_id: &str,
     ) -> Result<(), String> {
         let mut g = self.inner.write().await;
         let session = g
@@ -166,8 +166,8 @@ impl SessionStore {
             .ok_or_else(|| "session not found".to_string())?;
         session.delegation_count += 1;
         *session
-            .delegation_by_provider
-            .entry(provider_canonical.to_string())
+            .delegation_by_worker
+            .entry(worker_id.to_string())
             .or_insert(0) += 1;
         Ok(())
     }

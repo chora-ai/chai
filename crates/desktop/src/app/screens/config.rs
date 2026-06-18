@@ -73,7 +73,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                     return;
                 }
 
-                config_summary_dashboard(ui, &config, paths.profile_dir.as_path());
+                config_summary_dashboard(ui, &config);
             });
     });
 }
@@ -81,14 +81,13 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 fn config_summary_dashboard(
     ui: &mut egui::Ui,
     config: &lib::config::Config,
-    profile_dir: &std::path::Path,
 ) {
     dashboard::dashboard_two_columns(ui, |left, right| {
         left.vertical(|ui| {
             config_summary_left_column(ui, config);
         });
         right.vertical(|ui| {
-            config_summary_right_column(ui, config, profile_dir);
+            config_summary_right_column(ui, config);
         });
     });
 }
@@ -106,77 +105,29 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 
     dashboard::section_group(ui, "Channels", |ui| {
-        let telegram_configured = config.channels.telegram.bot_token.is_some()
-            || config.channels.telegram.webhook_url.is_some();
-        if telegram_configured {
-            if let Some(ref t) = config.channels.telegram.bot_token {
-                dashboard::kv(
-                    ui,
-                    "Telegram bot token",
-                    if t.trim().is_empty() {
-                        "(empty)"
-                    } else {
-                        "set"
-                    },
-                );
-            }
-            if let Some(ref w) = config.channels.telegram.webhook_url {
-                dashboard::kv(ui, "Telegram webhook", w.as_str());
-            }
-        } else {
-            ui.label(egui::RichText::new("Telegram: not configured.").weak());
-            ui.add_space(spacing::LINE);
-        }
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+        ui.label(egui::RichText::new("matrix").strong());
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
 
-        let matrix_configured = config
-            .channels
-            .matrix
-            .homeserver
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false)
-            && (config
-                .channels
-                .matrix
-                .access_token
-                .as_ref()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(false)
-                || (config
-                    .channels
-                    .matrix
-                    .user
-                    .as_ref()
-                    .map(|s| !s.trim().is_empty())
-                    .unwrap_or(false)
-                    && config
-                        .channels
-                        .matrix
-                        .password
-                        .as_ref()
-                        .map(|s| !s.trim().is_empty())
-                        .unwrap_or(false)));
+        let matrix_configured = lib::config::matrix_channel_configured(config);
         if matrix_configured {
             if let Some(ref h) = config.channels.matrix.homeserver {
-                dashboard::kv(ui, "Matrix homeserver", h.as_str());
+                dashboard::kv(ui, "homeserver", h.as_str());
             }
-            let mode = if config
-                .channels
-                .matrix
-                .access_token
-                .as_ref()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(false)
-            {
-                "access token set"
+            let mode = if lib::config::resolve_matrix_access_token(config).is_some() {
+                "access token"
             } else {
                 "password login"
             };
-            dashboard::kv(ui, "Matrix", mode);
+            dashboard::kv(ui, "Mode", mode);
         } else {
-            ui.label(egui::RichText::new("Matrix: not configured.").weak());
+            ui.label(egui::RichText::new("not configured").weak());
             ui.add_space(spacing::LINE);
         }
+
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+        ui.label(egui::RichText::new("signal").strong());
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
 
         let signal_configured = config
             .channels
@@ -187,20 +138,47 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             .unwrap_or(false);
         if signal_configured {
             if let Some(ref h) = config.channels.signal.http_base {
-                dashboard::kv(ui, "Signal (signal-cli HTTP)", h.as_str());
+                dashboard::kv(ui, "HTTP base", h.as_str());
             }
             if let Some(ref a) = config.channels.signal.account {
-                dashboard::kv(ui, "Signal account", a.as_str());
+                dashboard::kv(ui, "Account", a.as_str());
             }
         } else {
-            ui.label(egui::RichText::new("Signal: not configured.").weak());
+            ui.label(egui::RichText::new("not configured").weak());
+            ui.add_space(spacing::LINE);
+        }
+
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+        ui.label(egui::RichText::new("telegram").strong());
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+
+        let telegram_configured = config.channels.telegram.bot_token.is_some()
+            || config.channels.telegram.webhook_url.is_some();
+        if telegram_configured {
+            if let Some(ref t) = config.channels.telegram.bot_token {
+                dashboard::kv(
+                    ui,
+                    "Bot token",
+                    if t.trim().is_empty() {
+                        "(empty)"
+                    } else {
+                        "set"
+                    },
+                );
+            }
+            if let Some(ref w) = config.channels.telegram.webhook_url {
+                dashboard::kv(ui, "Webhook URL", w.as_str());
+            }
+        } else {
+            ui.label(egui::RichText::new("not configured").weak());
+            ui.add_space(spacing::LINE);
         }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 
     dashboard::section_group(ui, "Providers", |ui| {
         if config.providers.entries.is_empty() {
-            ui.label(egui::RichText::new("Not configured.").weak());
+            ui.label(egui::RichText::new("not configured").weak());
             return;
         }
 
@@ -209,16 +187,11 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             let resolved_key = lib::config::resolve_provider_api_key(&config.providers, &def.id);
 
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            // Show provider id with endpoint type label.
-            let endpoint_label = match def.endpoint_type {
-                lib::config::EndpointType::Ollama => "Ollama",
-                lib::config::EndpointType::OpenaiCompat => "OpenAI-Compatible",
-            };
-            ui.label(egui::RichText::new(format!("{} ({})", def.id, endpoint_label)).strong());
+            ui.label(egui::RichText::new(def.id.clone()).strong());
             ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            dashboard::kv(ui, "endpoint type", def.endpoint_type.as_str());
+            dashboard::kv(ui, "Endpoint type", def.endpoint_type.as_str());
             if let Some(ref url) = resolved_base {
-                dashboard::kv(ui, "base URL", url.as_str());
+                dashboard::kv(ui, "Base URL", url.as_str());
             }
             let key_set = resolved_key
                 .as_ref()
@@ -227,16 +200,16 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             dashboard::kv(ui, "API key", if key_set { "set" } else { "(not set)" });
             if let Some(ref default_model) = def.default_model {
                 if !default_model.trim().is_empty() {
-                    dashboard::kv(ui, "default model", default_model.trim());
+                    dashboard::kv(ui, "Default model", default_model.trim());
                 }
             }
             // Model discovery.
             let discovery_label = match def.model_discovery {
-                lib::config::ModelDiscovery::Default => "default",
+                lib::config::ModelDiscovery::Auto => "auto",
                 lib::config::ModelDiscovery::Lmstudio => "lmstudio",
                 lib::config::ModelDiscovery::Static => "static",
             };
-            dashboard::kv(ui, "model discovery", discovery_label);
+            dashboard::kv(ui, "Model discovery", discovery_label);
             if !def.static_models.is_empty() {
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 ui.label(egui::RichText::new("Static models"));
@@ -250,6 +223,7 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
             }
         }
     });
+    ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 }
 
 fn enabled_providers_display(opt: &Option<Vec<String>>) -> String {
@@ -264,7 +238,7 @@ fn enabled_providers_display(opt: &Option<Vec<String>>) -> String {
         })
         .unwrap_or_default();
     if v.is_empty() {
-        "(none)".to_string()
+        "(default provider)".to_string()
     } else {
         v.join(", ")
     }
@@ -273,7 +247,6 @@ fn enabled_providers_display(opt: &Option<Vec<String>>) -> String {
 fn config_summary_right_column(
     ui: &mut egui::Ui,
     config: &lib::config::Config,
-    profile_dir: &std::path::Path,
 ) {
     let (default_provider, default_model) =
         lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
@@ -286,20 +259,26 @@ fn config_summary_right_column(
         .filter(|s| !s.is_empty())
         .unwrap_or("orchestrator");
 
+    dashboard::section_group(ui, "Sandbox", |ui| {
+        dashboard::kv(ui, "Disabled", &config.sandbox.disabled.to_string());
+    });
+    ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+
     dashboard::section_group(ui, "Agents", |ui| {
-        ui.label(egui::RichText::new(format!("Orchestrator: {}", orch_id)).strong());
+        // Orchestrator subsection — title is just the lowercase agent id.
         ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+        ui.label(egui::RichText::new(orch_id).strong());
+        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+        dashboard::kv(ui, "Role", "orchestrator");
         dashboard::kv(ui, "Default provider", default_provider.as_str());
         dashboard::kv(ui, "Default model", default_model.as_str());
         let orch_ep = enabled_providers_display(&config.agents.enabled_providers);
-        dashboard::kv(ui, "enabledProviders", orch_ep.as_str());
-        let orch_dir = lib::config::orchestrator_context_dir(config, profile_dir);
-        dashboard::kv(ui, "Context directory", &orch_dir.display().to_string());
-        let orch_skills = lib::config::orchestrator_skills_enabled_list(&config.agents);
+        dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
+        let orch_skills = lib::config::orchestrator_enabled_skills_list(&config.agents);
         let orch_skills_csv = orch_skills.join(", ");
         dashboard::kv(
             ui,
-            "skillsEnabled",
+            "Enabled skills",
             if orch_skills.is_empty() {
                 "(none)"
             } else {
@@ -309,16 +288,17 @@ fn config_summary_right_column(
         let orch_mode = lib::config::orchestrator_context_mode(&config.agents);
         dashboard::kv(
             ui,
-            "contextMode",
+            "Context mode",
             match orch_mode {
                 lib::config::SkillContextMode::Full => "full",
                 lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
             },
         );
 
+        // Orchestrator limit fields (same order as gateway screen).
         let mut any_limit = false;
-        if let Some(n) = config.agents.max_session_messages {
-            dashboard::kv(ui, "Max session messages", &n.to_string());
+        if let Some(n) = config.agents.max_tool_loops_per_turn {
+            dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
             any_limit = true;
         }
         if let Some(n) = config.agents.max_delegations_per_turn {
@@ -329,20 +309,13 @@ fn config_summary_right_column(
             dashboard::kv(ui, "Max delegations per session", &n.to_string());
             any_limit = true;
         }
-        if let Some(ref m) = config.agents.max_delegations_per_provider {
+        if let Some(ref m) = config.agents.max_delegations_per_worker {
             if !m.is_empty() {
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new(
-                    "Max delegations per provider (session)",
-                ));
-                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                for (k, v) in m {
-                    ui.horizontal(|ui| {
-                        ui.label(egui::RichText::new(k.as_str()));
-                        ui.label(egui::RichText::new("→").weak());
-                        ui.label(egui::RichText::new(v.to_string()));
-                    });
-                }
+                let display: Vec<String> = m
+                    .iter()
+                    .map(|(k, v)| format!("{} ({})", k, v))
+                    .collect();
+                dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
                 any_limit = true;
             }
         }
@@ -357,25 +330,18 @@ fn config_summary_right_column(
                     continue;
                 }
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-                ui.label(egui::RichText::new(format!("Worker: {}", wid)).strong());
+                // Worker subsection — title is just the lowercase worker id.
+                ui.label(egui::RichText::new(wid).strong());
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                dashboard::kv(ui, "Role", "worker");
                 let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.providers, &config.agents, w);
                 dashboard::kv(ui, "Default provider", wp.as_str());
                 dashboard::kv(ui, "Default model", wm.as_str());
-                let w_dir = lib::config::worker_context_dir(w, profile_dir);
-                dashboard::kv(
-                    ui,
-                    "Context directory",
-                    &w_dir
-                        .as_ref()
-                        .map(|p| p.display().to_string())
-                        .unwrap_or_else(|| "(unknown)".to_string()),
-                );
-                let w_skills = lib::config::worker_skills_enabled_list(w);
+                let w_skills = lib::config::worker_enabled_skills_list(w);
                 let w_skills_csv = w_skills.join(", ");
                 dashboard::kv(
                     ui,
-                    "skillsEnabled",
+                    "Enabled skills",
                     if w_skills.is_empty() {
                         "(none)"
                     } else {
@@ -385,7 +351,7 @@ fn config_summary_right_column(
                 let w_mode = lib::config::worker_context_mode(w);
                 dashboard::kv(
                     ui,
-                    "contextMode",
+                    "Context mode",
                     match w_mode {
                         lib::config::SkillContextMode::Full => "full",
                         lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
@@ -393,5 +359,15 @@ fn config_summary_right_column(
                 );
             }
         }
+    });
+    ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+
+    // Skills box on the right side, underneath the Agents box.
+    dashboard::section_group(ui, "Skills", |ui| {
+        let lock_mode = match config.skills.lock_mode {
+            lib::config::SkillLockMode::Strict => "strict",
+            lib::config::SkillLockMode::Warn => "warn",
+        };
+        dashboard::kv(ui, "Lock mode", lock_mode);
     });
 }

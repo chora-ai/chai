@@ -132,7 +132,7 @@ chai skill generations               # List saved lock generations
 chai skill rollback <generation>     # Restore a saved generation and repoint active symlinks
 ```
 
-The default `skillLockMode` is `strict` — the gateway refuses to start when an enabled skill's active version does not match its locked hash. However, `strict` mode has no effect until a `skills.lock` file exists for the active profile. `chai init` generates the lock for profiles it creates; for manually created profiles, you must run `chai skill lock` yourself. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
+The default `skills.lockMode` is `strict` — the gateway refuses to start when an enabled skill's active version does not match its locked hash. However, `strict` mode has no effect until a `skills.lock` file exists for the active profile. `chai init` generates the lock for profiles it creates; for manually created profiles, you must run `chai skill lock` yourself. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
 
 ### Discovery
 

@@ -13,7 +13,7 @@ use crate::channels::{
     TelegramUpdate,
 };
 use crate::config::{
-    self, orchestrator_context_mode, resolve_telegram_webhook_secret,
+    self, matrix_channel_configured, orchestrator_context_mode, resolve_telegram_webhook_secret,
     worker_context_mode, Config, SkillContextMode,
 };
 #[cfg(feature = "matrix")]
@@ -25,7 +25,7 @@ use crate::gateway::protocol::{
 };
 use crate::init;
 use crate::orchestration::{
-    build_orchestration_catalog, build_workers_context, effective_worker_defaults,
+    build_workers_context, effective_worker_defaults,
     merge_delegate_task, resolve_model,
     resolve_provider_choice, worker_tool_list, DelegateContext,
     DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
@@ -54,7 +54,6 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -180,12 +179,16 @@ pub struct GatewayState {
     pub matrix_channel: Option<Arc<MatrixChannel>>,
     /// Per-worker bundles for `delegate_task` when `workerId` is set.
     pub worker_delegate_runtimes: Arc<HashMap<String, WorkerDelegateRuntime>>,
-    /// Skill package root scanned at startup (`~/.chai/skills`); surfaced on `status` only.
-    pub skills_discovery_root: PathBuf,
     /// Count of skill packages found on disk before orchestrator filtering.
-    pub skill_packages_discovered: usize,
-    /// Orchestrator **`AGENT.md`** directory (`<profile>/agents/<orchestratorId>/`).
-    pub orchestrator_context_dir: PathBuf,
+    pub skills_packages_discovered: usize,
+    /// Lock mode from `config.skills.lockMode`.
+    pub skills_lock_mode: config::SkillLockMode,
+    /// Lockfile generation number (from `skills.lock`), or `None` when no lockfile exists.
+    pub skills_lock_generation: Option<u64>,
+    /// Number of skills pinned in the lockfile (0 when no lockfile exists).
+    pub skills_locked_count: usize,
+    /// Number of writable roots in the sandbox (0 when sandbox is missing).
+    pub sandbox_roots_count: usize,
     /// Per-session stop flags. When set, the agent loop breaks after the current iteration.
     /// The flag is cleared at the start of each new turn.
     pub session_stop_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
@@ -327,41 +330,22 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     out
 }
 
-/// Per-agent skill runtime object embedded in **`status.agents.entries[].skills`**.
-fn skill_runtime_json(skills: &[Skill], mode: SkillContextMode) -> serde_json::Value {
-    let skills_context = match mode {
-        SkillContextMode::Full => build_skill_context_full(skills),
-        SkillContextMode::ReadOnDemand => build_skill_context_compact(skills),
-    };
-    let skills_context_full = build_skill_context_full(skills);
-    let skills_context_bodies_map = match mode {
-        SkillContextMode::ReadOnDemand => build_skill_bodies_map(skills),
-        SkillContextMode::Full => BTreeMap::new(),
-    };
-    let enabled_skills: Vec<String> = skills.iter().map(|s| s.name.clone()).collect();
-    let context_mode_wire = match mode {
-        SkillContextMode::Full => "full",
-        SkillContextMode::ReadOnDemand => "readOnDemand",
-    };
-    let bodies_json = if skills_context_bodies_map.is_empty() {
+/// Per-agent **`skillsContext`** value for the status payload.
+///
+/// Returns a map of skill name → frontmatter-stripped `SKILL.md` body,
+/// or **`null`** when no skills are loaded.
+fn skills_context_json(skills: &[Skill]) -> serde_json::Value {
+    let map = build_skill_bodies_map(skills);
+    if map.is_empty() {
         serde_json::Value::Null
     } else {
         serde_json::Value::Object(
-            skills_context_bodies_map
-                .into_iter()
+            map.into_iter()
                 .map(|(k, v)| (k, serde_json::Value::String(v)))
                 .collect(),
         )
-    };
-    json!({
-        "enabledSkills": enabled_skills,
-        "contextMode": context_mode_wire,
-        "skillsContext": skills_context,
-        "skillsContextFull": skills_context_full,
-        "skillsContextBodies": bodies_json,
-    })
+    }
 }
-
 /// Build system context from agent-ctx (AGENT.md), worker roster, and skills.
 /// Uses context_mode to choose full vs compact skill context.
 fn build_system_context(
@@ -678,8 +662,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         provider_dyn,
         &model_name,
         Some(system_context),
-        state.config.agents.max_session_messages,
-        crate::config::resolve_max_tool_loop_iterations(&state.config.agents),
+        state.config.agents.max_tool_loops_per_turn,
         tools,
         tool_executor,
         delegate,
@@ -790,13 +773,13 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
 
     // Verify skill versions against lockfile
     {
-        let mut all_enabled: Vec<&str> = config::orchestrator_skills_enabled_list(&config.agents)
+        let mut all_enabled: Vec<&str> = config::orchestrator_enabled_skills_list(&config.agents)
             .iter()
             .map(|s| s.as_str())
             .collect();
         if let Some(workers) = &config.agents.workers {
             for w in workers {
-                for name in config::worker_skills_enabled_list(w) {
+                for name in config::worker_enabled_skills_list(w) {
                     if !all_enabled.contains(&name.as_str()) {
                         all_enabled.push(name.as_str());
                     }
@@ -807,11 +790,22 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             &all_entries,
             &all_enabled,
             &paths.profile_dir,
-            config.skill_lock_mode,
+            config.skills.lock_mode,
         )?;
     }
 
-    let orch_names = config::orchestrator_skills_enabled_list(&config.agents);
+    // Read lockfile metadata for the status payload.
+    let (skills_lock_generation, skills_locked_count) =
+        match crate::skills::lockfile::read_lock(&paths.profile_dir) {
+            Ok(Some(lock)) => (Some(lock.generation), lock.skills.len()),
+            Ok(None) => (None, 0),
+            Err(e) => {
+                log::debug!("could not read skills.lock for status: {}", e);
+                (None, 0)
+            }
+        };
+
+    let orch_names = config::orchestrator_enabled_skills_list(&config.agents);
     let orchestrator_entries: Vec<SkillEntry> = all_entries
         .iter()
         .filter(|e| orch_names.iter().any(|n| n == &e.name))
@@ -833,6 +827,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         );
     }
     let sandbox = crate::exec::WriteSandbox::new(&paths.sandbox_dir());
+    let sandbox_roots_count = if sandbox.has_roots() { sandbox.roots().len() } else { 0 };
     let sandbox_opt = if sandbox.has_roots() {
         log::info!(
             "write sandbox: {} writable root(s) from {}",
@@ -840,15 +835,15 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             paths.sandbox_dir().display()
         );
         Some(sandbox)
-    } else if config.gateway.unsafe_sandbox {
+    } else if config.sandbox.disabled {
         log::warn!(
-            "no sandbox directory at {}; CWD confinement and path validation are disabled (gateway.unsafeSandbox is enabled)",
+            "no sandbox directory at {}; CWD confinement and path validation are disabled (sandbox.disabled is enabled)",
             paths.sandbox_dir().display()
         );
         None
     } else {
         anyhow::bail!(
-            "sandbox directory not found at {}; set gateway.unsafeSandbox to true to start without a sandbox",
+            "sandbox directory not found at {}; set sandbox.disabled to true to start without a sandbox",
             paths.sandbox_dir().display()
         );
     };
@@ -878,7 +873,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         for w in workers {
             let w_dir = config::worker_context_dir(w, &paths.profile_dir);
             let w_agent_ctx = agent_ctx::load_agent_ctx(w_dir.as_deref());
-            let w_names = config::worker_skills_enabled_list(w);
+            let w_names = config::worker_enabled_skills_list(w);
             let w_entries: Vec<SkillEntry> = all_entries
                 .iter()
                 .filter(|e| w_names.iter().any(|n| n == &e.name))
@@ -898,7 +893,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                 w.id.clone(),
                 WorkerDelegateRuntime {
                     system_context: w_context,
-                    context_directory: w_dir.clone(),
                     skills: Arc::new(w_built.skills),
                     tools_list: w_built.tools_list,
                     tool_executor: w_built.tool_executor,
@@ -929,12 +923,13 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         #[cfg(feature = "matrix")]
         matrix_channel: None,
         worker_delegate_runtimes,
-        skills_discovery_root: skills_dir,
-        skill_packages_discovered: all_entries.len(),
-        orchestrator_context_dir: orch_context_dir,
+        skills_packages_discovered: all_entries.len(),
+        skills_lock_mode: config.skills.lock_mode,
+        skills_lock_generation,
+        skills_locked_count,
+        sandbox_roots_count,
         session_stop_flags: Arc::new(RwLock::new(HashMap::new())),
     };
-
     // Spawn model discovery tasks for each configured provider.
     {
         let states = state.provider_states.clone();
@@ -956,7 +951,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             let static_models = def.static_models.clone();
 
             match model_discovery {
-                config::ModelDiscovery::Default => {
+                config::ModelDiscovery::Auto => {
                     match def.endpoint_type {
                         config::EndpointType::Ollama => {
                             let ollama = crate::providers::OllamaClient::new(
@@ -1356,61 +1351,6 @@ fn non_empty_cfg_opt(s: &Option<String>) -> bool {
     s.as_ref().map(|x| !x.trim().is_empty()).unwrap_or(false)
 }
 
-/// True when Matrix homeserver and credentials are present (env or file); does not imply the client connected.
-fn matrix_channel_configured(cfg: &Config) -> bool {
-    let homeserver = std::env::var("MATRIX_HOMESERVER")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            cfg.channels
-                .matrix
-                .homeserver
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        });
-    if homeserver.is_none() {
-        return false;
-    }
-    let token = std::env::var("MATRIX_ACCESS_TOKEN")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            cfg.channels
-                .matrix
-                .access_token
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        });
-    if token.is_some() {
-        return true;
-    }
-    let user = std::env::var("MATRIX_USER")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            cfg.channels
-                .matrix
-                .user
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        });
-    let password = std::env::var("MATRIX_PASSWORD")
-        .ok()
-        .filter(|s| !s.trim().is_empty())
-        .or_else(|| {
-            cfg.channels
-                .matrix
-                .password
-                .as_ref()
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-        });
-    user.is_some() && password.is_some()
-}
-
 fn merge_channel_runtime_detail(
     obj: &mut serde_json::Map<String, serde_json::Value>,
     details: &std::collections::HashMap<String, serde_json::Value>,
@@ -1599,14 +1539,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     &provider_choice,
                 );
 
-                // Build discovered models map from provider states.
-                let mut discovered_models: HashMap<String, Vec<String>> = HashMap::new();
-                for (pid, runtime) in state.provider_states.iter() {
-                    let mut models = runtime.models.read().await.clone();
-                    models.sort();
-                    discovered_models.insert(pid.clone(), models);
-                }
-
                 let system_context = &state.system_context;
                 let orch_mode = orchestrator_context_mode(&state.config.agents);
                 let tools_string = state
@@ -1619,11 +1551,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             serde_json::to_string_pretty(tools).ok()
                         }
                     });
-                let orchestration_catalog = build_orchestration_catalog(
-                    &state.config.providers,
-                    &state.config.agents,
-                    &discovered_models,
-                );
                 let orchestrator_id = state
                     .config
                     .agents
@@ -1692,16 +1619,19 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let mut providers_map = serde_json::Map::new();
                 for (pid, runtime) in state.provider_states.iter() {
                     let models = runtime.models.read().await.clone();
-                    let on = config::provider_discovery_enabled(&state.config.providers, &state.config.agents, pid);
-                    let endpoint_type = state.config.providers.get(pid)
-                        .map(|def| def.endpoint_type.as_str())
+                    let def = state.config.providers.get(pid);
+                    let endpoint_type = def
+                        .map(|d| d.endpoint_type.as_str())
                         .unwrap_or("unknown");
+                    let model_discovery = def
+                        .map(|d| d.model_discovery.as_str())
+                        .unwrap_or("auto");
                     providers_map.insert(
                         pid.clone(),
                         json!({
                             "endpointType": endpoint_type,
-                            "discovery": on,
-                            "models": if on { models } else { vec!["".to_string(); 0] },
+                            "modelDiscovery": model_discovery,
+                            "models": models,
                         }),
                     );
                 }
@@ -1710,16 +1640,26 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     state.worker_delegate_runtimes.keys().cloned().collect();
                 worker_ids.sort();
 
+                let orch_enabled_skills: Vec<String> = state.skills.iter().map(|s| s.name.clone()).collect();
+                let orch_context_mode_wire = match orch_mode {
+                    SkillContextMode::Full => "full",
+                    SkillContextMode::ReadOnDemand => "readOnDemand",
+                };
                 let orch_entry = json!({
                     "id": orchestrator_id,
                     "role": "orchestrator",
-                    "contextDirectory": state.orchestrator_context_dir.display().to_string(),
                     "defaultProvider": provider_choice.as_str(),
                     "defaultModel": default_model,
                     "enabledProviders": serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
+                    "enabledSkills": orch_enabled_skills,
+                    "contextMode": orch_context_mode_wire,
                     "systemContext": serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
                     "tools": serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
-                    "skills": skill_runtime_json(state.skills.as_ref(), orch_mode),
+                    "skillsContext": skills_context_json(state.skills.as_ref()),
+                    "maxToolLoopsPerTurn": state.config.agents.max_tool_loops_per_turn,
+                    "maxDelegationsPerTurn": state.config.agents.max_delegations_per_turn,
+                    "maxDelegationsPerSession": state.config.agents.max_delegations_per_session,
+                    "maxDelegationsPerWorker": serde_json::to_value(&state.config.agents.max_delegations_per_worker).unwrap_or_else(|_| serde_json::Value::Null),
                 });
 
 
@@ -1738,35 +1678,42 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             .get(wid)
                             .cloned()
                             .unwrap_or_default();
-                        let ctx_dir = rt
-                            .context_directory
-                            .as_ref()
-                            .map(|p| p.display().to_string())
-                            .unwrap_or_default();
+                        let w_enabled_skills: Vec<String> = rt.skills.iter().map(|s| s.name.clone()).collect();
+                        let w_context_mode_wire = match rt.context_mode {
+                            SkillContextMode::Full => "full",
+                            SkillContextMode::ReadOnDemand => "readOnDemand",
+                        };
                         entries.push(json!({
                             "id": wid,
                             "role": "worker",
-                            "contextDirectory": ctx_dir,
                             "defaultProvider": w_prov,
                             "defaultModel": w_model,
                             "enabledProviders": serde_json::Value::Null,
+                            "enabledSkills": w_enabled_skills,
+                            "contextMode": w_context_mode_wire,
                             "systemContext": serde_json::to_value(&w_system_context).unwrap_or_else(|_| json!("")),
                             "tools": w_tools_string
                                 .as_ref()
                                 .map(|s| serde_json::Value::String(s.clone()))
                                 .unwrap_or(serde_json::Value::Null),
-                            "skills": skill_runtime_json(rt.skills.as_ref(), rt.context_mode),
+                            "skillsContext": skills_context_json(rt.skills.as_ref()),
+                            "maxToolLoopsPerTurn": serde_json::Value::Null,
+                            "maxDelegationsPerTurn": serde_json::Value::Null,
+                            "maxDelegationsPerSession": serde_json::Value::Null,
+                            "maxDelegationsPerWorker": serde_json::Value::Null,
                         }));
                     }
                 }
 
-                let agents_block = json!({
-                    "orchestrationCatalog": serde_json::to_value(&orchestration_catalog).unwrap_or_else(|_| json!([])),
-                    "entries": entries,
-                });
-                let skill_packages_block = json!({
-                    "discoveryRoot": state.skills_discovery_root.display().to_string(),
-                    "packagesDiscovered": state.skill_packages_discovered,
+                let agents_block = serde_json::Value::Array(entries);
+                let skills_block = json!({
+                    "packagesDiscovered": state.skills_packages_discovered,
+                    "lockMode": match state.skills_lock_mode {
+                        config::SkillLockMode::Strict => "strict",
+                        config::SkillLockMode::Warn => "warn",
+                    },
+                    "lockGeneration": state.skills_lock_generation,
+                    "lockedSkills": state.skills_locked_count,
                 });
                 let gateway_block = json!({
                     "status": "running",
@@ -1775,8 +1722,12 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "bind": state.config.gateway.bind,
                     "auth": auth_mode,
                 });
+                let sandbox_block = json!({
+                    "disabled": state.config.sandbox.disabled,
+                    "roots": state.sandbox_roots_count,
+                });
                 // Key order matches `base/spec/GATEWAY_STATUS.md` and config cross-check:
-                // gateway → channels → providers → agents like config, then skillPackages (extra).
+                // gateway → channels → providers → sandbox → agents → skills.
                 let mut pl = serde_json::Map::new();
                 pl.insert("gateway".into(), gateway_block);
                 pl.insert("channels".into(), channels_block);
@@ -1784,8 +1735,9 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "providers".into(),
                     serde_json::Value::Object(providers_map),
                 );
+                pl.insert("sandbox".into(), sandbox_block);
                 pl.insert("agents".into(), agents_block);
-                pl.insert("skillPackages".into(), skill_packages_block);
+                pl.insert("skills".into(), skills_block);
                 let payload = serde_json::Value::Object(pl);
                 let res = WsResponse::ok(&req.id, payload);
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
@@ -1919,8 +1871,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     provider_dyn,
                     &model_name,
                     system_context_opt,
-                    state.config.agents.max_session_messages,
-                    crate::config::resolve_max_tool_loop_iterations(&state.config.agents),
+                    state.config.agents.max_tool_loops_per_turn,
                     tools,
                     tool_executor,
                     delegate,

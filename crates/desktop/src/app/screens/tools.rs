@@ -9,7 +9,7 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
         ui,
         "Tools",
         Some(if running {
-            "Tool definitions loaded on each agent turn."
+            "Sent as tool schemas on every turn (built at startup, separate from messages)."
         } else {
             "Start the gateway to load agent tools."
         }),

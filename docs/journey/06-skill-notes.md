@@ -11,20 +11,20 @@ This journey covers the **`notes`** skill (notes CRUD). The root is the active p
 - **`notes-frontmatter`** — Read, edit, and delete YAML frontmatter keys without touching note body content.
 - **`notes-wikilink`** — Discover relationships between notes via backlinks, outlinks, tag search, and broken link detection, and rename notes with automatic wikilink updates.
 
-These are separate skill packages, enabled independently in `skillsEnabled`. The core `notes` journey below focuses on the `notes` skill; the extended skills are mentioned where relevant.
+These are separate skill packages, enabled independently in `enabledSkills`. The core `notes` journey below focuses on the `notes` skill; the extended skills are mentioned where relevant.
 
 ## Prerequisites
 
 - **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
 - **Ollama** running with a model that supports **tool/function calling** (e.g. `llama3.2:3b`).
-- **`notes` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"notes"` to the `skillsEnabled` array:
+- **`notes` skill enabled** — In `~/.chai/profiles/<active>/config.json`, add `"notes"` to the `enabledSkills` array:
   ```json
   {
     "agents": [
       {
         "id": "orchestrator",
         "role": "orchestrator",
-        "skillsEnabled": ["notes"]
+        "enabledSkills": ["notes"]
       }
     ]
   }
@@ -36,11 +36,11 @@ These are separate skill packages, enabled independently in `skillsEnabled`. The
 
 1. **Confirm the notes skill is enabled**
    - Check your config: `cat ~/.chai/profiles/assistant/config.json`
-   - **Expect:** `skillsEnabled` includes `"notes"`.
+   - **Expect:** `enabledSkills` includes `"notes"`.
 
 2. **Start the gateway**
    - `chai gateway` (or `cargo run -p cli -- gateway`). Optional: `RUST_LOG=info`.
-   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more — add 1 per enabled skill). If you see `loaded 0 skill(s)`, the skill is not in `skillsEnabled` or the config was not saved correctly.
+   - **Expect:** A log line like `loaded 1 skill(s) for agent context` (or more — add 1 per enabled skill). If you see `loaded 0 skill(s)`, the skill is not in `enabledSkills` or the config was not saved correctly.
 
 3. **List the directory**
    - Send an agent message: "List the contents of the root directory."
@@ -116,13 +116,13 @@ If you enabled `notes-wikilink` (and have notes with `[[wikilink]]` syntax):
 
 ## Context Size
 
-Every turn the model receives the full system context (skills), full conversation history, and tool definitions. If the combined size is large, the model can be slow or fail to respond.
+Every turn the model receives the full system context (AGENT.md, workers roster, skills), the session history (including tool calls and results), and tool schemas (sent as a separate field from the messages). If the combined size is large, the model can be slow or fail to respond.
 
 - **Mitigations:** Prefer a model with a larger context window (e.g. 32K+). Keep skill content concise. For long chats, type `/new` to start a fresh session.
 
 ## If Something Fails
 
-- **"loaded 0 skill(s)"** — The `notes` skill is not in `skillsEnabled` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
+- **"loaded 0 skill(s)"** — The `notes` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notes_search tool to search all notes for 'test'."
 - **"agent: tool notes_write failed: path not in writable roots"** — The note path resolved outside the sandbox. The notes skill resolves paths relative to the root directory (the sandbox directory). Ensure you are not requesting an absolute path.
 - **Note not found after write** — The note may be in the sandbox directory under a different path than expected. Check `~/.chai/profiles/<active>/sandbox/` for the file.
@@ -134,7 +134,7 @@ Every turn the model receives the full system context (skills), full conversatio
 
 | Step | Action | Expected Outcome |
 |------|--------|-------------------|
-| 1 | Confirm `notes` in `skillsEnabled` | Config includes the skill |
+| 1 | Confirm `notes` in `enabledSkills` | Config includes the skill |
 | 2 | `chai gateway` | At least 1 skill loaded |
 | 3 | "List the files" | Agent lists directory contents |
 | 4 | "Create a note" | Note created in sandbox |

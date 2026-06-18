@@ -17,11 +17,6 @@ pub fn kv_value_rich(ui: &egui::Ui, value: &str) -> egui::RichText {
     egui::RichText::new(value).color(ui.visuals().text_color())
 }
 
-/// Column header in a striped [`egui::Grid`] — same muted color as [`kv_key_rich`] keys (no colon).
-pub fn grid_header_rich(ui: &egui::Ui, label: &str) -> egui::RichText {
-    egui::RichText::new(label).color(ui.visuals().weak_text_color())
-}
-
 /// Grouped frame with a title (Config / Status dashboard columns).
 pub fn section_group(ui: &mut egui::Ui, title: &str, contents: impl FnOnce(&mut egui::Ui)) {
     let w = ui.available_width();

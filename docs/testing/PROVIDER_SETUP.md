@@ -120,7 +120,7 @@ NearAI is a remote OpenAI-compatible API that requires an API key.
    ```
 
 4. **API key:** The `apiKey` value `<NEAR_API_KEY>` is an environment variable reference — the gateway reads the `NEAR_API_KEY` variable at startup. Set it in your shell environment or in a `.env` file in the profile directory (e.g. `~/.chai/profiles/assistant/.env`). You can also use a literal key string instead: `"apiKey": "sk-..."`.
-5. **Model catalog:** Check [near.ai](https://near.ai) for available models. Default model discovery uses `GET /v1/models`.
+5. **Model catalog:** Check [near.ai](https://near.ai) for available models. Auto model discovery uses `GET /v1/models`.
 
 **Notes:**
 

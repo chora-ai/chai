@@ -4,16 +4,15 @@
 //! values defined on [`crate::orchestration::EVENT_DELEGATE_START`] and related constants in `crate::orchestration`.
 //!
 //! The **`status`** response **`payload`** top-level keys are emitted in this order (aligned with config cross-check):
-//! **`gateway`**, **`channels`**, **`providers`**, **`agents`**, **`skillPackages`**.
-//! **`payload.skillPackages`**: shared skill store metadata (**`discoveryRoot`**, **`packagesDiscovered`** on disk before per-agent filtering).
-//! **`payload.agents.entries`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
-//! Each object includes **`id`**, **`role`**, **`contextDirectory`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**
-//! (orchestrator array; **`null`** for workers), **`systemContext`** (full static string with date for that role), **`tools`**, and **`skills`**
-//! (**`enabledSkills`**, **`contextMode`**, **`skillsContext`**, **`skillsContextFull`**, **`skillsContextBodies`**).
-//! **`payload.agents.orchestrationCatalog`**: merged `(provider, model)` rows from discovery plus allowlist-only entries;
-//! see [`crate::orchestration::build_orchestration_catalog`].
-//! Per-provider model lists live under **`payload.providers.<id>.models`** (each `{ "name", … }`); **`discovery`** is whether polling ran for that id.
-
+//! **`gateway`**, **`channels`**, **`providers`**, **`sandbox`**, **`agents`**, **`skills`**.
+//! **`payload.skills`**: shared skill store metadata (**`packagesDiscovered`** on disk before per-agent filtering).
+//! **`payload.agents`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
+//! Each object includes **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**
+//! (orchestrator array; **`null`** for workers), **`enabledSkills`**, **`contextMode`**, **`systemContext`** (full static string with date
+//! for that role), **`tools`**, **`skillsContext`** (name → frontmatter-stripped body), and
+//! orchestrator-only delegation caps (**`maxToolLoopsPerTurn`**, **`maxDelegationsPerTurn`**,
+//! **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**; **`null`** for workers).
+//! Per-provider model lists live under **`payload.providers.<id>.models`** (each a flat string array); **`modelDiscovery`** is the discovery method (`"auto"`, `"lmstudio"`, `"static"`).
 use serde::{Deserialize, Serialize};
 
 /// Wire request: `{ "type": "req", "id", "method", "params" }`.

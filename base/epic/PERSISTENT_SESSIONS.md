@@ -80,7 +80,7 @@ This creates several user-facing problems:
 - **Session search** — Full-text search across session transcripts (future consideration).
 - **Session export/import** — Exporting sessions to standalone files or importing from other tools.
 - **Cross-profile session sharing** — Sessions are profile-local and per-agent; no sharing between profiles.
-- **Session summarization** — Auto-summarizing old sessions or truncating history (the existing `maxSessionMessages` config already handles context window limits).
+- **Session summarization** — Auto-summarizing old sessions or truncating history (the existing session history config already handles context window limits).
 - **Channel-specific session UX** — Delete/manage sessions from Telegram, Matrix, or Signal (desktop and CLI only for now).
 - **Encryption at rest** — Session files are stored as plain JSON on disk. Encryption is a future hardening step.
 
@@ -329,7 +329,7 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 - **Atomic writes** — Session files are written to a `.tmp` file and renamed to the final path. This prevents corrupt files if the gateway crashes mid-write.
 - **File-level locking is not needed** — The `SessionStore` already serializes access via `RwLock`. All disk writes happen inside the same write guard that updates the in-memory HashMap, so there is no risk of concurrent writes to the same file.
 - **Lazy loading** — On gateway start, only session metadata (id, timestamps, message count) is loaded. Full message history is loaded on first `get()`. This keeps startup fast.
-- **Large sessions** — Sessions with many messages produce larger JSON files. The existing `maxSessionMessages` config limits what is sent to the model but does not limit what is stored. No truncation of on-disk history is proposed in this epic.
+- **Large sessions** — Sessions with many messages produce larger JSON files. The existing session history config limits what is sent to the model but does not limit what is stored. No truncation of on-disk history is proposed in this epic.
 
 ## Requirements
 
@@ -377,7 +377,7 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 - **Lazy vs eager loading on start** — Should the gateway load full session history into memory on start, or only load metadata and lazy-load history on `get()`? Lazy loading is proposed for scalability, but eager loading is simpler. The answer depends on expected session counts and sizes.
 - **Session title generation** — Should the gateway auto-generate a session title (e.g. from the first user message or via an LLM call) and store it as metadata? This would improve the sidebar display but adds complexity. A simpler first step is to use the timestamp and first-user-message preview.
 - **Per-agent sessions for workers** — Workers currently do not maintain independent sessions. If a future design adds worker sessions, the directory structure supports it. Should this be explicitly designed for now, or deferred?
-- **Session file compaction** — Over time, session files may grow large. Should there be a mechanism to compact or truncate old messages in the on-disk file (separate from the in-memory `maxSessionMessages` model context limit)?
+- **Session file compaction** — Over time, session files may grow large. Should there be a mechanism to compact or truncate old messages in the on-disk file (separate from the in-memory session history model context limit)?
 - **Concurrent gateway instances** — What happens if two gateway processes run against the same profile? File-level concurrency is not explicitly handled. The existing `gateway.lock` prevents this in practice, but the design should note the assumption.
 
 ## Follow-ups
@@ -396,13 +396,13 @@ Encrypt session files on disk so that conversation history is not readable witho
 
 ### Session Summarization
 
-Auto-summarize old sessions to reduce context window pressure when resuming very old conversations. The existing `maxSessionMessages` truncation handles the model context window, but the user-visible history could benefit from summarization.
+Auto-summarize old sessions to reduce context window pressure when resuming very old conversations. The existing session history truncation handles the model context window, but the user-visible history could benefit from summarization.
 
 ## Related Epics and Docs
 
 - [PROFILES.md](../spec/PROFILES.md) — Profile directory layout, `ChaiPaths`, and the `agents/` directory structure where sessions will be stored.
 - [CHANNELS.md](../spec/CHANNELS.md) — Session binding and inbound processing; `SessionBindingStore` routing that needs persistence.
-- [CONTEXT.md](../spec/CONTEXT.md) — Session vs turn semantics, `maxSessionMessages`, how session history is loaded per turn.
+- [CONTEXT.md](../spec/CONTEXT.md) — Session vs turn semantics, session history, how session history is loaded per turn.
 - [ORCHESTRATION.md](../spec/ORCHESTRATION.md) — Delegation and session-scoped policy caps (`maxDelegationsPerSession`).
 - [DESKTOP.md](../spec/DESKTOP.md) — Desktop session event processing and chat timeline rendering.
 - [TOOL_APPROVAL.md](TOOL_APPROVAL.md) — Tool call approval epic (draft); split-turn persistence would benefit from the session persistence layer this epic introduces.

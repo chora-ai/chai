@@ -90,4 +90,4 @@ Reference for the **NVIDIA NIM hosted API** (free tier at build.nvidia.com): wha
 
 - **Streaming to the channel** — Use `stream: true` and send deltas to the channel as they arrive.
 - **Rate-limit handling** — Detect 429 or 402, back off, and optionally inform the user that the NIM free tier limit was hit.
-- **Model discovery** — If NVIDIA adds a list endpoint, Chai's `"default"` model discovery could be used instead of `"static"`.
+- **Model discovery** — If NVIDIA adds a list endpoint, Chai's `"auto"` model discovery could be used instead of `"static"`.

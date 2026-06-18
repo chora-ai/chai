@@ -24,11 +24,10 @@ Exactly one entry with `"role": "orchestrator"`. The orchestrator runs the main 
 | `role` | Must be `"orchestrator"` |
 | `defaultProvider`, `defaultModel` | Main session defaults |
 | `enabledProviders` | Which provider stacks this agent may use (discovery and routing scope) |
-| `skillsEnabled` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
+| `enabledSkills` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` — how this agent's skill text appears in system context |
-| `maxSessionMessages` | When set and > 0, only the last N messages are sent per turn |
-| `maxToolLoopIterations` | Maximum LLM round-trips per turn (default 500). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
-| `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerProvider` | Delegation caps |
+| `maxToolLoopsPerTurn` | Maximum tool loops per turn (omitted = no limit). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
+| `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker` | Delegation caps |
 
 ### Workers
 
@@ -39,7 +38,7 @@ Zero or more entries with `"role": "worker"`. Each has an `id` used as `workerId
 | `id` | Worker identifier — used as `workerId` in `delegate_task` |
 | `role` | Must be `"worker"` |
 | `defaultProvider`, `defaultModel` | Worker's single `(provider, model)` pair. Falls back to orchestrator defaults when omitted. |
-| `skillsEnabled` | Skill package names for this worker only. Missing or empty ⇒ no skills. |
+| `enabledSkills` | Skill package names for this worker only. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` for this worker's skill presentation |
 
 A worker's `defaultProvider` must be enabled at the orchestrator level via `enabledProviders`. Workers do not have their own `enabledProviders` field; the worker's single provider is its `defaultProvider`, which must already be an enabled provider at the orchestrator level.
@@ -62,14 +61,14 @@ Skill enablement and presentation mode are configured **per agent** in `config.j
 
 | Field | Behavior |
 |-------|----------|
-| `skillsEnabled` | Array of skill package names (e.g., `["files", "git-read"]`). The agent receives tools and context only for listed packages. Missing or empty ⇒ no skill tools and no skill-derived context for that agent. |
+| `enabledSkills` | Array of skill package names (e.g., `["files", "git-read"]`). The agent receives tools and context only for listed packages. Missing or empty ⇒ no skill tools and no skill-derived context for that agent. |
 | `contextMode` | `full` — each enabled skill's full `SKILL.md` body (frontmatter stripped) is inlined under `## Skills` in the system context. `readOnDemand` — a compact skill list is inlined, and a `read_skill` tool is offered so the model can load full `SKILL.md` content on demand. |
 
-There is **no** top-level `skills` object in `config.json`. Skill packages are discovered from `~/.chai/skills/` only (no configurable discovery paths). Per-agent `skillsEnabled` selects which discovered packages apply to each agent.
+The top-level **`skills`** block in `config.json` holds shared skill package settings (lock mode); per-agent **`enabledSkills`** selects which discovered packages apply to each agent. Skill packages are discovered from `~/.chai/skills/` only (no configurable discovery paths).
 
 ## Per-Agent System Context
 
-The gateway builds **separate** static system context strings for each agent at startup. The static string is cached and sent unchanged on every turn for that agent.
+The gateway builds **separate** static system context strings for each agent at startup. The static string is cached and injected as a `system`-role message at position 0 of the messages array on every turn. It is **not** persisted in the session store — it is reconstructed each turn from the cached startup string.
 
 ### Orchestrator Build Order
 
@@ -80,7 +79,7 @@ The gateway builds **separate** static system context strings for each agent at 
 ### Worker Build Order
 
 1. **Agent context** — That worker's `<profileRoot>/agents/<workerId>/AGENT.md`. Trimmed.
-2. **Skills** — Same builders as the orchestrator, but filtered by that worker's `skillsEnabled` and `contextMode`.
+2. **Skills** — Same builders as the orchestrator, but filtered by that worker's `enabledSkills` and `contextMode`.
 
 **Workers do not receive:** the `## Workers` roster, orchestrator identity, or `delegate_task` instructions.
 
@@ -90,11 +89,11 @@ See [CONTEXT.md](CONTEXT.md) for the full build-order details, separator rules, 
 
 ## Per-Agent Tool Lists
 
-Tool lists are built **per agent** at startup from that agent's enabled skill packages:
+Tool lists are built **per agent** at startup from that agent's enabled skill packages. Tool schemas are sent as a **separate top-level field** in the provider request — they are never part of the messages array.
 
 | Tool source | Orchestrator | Worker |
 |-------------|-------------|--------|
-| Skill tools from `tools.json` | Only packages in orchestrator's `skillsEnabled` | Only packages in worker's `skillsEnabled` |
+| Skill tools from `tools.json` | Only packages in orchestrator's `enabledSkills` | Only packages in worker's `enabledSkills` |
 | `read_skill` | Included when orchestrator's `contextMode` is `readOnDemand` and at least one skill is enabled | Included when worker's `contextMode` is `readOnDemand` and at least one skill is enabled |
 | `delegate_task` | Merged at the **front** of the orchestrator tool list when workers exist | **Not offered** (nested delegation disabled) |
 
@@ -104,7 +103,7 @@ The same prebuilt list is sent on every turn for that agent.
 
 - **Discovery root:** `~/.chai/skills/` only (no config override).
 - **Loading:** At gateway startup, `load_skills` discovers all packages containing `SKILL.md`.
-- **Filtering:** Each agent's `skillsEnabled` list selects which discovered packages apply to that agent. An agent with an empty `skillsEnabled` receives no skill tools and no skill context.
+- **Filtering:** Each agent's `enabledSkills` list selects which discovered packages apply to that agent. An agent with an empty `enabledSkills` receives no skill tools and no skill context.
 - **No per-profile skill trees:** Skill packages are not duplicated under profile directories. Profiles differ by per-agent enablement, not by separate package stores.
 
 ## Delegation and Worker Runtimes
@@ -120,16 +119,17 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for delegation semantics, policy, limit
 
 ## Status API
 
-`status.agents.entries` provides per-agent runtime rows. Each entry includes:
+`status.agents` provides an array of per-agent runtime rows. Each entry includes:
 
 | Field | Meaning |
 |-------|---------|
 | `id`, `role` | Agent identity |
-| `contextDirectory` | Absolute path to `<profile>/agents/<id>/` |
 | `defaultProvider`, `defaultModel` | Effective routing defaults |
+| `enabledSkills` | Skill package names loaded for this agent |
+| `contextMode` | Skill context mode for this agent |
 | `systemContext` | Full system context string for that agent |
 | `tools` | Pretty-printed JSON array of that agent's tool definitions |
-| `skills` | Per-agent skill runtime (`enabledSkills`, `contextMode`, skill context fields) |
+| `skillsContext` | Per-skill body (name → frontmatter-stripped body) |
 
 See [GATEWAY_STATUS.md](GATEWAY_STATUS.md) for the full payload specification.
 
@@ -138,10 +138,10 @@ See [GATEWAY_STATUS.md](GATEWAY_STATUS.md) for the full payload specification.
 | Document | Purpose |
 |----------|---------|
 | [adr/AGENT_ISOLATION.md](../adr/AGENT_ISOLATION.md) | Architectural decision for per-agent isolation |
-| [CONTEXT.md](CONTEXT.md) | System context assembly, skill context modes, and build order |
+| [CONTEXT.md](CONTEXT.md) | Context on every turn: system message, session history, tool schemas |
 | [ORCHESTRATION.md](ORCHESTRATION.md) | Delegation, worker turn behavior, `delegate_task` |
 | [CONFIGURATION.md](CONFIGURATION.md) | `config.json` agent entries and fields |
 | [PROFILES.md](PROFILES.md) | Profile directory structure (`agents/<id>/` under profiles) |
 | [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, frontmatter, and `tools.json` |
 | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Skill package versioned layout, startup validation, and CLI commands |
-| [GATEWAY_STATUS.md](GATEWAY_STATUS.md) | `status.agents.entries` payload |
+| [GATEWAY_STATUS.md](GATEWAY_STATUS.md) | `status.agents` payload |

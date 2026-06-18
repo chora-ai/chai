@@ -54,7 +54,7 @@ Path canonicalization happens at execution time (not startup), so renames and mo
 
 ## CWD Restriction
 
-When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `gateway.unsafeSandbox` is `true`), no CWD override is applied — the process inherits the gateway's working directory.
+When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `sandbox.disabled` is `true`), no CWD override is applied — the process inherits the gateway's working directory.
 
 ## Read-Path Validation
 
@@ -72,9 +72,9 @@ When the sandbox directory does not exist at profile root, there are no writable
 
 ### Gateway Startup Check
 
-By default (`gateway.unsafeSandbox: false`), the gateway **refuses to start** when the sandbox directory is missing. The error message includes the expected path and instructions to either re-run `chai init` (which recovers the sandbox for existing profiles) or set `gateway.unsafeSandbox: true`.
+By default (`sandbox.disabled: false`), the gateway **refuses to start** when the sandbox directory is missing. The error message includes the expected path and instructions to either re-run `chai init` (which recovers the sandbox for existing profiles) or set `sandbox.disabled: true`.
 
-When `gateway.unsafeSandbox` is `true`, the gateway starts without a sandbox and logs a warning that CWD confinement and path validation are disabled. This bypasses the default-closed security model and should only be used when the operator explicitly accepts the risk.
+When `sandbox.disabled` is `true`, the gateway starts without a sandbox and logs a warning that CWD confinement and path validation are disabled. This bypasses the default-closed security model and should only be used when the operator explicitly accepts the risk.
 
 ### Recovery via `chai init`
 

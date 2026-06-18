@@ -2,8 +2,9 @@
 //!
 //! Config is loaded from a JSON file under the active profile (e.g. `~/.chai/profiles/assistant/config.json`) and environment.
 //! Top-level keys include `gateway`, `channels` (Telegram, Matrix, Signal), `providers` (JSON array of `id` + `endpointType` entries
-//! for model APIs), and `agents` (JSON array of `id` / `role` entries; omit the key for a single default orchestrator).
-//! Skill **packages** are always loaded from **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
+//! for model APIs), `sandbox` (sandbox enforcement settings), `agents` (JSON array of `id` / `role` entries; omit the key for a
+//! single default orchestrator), and `skills` (lock mode and shared skill settings). Skill **packages** are always loaded from
+//! **`~/.chai/skills`** (per-agent enablement is under **`agents`**).
 
 use anyhow::{Context, Result};
 use log::{error, info};
@@ -27,14 +28,17 @@ pub struct Config {
     #[serde(default = "default_providers_config", with = "providers_config_serde")]
     pub providers: ProvidersConfig,
 
+    /// Sandbox enforcement settings.
+    #[serde(default)]
+    pub sandbox: SandboxConfig,
+
     /// Agent definitions: JSON array of `id` + `role` (`orchestrator` \| `worker`). Omit for defaults (one orchestrator, id `orchestrator`).
     #[serde(default = "default_agents_config", with = "agents_config_de")]
     pub agents: AgentsConfig,
 
-    /// How the gateway handles mismatches between the lockfile and active skill versions.
-    /// `"strict"` (default): refuse to start. `"warn"`: log a warning and continue.
+    /// Skill package settings: lock mode and shared skill configuration.
     #[serde(default)]
-    pub skill_lock_mode: SkillLockMode,
+    pub skills: SkillsConfig,
 }
 
 /// Gateway bind, port, and auth settings.
@@ -52,13 +56,18 @@ pub struct GatewayConfig {
     /// Auth settings. When absent, defaults to no auth for loopback bind.
     #[serde(default)]
     pub auth: GatewayAuthConfig,
+}
 
+/// Sandbox enforcement settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SandboxConfig {
+    /// When `true`, the gateway starts without a sandbox directory and logs a
+    /// warning that CWD confinement and path validation are disabled.
     /// When `false` (default), the gateway refuses to start when the sandbox
-    /// directory for the active profile does not exist. When `true`, the
-    /// gateway starts without a sandbox and logs a warning that CWD
-    /// confinement and path validation are disabled.
+    /// directory for the active profile does not exist.
     #[serde(default)]
-    pub unsafe_sandbox: bool,
+    pub disabled: bool,
 }
 
 /// Gateway auth: token or none (loopback-only when none).
@@ -98,7 +107,6 @@ impl Default for GatewayConfig {
             port: default_gateway_port(),
             bind: default_gateway_bind(),
             auth: GatewayAuthConfig::default(),
-            unsafe_sandbox: false,
         }
     }
 }
@@ -200,6 +208,114 @@ pub fn resolve_matrix_room_allowlist(config: &Config) -> Option<HashSet<String>>
     Some(rooms.into_iter().collect())
 }
 
+/// Resolve the Matrix homeserver URL: env `MATRIX_HOMESERVER` overrides config when set and non-empty.
+pub fn resolve_matrix_homeserver(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_HOMESERVER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .homeserver
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve the Matrix access token: env `MATRIX_ACCESS_TOKEN` overrides config when set and non-empty.
+pub fn resolve_matrix_access_token(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_ACCESS_TOKEN")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .access_token
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve the Matrix user (localpart or full MXID): env `MATRIX_USER` overrides config when set and non-empty.
+pub fn resolve_matrix_user(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_USER")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .user
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve the Matrix password: env `MATRIX_PASSWORD` overrides config when set and non-empty.
+pub fn resolve_matrix_password(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_PASSWORD")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .password
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve the Matrix user id (`@user:server`): env `MATRIX_USER_ID` overrides config when set and non-empty.
+pub fn resolve_matrix_user_id(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_USER_ID")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .user_id
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// Resolve the Matrix device id: env `MATRIX_DEVICE_ID` overrides config when set and non-empty.
+pub fn resolve_matrix_device_id(config: &Config) -> Option<String> {
+    std::env::var("MATRIX_DEVICE_ID")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .or_else(|| {
+            config
+                .channels
+                .matrix
+                .device_id
+                .as_ref()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
+/// True when Matrix homeserver and credentials are present (env or file); does not imply the client connected.
+/// Uses centralized resolve helpers for consistent env var handling.
+pub fn matrix_channel_configured(config: &Config) -> bool {
+    if resolve_matrix_homeserver(config).is_none() {
+        return false;
+    }
+    if resolve_matrix_access_token(config).is_some() {
+        return true;
+    }
+    resolve_matrix_user(config).is_some() && resolve_matrix_password(config).is_some()
+}
+
 /// True if the bind address is loopback (127.0.0.1, ::1, etc.).
 pub fn is_loopback_bind(bind: &str) -> bool {
     let b = bind.trim();
@@ -260,6 +376,20 @@ pub struct TelegramChannelConfig {
     pub webhook_secret: Option<String>,
 }
 
+/// Skill package settings: lock mode and shared skill configuration.
+///
+/// In `config.json`, the **`skills`** block holds settings for the shared skill package
+/// system. Per-agent skill enablement (`enabledSkills`, `contextMode`) lives on each
+/// agent entry inside the **`agents`** array.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillsConfig {
+    /// How the gateway handles mismatches between the lockfile and active skill versions.
+    /// `"strict"` (default): refuse to start. `"warn"`: log a warning and continue.
+    #[serde(default)]
+    pub lock_mode: SkillLockMode,
+}
+
 /// How the gateway handles mismatches between the lockfile and active skill versions at startup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,13 +427,8 @@ pub struct AgentsConfig {
     pub default_model: Option<String>,
     /// Providers to fetch models from at startup (e.g. `["ollama", "lms"]`). Opt-in: when absent or empty, only the default provider (from defaultProvider) is discovered; when set, only listed providers are polled.
     pub enabled_providers: Option<Vec<String>>,
-    /// Optional cap on the number of recent session messages sent to the model on each turn.
-    /// When set, only the last N messages are included in the provider request; the full session
-    /// history is still stored in memory. Default: unset (no cap).
-    pub max_session_messages: Option<usize>,
-
     /// Skill package names enabled for the orchestrator (subset of packages under `~/.chai/skills`). Omitted or empty ⇒ no skills for the orchestrator.
-    pub skills_enabled: Option<Vec<String>>,
+    pub enabled_skills: Option<Vec<String>>,
     /// How orchestrator skill docs are inlined vs `read_skill`.
     pub context_mode: Option<SkillContextMode>,
 
@@ -319,13 +444,13 @@ pub struct AgentsConfig {
     /// Max successful **`delegate_task`** calls per session (orchestrator only). Omitted = no limit.
     pub max_delegations_per_session: Option<usize>,
 
-    /// Optional per-provider caps on successful delegations per session (`nim` → 5). Canonical provider ids as keys.
-    pub max_delegations_per_provider: Option<HashMap<String, usize>>,
+    /// Optional per-worker caps on successful delegations per session (`search` → 5). Worker ids as keys.
+    pub max_delegations_per_worker: Option<HashMap<String, usize>>,
 
-    /// Maximum number of agent loop iterations (LLM round-trips) per turn. Each iteration is one
-    /// call to the provider followed by tool call execution. The loop exits naturally when the model
-    /// returns no tool calls; this limit is a safety net against runaway loops. Default: 500.
-    pub max_tool_loop_iterations: Option<u32>,
+    /// Maximum number of tool loops per turn. Each tool loop is one call to the provider
+    /// followed by tool call execution. The loop exits naturally when the model returns no
+    /// tool calls; this limit is a safety net against runaway loops. Omitted = no limit.
+    pub max_tool_loops_per_turn: Option<u32>,
 }
 
 impl Default for AgentsConfig {
@@ -335,14 +460,13 @@ impl Default for AgentsConfig {
             default_provider: None,
             default_model: None,
             enabled_providers: None,
-            max_session_messages: None,
-            skills_enabled: None,
+            enabled_skills: None,
             context_mode: None,
             max_delegations_per_turn: None,
             workers: None,
             max_delegations_per_session: None,
-            max_delegations_per_provider: None,
-            max_tool_loop_iterations: None,
+            max_delegations_per_worker: None,
+            max_tool_loops_per_turn: None,
         }
     }
 }
@@ -363,19 +487,17 @@ struct AgentDefinition {
     #[serde(default)]
     enabled_providers: Option<Vec<String>>,
     #[serde(default)]
-    skills_enabled: Option<Vec<String>>,
+    enabled_skills: Option<Vec<String>>,
     #[serde(default)]
     context_mode: Option<SkillContextMode>,
-    #[serde(default)]
-    max_session_messages: Option<usize>,
     #[serde(default)]
     max_delegations_per_turn: Option<usize>,
     #[serde(default)]
     max_delegations_per_session: Option<usize>,
     #[serde(default)]
-    max_delegations_per_provider: Option<HashMap<String, usize>>,
+    max_delegations_per_worker: Option<HashMap<String, usize>>,
     #[serde(default)]
-    max_tool_loop_iterations: Option<u32>,
+    max_tool_loops_per_turn: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -397,13 +519,12 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
         default_provider: agents.default_provider.clone(),
         default_model: agents.default_model.clone(),
         enabled_providers: agents.enabled_providers.clone(),
-        skills_enabled: agents.skills_enabled.clone(),
+        enabled_skills: agents.enabled_skills.clone(),
         context_mode: agents.context_mode,
-        max_session_messages: agents.max_session_messages,
         max_delegations_per_turn: agents.max_delegations_per_turn,
         max_delegations_per_session: agents.max_delegations_per_session,
-        max_delegations_per_provider: agents.max_delegations_per_provider.clone(),
-        max_tool_loop_iterations: agents.max_tool_loop_iterations,
+        max_delegations_per_worker: agents.max_delegations_per_worker.clone(),
+        max_tool_loops_per_turn: agents.max_tool_loops_per_turn,
     }];
     if let Some(ws) = &agents.workers {
         for w in ws {
@@ -413,13 +534,12 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
                 default_provider: w.default_provider.clone(),
                 default_model: w.default_model.clone(),
                 enabled_providers: None,
-                skills_enabled: w.skills_enabled.clone(),
+                enabled_skills: w.enabled_skills.clone(),
                 context_mode: w.context_mode,
-                max_session_messages: None,
                 max_delegations_per_turn: None,
                 max_delegations_per_session: None,
-                max_delegations_per_provider: None,
-                max_tool_loop_iterations: None,
+                max_delegations_per_worker: None,
+                max_tool_loops_per_turn: None,
             });
         }
     }
@@ -432,13 +552,12 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         default_provider: Option<String>,
         default_model: Option<String>,
         enabled_providers: Option<Vec<String>>,
-        skills_enabled: Option<Vec<String>>,
+        enabled_skills: Option<Vec<String>>,
         context_mode: Option<SkillContextMode>,
-        max_session_messages: Option<usize>,
         max_delegations_per_turn: Option<usize>,
         max_delegations_per_session: Option<usize>,
-        max_delegations_per_provider: Option<HashMap<String, usize>>,
-        max_tool_loop_iterations: Option<u32>,
+        max_delegations_per_worker: Option<HashMap<String, usize>>,
+        max_tool_loops_per_turn: Option<u32>,
     }
 
     let mut orchestrator: Option<OrchestratorFields> = None;
@@ -464,21 +583,52 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     default_provider: e.default_provider,
                     default_model: e.default_model,
                     enabled_providers: e.enabled_providers,
-                    skills_enabled: e.skills_enabled,
+                    enabled_skills: e.enabled_skills,
                     context_mode: e.context_mode,
-                    max_session_messages: e.max_session_messages,
                     max_delegations_per_turn: e.max_delegations_per_turn,
                     max_delegations_per_session: e.max_delegations_per_session,
-                    max_delegations_per_provider: e.max_delegations_per_provider,
-                    max_tool_loop_iterations: e.max_tool_loop_iterations,
+                    max_delegations_per_worker: e.max_delegations_per_worker,
+                    max_tool_loops_per_turn: e.max_tool_loops_per_turn,
                 });
             }
             AgentRole::Worker => {
+                // Orchestrator-only fields must not be set on worker entries.
+                // Since backwards compatibility is not a concern before v0.1.0,
+                // strict rejection is appropriate.
+                if let Some(ref v) = e.enabled_providers {
+                    if !v.is_empty() {
+                        return Err(format!(
+                            "worker \"{id}\" has \"enabledProviders\" — this field is orchestrator-only"
+                        ));
+                    }
+                }
+                if e.max_delegations_per_turn.is_some() {
+                    return Err(format!(
+                        "worker \"{id}\" has \"maxDelegationsPerTurn\" — this field is orchestrator-only"
+                    ));
+                }
+                if e.max_delegations_per_session.is_some() {
+                    return Err(format!(
+                        "worker \"{id}\" has \"maxDelegationsPerSession\" — this field is orchestrator-only"
+                    ));
+                }
+                if let Some(ref m) = e.max_delegations_per_worker {
+                    if !m.is_empty() {
+                        return Err(format!(
+                            "worker \"{id}\" has \"maxDelegationsPerWorker\" — this field is orchestrator-only"
+                        ));
+                    }
+                }
+                if e.max_tool_loops_per_turn.is_some() {
+                    return Err(format!(
+                        "worker \"{id}\" has \"maxToolLoopsPerTurn\" — this field is orchestrator-only (applies globally to both orchestrator and worker turns)"
+                    ));
+                }
                 worker_rows.push(WorkerConfig {
                     id,
                     default_provider: e.default_provider,
                     default_model: e.default_model,
-                    skills_enabled: e.skills_enabled,
+                    enabled_skills: e.enabled_skills,
                     context_mode: e.context_mode,
                 });
             }
@@ -494,9 +644,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         default_provider: o.default_provider,
         default_model: o.default_model,
         enabled_providers: o.enabled_providers,
-        skills_enabled: o.skills_enabled,
+        enabled_skills: o.enabled_skills,
         context_mode: o.context_mode,
-        max_session_messages: o.max_session_messages,
         max_delegations_per_turn: o.max_delegations_per_turn,
         workers: if worker_rows.is_empty() {
             None
@@ -504,8 +653,8 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
             Some(worker_rows)
         },
         max_delegations_per_session: o.max_delegations_per_session,
-        max_delegations_per_provider: o.max_delegations_per_provider,
-        max_tool_loop_iterations: o.max_tool_loop_iterations,
+        max_delegations_per_worker: o.max_delegations_per_worker,
+        max_tool_loops_per_turn: o.max_tool_loops_per_turn,
     })
 }
 
@@ -552,7 +701,7 @@ pub struct WorkerConfig {
 
     /// Skill package names enabled for this worker. Omitted or empty ⇒ no skills.
     #[serde(default)]
-    pub skills_enabled: Option<Vec<String>>,
+    pub enabled_skills: Option<Vec<String>>,
     /// How this worker's skill docs are inlined vs `read_skill`.
     #[serde(default)]
     pub context_mode: Option<SkillContextMode>,
@@ -583,7 +732,7 @@ fn default_providers_config() -> ProvidersConfig {
             base_url: None,
             api_key: None,
             default_model: None,
-            model_discovery: ModelDiscovery::Default,
+            model_discovery: ModelDiscovery::Auto,
             static_models: Vec::new(),
         }],
     }
@@ -664,12 +813,23 @@ pub enum ModelDiscovery {
     /// Use the endpoint type's standard discovery method (`GET /api/tags` for `ollama`,
     /// `GET /v1/models` for `openai-compat`).
     #[default]
-    Default,
+    Auto,
     /// LM Studio native model list: `GET /api/v1/models`, filter `type == "llm"`, use `key` as
     /// model id. Applicable to `openai-compat` endpoint type only.
     Lmstudio,
     /// Use the `staticModels` config field. No polling. Works for any endpoint type.
     Static,
+}
+
+impl ModelDiscovery {
+    /// String identifier for this discovery method (matches the serde value).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ModelDiscovery::Auto => "auto",
+            ModelDiscovery::Lmstudio => "lmstudio",
+            ModelDiscovery::Static => "static",
+        }
+    }
 }
 
 /// One provider definition in the `providers` array.
@@ -911,25 +1071,14 @@ pub fn worker_context_mode(worker: &WorkerConfig) -> SkillContextMode {
     worker.context_mode.unwrap_or_default()
 }
 
-/// Default maximum agent loop iterations per turn when `maxToolLoopIterations` is not set.
-pub const DEFAULT_MAX_TOOL_LOOP_ITERATIONS: u32 = 500;
-
-/// Resolve the maximum agent loop iterations per turn from config, falling back to
-/// [`DEFAULT_MAX_TOOL_LOOP_ITERATIONS`] when not set.
-pub fn resolve_max_tool_loop_iterations(agents: &AgentsConfig) -> u32 {
-    agents
-        .max_tool_loop_iterations
-        .unwrap_or(DEFAULT_MAX_TOOL_LOOP_ITERATIONS)
-}
-
 /// Orchestrator enabled skill names (may be empty).
-pub fn orchestrator_skills_enabled_list(agents: &AgentsConfig) -> &[String] {
-    agents.skills_enabled.as_deref().unwrap_or(&[])
+pub fn orchestrator_enabled_skills_list(agents: &AgentsConfig) -> &[String] {
+    agents.enabled_skills.as_deref().unwrap_or(&[])
 }
 
 /// Worker enabled skill names (may be empty).
-pub fn worker_skills_enabled_list(worker: &WorkerConfig) -> &[String] {
-    worker.skills_enabled.as_deref().unwrap_or(&[])
+pub fn worker_enabled_skills_list(worker: &WorkerConfig) -> &[String] {
+    worker.enabled_skills.as_deref().unwrap_or(&[])
 }
 
 /// Load `.env` from the resolved profile directory into the process environment.
@@ -996,27 +1145,26 @@ mod tests {
         let g = GatewayConfig::default();
         assert_eq!(g.port, 15151);
         assert_eq!(g.bind, "127.0.0.1");
-        assert!(!g.unsafe_sandbox);
     }
 
     #[test]
-    fn default_gateway_unsafe_sandbox_false() {
+    fn default_sandbox_disabled_false() {
         let c: Config = serde_json::from_str("{}").expect("parse");
-        assert!(!c.gateway.unsafe_sandbox);
+        assert!(!c.sandbox.disabled);
     }
 
     #[test]
-    fn gateway_unsafe_sandbox_true_from_json() {
-        let j = r#"{"gateway":{"unsafeSandbox":true}}"#;
+    fn sandbox_disabled_true_from_json() {
+        let j = r#"{"sandbox":{"disabled":true}}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        assert!(c.gateway.unsafe_sandbox);
+        assert!(c.sandbox.disabled);
     }
 
     #[test]
-    fn gateway_unsafe_sandbox_false_explicit() {
-        let j = r#"{"gateway":{"unsafeSandbox":false}}"#;
+    fn sandbox_disabled_false_explicit() {
+        let j = r#"{"sandbox":{"disabled":false}}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        assert!(!c.gateway.unsafe_sandbox);
+        assert!(!c.sandbox.disabled);
     }
 
     #[test]
@@ -1041,7 +1189,7 @@ mod tests {
             id: "w1".to_string(),
             default_provider: None,
             default_model: None,
-            skills_enabled: None,
+            enabled_skills: None,
             context_mode: None,
         };
         assert_eq!(
@@ -1150,6 +1298,91 @@ mod tests {
     }
 
     #[test]
+    fn agents_worker_rejects_enabled_providers() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","enabledProviders":["ollama"]}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("enabledProviders") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+
+    #[test]
+    fn agents_worker_rejects_max_delegations_per_turn() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","maxDelegationsPerTurn":3}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("maxDelegationsPerTurn") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_worker_rejects_max_delegations_per_session() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","maxDelegationsPerSession":10}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("maxDelegationsPerSession") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_worker_rejects_max_delegations_per_worker() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","maxDelegationsPerWorker":{"search":5}}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("maxDelegationsPerWorker") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_worker_rejects_max_tool_loops_per_turn() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","maxToolLoopsPerTurn":100}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("maxToolLoopsPerTurn") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_worker_with_valid_fields_passes() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"qwen3:8b","enabledSkills":["files"],"contextMode":"full"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let w = c.agents.workers.as_ref().expect("workers");
+        assert_eq!(w.len(), 1);
+        assert_eq!(w[0].id, "fast");
+        assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
+        assert_eq!(w[0].default_model.as_deref(), Some("qwen3:8b"));
+    }
+
+    #[test]
     fn providers_array_round_trips() {
         let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
@@ -1233,11 +1466,11 @@ mod tests {
     }
 
     #[test]
-    fn providers_model_discovery_default() {
+    fn providers_model_discovery_auto() {
         let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let def = c.providers.get("ollama").expect("ollama");
-        assert_eq!(def.model_discovery, ModelDiscovery::Default);
+        assert_eq!(def.model_discovery, ModelDiscovery::Auto);
     }
 
     #[test]
@@ -1268,6 +1501,13 @@ mod tests {
         assert_eq!(def.endpoint_type, EndpointType::OpenaiCompat);
         assert_eq!(def.model_discovery, ModelDiscovery::Static);
         assert_eq!(def.static_models.len(), 2);
+    }
+
+    #[test]
+    fn model_discovery_as_str() {
+        assert_eq!(ModelDiscovery::Auto.as_str(), "auto");
+        assert_eq!(ModelDiscovery::Lmstudio.as_str(), "lmstudio");
+        assert_eq!(ModelDiscovery::Static.as_str(), "static");
     }
 
     #[test]

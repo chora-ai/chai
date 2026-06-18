@@ -70,7 +70,7 @@
      ```
    - **Expect:** Log output confirming startup, provider discovery, and skill loading. Look for lines like:
      - `provider ollama discovered N model(s)`
-     - `loaded 0 skill(s) for agent context` (no skills enabled by default — this is fine)
+     - `loaded 0 skill(s) for agent context` (no enabled skills by default — this is fine)
      - Gateway listening on `127.0.0.1:15151`
 
 6. **Verify the gateway is healthy**

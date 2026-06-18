@@ -8,7 +8,7 @@ Each entry in the `agents` array has a unique `id`, a `role` (`orchestrator` or 
 
 There is always exactly one **orchestrator** (owns the conversation, handles incoming messages). Workers are optional — they handle subtasks delegated by the orchestrator. With no `agents` key in `config.json`, the gateway runs a single orchestrator with built-in defaults (Ollama, `llama3.2:3b`).
 
-When workers are configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Delegation allowlists and caps are policy on top of agent configuration — see the [Configuration → Agents](03-configuration.md#agents) reference for the full delegation fields.
+When workers are configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Delegation caps are policy on top of agent configuration — see the [Configuration → Agents](03-configuration.md#agents) reference for the full delegation fields.
 
 For multi-agent configuration examples, see [Configuration → Configuring Agents](03-configuration.md#configuring-agents).
 
@@ -24,11 +24,9 @@ When the orchestrator calls `delegate_task`, the gateway:
 
 The orchestrator retains control — it decides when to delegate, what to ask, and how to use the result. Workers never delegate further.
 
-Delegation behavior is governed by several orchestrator-only configuration fields:
+Delegation behavior is governed by orchestrator-only configuration fields:
 
-- `delegateAllowedModels` — restrict which provider+model combinations the orchestrator may delegate to
-- `delegateBlockedProviders` — prevent delegation to specific providers
-- `maxDelegationsPerTurn` / `maxDelegationsPerSession` / `maxDelegationsPerProvider` — caps on delegation frequency
+- `maxDelegationsPerTurn` / `maxDelegationsPerSession` / `maxDelegationsPerWorker` — caps on delegation frequency
 
 To target a specific worker, prefix the delegation instruction with the worker's bracket prefix (e.g., `[read-only]`). The system matches `[workerId]` at the start of the instruction, routes to that worker, and strips the prefix before passing the instruction. When no bracket prefix is present, the orchestrator's effective defaults are used (no worker selected).
 
@@ -42,7 +40,7 @@ For provider configuration, model id conventions, and the full endpoint type ref
 
 ## Agent Context On Disk
 
-Each profile stores per-agent instructions under `agents/<agentId>/`. The file is always `AGENT.md` in that directory. The gateway prepends it to the skills block on each turn, giving each agent its own personality, constraints, and domain knowledge.
+Each profile stores per-agent instructions under `agents/<agentId>/`. The file is always `AGENT.md` in that directory. The gateway builds a system message from the `AGENT.md` content (plus the workers roster and skills) at startup and injects it as the first message on every turn — it is never persisted in the session history.
 
 `chai init` creates `agents/orchestrator/AGENT.md` for the default orchestrator id. Edit that file to customize the orchestrator's behavior. For workers, create the directory and file manually:
 

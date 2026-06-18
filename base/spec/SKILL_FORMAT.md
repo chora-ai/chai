@@ -55,7 +55,7 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 
 - **`metadata.requires.bins`** — Optional list of binary names (e.g. `["cat", "ls", "grep", "chai"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
 
-**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`skillsEnabled`** array in **`config.json`**. Missing or empty **`skillsEnabled`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["files", "git-read"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when binaries are missing—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
+**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`enabledSkills`** array in **`config.json`**. Missing or empty **`enabledSkills`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["files", "git-read"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when binaries are missing—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
 
 ## Related Documents
 
@@ -63,6 +63,6 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 |----------|---------|
 | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Versioned layout, content hashing, rollback, startup validation, and CLI commands |
 | [PROFILES.md](PROFILES.md) | Per-profile lockfile (`skills.lock`), generation tracking, and lock verification |
-| [CONFIGURATION.md](CONFIGURATION.md) | `skillLockMode` config field |
+| [CONFIGURATION.md](CONFIGURATION.md) | `skills.lockMode` config field |
 | [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` schema: tools array, allowlist, execution mapping |
-| [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`skillsEnabled`, `contextMode`) |
+| [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`enabledSkills`, `contextMode`) |

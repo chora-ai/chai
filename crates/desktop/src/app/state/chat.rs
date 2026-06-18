@@ -110,8 +110,8 @@ fn format_delegation_line(event_name: &str, data: &serde_json::Value) -> String 
         if reason == "max_delegations_per_session" {
             return "Delegation rejected: max delegations per session reached".to_string();
         }
-        if reason == "max_delegations_per_provider" {
-            return "Delegation rejected: max delegations to this provider for the session reached"
+        if reason == "max_delegations_per_worker" {
+            return "Delegation rejected: max delegations to this worker for the session reached"
                 .to_string();
         }
         return format!("Delegation rejected: {}", reason);

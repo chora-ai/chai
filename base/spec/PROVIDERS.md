@@ -40,7 +40,7 @@ Providers are configured as a **JSON array** of provider objects, each with an `
 | `baseUrl` | `String` | No | Per-endpoint type default | Base URL override. When unset, the endpoint type default is used. |
 | `apiKey` | `String` | No | — | API key. A literal key string, an environment variable reference (`"<VAR_NAME>"`), or omitted. See [API Key Resolution](#api-key-resolution). |
 | `defaultModel` | `String` | No | Per-endpoint type default | Default model id fallback for this provider. |
-| `modelDiscovery` | `ModelDiscovery` | No | `"default"` | How to discover available models: `"default"`, `"lmstudio"`, or `"static"`. |
+| `modelDiscovery` | `ModelDiscovery` | No | `"auto"` | How to discover available models: `"auto"`, `"lmstudio"`, or `"static"`. |
 | `staticModels` | `String[]` | No | `[]` | Model list when `modelDiscovery: "static"`. No polling. |
 
 ### Key Concepts
@@ -80,11 +80,11 @@ The `modelDiscovery` field controls how a provider's available model list is obt
 
 | Value | Description | Applicable Endpoint Types |
 |-------|-------------|---------------------------|
-| `"default"` | Use the endpoint type's standard discovery method (`GET /api/tags` for `ollama`, `GET /v1/models` for `openai-compat`). | All |
+| `"auto"` | Use the endpoint type's standard discovery method (`GET /api/tags` for `ollama`, `GET /v1/models` for `openai-compat`). | All |
 | `"lmstudio"` | LM Studio native model list: `GET /api/v1/models`, filter `type == "llm"`, use `key` as model id. | `openai-compat` |
 | `"static"` | Use the model list from the `staticModels` config field. No polling. | All |
 
-When omitted, `modelDiscovery` defaults to `"default"`.
+When omitted, `modelDiscovery` defaults to `"auto"`.
 
 ### Static Models
 

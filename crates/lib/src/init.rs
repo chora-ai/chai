@@ -171,7 +171,7 @@ fn seed_sandbox(profile_dir: &Path, profile_name: &str) -> Result<()> {
 /// Create `~/.chai` layout: `profiles/assistant`, `profiles/developer`, `active` → assistant (on first init only), shared `skills/`, and `skills.lock` for newly seeded profiles.
 ///
 /// When a profile directory does not yet exist and is seeded by this function, a `skills.lock` is
-/// generated for it. This ensures the defensive-by-default `skillLockMode=strict` takes effect
+/// generated for it. This ensures the defensive-by-default `skills.lockMode=strict` takes effect
 /// immediately after `chai init`, without requiring a separate `chai skill lock` step.
 ///
 /// When re-run on an already-initialized directory:
@@ -214,7 +214,7 @@ pub fn init_chai_home() -> Result<PathBuf> {
     extract_bundled_skills_versioned(&skills_dir)?;
 
     // Generate skills.lock for newly seeded profiles so the defensive-by-default
-    // skillLockMode=strict takes effect immediately. Without this, a user must
+    // skills.lockMode=strict takes effect immediately. Without this, a user must
     // manually run `chai skill lock` after `chai init` — which side-steps the
     // strict default. Only profiles that were just created need a lock; existing
     // profiles retain whatever lock state they already have.
