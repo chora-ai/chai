@@ -29,7 +29,7 @@ Tag files live in `base/tag/` as per-version files named `VX_Y_Z.md` (e.g., `tag
 All git tags must be annotated. The annotation message contains the exact contents of the corresponding tag file:
 
 ```bash
-git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md
+git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim
 ```
 
 ### Platform Release Notes
@@ -48,9 +48,7 @@ Each release has a working document in the root of `base/` named `RELEASE_VX_Y_Z
 
 1. **Creation** — When a release is scoped, create the working document with requirements and open questions.
 2. **Updates** — Check off requirements as they are completed; record decisions; add new items as needed.
-3. **Deletion** — After the release is tagged, delete the working document. It does not become the tag file.
-
-If a working document captures an architectural decision or design insight that should outlive the release, that content graduates into the appropriate structured documentation (e.g., a new ADR) before the working document is deleted. In most cases, following the release process will already have updated the structured documentation, so the working document is simply deleted.
+3. **Deletion** — Delete the working document before committing release changes and tagging the commit.
 
 ## Release Process
 
@@ -64,15 +62,16 @@ If a working document captures an architectural decision or design insight that 
 6. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section.
 7. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
 8. **Bump versions** — Update all `Cargo.toml` files to the release version.
-9. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
-10. **Commit** — Stage all changes (version bump, tag file, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
-11. **Create the release branch** — `git branch release/vX.Y.Z` from the release commit.
-12. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md`.
-13. **Push** — Push `main`, the release branch, and the tag to origin.
-14. **Build release binaries** — Build release binaries from the tag using the flake (see [Build and Distribution](#build-and-distribution)).
-15. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
-16. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
-17. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
+9. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
+10. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
+11. **Commit** — Stage all changes (version bump, lockfile update, tag file, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
+12. **Create the release branch** — `git branch release/vX.Y.Z` from the release commit.
+13. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
+14. **Push** — Push `main`, the release branch, and the tag to origin.
+15. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
+16. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
+17. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
+18. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
 
 ### Patch Releases
 
@@ -80,14 +79,39 @@ If a working document captures an architectural decision or design insight that 
 2. **Write the tag file** — Create `base/tag/VX_Y_Z_P.md` for the patch version.
 3. **Update the changelog** — Add a `## [X.Y.P] - YYYY-MM-DD` entry in `CHANGELOG.md` with the patch changes.
 4. **Bump the patch version** — Update `Cargo.toml` files to `X.Y.P`.
-5. **Commit and tag** — Commit on the release branch with message `vX.Y.P`, then create an annotated tag using the tag file.
-6. **Push** — Push the release branch and the new tag to origin.
-7. **Build release binaries** — Build release binaries from the tag using the flake.
-8. **Publish platform release notes** — Create a release on Codeberg/GitHub using the tag file contents. Attach release binaries as assets.
-9. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly.
-10. **Merge fixes to `main`** — Cherry-pick or merge the fixes and changelog entry from the release branch into `main`.
+5. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
+6. **Commit and tag** — Commit on the release branch with message `vX.Y.P`, then create an annotated tag using the tag file with `--cleanup=verbatim` to preserve markdown formatting.
+7. **Push** — Push the release branch and the new tag to origin.
+8. **Build release binaries** — Run `scripts/build-release.sh` for each supported system.
+9. **Publish platform release notes** — Create a release on Codeberg/GitHub using the tag file contents. Attach release binaries as assets.
+10. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly.
+11. **Merge fixes to `main`** — Cherry-pick or merge the fixes and changelog entry from the release branch into `main`.
 
 ## Build and Distribution
+
+### Build Script
+
+`scripts/build-release.sh` automates building and packaging release binaries from a tagged commit. It builds both CLI and desktop targets for a given system and produces tarballs plus a checksums file.
+
+```bash
+# Build for current host
+./scripts/build-release.sh 0.1.0
+
+# Build for a specific system
+./scripts/build-release.sh 0.1.0 x86_64-linux
+./scripts/build-release.sh 0.1.0 aarch64-linux
+./scripts/build-release.sh 0.1.0 aarch64-darwin
+```
+
+Pre-built release assets are only produced for Linux (x86_64) until a CD pipeline is in place.
+
+**Output** (in `dist/`):
+
+| File | Description |
+|------|-------------|
+| `chai-vX.Y.Z-{system}.tar.gz` | CLI binary tarball |
+| `chai-desktop-vX.Y.Z-{system}.tar.gz` | Desktop binary tarball |
+| `checksums-vX.Y.Z-{system}.txt` | SHA-256 checksums for both tarballs |
 
 ### Nix Flake
 
@@ -95,11 +119,29 @@ The `flake.nix` in the repository root defines all release build targets. Binari
 
 **Supported platforms:**
 
-| Platform | Nix System | CLI | Desktop |
-|----------|-----------|-----|---------|
-| Linux (x86_64) | `x86_64-linux` | ✅ | ✅ |
-| Linux (ARM64) | `aarch64-linux` | ✅ | ✅ |
-| macOS (ARM64) | `aarch64-darwin` | ✅ | ✅ |
+| Platform | Nix System | CLI | Desktop | Local Build | Release Assets |
+|----------|-----------|-----|---------|-------------|----------------|
+| Linux (x86_64) | `x86_64-linux` | ✅ | ✅ | Native | ✅ Pre-built |
+| Linux (ARM64) | `aarch64-linux` | ✅ | ✅ | Requires binfmt | Build from source |
+| macOS (ARM64) | `aarch64-darwin` | ✅ | ✅ | Requires macOS hardware | Build from source |
+
+Pre-built release assets are only provided for Linux (x86_64) until a CD pipeline is in place. Tag files must include a Build Instructions section for all platforms that lack pre-built binaries.
+
+**Setting up aarch64-linux builds on NixOS:**
+
+Building for `aarch64-linux` from an `x86_64-linux` host requires user-mode emulation. On NixOS, add to `configuration.nix`:
+
+```nix
+boot.binfmt.emulatedSystems = [ "aarch64-linux" ];
+```
+
+Then reboot or restart the service:
+
+```bash
+systemctl restart systemd-binfmt
+```
+
+After this, `nix build` and the build script will handle `aarch64-linux` transparently.
 
 **Flake outputs:**
 
@@ -119,29 +161,26 @@ nix build .#desktop
 
 The resulting binaries are in `result/bin/`.
 
-**Release asset naming:**
+### Platforms Without Pre-Built Binaries
 
-| Asset | Pattern |
-|-------|---------|
-| CLI binary | `chai-vX.Y.Z-{system}.tar.gz` |
-| Desktop binary | `chai-desktop-vX.Y.Z-{system}.tar.gz` |
+Pre-built release assets are only provided for Linux (x86_64). All other supported platforms must build from source.
 
-Example for Linux x86_64:
+**Linux (ARM64) and macOS (ARM64)** — build from source using Nix:
 
 ```bash
-tar -czf chai-v0.1.0-x86_64-linux.tar.gz -C result/bin chai
+git checkout vX.Y.Z
+nix build .#cli
+nix build .#desktop
 ```
 
-### Windows Builds
+Linux (ARM64) on NixOS requires binfmt emulation (see above). macOS (ARM64) requires macOS hardware.
 
-Windows binaries are not built with Nix. Build from source using `cargo` on a Windows host or cross-compiler:
+**Windows** — Windows binaries are not built with Nix. Build from source using `cargo` on a Windows host:
 
 ```bash
 cargo build --release --manifest-path crates/cli/Cargo.toml
 cargo build --release --manifest-path crates/desktop/Cargo.toml
 ```
-
-Until Windows binaries are included in release assets, tag files must include a Build Instructions section with these commands.
 
 ### Experimental Features
 

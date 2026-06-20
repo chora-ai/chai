@@ -1,12 +1,10 @@
 # RELEASE: v0.1.0 Release Requirements
 
-Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself (how releases are tagged, where notes live, changelog conventions), see [RELEASE.md](RELEASE.md).
+Track requirements and open questions for the first official release of Chai (v0.1.0). This is a working document; items will be checked off as they are completed. For the release process itself, see [RELEASE.md](RELEASE.md).
 
 ## v0.1.0 Scope
 
 v0.1.0 is the first tagged release. It establishes the baseline: a working multi-agent management system with messaging channels, skill-based tooling, and profile-based configuration. The bar is "usable and well-documented for early adopters," not "feature-complete."
-
-Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **not** a concern before v0.1.0. This release is a clean slate — no migration shims, no deprecated fields, no compat layers.
 
 ### Channels in v0.1.0
 
@@ -30,18 +28,6 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### Documentation
 
 - [ ] Create `tag/V0_1_0.md` with overview of shipped features (no breaking changes) 
-
-### Release Build and Distribution
-
-- [ ] Create CI workflow for Nix flake builds on `x86_64-linux`, `aarch64-linux`, and `aarch64-darwin`
-- [ ] Verify `nix build .#cli` produces a working binary from the release tag
-- [ ] Verify `nix build .#desktop` produces a working binary from the release tag
-- [ ] Verify `cargo install --path crates/cli` works cleanly from the release tag (for Windows / non-Nix users)
-- [ ] Verify `cargo install --path crates/desktop` works cleanly from the release tag (for Windows / non-Nix users)
-- [ ] Test `--features matrix` builds produce working binaries
-- [ ] Test `--features signal` builds produce working binaries
-- [ ] Test `--features matrix,signal` builds produce working binaries
-- [ ] Include Build Instructions for Windows in `tag/V0_1_0.md`
 
 ### License and Legal
 
