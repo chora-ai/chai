@@ -76,4 +76,4 @@ chai-desktop
 
 ## License
 
-Licensed under the LGPL-3.0: https://www.gnu.org/licenses/lgpl-3.0.en.html
+Licensed under the GPL-3.0: https://www.gnu.org/licenses/gpl-3.0.html
