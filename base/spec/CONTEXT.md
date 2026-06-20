@@ -143,7 +143,7 @@ Read files, list directories, search file contents, write files, and delete file
 
 You have skills. Skills have tools.
 
-You can call `read_skill` to read a skill.
+You can call `read_skill` to read about a skill.
 
 Available skills:
 
@@ -185,4 +185,4 @@ See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) for **`tools.json`** execution shape.
 - **Static context** — Orchestrator and each worker cache their own **`AGENT.md`** slice, orchestrator-only workers roster, and skill text.
 
 
-**Inspecting the exact string:** The gateway **`status`** method returns **`agents`**, an array with one object per configured agent (**`role`** **`orchestrator`** first, then **`worker`** rows). Each object's **`systemContext`** is the same static string that role would receive on a turn. Per-agent skill bodies (**`skillsContext`**, a name → frontmatter-stripped body map, always populated) and **`contextMode`** are flat fields on each entry (see [GATEWAY_STATUS.md](GATEWAY_STATUS.md)). Chai Desktop **Context** builds a per-agent map from the **`agents`** array for the agent picker; when skill bodies are available from the gateway they are shown in a second column, otherwise the desktop falls back to disk reads.
+**Inspecting the exact string:** The gateway **`agentDetail`** method returns per-agent heavy data (**`systemContext`**, **`tools`**, **`skillsContext`**) on demand, given an **`agentId`**. The polling **`status`** response includes lightweight agent metadata (**`id`**, **`role`**, **`enabledSkills`**, **`contextMode`**, routing defaults, delegation limits) but omits the large fields to reduce payload size (see [GATEWAY_STATUS.md](GATEWAY_STATUS.md)). Chai Desktop fetches **`agentDetail`** when the Agent or Tools screen is active, builds a per-agent cache, and shows skill bodies in a second column when available; otherwise the desktop falls back to disk reads.

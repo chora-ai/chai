@@ -16,13 +16,12 @@ signal = ["lib/signal"]
 
 [dependencies]
 anstyle = "1"
-anyhow = "1"
 dotenvy = "0.15"
 eframe = { version = "0.24", features = ["default"] }
 env_logger = "0.11"
 futures-util = "0.3"
 lib = { path = "../lib" }
 log = "0.4"
-tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
-tokio-tungstenite = "0.24"
 serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["rt", "net", "time", "sync"] }
+tokio-tungstenite = "0.29"

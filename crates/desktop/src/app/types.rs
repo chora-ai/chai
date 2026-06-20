@@ -215,8 +215,8 @@ pub struct GatewayStatusDetails {
     pub(crate) auth: String,
     /// **`payload.gateway.status`** (e.g. **`running`**).
     pub(crate) status: String,
-    /// **`payload.sandbox.disabled`** — whether the gateway is running without a sandbox directory.
-    pub(crate) sandbox_disabled: bool,
+    /// **`payload.sandbox.mode`** — the sandbox enforcement mode (`"strict"`, `"current"`, or `"unsafe"`).
+    pub(crate) sandbox_mode: String,
     /// **`payload.sandbox.roots`** — number of writable roots in the sandbox.
     pub(crate) sandbox_roots: u64,
     /// Resolved orchestrator agent id from config (same id used for the main agent turn).
@@ -229,10 +229,6 @@ pub struct GatewayStatusDetails {
     pub(crate) enabled_providers: Option<Vec<String>>,
     /// Per-provider info (endpoint type, discovery, models) keyed by provider id, parsed from `payload.providers`.
     pub(crate) provider_info: HashMap<String, ProviderStatusInfo>,
-    /// Full orchestrator static system context (same string as that agent's **`payload.agents[]`** row with **`role`** **`orchestrator`**).
-    pub(crate) system_context: Option<String>,
-    /// Per-agent static system context (with date line), keyed by agent id — built from **`payload.agents[].systemContext`**.
-    pub(crate) agent_system_contexts: BTreeMap<String, String>,
     /// **`payload.skills.packagesDiscovered`**.
     pub(crate) skills_packages_discovered: Option<u64>,
     /// **`payload.skills.lockMode`** — `"strict"` or `"warn"`.
@@ -241,18 +237,8 @@ pub struct GatewayStatusDetails {
     pub(crate) skills_lock_generation: Option<u64>,
     /// **`payload.skills.lockedSkills`** — number of skills pinned in the lockfile.
     pub(crate) skills_locked_count: Option<u64>,
-    /// **`payload.providers`** (full JSON block — kept for raw-json view).
-    pub(crate) providers_block: Option<serde_json::Value>,
     /// Per-agent skill **`contextMode`** from **`payload.agents[].contextMode`**.
     pub(crate) agent_context_modes: BTreeMap<String, String>,
-    /// Per-skill body (name → frontmatter-stripped body) from **`payload.agents[].skillsContext`**.
-    /// Always populated (both full and readOnDemand modes). Used for desktop display so each skill
-    /// can be rendered in its own box.
-    pub(crate) skills_context: BTreeMap<String, String>,
-    /// Merged tool definitions sent to the model (including read_skill when context mode is readOnDemand).
-    pub(crate) tools: Option<String>,
-    /// Per-agent pretty-printed tool JSON (orchestrator + each worker). Same strings as top-level **`tools`** for the orchestrator id.
-    pub(crate) agent_tools: BTreeMap<String, String>,
     /// Worker rows from **`payload.agents`** (**`role`** **`worker`**).
     pub(crate) workers: Vec<StatusWorkerRow>,
     /// Per-agent skill runtime data from **`payload.agents[]`**, keyed by agent id.
@@ -280,6 +266,21 @@ pub struct AgentSkillsRuntime {
     pub(crate) enabled_skills: Vec<String>,
     /// Skill context mode: "full" or "readOnDemand".
     pub(crate) context_mode: Option<String>,
-    /// Per-skill body (name → frontmatter-stripped body) from **`skillsContext`**. Always populated (both modes).
+}
+
+/// On-demand per-agent detail fetched via the `agentDetail` WS method.
+/// Contains the heavy fields (systemContext, tools, skillsContext) that were
+/// removed from the polling `status` response to reduce payload size.
+#[derive(Clone, Default)]
+pub struct AgentDetail {
+    /// Agent id this detail belongs to.
+    pub(crate) agent_id: String,
+    /// Agent role ("orchestrator" or "worker").
+    pub(crate) role: String,
+    /// Full static system context string for this agent.
+    pub(crate) system_context: Option<String>,
+    /// Pretty-printed tool JSON string for this agent.
+    pub(crate) tools: Option<String>,
+    /// Per-skill body (name → frontmatter-stripped body) from **`skillsContext`**.
     pub(crate) skills_context: BTreeMap<String, String>,
 }

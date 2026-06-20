@@ -62,12 +62,44 @@ pub struct GatewayConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SandboxConfig {
-    /// When `true`, the gateway starts without a sandbox directory and logs a
-    /// warning that CWD confinement and path validation are disabled.
-    /// When `false` (default), the gateway refuses to start when the sandbox
-    /// directory for the active profile does not exist.
+    /// How the gateway handles the sandbox directory at startup.
+    /// `"strict"` (default): refuse to start when the sandbox directory is missing.
+    /// `"current"`: use the current working directory as the sole writable root when
+    /// the sandbox directory is missing.
+    /// `"unsafe"`: start without any sandbox; CWD confinement and path validation
+    /// are disabled.
     #[serde(default)]
-    pub disabled: bool,
+    pub mode: SandboxMode,
+}
+
+/// How the gateway handles the sandbox at startup.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SandboxMode {
+    /// Refuse to start the gateway when the sandbox directory for the active
+    /// profile does not exist. This is the most secure option.
+    #[default]
+    Strict,
+    /// When the sandbox directory is missing, use the current working directory
+    /// as the sole writable root. CWD confinement and path validation remain
+    /// active. When the sandbox directory exists, behaves identically to
+    /// `Strict`.
+    Current,
+    /// Start without a sandbox directory. CWD confinement and path validation
+    /// are disabled. This should only be used when the operator explicitly
+    /// accepts the risk of running without path restrictions.
+    Unsafe,
+}
+
+impl SandboxMode {
+    /// String identifier for this mode (matches the serde value).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SandboxMode::Strict => "strict",
+            SandboxMode::Current => "current",
+            SandboxMode::Unsafe => "unsafe",
+        }
+    }
 }
 
 /// Gateway auth: token or none (loopback-only when none).
@@ -384,20 +416,26 @@ pub struct TelegramChannelConfig {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkillsConfig {
-    /// How the gateway handles mismatches between the lockfile and active skill versions.
-    /// `"strict"` (default): refuse to start. `"warn"`: log a warning and continue.
+    /// How the gateway handles the lockfile and skill version verification.
+    /// `"strict"` (default): refuse to start when the lockfile is missing, any enabled
+    /// skill has no lock entry (unpinned), or any pinned skill's active version does not
+    /// match its locked hash. `"warn"`: log warnings for unpinned and mismatched skills
+    /// and continue; skip verification when no lockfile is present.
     #[serde(default)]
     pub lock_mode: SkillLockMode,
 }
 
-/// How the gateway handles mismatches between the lockfile and active skill versions at startup.
+/// How the gateway handles the lockfile and skill version verification at startup.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SkillLockMode {
-    /// Refuse to start the gateway when any enabled skill's active version does not match its locked hash.
+    /// Refuse to start the gateway when the lockfile is missing, any enabled skill has
+    /// no lock entry (unpinned), or any pinned skill's active version does not match
+    /// its locked hash.
     #[default]
     Strict,
-    /// Log a warning when the active version does not match the locked hash, but continue loading.
+    /// Log warnings for unpinned and mismatched skills but continue loading.
+    /// Skip verification entirely when no lockfile is present.
     Warn,
 }
 
@@ -1136,6 +1174,120 @@ pub fn default_skills_dir(chai_home: &Path) -> PathBuf {
     chai_home.join("skills")
 }
 
+/// Desktop application configuration loaded from `~/.chai/desktop.json`.
+///
+/// This file is separate from per-profile `config.json`: it holds client-side
+/// settings (appearance, log buffer size) that are machine-local and
+/// user-specific, not tied to any profile.
+///
+/// All fields are optional. When the file is absent, all values use their
+/// defaults — no change from current behavior.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesktopConfig {
+    /// Desktop appearance settings (theme, font size).
+    #[serde(default)]
+    pub appearance: AppearanceConfig,
+
+    /// Log buffer settings.
+    #[serde(default)]
+    pub logs: LogsConfig,
+}
+
+impl DesktopConfig {
+    /// Path to `desktop.json` at the chai home root.
+    pub fn path(chai_home: &Path) -> PathBuf {
+        chai_home.join("desktop.json")
+    }
+}
+
+/// Appearance settings for the desktop application.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppearanceConfig {
+    /// Color theme: `"dark"` or `"light"`.
+    #[serde(default = "default_theme")]
+    pub theme: String,
+
+    /// Base font size in points.
+    #[serde(default = "default_font_size")]
+    pub font_size: u32,
+}
+
+impl Default for AppearanceConfig {
+    fn default() -> Self {
+        Self {
+            theme: default_theme(),
+            font_size: default_font_size(),
+        }
+    }
+}
+
+fn default_theme() -> String {
+    "dark".to_string()
+}
+
+fn default_font_size() -> u32 {
+    14
+}
+
+/// Log buffer settings for the desktop application.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LogsConfig {
+    /// Maximum number of log lines retained in memory per buffer.
+    #[serde(default = "default_buffer_size")]
+    pub buffer_size: usize,
+}
+
+impl Default for LogsConfig {
+    fn default() -> Self {
+        Self {
+            buffer_size: default_buffer_size(),
+        }
+    }
+}
+
+fn default_buffer_size() -> usize {
+    1000
+}
+
+/// Load `desktop.json` from `~/.chai/desktop.json`.
+///
+/// Returns default values when the file is absent. Rejects invalid values
+/// (bad theme, non-positive fontSize/bufferSize) at load time.
+pub fn load_desktop_config() -> Result<DesktopConfig> {
+    let chai_home = crate::profile::chai_home()?;
+    let path = DesktopConfig::path(&chai_home);
+
+    if !path.exists() {
+        return Ok(DesktopConfig::default());
+    }
+
+    let content = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+
+    let config: DesktopConfig = serde_json::from_str(&content)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+
+    // Validate.
+    let theme = config.appearance.theme.trim().to_lowercase();
+    if theme != "dark" && theme != "light" {
+        anyhow::bail!(
+            "invalid appearance.theme {:?}: must be \"dark\" or \"light\"",
+            config.appearance.theme
+        );
+    }
+    if config.appearance.font_size == 0 {
+        anyhow::bail!("invalid appearance.fontSize: must be a positive integer");
+    }
+    if config.logs.buffer_size == 0 {
+        anyhow::bail!("invalid logs.bufferSize: must be a positive integer");
+    }
+
+    Ok(config)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1148,23 +1300,43 @@ mod tests {
     }
 
     #[test]
-    fn default_sandbox_disabled_false() {
+    fn default_sandbox_mode_strict() {
         let c: Config = serde_json::from_str("{}").expect("parse");
-        assert!(!c.sandbox.disabled);
+        assert_eq!(c.sandbox.mode, SandboxMode::Strict);
     }
 
     #[test]
-    fn sandbox_disabled_true_from_json() {
-        let j = r#"{"sandbox":{"disabled":true}}"#;
+    fn sandbox_mode_strict_explicit() {
+        let j = r#"{"sandbox":{"mode":"strict"}}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        assert!(c.sandbox.disabled);
+        assert_eq!(c.sandbox.mode, SandboxMode::Strict);
     }
 
     #[test]
-    fn sandbox_disabled_false_explicit() {
-        let j = r#"{"sandbox":{"disabled":false}}"#;
+    fn sandbox_mode_current_from_json() {
+        let j = r#"{"sandbox":{"mode":"current"}}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        assert!(!c.sandbox.disabled);
+        assert_eq!(c.sandbox.mode, SandboxMode::Current);
+    }
+
+    #[test]
+    fn sandbox_mode_unsafe_from_json() {
+        let j = r#"{"sandbox":{"mode":"unsafe"}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.sandbox.mode, SandboxMode::Unsafe);
+    }
+
+    #[test]
+    fn sandbox_mode_as_str() {
+        assert_eq!(SandboxMode::Strict.as_str(), "strict");
+        assert_eq!(SandboxMode::Current.as_str(), "current");
+        assert_eq!(SandboxMode::Unsafe.as_str(), "unsafe");
+    }
+
+    #[test]
+    fn sandbox_mode_rejects_unknown_value() {
+        let j = r#"{"sandbox":{"mode":"permissive"}}"#;
+        assert!(serde_json::from_str::<Config>(j).is_err());
     }
 
     #[test]

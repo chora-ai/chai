@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::BufRead;
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
+use std::time::SystemTime;
 
 mod screens;
 mod state;
@@ -24,6 +25,7 @@ enum Screen {
     Config,
     Skills,
     Logging,
+    Settings,
 }
 
 /// **Gateway** screen: human-readable dashboard vs full `status` WebSocket response JSON.
@@ -37,6 +39,14 @@ pub(crate) enum StatusViewMode {
 /// **Config** screen: human-readable dashboard vs on-disk **`config.json`**.
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ConfigViewMode {
+    #[default]
+    Dashboard,
+    RawJson,
+}
+
+/// **Settings** screen: human-readable dashboard vs on-disk **`desktop.json`**.
+#[derive(Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum SettingsViewMode {
     #[default]
     Dashboard,
     RawJson,
@@ -123,6 +133,10 @@ pub struct ChaiApp {
     config_view_mode: ConfigViewMode,
     /// **Config** raw view: file text (synced when content changes; avoids `TextEdit` flicker).
     config_raw_display_buffer: String,
+    /// Settings screen: dashboard vs raw file.
+    settings_view_mode: SettingsViewMode,
+    /// **Settings** raw view: file text (synced when content changes; avoids `TextEdit` flicker).
+    settings_raw_display_buffer: String,
     /// Profile names under `~/.chai/profiles` (from disk).
     profile_names: Vec<String>,
     /// Persistent active profile from `~/.chai/active`.
@@ -134,12 +148,26 @@ pub struct ChaiApp {
     /// `CHAI_PROFILE` environment variable value (set once at startup). When present, the profile
     /// selector is disabled and the header shows an amber hint.
     env_profile: Option<String>,
-    /// Profile name read from `gateway.lock` while a gateway is running (refreshed each frame).
+    /// Profile name read from `gateway.lock` while a gateway is running (refreshed on probe cadence).
     gateway_lock_profile: Option<String>,
     /// Previous frame's `gateway_lock_profile`; used to detect when the effective profile changes
     /// so config-dependent caches (providers, model) can be invalidated.
     prev_gateway_lock_profile: Option<String>,
-    /// Cached skill entries loaded from the skills directory (refreshed on status interval).
+    /// Cached owned copy of the effective profile override. Updated whenever `env_profile` or
+    /// `gateway_lock_profile` changes, so background thread spawns can clone this instead of
+    /// calling `effective_profile_override().map(String::from)` every frame.
+    cached_profile_override: Option<String>,
+    /// Frames since we last refreshed `gateway_lock_profile` from disk.
+    frames_since_lock_profile: u32,
+    /// Cached config loaded from disk. Invalidated when the file's mtime changes.
+    cached_config: Option<(lib::config::Config, lib::profile::ChaiPaths)>,
+    /// Mtime of `config.json` when `cached_config` was last read (None = not yet read or file missing).
+    cached_config_mtime: Option<SystemTime>,
+    /// Cached desktop config loaded from disk. Invalidated when the file's mtime changes.
+    cached_desktop_config: Option<lib::config::DesktopConfig>,
+    /// Mtime of `desktop.json` when `cached_desktop_config` was last read (None = not yet read or file missing).
+    cached_desktop_config_mtime: Option<SystemTime>,
+    /// Cached skill entries loaded from the skills directory (on-demand: immediate when empty, periodic only on Skills/Agent screen).
     cached_skills: Option<Vec<lib::skills::SkillEntry>>,
     /// When Some, a skills fetch is in flight; we read the result here.
     skills_fetch_receiver: Option<mpsc::Receiver<Result<Vec<lib::skills::SkillEntry>, String>>>,
@@ -153,6 +181,16 @@ pub struct ChaiApp {
     /// Sequence cursor for gateway log deduplication. Tracks the `maxSeq` from
     /// the last successful `logs` WS response so subsequent fetches only get new lines.
     gateway_logs_cursor: u64,
+    /// On-demand per-agent detail cache, keyed by agent id. Populated when the
+    /// Agent or Tools screen is active via the `agentDetail` WS method. Cleared
+    /// when the gateway stops, or when a status refresh detects that the agent
+    /// roster, skill lock generation, or a cached agent's context mode has changed.
+    agent_detail_cache: BTreeMap<String, crate::app::types::AgentDetail>,
+    /// When Some, an `agentDetail` WS fetch is in flight for the given agent id.
+    agent_detail_receiver: Option<(String, mpsc::Receiver<Result<crate::app::types::AgentDetail, String>>)>,
+    /// Agent id that was last requested for detail fetch. Used to detect when the
+    /// user switches agents so a new fetch can be triggered.
+    agent_detail_requested_id: Option<String>,
 }
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
@@ -226,6 +264,8 @@ impl Default for ChaiApp {
             dashboard_agent_id: None,
             config_view_mode: ConfigViewMode::default(),
             config_raw_display_buffer: String::new(),
+            settings_view_mode: SettingsViewMode::default(),
+            settings_raw_display_buffer: String::new(),
             profile_names: Vec::new(),
             profile_active: String::new(),
             profile_switch_error: None,
@@ -233,12 +273,21 @@ impl Default for ChaiApp {
             env_profile: std::env::var("CHAI_PROFILE").ok().filter(|s| !s.trim().is_empty()),
             gateway_lock_profile: None,
             prev_gateway_lock_profile: None,
+            cached_profile_override: std::env::var("CHAI_PROFILE").ok().filter(|s| !s.trim().is_empty()),
+            frames_since_lock_profile: 0,
+            cached_config: None,
+            cached_config_mtime: None,
+            cached_desktop_config: None,
+            cached_desktop_config_mtime: None,
             cached_skills: None,
             skills_fetch_receiver: None,
             frames_since_skills_fetch: 0,
             gateway_logs_receiver: None,
             frames_since_gateway_logs: 0,
             gateway_logs_cursor: 0,
+            agent_detail_cache: BTreeMap::new(),
+            agent_detail_receiver: None,
+            agent_detail_requested_id: None,
         }
     }
 }
@@ -264,13 +313,105 @@ impl ChaiApp {
         }
     }
 
+    /// Recompute `cached_profile_override` from the current `env_profile` and
+    /// `gateway_lock_profile`. Call after either field changes.
+    fn refresh_cached_profile_override(&mut self) {
+        self.cached_profile_override = self.effective_profile_override().map(String::from);
+    }
+
+    /// Load config from disk with mtime-based caching. Returns a reference to the
+    /// cached `(Config, ChaiPaths)` pair, re-reading only when the file has changed.
+    /// If the file doesn't exist, returns defaults (matching `load_config` behaviour).
+    pub fn load_config_cached(&mut self) -> Result<&(lib::config::Config, lib::profile::ChaiPaths), String> {
+        // Resolve paths first, then release the borrow before any &mut self writes.
+        let (paths, profile_override_owned) = {
+            let profile_override = self.effective_profile_override();
+            let paths = lib::profile::resolve_profile_dir(profile_override)
+                .map_err(|e| e.to_string())?;
+            let profile_owned = self.cached_profile_override.clone();
+            (paths, profile_owned)
+        };
+        let config_path = paths.config_path.clone();
+
+        // Check mtime to decide whether the cache is still valid.
+        let current_mtime = std::fs::metadata(&config_path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+
+        let cache_valid = match (self.cached_config_mtime, current_mtime) {
+            (Some(cached), Some(current)) => cached == current,
+            (None, None) => true, // both missing = file doesn't exist, cache is valid
+            _ => false,
+        };
+
+        // Also check that the profile override hasn't changed (paths could differ).
+        let profile_matches = self.cached_config.as_ref().map_or(false, |(_, p)| p.config_path == config_path);
+
+        if cache_valid && profile_matches {
+            return Ok(self.cached_config.as_ref().unwrap());
+        }
+
+        // Cache miss or stale — load from disk.
+        // Ensure .env is loaded (no-op if already loaded), matching load_config behaviour.
+        lib::config::load_profile_env(profile_override_owned.as_deref());
+        let config = if !config_path.exists() {
+            lib::config::Config::default()
+        } else {
+            let s = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
+            serde_json::from_str(&s).map_err(|e| e.to_string())?
+        };
+
+        self.cached_config = Some((config, paths));
+        self.cached_config_mtime = current_mtime;
+        Ok(self.cached_config.as_ref().unwrap())
+    }
+
+    /// Invalidate the config cache, forcing a reload on next access.
+    pub fn invalidate_config_cache(&mut self) {
+        self.cached_config = None;
+        self.cached_config_mtime = None;
+    }
+
+    /// Load desktop config from disk with mtime-based caching. Returns a reference
+    /// to the cached `DesktopConfig`, re-reading only when the file has changed.
+    pub fn load_desktop_config_cached(&mut self) -> Result<&lib::config::DesktopConfig, String> {
+        let chai_home = lib::profile::chai_home().map_err(|e| e.to_string())?;
+        let path = lib::config::DesktopConfig::path(&chai_home);
+
+        let current_mtime = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+
+        let cache_valid = match (self.cached_desktop_config_mtime, current_mtime) {
+            (Some(cached), Some(current)) => cached == current,
+            (None, None) => true,
+            _ => false,
+        };
+
+        if cache_valid && self.cached_desktop_config.is_some() {
+            return Ok(self.cached_desktop_config.as_ref().unwrap());
+        }
+
+        // Cache miss or stale — load from disk.
+        let config = lib::config::load_desktop_config().map_err(|e| e.to_string())?;
+        self.cached_desktop_config = Some(config);
+        self.cached_desktop_config_mtime = current_mtime;
+        Ok(self.cached_desktop_config.as_ref().unwrap())
+    }
+
+    /// Invalidate the desktop config cache, forcing a reload on next access.
+    pub fn invalidate_desktop_config_cache(&mut self) {
+        self.cached_desktop_config = None;
+        self.cached_desktop_config_mtime = None;
+    }
+
     /// Returns the list of enabled providers for the chat dropdown. Cached until the Config screen is shown.
     pub fn enabled_providers(&mut self) -> Vec<String> {
         if let Some(ref list) = self.cached_enabled_providers {
             return list.clone();
         }
-        let config = lib::config::load_config(self.effective_profile_override())
-            .map(|(c, _)| c)
+        let config = self.load_config_cached()
+            .map(|(c, _)| c.clone())
             .unwrap_or_default();
         // Start from enabledProviders when set; otherwise fall back to the effective default provider.
         let mut list: Vec<String> = if config
@@ -324,7 +465,7 @@ impl ChaiApp {
             self.dashboard_agent_id = None;
             return;
         };
-        if details.agent_system_contexts.is_empty() {
+        if details.agent_skills.is_empty() {
             self.dashboard_agent_id = None;
             return;
         }
@@ -332,7 +473,7 @@ impl ChaiApp {
         let valid = self
             .dashboard_agent_id
             .as_ref()
-            .map(|id| details.agent_system_contexts.contains_key(id))
+            .map(|id| details.agent_skills.contains_key(id))
             .unwrap_or(false);
         if !valid {
             self.dashboard_agent_id = Some(orch.to_string());
@@ -379,6 +520,8 @@ impl ChaiApp {
 
         self.profile_active = name;
         self.invalidate_enabled_providers_cache();
+        self.invalidate_config_cache();
+        self.invalidate_desktop_config_cache();
         self.invalidate_skills_cache();
         self.profiles_need_refresh = true;
     }
@@ -416,8 +559,39 @@ impl ChaiApp {
         self.selected_session_id = None;
         self.session_events_receiver = None;
     }
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         state::logs::init_logging();
+
+        // Load desktop.json for appearance and log settings.
+        let desktop_config = lib::config::load_desktop_config().unwrap_or_else(|e| {
+            log::warn!("failed to load desktop.json, using defaults: {}", e);
+            lib::config::DesktopConfig::default()
+        });
+
+        // Apply log buffer size from desktop.json.
+        state::logs::set_log_buffer_max_lines(desktop_config.logs.buffer_size);
+
+        // Apply theme from desktop.json.
+        let ctx = &cc.egui_ctx;
+        match desktop_config.appearance.theme.trim().to_lowercase().as_str() {
+            "light" => {
+                ctx.set_visuals(egui::Visuals::light());
+            }
+            _ => {
+                ctx.set_visuals(egui::Visuals::dark());
+            }
+        }
+
+        // Apply font size from desktop.json.
+        let font_size = desktop_config.appearance.font_size as f32;
+        let mut fonts = egui::FontDefinitions::default();
+        if font_size != 14.0 {
+            for (_key, font_data) in fonts.font_data.iter_mut() {
+                font_data.tweak.scale = font_size / 14.0;
+            }
+        }
+        ctx.set_fonts(fonts);
+
         Self::default()
     }
 
@@ -805,7 +979,7 @@ impl ChaiApp {
                 .and_then(|s| s.default_provider.clone())
         });
         let model = self.current_model.clone();
-        let profile_override = self.effective_profile_override().map(String::from);
+        let profile_override = self.cached_profile_override.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = state::gateway::run_agent_turn(profile_override.as_deref(), session_id, message, provider, model);
@@ -825,7 +999,7 @@ impl ChaiApp {
         if self.chat_stopping {
             return;
         }
-        let profile_override = self.effective_profile_override().map(String::from);
+        let profile_override = self.cached_profile_override.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = state::gateway::send_stop(profile_override.as_deref(), &session_id);
@@ -859,30 +1033,55 @@ impl eframe::App for ChaiApp {
         if self.was_gateway_running && !running {
             self.clear_session_and_messages();
             self.invalidate_skills_cache();
+            self.invalidate_config_cache();
+            self.invalidate_desktop_config_cache();
             self.profile_switch_error = None;
             self.profiles_need_refresh = true;
             self.status_fetch_ever_failed = false;
+            // Remove stale gateway.lock if present. When the gateway is killed
+            // (e.g. user clicks Stop) the OS releases the advisory lock but the
+            // gateway process may not clean up the file. A stale file with the
+            // previous profile name causes a spurious profile-mismatch hint on
+            // the next gateway start, before the new gateway acquires the lock
+            // and overwrites the file.
+            if let Ok(chai_home) = lib::profile::chai_home() {
+                let lock_path = chai_home.join("gateway.lock");
+                // Only remove if no process holds the lock (advisory flock check).
+                if !lib::profile::gateway_is_running(&chai_home) {
+                    let _ = std::fs::remove_file(&lock_path);
+                }
+            }
         }
         self.was_gateway_running = running;
 
         // Resolve the gateway's profile from gateway.lock when a gateway is running.
         // Must happen before poll_status_fetch / poll_skills_fetch / ensure_session_events_listener
         // so that effective_profile_override() returns the correct profile on the same frame.
-        self.gateway_lock_profile = if running {
-            lib::profile::chai_home()
+        // Refreshed on probe cadence (~1 Hz) instead of every frame to avoid 60 disk reads/sec.
+        self.frames_since_lock_profile = self.frames_since_lock_profile.saturating_add(1);
+        if !running {
+            if self.gateway_lock_profile.is_some() {
+                self.gateway_lock_profile = None;
+                self.refresh_cached_profile_override();
+            }
+            self.frames_since_lock_profile = 0;
+        } else if self.frames_since_lock_profile >= PROBE_INTERVAL_FRAMES {
+            self.frames_since_lock_profile = 0;
+            self.gateway_lock_profile = lib::profile::chai_home()
                 .ok()
-                .and_then(|h| lib::profile::read_gateway_lock_profile(&h))
-        } else {
-            None
-        };
+                .and_then(|h| lib::profile::read_gateway_lock_profile(&h));
+        }
 
         // Invalidate config-dependent caches when the effective profile changes
         // (e.g. gateway started externally with CHAI_PROFILE and we now detect it
         // via gateway.lock, or gateway stopped and profile reverts to persistent).
         if self.gateway_lock_profile != self.prev_gateway_lock_profile {
             self.invalidate_enabled_providers_cache();
+            self.invalidate_config_cache();
+            self.invalidate_desktop_config_cache();
             self.invalidate_skills_cache();
             self.default_model = None;
+            self.refresh_cached_profile_override();
             self.prev_gateway_lock_profile = self.gateway_lock_profile.clone();
         }
 
@@ -894,6 +1093,10 @@ impl eframe::App for ChaiApp {
         self.poll_status_fetch();
         self.poll_skills_fetch();
         self.poll_gateway_logs_fetch(owned);
+        // Only fetch agent detail when Agent or Tools screen is active (on-demand).
+        if matches!(self.current_screen, Screen::Agent | Screen::Tools) {
+            self.poll_agent_detail();
+        }
         self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
         self.poll_chat_turn();
@@ -903,10 +1106,11 @@ impl eframe::App for ChaiApp {
         let mut start_gateway = false;
         let mut stop_gateway = false;
         let mut switch_profile_to: Option<String> = None;
-        let profile_names = self.profile_names.clone();
-        let profile_switch_locked = lib::profile::chai_home()
-            .map(|h| lib::profile::gateway_is_running(&h))
-            .unwrap_or(true);
+        // Use the already-computed `running` state instead of a separate flock()
+        // syscall every frame. The `running` boolean is derived from gateway_owned() and
+        // gateway_responds (probe result), which is sufficient to determine whether the
+        // profile dropdown should be locked.
+        let profile_switch_locked = running;
         let profile_dropdown_enabled = !profile_switch_locked;
         // The effective profile is: env override > gateway lock profile > persistent symlink.
         let effective_profile = self
@@ -949,7 +1153,7 @@ impl eframe::App for ChaiApp {
             running,
             owned,
             self.gateway_probe_completed,
-            &profile_names,
+            &self.profile_names,
             effective_profile,
             profile_dropdown_enabled,
             profile_error.as_deref(),
@@ -1008,6 +1212,10 @@ impl eframe::App for ChaiApp {
             } else if self.current_screen == Screen::Logging {
                 ui::layout::central_padded(ui, |ui| {
                     screens::logging::ui_logging_screen(self, ui);
+                });
+            } else if self.current_screen == Screen::Settings {
+                ui::layout::central_padded(ui, |ui| {
+                    screens::settings::ui_settings_screen(self, ui);
                 });
             }
         });

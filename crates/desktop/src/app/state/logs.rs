@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::{Mutex, OnceLock};
 
-/// Maximum number of log lines held in memory per buffer for the Logging screen.
-const LOG_BUFFER_MAX_LINES: usize = 2000;
+/// Default maximum number of log lines held in memory per buffer for the Logging screen.
+const DEFAULT_LOG_BUFFER_MAX_LINES: usize = 2000;
 
 /// Ring buffer of desktop log lines for the Logging screen. Written by the
 /// env_logger format closure.
@@ -13,6 +13,23 @@ static DESKTOP_LOG_LINES: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
 /// gateway stderr/stdout reader (owned gateway) and the `logs` WS method fetch
 /// (external gateway).
 static GATEWAY_LOG_LINES: OnceLock<Mutex<VecDeque<String>>> = OnceLock::new();
+
+/// Configurable maximum number of log lines per buffer. Set once at startup
+/// from `desktop.json` `logs.bufferSize`. Falls back to the default when
+/// `desktop.json` is absent or when the config fails to load.
+static LOG_BUFFER_MAX_LINES: OnceLock<usize> = OnceLock::new();
+
+/// Get the configured max log buffer size.
+fn log_buffer_max_lines() -> usize {
+    *LOG_BUFFER_MAX_LINES.get_or_init(|| DEFAULT_LOG_BUFFER_MAX_LINES)
+}
+
+/// Set the max log buffer size from `desktop.json`. Must be called once at
+/// startup before any log lines are pushed. If already set (e.g. called twice),
+/// the later call is ignored.
+pub fn set_log_buffer_max_lines(max: usize) {
+    let _ = LOG_BUFFER_MAX_LINES.set(max);
+}
 
 /// Get the global desktop log buffer.
 pub fn desktop_log_buffer() -> &'static Mutex<VecDeque<String>> {
@@ -28,7 +45,8 @@ pub fn gateway_log_buffer() -> &'static Mutex<VecDeque<String>> {
 pub(crate) fn push_desktop_log_line(line: String) {
     if let Ok(mut buf) = desktop_log_buffer().lock() {
         buf.push_back(line);
-        while buf.len() > LOG_BUFFER_MAX_LINES {
+        let max = log_buffer_max_lines();
+        while buf.len() > max {
             buf.pop_front();
         }
     }
@@ -38,7 +56,8 @@ pub(crate) fn push_desktop_log_line(line: String) {
 pub(crate) fn push_gateway_log_line(line: String) {
     if let Ok(mut buf) = gateway_log_buffer().lock() {
         buf.push_back(line);
-        while buf.len() > LOG_BUFFER_MAX_LINES {
+        let max = log_buffer_max_lines();
+        while buf.len() > max {
             buf.pop_front();
         }
     }

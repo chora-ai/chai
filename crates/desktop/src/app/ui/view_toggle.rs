@@ -1,8 +1,8 @@
-//! Dashboard vs raw JSON view toggles (Config / Gateway screens).
+//! Dashboard vs raw JSON view toggles (Config / Gateway / Settings screens).
 
 use eframe::egui;
 
-use crate::app::{ConfigViewMode, StatusViewMode};
+use crate::app::{ConfigViewMode, SettingsViewMode, StatusViewMode};
 
 pub fn config_view_radios(ui: &mut egui::Ui, mode: &mut ConfigViewMode) {
     ui.horizontal(|ui| {
@@ -17,5 +17,13 @@ pub fn status_view_radios(ui: &mut egui::Ui, mode: &mut StatusViewMode) {
         ui.label(egui::RichText::new("View").strong());
         ui.radio_value(mode, StatusViewMode::Dashboard, "Dashboard");
         ui.radio_value(mode, StatusViewMode::RawJson, "Raw JSON");
+    });
+}
+
+pub fn settings_view_radios(ui: &mut egui::Ui, mode: &mut SettingsViewMode) {
+    ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("View").strong());
+        ui.radio_value(mode, SettingsViewMode::Dashboard, "Dashboard");
+        ui.radio_value(mode, SettingsViewMode::RawJson, "Raw JSON");
     });
 }

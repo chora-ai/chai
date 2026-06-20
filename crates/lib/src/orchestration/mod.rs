@@ -10,7 +10,7 @@
 //! `workerId` is set (nested `delegate_task` disabled). Gateway inbound and WebSocket `agent` both pass [`DelegateContext`].
 
 mod choice;
-mod delegate;
+pub mod delegate;
 mod dispatch;
 mod model;
 mod policy;

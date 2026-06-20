@@ -100,9 +100,12 @@ pub fn write_lock(profile_dir: &Path, lock: &SkillsLock) -> Result<()> {
 
 /// Verify enabled skills against the lockfile at gateway startup.
 ///
-/// For each enabled skill that has a lock entry, checks whether the `active` symlink
-/// target directory name matches the locked hash. Returns Ok(()) on success (all
-/// verified or no lock). Returns Err in strict mode if any mismatch is found.
+/// In strict mode, every enabled skill must have a lock entry and its `active` symlink
+/// target must match the locked hash. The lockfile must also exist. Returns Ok(())
+/// on success. Returns Err in strict mode if the lockfile is missing, any enabled
+/// skill has no lock entry (unpinned), or any pinned skill's active version does not
+/// match its locked hash. Warn mode logs warnings for unpinned and mismatched skills
+/// but continues; skips verification entirely when no lockfile is present.
 pub fn verify_at_startup(
     all_entries: &[SkillEntry],
     enabled_names: &[&str],
@@ -112,7 +115,13 @@ pub fn verify_at_startup(
     let lock = match read_lock(profile_dir)? {
         Some(l) => l,
         None => {
-            log::debug!("no skills.lock found, skipping verification");
+            if mode == SkillLockMode::Strict {
+                anyhow::bail!(
+                    "skills.lockMode is strict but no skills.lock found in {} — run `chai skill lock` to create one, or set lockMode to \"warn\"",
+                    profile_dir.display(),
+                );
+            }
+            log::warn!("no skills.lock found, skipping verification");
             return Ok(());
         }
     };
@@ -124,11 +133,19 @@ pub fn verify_at_startup(
     );
 
     let mut mismatches = Vec::new();
+    let mut unpinned = Vec::new();
 
     for name in enabled_names {
         let pin = match lock.skills.get(*name) {
             Some(p) => p,
-            None => continue, // Unlocked skills load normally
+            None => {
+                if mode == SkillLockMode::Strict {
+                    unpinned.push(name.to_string());
+                } else {
+                    log::warn!("skill '{}' has no lock entry, loading unpinned", name);
+                }
+                continue;
+            }
         };
 
         // Find the entry to get its path
@@ -165,12 +182,28 @@ pub fn verify_at_startup(
         }
     }
 
-    if !mismatches.is_empty() && mode == SkillLockMode::Strict {
-        anyhow::bail!(
-            "skills.lock verification failed in strict mode: {} skill(s) mismatched ({})",
-            mismatches.len(),
-            mismatches.join(", "),
-        );
+    if mode == SkillLockMode::Strict {
+        let mut reasons = Vec::new();
+        if !unpinned.is_empty() {
+            reasons.push(format!(
+                "{} skill(s) not pinned ({})",
+                unpinned.len(),
+                unpinned.join(", "),
+            ));
+        }
+        if !mismatches.is_empty() {
+            reasons.push(format!(
+                "{} skill(s) mismatched ({})",
+                mismatches.len(),
+                mismatches.join(", "),
+            ));
+        }
+        if !reasons.is_empty() {
+            anyhow::bail!(
+                "skills.lock verification failed in strict mode: {}",
+                reasons.join(", "),
+            );
+        }
     }
 
     Ok(())
@@ -344,9 +377,16 @@ mod tests {
     }
 
     #[test]
-    fn verify_passes_when_no_lockfile() {
-        let dir = tempdir("verify_no_lock");
+    fn verify_fails_strict_when_no_lockfile() {
+        let dir = tempdir("verify_no_lock_strict");
         let result = verify_at_startup(&[], &[], &dir, SkillLockMode::Strict);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_passes_warn_when_no_lockfile() {
+        let dir = tempdir("verify_no_lock_warn");
+        let result = verify_at_startup(&[], &[], &dir, SkillLockMode::Warn);
         assert!(result.is_ok());
     }
 
@@ -442,6 +482,98 @@ mod tests {
 
         // Warn mode should succeed even with mismatch
         let result = verify_at_startup(&entries, &["git"], &dir, SkillLockMode::Warn);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn verify_fails_strict_when_skill_not_pinned() {
+        let dir = tempdir("verify_unpinned_strict");
+
+        // Two skills are enabled but only one is in the lock
+        let git_path = PathBuf::from("/tmp/chai_test_skills/git/versions/abc123def456");
+        let files_path = PathBuf::from("/tmp/chai_test_skills/files/versions/aaa111bbb222");
+        let entries = vec![
+            SkillEntry {
+                name: "git".to_string(),
+                description: String::new(),
+                path: git_path,
+                content: String::new(),
+                tool_descriptor: None,
+                capability_tier: None,
+                variant_of: None,
+            },
+            SkillEntry {
+                name: "files".to_string(),
+                description: String::new(),
+                path: files_path,
+                content: String::new(),
+                tool_descriptor: None,
+                capability_tier: None,
+                variant_of: None,
+            },
+        ];
+
+        // Lock only pins git, not files
+        let lock = SkillsLock {
+            version: LOCK_VERSION,
+            skills: BTreeMap::from([(
+                "git".to_string(),
+                SkillPin {
+                    hash: "abc123def456".to_string(),
+                },
+            )]),
+            generation: 1,
+        };
+        write_lock(&dir, &lock).unwrap();
+
+        let result = verify_at_startup(&entries, &["git", "files"], &dir, SkillLockMode::Strict);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not pinned"), "expected 'not pinned' in error, got: {}", err);
+        assert!(err.contains("files"), "expected 'files' in error, got: {}", err);
+    }
+
+    #[test]
+    fn verify_passes_warn_when_skill_not_pinned() {
+        let dir = tempdir("verify_unpinned_warn");
+
+        let git_path = PathBuf::from("/tmp/chai_test_skills/git/versions/abc123def456");
+        let files_path = PathBuf::from("/tmp/chai_test_skills/files/versions/aaa111bbb222");
+        let entries = vec![
+            SkillEntry {
+                name: "git".to_string(),
+                description: String::new(),
+                path: git_path,
+                content: String::new(),
+                tool_descriptor: None,
+                capability_tier: None,
+                variant_of: None,
+            },
+            SkillEntry {
+                name: "files".to_string(),
+                description: String::new(),
+                path: files_path,
+                content: String::new(),
+                tool_descriptor: None,
+                capability_tier: None,
+                variant_of: None,
+            },
+        ];
+
+        let lock = SkillsLock {
+            version: LOCK_VERSION,
+            skills: BTreeMap::from([(
+                "git".to_string(),
+                SkillPin {
+                    hash: "abc123def456".to_string(),
+                },
+            )]),
+            generation: 1,
+        };
+        write_lock(&dir, &lock).unwrap();
+
+        // Warn mode should succeed even with unpinned skills
+        let result = verify_at_startup(&entries, &["git", "files"], &dir, SkillLockMode::Warn);
         assert!(result.is_ok());
     }
 

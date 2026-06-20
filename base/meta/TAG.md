@@ -29,7 +29,7 @@ Sections must appear in this order:
    - `### Removed` — Removed features or capabilities
 5. **Known Issues** — Known limitations or defects at the time of release. Use `None.` if there are none.
 6. **Breaking Changes** — Changes that break backwards compatibility. Omit this section entirely if there are none.
-7. **Build Instructions** — Included when a supported platform does not have a pre-built binary in the release assets. Provides the commands needed to build from source for that platform. Remove this section once pre-built binaries are included in the release assets.
+7. **Build Instructions** — Included when a supported platform does not have a pre-built binary in the release assets. Provides the commands needed to build from source for that platform.
 
 ### Section Order
 
@@ -39,14 +39,14 @@ Sections must appear in this order:
 4. Changes
 5. Known Issues
 6. Breaking Changes
-7. Build Instructions (if applicable)
+7. Build Instructions
 
 ## Example
 
 ```markdown
 # v0.1.0
 
-**Date:** 2025-07-01
+**Date:** 2026-06-20
 
 ## Summary
 
@@ -55,11 +55,10 @@ First official release of the Chai multi-agent management system. Provides messa
 ## Changes
 
 ### Added
-- Telegram messaging channel (long-poll and webhook modes)
-- Matrix adapter (experimental, `--features matrix`)
-- Signal adapter (experimental, `--features signal`)
-- Skill package management with content-addressed versioning
+
 - Per-agent context directories and skill configuration
+- Telegram messaging channel (long-poll and webhook modes)
+- Skill package management with content-addressed versioning
 
 ## Known Issues
 
@@ -71,11 +70,27 @@ None. This is the first release.
 
 ## Build Instructions
 
-Pre-built binaries are provided for Linux (x86_64, ARM64) and macOS (ARM64). Windows users must build from source:
+Pre-built binaries are provided for Linux (x86_64). All other platforms must build from source.
+
+**Linux (ARM64) and macOS (ARM64) — build from source using Nix:**
+
+```bash
+git checkout vX.Y.Z
+nix build .#cli
+nix build .#desktop
+```
+
+**Windows — build from source using cargo:**
 
 ```bash
 cargo build --release --manifest-path crates/cli/Cargo.toml
 cargo build --release --manifest-path crates/desktop/Cargo.toml
+```
+
+**Experimental adapters** are not included in published binaries. To build with experimental features:
+
+```bash
+cargo build --release --manifest-path crates/cli/Cargo.toml --features matrix,signal
 ```
 ```
 

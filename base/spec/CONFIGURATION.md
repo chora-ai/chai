@@ -39,7 +39,7 @@ This spec describes **blocks and policy**, not every optional key.
   "channels": { },
   "providers": [ ],
   "sandbox": {
-    "disabled": false
+    "mode": "strict"
   },
   "agents": [ ],
   "skills": {
@@ -48,7 +48,7 @@ This spec describes **blocks and policy**, not every optional key.
 }
 ```
 
-**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. The **`skills`** block holds shared skill package settings; per-agent **`enabledSkills`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skills.lockMode`** controls gateway startup behavior when the lockfile does not match active skill versions (see [PROFILES.md](PROFILES.md)).
+**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. The **`skills`** block holds shared skill package settings; per-agent **`enabledSkills`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skills.lockMode`** controls gateway startup behavior for the lockfile — in strict mode (the default), the lockfile acts as a complete manifest: the gateway refuses to start if the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash (see [PROFILES.md](PROFILES.md)).
 
 ---
 
@@ -59,11 +59,11 @@ Counterpart to the status blocks table in [GATEWAY_STATUS.md](GATEWAY_STATUS.md)
 | Block | Holds (summary) | Notes |
 |-------|-----------------|-------|
 | **`gateway`** | Listen **`bind`**, **`port`**; **`auth.mode`** (**`none`** \| **`token`**) and optional **`token`** (WebSocket connect). | Token may be overridden by **`CHAI_GATEWAY_TOKEN`**. Loopback-only semantics for **`none`** auth. |
-| **`sandbox`** | **`disabled`** (allow start without sandbox). | **`disabled`** defaults to `false`; when `true`, the gateway starts without a sandbox directory and logs a warning that CWD confinement and path validation are disabled. |
+| **`sandbox`** | **`mode`** (**`"strict"`** (default) \| **`"current"`** \| **`"unsafe"`**) — how the gateway handles a missing sandbox directory. | **`mode`** defaults to `"strict"`: gateway refuses to start without a sandbox directory. `"current"`: use CWD as the sole writable root when the sandbox directory is missing. `"unsafe"`: start without a sandbox; CWD confinement and path validation are disabled. |
 | **`channels`** | Telegram (bot token, webhook), Matrix (homeserver, credentials, room allowlist, store path, …), Signal (HTTP daemon URL, account). | Fields have **`resolve_*`** overrides (see **`config.rs`** and **`README.md`**). Matrix requires the `matrix` Cargo feature (experimental); Signal requires the `signal` Cargo feature (experimental). Config fields for a disabled channel are accepted but have no effect. |
 | **`providers`** | Per-backend entries: **`ollama`**, **`lms`**, **`nearai`**, **`nim`** — plus any other `"openai-compat"` server with a `baseUrl` and `apiKey`. | Model API endpoints; not chat surfaces. Omitted when defaults or env suffice. |
 | **`agents`** | Orchestrator + workers: ids, roles, **`defaultProvider`** / **`defaultModel`**, **`enabledProviders`** (orchestrator-only; discovery scope), **`enabledSkills`** (package names under the resolved skills root), **`contextMode`** (**`full`** \| **`readOnDemand`**), **`maxToolLoopsPerTurn`** (orchestrator-only; omitted = no limit; applies globally to both orchestrator and worker turns), delegation caps (orchestrator-only: **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**). On-disk **`AGENT.md`** for each entry is **`<profileRoot>/agents/<id>/AGENT.md`**. | Exactly one orchestrator; workers use **`role: worker`**. Each worker has a single **`(defaultProvider, defaultModel)`** pair — no override parameters or session/delegation caps. Orchestrator-only fields set on a worker entry are rejected at parse time. Omit **`agents`** for the built-in default orchestrator only. Missing or empty **`enabledSkills`** on an entry means no skills for that agent. Skill packages are loaded from the shared discovery root (see **`README.md`**). |
-| **`skills`** | **`lockMode`** (**`"strict"`** (default) \| **`"warn"`**) — how the gateway handles mismatches between the per-profile `skills.lock` and active skill versions at startup. | `"strict"` refuses to start; `"warn"` logs and continues. See [PROFILES.md](PROFILES.md). |
+| **`skills`** | **`lockMode`** (**`"strict"`** (default) \| **`"warn"`**) — how the gateway handles the per-profile `skills.lock` at startup. | `"strict"` (default) treats the lockfile as a complete manifest: refuses to start when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash. `"warn"` logs warnings on mismatches, allows unpinned skills, and skips verification when no lockfile is present. See [PROFILES.md](PROFILES.md). |
 
 ## Environment Overrides
 
@@ -74,6 +74,10 @@ Effective configuration combines the file with **`config.rs`** resolution: **`re
 If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assistant/.env`), it is loaded at startup — before logger initialization — so that environment-driven configuration like `RUST_LOG` takes effect. Variables from `.env` are set in the process environment only if they are not already set — shell environment variables always take precedence. This enables `apiKey` values using the `<VAR_NAME>` syntax to resolve against profile-local secrets without hardcoding them in `config.json`, and also supports runtime environment variables like `RUST_LOG`, `CHAI_BIN`, and channel tokens (e.g. `TELEGRAM_BOT_TOKEN`). See [PROVIDERS.md](PROVIDERS.md) for the full `apiKey` resolution semantics.
 
 ---
+
+## Desktop Configuration
+
+The desktop app reads a separate `~/.chai/desktop.json` file for client-side settings (appearance, log buffer size) that are machine-local and not tied to any profile. This file is documented in [DESKTOP.md](DESKTOP.md). No `config.json` schema changes are needed — `desktop.json` is purely additive.
 
 ## Related Documents
 

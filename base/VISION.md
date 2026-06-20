@@ -1,10 +1,10 @@
 # Vision
 
-This document provides an overview of the vision for this project.
+This document provides the vision for the project.
 
 ## Current State
 
-An exploratory project (proof-of-concept).
+A working multi-agent management system with messaging channels, skill-based tooling, and profile-based configuration. Chai runs a local gateway with orchestrator–worker delegation, supports Telegram as a default channel with experimental Matrix and Signal adapters, ships 15 bundled skills, and provides both a CLI and a native desktop application.
 
 ## Long-Term Goals
 
@@ -34,7 +34,7 @@ These mechanisms compose into defense-in-depth: the skill schema constrains what
 ### Guiding Principles
 
 - **Minimalism** — Single Rust binary. Static skill files. No container runtime, no WASM sandbox, no heavy infrastructure.
-- **Sovereignty** — The owner controls exactly which capabilities exist and what they can do. No self-expansion, no agent-initiated skill installation.
+- **Sovereignty** — The owner controls capabilities and what they can do. No self-expansion, no agent-initiated skill installation.
 - **Local-first** — Default provider is Ollama (local). Default bind is localhost. Compiled contracts make local-first viable — small models do useful work because schemas compensate for what the model lacks.
 - **Privacy-preserving** — The authoring/execution separation creates a privacy boundary by design. Runtime profiles make it structural.
-- **Open-source** — The software and any modifications to the software remain open-source (LGPL licensed). Skills are portable, inspectable text files.
+- **Open-source** — The software and any modifications to the software remain open-source. Skills are portable, inspectable text files.

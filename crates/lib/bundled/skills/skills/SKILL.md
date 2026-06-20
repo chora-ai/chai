@@ -1,5 +1,5 @@
 ---
-description: Manage Chai skill packages — discover, inspect, validate, create, and delete.
+description: Manage skill packages — discover, inspect, validate, create, and delete.
 capability_tier: full
 metadata:
   requires:

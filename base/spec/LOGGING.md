@@ -8,7 +8,7 @@ This document specifies how chai processes produce, capture, and expose diagnost
 
 ## Purpose
 
-Chai uses the `log` crate for diagnostic output throughout the gateway and agent loop. This spec describes how those log records are captured into an in-memory ring buffer in the gateway process, how connected clients fetch them via WebSocket, and how the desktop app presents a unified view of desktop and gateway logs.
+Chai uses the `log` crate for diagnostic output throughout the gateway and agent loop. This spec describes how those log records are captured into an in-memory ring buffer in the gateway process, how connected clients fetch them via WebSocket, and how the desktop app presents a unified view of gateway and desktop logs.
 
 ## Log Record Format
 
@@ -45,7 +45,7 @@ The CLI gateway command selects this logger based on the subcommand. Other CLI s
 
 ### Ring Buffer
 
-The gateway log buffer is a global `Mutex<LogBuffer>` initialized via `OnceLock`. It holds up to 2000 entries. Each entry has a monotonically increasing sequence number (`seq`, starting at 1) and the formatted line string.
+The gateway log buffer is a global `Mutex<LogBuffer>` initialized via `OnceLock`. It holds up to 1000 entries. Each entry has a monotonically increasing sequence number (`seq`, starting at 1) and the formatted line string.
 
 When the buffer is full, the oldest entry is evicted (FIFO). Sequence numbers continue incrementing regardless of eviction — they are never reused.
 
@@ -153,15 +153,9 @@ When the desktop detects an external gateway (one it did not spawn), it polls th
 
 When the gateway stops responding or the desktop spawns its own gateway, the cursor resets to 0 so the next external gateway starts fresh.
 
-### Timestamp-Ordered Display
-
-The ring buffer stores lines in arrival order (desktop logs first, gateway logs appended as they arrive). Since gateway logs arrive asynchronously via stderr/stdout reader threads, their timestamps may be earlier than desktop logs already in the buffer. The Logs screen sorts lines by timestamp before rendering so that entries interleave in chronological order regardless of arrival timing.
-
-The sort extracts the ISO 8601 timestamp from each line (the text between `[` and the first space), which is lexicographically comparable. Lines that don't match the expected `[timestamp …]` format (e.g. continuation lines of a multiline log record) inherit the timestamp of the most recent preceding header line in arrival order, so multiline records stay grouped together. The sort is stable so that lines with identical timestamps preserve their arrival order.
-
 ### Buffer Size
 
-The desktop ring buffer holds up to 2000 lines. When full, the oldest line is evicted. This is the same capacity as the gateway's ring buffer.
+The desktop ring buffer holds up to 1000 lines. When full, the oldest line is evicted. This is the same capacity as the gateway's ring buffer.
 
 ## CLI Logging
 

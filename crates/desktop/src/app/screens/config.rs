@@ -5,11 +5,14 @@ use crate::app::{ChaiApp, ConfigViewMode};
 
 pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     app.invalidate_enabled_providers_cache();
-    let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
-        crate::app::ui_screen(ui, "Config", None, |ui| {
-            ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
-        });
-        return;
+    let (config, paths) = match app.load_config_cached() {
+        Ok(cp) => (cp.0.clone(), cp.1.clone()),
+        Err(_) => {
+            crate::app::ui_screen(ui, "Config", None, |ui| {
+                ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+            });
+            return;
+        }
     };
     let config_path = paths.config_path.clone();
     if app.default_model.is_none() {
@@ -42,7 +45,7 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                         app.config_raw_display_buffer.clear();
                         ui.label(
                             egui::RichText::new(format!(
-                                "No file at {} — the Dashboard view shows defaults until you create it.",
+                                "No file at {} — the Dashboard view shows defaults.",
                                 config_path.display()
                             ))
                             .weak(),
@@ -197,7 +200,7 @@ fn config_summary_left_column(ui: &mut egui::Ui, config: &lib::config::Config) {
                 .as_ref()
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false);
-            dashboard::kv(ui, "API key", if key_set { "set" } else { "(not set)" });
+            dashboard::kv(ui, "API key", if key_set { "(hidden)" } else { "(empty)" });
             if let Some(ref default_model) = def.default_model {
                 if !default_model.trim().is_empty() {
                     dashboard::kv(ui, "Default model", default_model.trim());
@@ -238,7 +241,7 @@ fn enabled_providers_display(opt: &Option<Vec<String>>) -> String {
         })
         .unwrap_or_default();
     if v.is_empty() {
-        "(default provider)".to_string()
+        "(empty)".to_string()
     } else {
         v.join(", ")
     }
@@ -260,7 +263,7 @@ fn config_summary_right_column(
         .unwrap_or("orchestrator");
 
     dashboard::section_group(ui, "Sandbox", |ui| {
-        dashboard::kv(ui, "Disabled", &config.sandbox.disabled.to_string());
+        dashboard::kv(ui, "Mode", config.sandbox.mode.as_str());
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 
@@ -280,7 +283,7 @@ fn config_summary_right_column(
             ui,
             "Enabled skills",
             if orch_skills.is_empty() {
-                "(none)"
+                "(empty)"
             } else {
                 orch_skills_csv.as_str()
             },
@@ -343,7 +346,7 @@ fn config_summary_right_column(
                     ui,
                     "Enabled skills",
                     if w_skills.is_empty() {
-                        "(none)"
+                        "(empty)"
                     } else {
                         w_skills_csv.as_str()
                     },

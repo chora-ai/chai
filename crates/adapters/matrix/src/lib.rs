@@ -17,7 +17,7 @@ use matrix_sdk::{
     Client, Room, SessionMeta, SessionTokens,
 };
 use serde::Serialize;
-use serde_json::Value;
+use serde_json::{json, Value};
 use std::collections::HashSet;
 use std::convert::TryInto;
 use std::path::PathBuf;
@@ -381,8 +381,7 @@ impl MatrixInner {
             .last_sync_error
             .lock()
             .ok()
-            .and_then(|g| g.clone())
-            .flatten();
+            .and_then(|g| g.clone());
         let pending = self
             .pending_verifications
             .lock()

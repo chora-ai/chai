@@ -6,7 +6,7 @@ status: draft
 
 **Summary** — Enable a hosted-gateway deployment model where a host runs `chai gateway` on a remote server and a client connects to it using `chai-desktop` on a separate machine. Today, the desktop assumes the gateway is a local subprocess; while an "attach" mode exists, it lacks a dedicated connection address, TLS support, attach-only configuration, and origin validation — making remote deployment fragile, insecure, and undocumented.
 
-**Prerequisite** — [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) must be implemented first. The `desktop.json` file at the chai home root provides the persistent source for `gateway.connectUrl` and separates client-side configuration from the server-side `config.json`.
+**Prerequisite** — The `desktop.json` file must be implemented first. The `desktop.json` file at the chai home root provides the persistent source for `gateway.connectUrl` and separates client-side configuration from the server-side `config.json`.
 
 **Status** — **Draft (not implemented).** The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no attach-only mode, and no documentation for the scenario.
 
@@ -134,7 +134,7 @@ The desktop currently derives the WebSocket URL from `gateway.bind` + `gateway.p
 
 **Decision: `gateway.connectUrl` in `desktop.json` + `CHAI_GATEWAY_URL` as override**
 
-Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). The `gateway.connectUrl` field lives in `~/.chai/desktop.json`, not in `config.json`. This keeps `config.json` as a pure server-side document and gives client-side connection settings their own home. The `CHAI_GATEWAY_URL` environment variable follows the existing env-var-override pattern for ad-hoc use.
+The `gateway.connectUrl` field lives in `~/.chai/desktop.json`, not in `config.json`. This keeps `config.json` as a pure server-side document and gives client-side connection settings their own home. The `CHAI_GATEWAY_URL` environment variable follows the existing env-var-override pattern for ad-hoc use.
 
 Precedence chain for the desktop's gateway URL:
 
@@ -163,7 +163,7 @@ When `gateway.connectUrl` in `desktop.json` (or `CHAI_GATEWAY_URL`) is set, the 
 - Profile switching is disabled (the gateway's profile is externally managed).
 - The desktop still probes for gateway liveness but uses `connectUrl` as the target.
 
-**Decision:** Attach-only mode is implicitly activated when `connectUrl` is present (in `desktop.json` or via env var). No separate `gateway.mode` field is needed — the presence of a remote URL is the signal. Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md).
+**Decision:** Attach-only mode is implicitly activated when `connectUrl` is present (in `desktop.json` or via env var). No separate `gateway.mode` field is needed — the presence of a remote URL is the signal.
 
 ### WebSocket Origin Validation
 
@@ -195,9 +195,9 @@ The desktop config screen currently shows "Bind" and "Port" from the local `conf
 
 ### Functional
 
-- [x] **`desktop.json` with `gateway.connectUrl`** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). A new `~/.chai/desktop.json` file provides the persistent source for `gateway.connectUrl`, separating client-side connection configuration from the server-side `config.json`. Takes precedence over `bind:port` for URL construction and TCP probes.
-- [x] **`CHAI_GATEWAY_URL` environment variable** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). Runtime override for `gateway.connectUrl`. Follows the same precedence pattern as `CHAI_PROFILE`.
-- [x] **Attach-only mode** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). When `connectUrl` or `CHAI_GATEWAY_URL` is set, the desktop hides the "Start gateway" button, does not attempt to spawn a local gateway subprocess, and disables profile switching.
+- [ ] **`desktop.json` with `gateway.connectUrl`** — `desktop.json` file and loading implemented (appearance and logs blocks). Adding `gateway.connectUrl` to `desktop.json` is the next step — it will provide the persistent source for the remote gateway URL, separating client-side connection configuration from the server-side `config.json`. Takes precedence over `bind:port` for URL construction and TCP probes.
+- [x] **`CHAI_GATEWAY_URL` environment variable** — Runtime override for `gateway.connectUrl`. Follows the same precedence pattern as `CHAI_PROFILE`.
+- [x] **Attach-only mode** — When `connectUrl` or `CHAI_GATEWAY_URL` is set, the desktop hides the "Start gateway" button, does not attempt to spawn a local gateway subprocess, and disables profile switching.
 - [ ] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when `connectUrl` specifies `wss://`. The `gateway.bind:port` fallback path always uses `ws://` (loopback doesn't need TLS).
 - [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. Uses Approach A: an `allowedOrigins` list in `gateway` config rejects upgrades whose `Origin` doesn't match. Defaults to `["*"]` when `auth.mode: "token"` is set (token auth already gates access; this is defense-in-depth). When `auth.mode: "none"` on non-loopback (already refused at startup), this is moot. Operators can restrict to specific domains for stricter deployments.
 - [ ] **Config screen awareness** — When `connectUrl` is set (in `desktop.json` or via `CHAI_GATEWAY_URL`), the desktop config screen shows "Remote gateway: \<url\>" instead of "Bind" / "Port". Auth mode and token are still shown (the client needs them for pairing).
@@ -206,16 +206,16 @@ The desktop config screen currently shows "Bind" and "Port" from the local `conf
 
 ### Non-functional
 
-- [x] **Backward compatibility** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). When `desktop.json` is absent or `connectUrl` is not set, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port` and operate in spawn-or-attach mode.
+- [x] **Backward compatibility** — When `desktop.json` is absent or `connectUrl` is not set, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port` and operate in spawn-or-attach mode.
 - [ ] **No new required dependencies for gateway** — TLS support is client-side only (desktop crate). The gateway does not gain TLS dependencies.
-- [x] **Config validation** — Implemented by [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md). `connectUrl` must start with `ws://` or `wss://`. Invalid schemes are rejected at load time.
+- [x] **Config validation** — `connectUrl` must start with `ws://` or `wss://`. Invalid schemes are rejected at load time.
 - [ ] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
 
 ## Phases
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | `desktop.json` with `gateway.connectUrl` + `CHAI_GATEWAY_URL` + attach-only mode | Tracked in [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) |
+| 1 | `desktop.json` with `gateway.connectUrl` + `CHAI_GATEWAY_URL` + attach-only mode | Partially done — `desktop.json` file, loading, and validation implemented (appearance and logs blocks). `gateway.connectUrl` field and attach-only mode pending. |
 | 2 | `wss://` support in desktop client | Not started |
 | 3 | WebSocket origin validation | Not started |
 | 4 | Documentation, user journey, and config screen updates | Not started |
@@ -244,7 +244,6 @@ When multiple desktop clients connect to a single remote gateway, there is no pe
 
 ## Related Epics and Docs
 
-- [FEAT_DESKTOP_JSON.md](../FEAT_DESKTOP_JSON.md) — Desktop configuration file (prerequisite: `desktop.json`, `gateway.connectUrl`, `CHAI_GATEWAY_URL`, attach-only mode)
 - [SECURITY.md](../SECURITY.md) — Known vulnerabilities and out-of-scope items (TLS, origin validation, session isolation)
 - [DESKTOP.md](../spec/DESKTOP.md) — Desktop application spec (spawn vs. attach modes)
 - [CONFIGURATION.md](../spec/CONFIGURATION.md) — Configuration schema (gateway block, auth, env overrides)

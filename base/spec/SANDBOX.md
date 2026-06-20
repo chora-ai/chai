@@ -54,7 +54,7 @@ Path canonicalization happens at execution time (not startup), so renames and mo
 
 ## CWD Restriction
 
-When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `sandbox.disabled` is `true`), no CWD override is applied — the process inherits the gateway's working directory.
+When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `sandbox.mode` is `"unsafe"` and the sandbox directory is missing), no CWD override is applied — the process inherits the gateway's working directory. When `sandbox.mode` is `"current"` and the sandbox directory is missing, the CWD is used as the sole writable root, so CWD restriction naturally confines writes to the current directory.
 
 ## Read-Path Validation
 
@@ -68,13 +68,25 @@ Arguments annotated with `unsafePath: true` skip all sandbox validation and the 
 
 ## Missing Sandbox Directory
 
-When the sandbox directory does not exist at profile root, there are no writable roots. All `writePath` and `readPath` validations fail. Skills without path-annotated arguments are **unaffected** — they continue to work normally.
+When the sandbox directory does not exist at profile root, there are no writable roots from the profile sandbox. The gateway's behavior depends on the `sandbox.mode` configuration setting (see [CONFIGURATION.md](CONFIGURATION.md)):
 
-### Gateway Startup Check
+| Mode | Sandbox directory missing | Sandbox directory present |
+|------|--------------------------|---------------------------|
+| **`strict`** (default) | Gateway **refuses to start** | Normal sandbox with writable roots |
+| **`current`** | Gateway uses the **current working directory** as the sole writable root; CWD confinement and path validation remain active | Normal sandbox with writable roots (identical to `strict`) |
+| **`unsafe`** | Gateway starts **without** a sandbox; CWD confinement and path validation are disabled | Normal sandbox with writable roots |
 
-By default (`sandbox.disabled: false`), the gateway **refuses to start** when the sandbox directory is missing. The error message includes the expected path and instructions to either re-run `chai init` (which recovers the sandbox for existing profiles) or set `sandbox.disabled: true`.
+### `strict` Mode (Default)
 
-When `sandbox.disabled` is `true`, the gateway starts without a sandbox and logs a warning that CWD confinement and path validation are disabled. This bypasses the default-closed security model and should only be used when the operator explicitly accepts the risk.
+The gateway **refuses to start** when the sandbox directory is missing. The error message includes the expected path and instructions to either re-run `chai init` (which recovers the sandbox for existing profiles) or set `sandbox.mode` to `"current"` or `"unsafe"`.
+
+### `current` Mode
+
+When the sandbox directory is missing, the gateway falls back to using the current working directory as the sole writable root. All path validation and CWD restriction still apply — writes are confined to the CWD tree. This is useful for development workflows where the gateway is launched from a project directory. When the sandbox directory exists, `"current"` behaves identically to `"strict"`.
+
+### `unsafe` Mode
+
+The gateway starts without a sandbox and logs a warning that CWD confinement and path validation are disabled. This bypasses the default-closed security model and should only be used when the operator explicitly accepts the risk of running without path restrictions.
 
 ### Recovery via `chai init`
 

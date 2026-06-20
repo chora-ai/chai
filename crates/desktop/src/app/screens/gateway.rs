@@ -9,7 +9,7 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
         ui,
         "Gateway",
         Some(if running {
-            "Values loaded from gateway status."
+            "Values loaded from connected gateway."
         } else {
             "Start the gateway to load gateway status."
         }),
@@ -37,8 +37,12 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                     28,
                                 );
                             } else {
+                                // Raw JSON was not included in the last status fetch
+                                // (computed on-demand only). Request an immediate
+                                // refetch so the next poll includes it.
+                                app.request_status_refetch();
                                 ui.label(
-                                    egui::RichText::new("(raw JSON not available for this status)")
+                                    egui::RichText::new("Loading raw JSON…")
                                         .weak(),
                                 );
                             }
@@ -149,7 +153,7 @@ fn status_channels_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetai
             return;
         };
         if obj.is_empty() {
-            ui.label(egui::RichText::new("(empty)").weak());
+            ui.label(egui::RichText::new("(no channels)").weak());
             return;
         }
         let mut names: Vec<_> = obj.keys().cloned().collect();
@@ -307,7 +311,7 @@ fn context_mode_for_agent(s: &GatewayStatusDetails, agent_id: &str) -> String {
 fn status_sandbox_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
     dashboard::section_group(ui, "Sandbox", |ui| {
         if let Some(s) = status {
-            dashboard::kv(ui, "Disabled", &s.sandbox_disabled.to_string());
+            dashboard::kv(ui, "Mode", s.sandbox_mode.as_str());
             dashboard::kv(ui, "Roots", &s.sandbox_roots.to_string());
         } else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());

@@ -7,7 +7,7 @@ use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::Message;
 
 use super::super::{
-    AgentReply, AgentSkillsRuntime, ChaiApp, GatewayStatusDetails, PROBE_INTERVAL_FRAMES,
+    AgentReply, AgentSkillsRuntime, ChaiApp, GatewayStatusDetails, StatusViewMode, PROBE_INTERVAL_FRAMES,
     STATUS_INTERVAL_FRAMES,
 };
 
@@ -20,6 +20,7 @@ impl ChaiApp {
                 self.gateway_responds = ok;
                 if !ok {
                     self.gateway_status = None;
+                    self.invalidate_agent_detail_cache();
                 }
                 self.probe_receiver = None;
             }
@@ -28,7 +29,7 @@ impl ChaiApp {
         if self.probe_receiver.is_none() && self.frames_since_probe >= PROBE_INTERVAL_FRAMES {
             self.frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.effective_profile_override().map(String::from);
+            let profile_override = self.cached_profile_override.clone();
             std::thread::spawn(move || {
                 let Ok((config, _paths)) = lib::config::load_config(profile_override.as_deref()) else {
                     let _ = tx.send(false);
@@ -102,9 +103,47 @@ impl ChaiApp {
     pub(crate) fn poll_status_fetch(&mut self) {
         if let Some(rx) = &self.status_receiver {
             if let Ok(result) = rx.try_recv() {
+                let prev_status = self.gateway_status.take();
                 self.gateway_status = result.ok();
                 self.reconcile_dashboard_agent_selection();
                 self.reconcile_model_with_status();
+
+                // Only invalidate the agent detail cache when something that
+                // affects agent detail data actually changed. Unconditional
+                // invalidation on every status poll caused the Agent and Tools
+                // screens to flicker "Loading agent detail..." every ~2 seconds.
+                let should_invalidate = match (&prev_status, &self.gateway_status) {
+                    (Some(prev), Some(new)) => {
+                        // Agent roster changed (ids added or removed).
+                        let prev_keys: std::collections::HashSet<_> =
+                            prev.agent_skills.keys().collect();
+                        let new_keys: std::collections::HashSet<_> =
+                            new.agent_skills.keys().collect();
+                        if prev_keys != new_keys {
+                            true
+                        } else if prev.skills_lock_generation != new.skills_lock_generation {
+                            // Skill lock generation changed (packages re-resolved).
+                            true
+                        } else {
+                            // Any cached agent's context mode changed.
+                            self.agent_detail_cache.keys().any(|id| {
+                                prev.agent_skills
+                                    .get(id)
+                                    .and_then(|r| r.context_mode.as_deref())
+                                    != new
+                                        .agent_skills
+                                        .get(id)
+                                        .and_then(|r| r.context_mode.as_deref())
+                            })
+                        }
+                    }
+                    (None, Some(_)) => true, // First status after gateway starts.
+                    _ => false,              // Gateway went down — already handled by probe.
+                };
+
+                if should_invalidate {
+                    self.invalidate_agent_detail_cache();
+                }
                 self.status_receiver = None;
                 if self.gateway_status.is_none() {
                     // Previous fetch failed — reset the frame counter so the next
@@ -128,9 +167,10 @@ impl ChaiApp {
         if need_immediate || self.frames_since_status >= STATUS_INTERVAL_FRAMES {
             self.frames_since_status = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.effective_profile_override().map(String::from);
+            let profile_override = self.cached_profile_override.clone();
+            let needs_raw_json = self.status_view_mode == StatusViewMode::RawJson;
             std::thread::spawn(move || {
-                let result = fetch_gateway_status(profile_override.as_deref());
+                let result = fetch_gateway_status(profile_override.as_deref(), needs_raw_json);
                 let _ = tx.send(result);
             });
             self.status_receiver = Some(rx);
@@ -173,7 +213,7 @@ impl ChaiApp {
         if self.frames_since_gateway_logs >= STATUS_INTERVAL_FRAMES {
             self.frames_since_gateway_logs = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.effective_profile_override().map(String::from);
+            let profile_override = self.cached_profile_override.clone();
             let after_seq = self.gateway_logs_cursor;
             std::thread::spawn(move || {
                 let result = fetch_gateway_logs(profile_override.as_deref(), after_seq);
@@ -181,6 +221,61 @@ impl ChaiApp {
             });
             self.gateway_logs_receiver = Some(rx);
         }
+    }
+
+    /// Poll for in-flight `agentDetail` fetch result and optionally start a new fetch.
+    /// Called each frame. Fetches agent detail on-demand when the Agent or Tools
+    /// screen is active and the selected agent's detail is not yet cached (or the
+    /// user switched to a different agent).
+    pub(crate) fn poll_agent_detail(&mut self) {
+        // Check for in-flight result.
+        if let Some((ref _in_flight_id, ref rx)) = self.agent_detail_receiver {
+            if let Ok(result) = rx.try_recv() {
+                if let Ok(detail) = result {
+                    self.agent_detail_cache.insert(detail.agent_id.clone(), detail);
+                }
+                self.agent_detail_receiver = None;
+            }
+        }
+
+        // Don't fetch if gateway isn't running or a fetch is already in flight.
+        if !self.gateway_responds || self.agent_detail_receiver.is_some() {
+            return;
+        }
+
+        // Determine the selected agent id from the dashboard picker.
+        let selected_id = self.dashboard_agent_id.clone().or_else(|| {
+            self.gateway_status.as_ref().and_then(|gs| gs.orchestrator_id.clone())
+        });
+
+        let Some(ref target_id) = selected_id else {
+            return;
+        };
+
+        // Only fetch if this agent isn't cached yet.
+        if self.agent_detail_cache.contains_key(target_id) {
+            return;
+        }
+
+        self.agent_detail_requested_id = Some(target_id.clone());
+        let (tx, rx) = mpsc::channel();
+        let profile_override = self.cached_profile_override.clone();
+        let agent_id = target_id.clone();
+        let agent_id_clone = agent_id.clone();
+        std::thread::spawn(move || {
+            let result = fetch_agent_detail(profile_override.as_deref(), &agent_id_clone);
+            let _ = tx.send(result);
+        });
+        self.agent_detail_receiver = Some((agent_id, rx));
+    }
+
+    /// Invalidate the agent detail cache. Called when a status refresh detects a
+    /// material change (agent roster, skill lock generation, or context mode), or
+    /// when the gateway stops.
+    pub(crate) fn invalidate_agent_detail_cache(&mut self) {
+        self.agent_detail_cache.clear();
+        self.agent_detail_receiver = None;
+        self.agent_detail_requested_id = None;
     }
 }
 
@@ -221,7 +316,7 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
 }
 
 /// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
-pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<GatewayStatusDetails, String> {
+pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_json: bool) -> Result<GatewayStatusDetails, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -258,7 +353,7 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
             "method": "connect",
             "params": connect_params
         });
-        ws.send(Message::Text(connect_req.to_string()))
+        ws.send(Message::Text(connect_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -299,7 +394,7 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
             "method": "status",
             "params": {}
         });
-        ws.send(Message::Text(status_req.to_string()))
+        ws.send(Message::Text(status_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -318,13 +413,12 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                         .unwrap_or("status failed");
                     return Err(err.to_string());
                 }
-                details.status_response_json = serde_json::to_string_pretty(&res).ok();
+                details.status_response_json = if needs_raw_json { serde_json::to_string_pretty(&res).ok() } else { None };
                 let payload = res.get("payload").ok_or("missing payload")?;
                 let gateway = payload.get("gateway");
                 let agents_pl = payload.get("agents");
                 let providers_pl = payload.get("providers");
                 details.channels_block = payload.get("channels").cloned();
-                details.providers_block = payload.get("providers").cloned();
                 if let Some(sp) = payload.get("skills") {
                     details.skills_packages_discovered =
                         sp.get("packagesDiscovered").and_then(|v| v.as_u64());
@@ -360,11 +454,12 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                details.sandbox_disabled = payload
+                details.sandbox_mode = payload
                     .get("sandbox")
-                    .and_then(|s| s.get("disabled"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
+                    .and_then(|s| s.get("mode"))
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("strict")
+                    .to_string();
                 details.sandbox_roots = payload
                     .get("sandbox")
                     .and_then(|s| s.get("roots"))
@@ -384,21 +479,8 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                         let id = id.to_string();
                         let role = entry.get("role").and_then(|v| v.as_str()).unwrap_or("");
 
-                        if let Some(s) = entry.get("systemContext").and_then(|v| v.as_str()) {
-                            details
-                                .agent_system_contexts
-                                .insert(id.clone(), s.to_string());
-                        }
-
-                        if let Some(t) = entry
-                            .get("tools")
-                            .and_then(|v| v.as_str())
-                            .filter(|s| !s.is_empty())
-                        {
-                            details.agent_tools.insert(id.clone(), t.to_string());
-                        }
-
-                        // Parse per-agent skill runtime data from flat entry fields.
+                        // Parse per-agent skill runtime data (lightweight fields only;
+                        // systemContext, tools, skillsContext are fetched on-demand via agentDetail).
                         let mut agent_rt = AgentSkillsRuntime::default();
                         agent_rt.enabled_skills = entry
                             .get("enabledSkills")
@@ -413,17 +495,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                             .get("contextMode")
                             .and_then(|v| v.as_str())
                             .map(String::from);
-                        agent_rt.skills_context = entry
-                            .get("skillsContext")
-                            .and_then(|v| v.as_object())
-                            .map(|obj| {
-                                obj.iter()
-                                    .filter_map(|(k, v)| {
-                                        v.as_str().map(|s| (k.clone(), s.to_string()))
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
                         details.agent_skills.insert(id.clone(), agent_rt);
 
                         // Backfill agent_context_modes from per-agent runtime data.
@@ -459,19 +530,10 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>) -> Result<Gat
                                             .filter(|s| !s.is_empty())
                                             .collect()
                                     });
-                                details.system_context = entry
-                                    .get("systemContext")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                // Top-level orchestrator shortcuts (mirror from agent_skills).
+                                // Top-level orchestrator shortcuts (lightweight only).
                                 if let Some(rt) = details.agent_skills.get(&id) {
-                                    details.skills_context = rt.skills_context.clone();
                                     details.orchestrator_enabled_skills = rt.enabled_skills.clone();
                                 }
-                                details.tools = entry
-                                    .get("tools")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
                                 // Orchestrator limit fields.
                                 details.max_tool_loops_per_turn = entry
                                     .get("maxToolLoopsPerTurn")
@@ -641,7 +703,7 @@ pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64)
             "method": "connect",
             "params": connect_params
         });
-        ws.send(Message::Text(connect_req.to_string()))
+        ws.send(Message::Text(connect_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -683,7 +745,7 @@ pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64)
             "method": "logs",
             "params": { "afterSeq": after_seq }
         });
-        ws.send(Message::Text(logs_req.to_string()))
+        ws.send(Message::Text(logs_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -720,6 +782,143 @@ pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64)
             }
         }
         Err("no logs response".to_string())
+    })
+}
+
+/// Fetch per-agent detail via the `agentDetail` WebSocket method.
+/// Returns the heavy fields (systemContext, tools, skillsContext) for a single agent,
+/// fetched on-demand when the Agent or Tools screen is active.
+pub(crate) fn fetch_agent_detail(
+    profile_override: Option<&str>,
+    agent_id: &str,
+) -> Result<crate::app::types::AgentDetail, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Read challenge.
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+
+        // Connect.
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for connect response.
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+
+        // Send agentDetail request.
+        let detail_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "agentDetail",
+            "params": { "agentId": agent_id }
+        });
+        ws.send(Message::Text(detail_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Read agentDetail response.
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("agentDetail failed");
+                    return Err(err.to_string());
+                }
+                let payload = res.get("payload").ok_or("missing payload")?;
+                let mut detail = crate::app::types::AgentDetail::default();
+                detail.agent_id = agent_id.to_string();
+                detail.role = payload
+                    .get("role")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                detail.system_context = payload
+                    .get("systemContext")
+                    .and_then(|v| v.as_str())
+                    .map(String::from);
+                detail.tools = payload
+                    .get("tools")
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(String::from);
+                detail.skills_context = payload
+                    .get("skillsContext")
+                    .and_then(|v| v.as_object())
+                    .map(|obj| {
+                        obj.iter()
+                            .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                return Ok(detail);
+            }
+        }
+        Err("no agentDetail response".to_string())
     })
 }
 
@@ -779,7 +978,7 @@ pub(crate) fn run_agent_turn(
             "method": "connect",
             "params": connect_params
         });
-        ws.send(Message::Text(connect_req.to_string()))
+        ws.send(Message::Text(connect_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -829,7 +1028,7 @@ pub(crate) fn run_agent_turn(
             "method": "agent",
             "params": agent_params
         });
-        ws.send(Message::Text(agent_req.to_string()))
+        ws.send(Message::Text(agent_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -941,7 +1140,7 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
             "method": "connect",
             "params": connect_params
         });
-        ws.send(Message::Text(connect_req.to_string()))
+        ws.send(Message::Text(connect_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -979,7 +1178,7 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
             "method": "stop",
             "params": { "sessionId": session_id }
         });
-        ws.send(Message::Text(stop_req.to_string()))
+        ws.send(Message::Text(stop_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 

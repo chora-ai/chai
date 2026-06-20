@@ -66,19 +66,34 @@ This mechanically prevents path traversal, symlink escape, and CWD-based implici
 
 ## When the Sandbox Directory Is Missing
 
-If the `sandbox/` directory does not exist for a profile, the sandbox has no writable roots and all `writePath` validations fail. Skills that do not use `writePath` args (read-only tools) are unaffected.
+If the `sandbox/` directory does not exist for a profile, the gateway's behavior depends on the `sandbox.mode` setting:
 
-### Gateway Refuses to Start Without a Sandbox
+| Mode | When sandbox directory is missing | When sandbox directory exists |
+|------|-----------------------------------|-------------------------------|
+| `"strict"` (default) | Gateway **refuses to start** | Normal sandbox |
+| `"current"` | Gateway uses the **current working directory** as the sole writable root; path validation remains active | Normal sandbox (same as `strict`) |
+| `"unsafe"` | Gateway starts **without** a sandbox; CWD confinement and path validation are disabled | Normal sandbox |
 
-By default, the gateway **refuses to start** when the sandbox directory is missing. This prevents a degraded security state where CWD confinement and path validation are silently disabled. The error message includes the expected sandbox path and instructions to fix the issue:
+### Gateway Refuses to Start Without a Sandbox (Strict Mode)
+
+By default (`sandbox.mode: "strict"`), the gateway **refuses to start** when the sandbox directory is missing. This prevents a degraded security state where CWD confinement and path validation are silently disabled. The error message includes the expected sandbox path and instructions to fix the issue:
 
 - **Re-run `chai init`** — This recovers the sandbox directory for existing profiles. Other profile files are not modified.
-- **Set `sandbox.disabled: true`** — This explicitly opts in to running without a sandbox. The gateway will start and log a warning that CWD confinement and path validation are disabled. This should only be used when you intentionally do not want a sandbox.
+- **Set `sandbox.mode: "current"`** — This uses the current working directory as the sandbox root. Path validation and CWD confinement remain active. This is useful when running the gateway from a project directory.
+- **Set `sandbox.mode: "unsafe"`** — This explicitly opts in to running without a sandbox. The gateway will start and log a warning that CWD confinement and path validation are disabled. This should only be used when you intentionally do not want a sandbox.
 
 ```json
 {
   "sandbox": {
-    "disabled": true
+    "mode": "current"
+  }
+}
+```
+
+```json
+{
+  "sandbox": {
+    "mode": "unsafe"
   }
 }
 ```

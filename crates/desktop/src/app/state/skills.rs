@@ -1,11 +1,15 @@
 use std::sync::mpsc;
 
-use super::super::{ChaiApp, STATUS_INTERVAL_FRAMES};
+use super::super::{ChaiApp, Screen, STATUS_INTERVAL_FRAMES};
 
 impl ChaiApp {
     /// Poll for skills fetch result and optionally start a new fetch. Call each frame.
-    /// Skills are refreshed on the same cadence as gateway status (~0.5 Hz), or immediately
-    /// when the cache is empty.
+    ///
+    /// Skills are fetched on-demand: immediately when the cache is empty (e.g.
+    /// after profile switch, gateway stop, or profile override change), and
+    /// periodically only when the Skills or Agent screen is active. Other screens do not
+    /// trigger periodic skills fetches, since skills data rarely changes while
+    /// the gateway is running.
     pub(crate) fn poll_skills_fetch(&mut self) {
         if let Some(rx) = &self.skills_fetch_receiver {
             if let Ok(result) = rx.try_recv() {
@@ -18,12 +22,22 @@ impl ChaiApp {
         if self.skills_fetch_receiver.is_some() {
             return;
         }
+
         let need_immediate = self.cached_skills.is_none();
+        let screen_active = matches!(self.current_screen, Screen::Skills | Screen::Agent);
+
+        // Always fetch immediately when the cache is empty (e.g. after
+        // invalidation from profile switch / gateway stop). Otherwise only
+        // refresh periodically when the Skills or Agent screen is active.
+        if !need_immediate && !screen_active {
+            return;
+        }
+
         self.frames_since_skills_fetch = self.frames_since_skills_fetch.saturating_add(1);
         if need_immediate || self.frames_since_skills_fetch >= STATUS_INTERVAL_FRAMES {
             self.frames_since_skills_fetch = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.effective_profile_override().map(String::from);
+            let profile_override = self.cached_profile_override.clone();
             std::thread::spawn(move || {
                 let result = fetch_skills(profile_override.as_deref());
                 let _ = tx.send(result);
@@ -35,6 +49,9 @@ impl ChaiApp {
     /// Invalidate the skills cache, forcing a refresh on the next poll.
     pub(crate) fn invalidate_skills_cache(&mut self) {
         self.cached_skills = None;
+        // Reset frame counter so the immediate fetch on next poll starts a
+        // fresh interval afterward.
+        self.frames_since_skills_fetch = 0;
     }
 }
 

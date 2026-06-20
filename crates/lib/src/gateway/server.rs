@@ -20,8 +20,8 @@ use crate::config::{
 use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
-    AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams, StopParams,
-    WsRequest, WsResponse,
+    AgentDetailParams, AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams,
+    StopParams, WsRequest, WsResponse,
 };
 use crate::init;
 use crate::orchestration::{
@@ -314,7 +314,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
     let mut out = String::new();
     out.push_str("## Skills\n\n");
     out.push_str("You have skills. Skills have tools.\n\n");
-    out.push_str("You can call `read_skill` to read a skill.\n\n");
+    out.push_str("You can call `read_skill` to read about a skill.\n\n");
     out.push_str("Available skills:\n\n");
     for s in skills {
         out.push_str("- `");
@@ -325,7 +325,7 @@ fn build_skill_context_compact(skills: &[Skill]) -> String {
         } else {
             &s.description
         });
-        out.push_str("\n\n");
+        out.push_str("\n");
     }
     out
 }
@@ -538,6 +538,20 @@ fn broadcast_session_message(
     });
     if let Ok(text) = serde_json::to_string(&event) {
         let _ = state.event_tx.send(text);
+    }
+}
+
+/// Broadcast a `gateway.config.changed` event to connected WebSocket clients.
+/// Called when model discovery updates the provider model list so the desktop
+/// can refresh its status display immediately instead of waiting for the next poll.
+fn broadcast_config_changed(event_tx: &tokio::sync::broadcast::Sender<String>) {
+    let event = json!({
+        "type": "event",
+        "event": crate::orchestration::delegate::EVENT_CONFIG_CHANGED,
+        "payload": {},
+    });
+    if let Ok(text) = serde_json::to_string(&event) {
+        let _ = event_tx.send(text);
     }
 }
 
@@ -827,7 +841,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         );
     }
     let sandbox = crate::exec::WriteSandbox::new(&paths.sandbox_dir());
-    let sandbox_roots_count = if sandbox.has_roots() { sandbox.roots().len() } else { 0 };
     let sandbox_opt = if sandbox.has_roots() {
         log::info!(
             "write sandbox: {} writable root(s) from {}",
@@ -835,18 +848,46 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             paths.sandbox_dir().display()
         );
         Some(sandbox)
-    } else if config.sandbox.disabled {
-        log::warn!(
-            "no sandbox directory at {}; CWD confinement and path validation are disabled (sandbox.disabled is enabled)",
-            paths.sandbox_dir().display()
-        );
-        None
     } else {
-        anyhow::bail!(
-            "sandbox directory not found at {}; set sandbox.disabled to true to start without a sandbox",
-            paths.sandbox_dir().display()
-        );
+        match config.sandbox.mode {
+            config::SandboxMode::Strict => {
+                anyhow::bail!(
+                    "sandbox directory not found at {}; set sandbox.mode to \"current\" (CWD as writable root) or \"unsafe\" (no sandbox) to start without a sandbox directory",
+                    paths.sandbox_dir().display()
+                );
+            }
+            config::SandboxMode::Current => {
+                let cwd_sandbox = crate::exec::WriteSandbox::from_cwd();
+                let cwd_roots = cwd_sandbox.roots().len();
+                if cwd_sandbox.has_roots() {
+                    log::warn!(
+                        "no sandbox directory at {}; falling back to CWD sandbox ({} writable root at {})",
+                        paths.sandbox_dir().display(),
+                        cwd_roots,
+                        cwd_sandbox.roots()[0].display()
+                    );
+                    Some(cwd_sandbox)
+                } else {
+                    anyhow::bail!(
+                        "no sandbox directory at {} and CWD could not be resolved; set sandbox.mode to \"unsafe\" to start without a sandbox",
+                        paths.sandbox_dir().display()
+                    );
+                }
+            }
+            config::SandboxMode::Unsafe => {
+                log::warn!(
+                    "no sandbox directory at {}; CWD confinement and path validation are disabled (sandbox.mode is \"unsafe\")",
+                    paths.sandbox_dir().display()
+                );
+                None
+            }
+        }
     };
+    // Recount roots after potential CWD fallback.
+    let sandbox_roots_count = sandbox_opt
+        .as_ref()
+        .map(|s| s.roots().len())
+        .unwrap_or(0);
     let orch_built =
         build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
     let skills = orch_built.skills.clone();
@@ -933,6 +974,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     // Spawn model discovery tasks for each configured provider.
     {
         let states = state.provider_states.clone();
+        let event_tx = state.event_tx.clone();
         let providers = &config.providers;
         let agents = &config.agents;
         for def in &providers.entries {
@@ -949,6 +991,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
             };
             let model_discovery = def.model_discovery;
             let static_models = def.static_models.clone();
+            let tx = event_tx.clone();
 
             match model_discovery {
                 config::ModelDiscovery::Auto => {
@@ -964,6 +1007,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                                         let names: Vec<String> = list.into_iter().map(|m| m.name).collect();
                                         *models.write().await = names;
                                         log::info!("{} model discovery completed", provider_id);
+                                        broadcast_config_changed(&tx);
                                     }
                                     Err(e) => {
                                         log::debug!("{} model discovery failed: {}", provider_id, e);
@@ -983,6 +1027,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                                     Ok(list) => {
                                         *models.write().await = list;
                                         log::info!("{} model discovery completed", provider_id);
+                                        broadcast_config_changed(&tx);
                                     }
                                     Err(e) => {
                                         log::debug!("{} model discovery failed: {}", provider_id, e);
@@ -1004,6 +1049,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                             Ok(list) => {
                                 *models.write().await = list;
                                 log::info!("{} model discovery completed (lmstudio)", provider_id);
+                                broadcast_config_changed(&tx);
                             }
                             Err(e) => {
                                 log::debug!("{} model discovery failed (lmstudio): {}", provider_id, e);
@@ -1018,6 +1064,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
                         names.sort();
                         *models.write().await = names;
                         log::info!("{} model list loaded (static from config)", provider_id);
+                        broadcast_config_changed(&tx);
                     });
                 }
             }
@@ -1328,7 +1375,7 @@ struct LogsQuery {
     /// Return lines with sequence numbers greater than this value.
     #[serde(default)]
     after_seq: u64,
-    /// Maximum number of lines to return (default 200, max 2000).
+    /// Maximum number of lines to return (default 200, max 1000).
     #[serde(default = "default_log_lines")]
     lines: usize,
 }
@@ -1339,7 +1386,7 @@ fn default_log_lines() -> usize {
 
 /// GET /logs?afterSeq=N&lines=M returns log lines from the gateway's ring buffer.
 async fn logs_http(Query(params): Query<LogsQuery>) -> Json<serde_json::Value> {
-    let lines_limit = params.lines.min(2000);
+    let lines_limit = params.lines.min(1000);
     let (lines, max_seq) = crate::logging::log_lines_after(params.after_seq);
     let lines: Vec<String> = lines.into_iter().take(lines_limit).collect();
     Json(json!({
@@ -1383,7 +1430,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
     let challenge_json = connect_challenge_event(&nonce, ts_ms);
-    if socket.send(Message::Text(challenge_json)).await.is_err() {
+    if socket.send(Message::Text(challenge_json.into())).await.is_err() {
         return;
     }
 
@@ -1395,7 +1442,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 match event {
                     Ok(text) => {
                         let is_shutdown = text == SHUTDOWN_EVENT_JSON;
-                        let _ = socket.send(Message::Text(text)).await;
+                        let _ = socket.send(Message::Text(text.into())).await;
                         if is_shutdown {
                             break;
                         }
@@ -1422,7 +1469,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     Ok(p) => p,
                     Err(_) => {
                         let res = WsResponse::err(&req.id, "invalid connect params");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
                 };
@@ -1435,7 +1482,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         }),
                         None => {
                             let res = WsResponse::err(&req.id, "invalid device token");
-                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             continue;
                         }
                     }
@@ -1443,7 +1490,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     if let Err(e) = verify_device_signature(device, &params, &nonce) {
                         log::debug!("device signature verification failed: {}", e);
                         let res = WsResponse::err(&req.id, e);
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
                     if let Some(entry) = state.pairing_store.get_by_device_id(&device.id).await {
@@ -1461,7 +1508,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 &req.id,
                                 "pairing required: provide gateway token to approve this device",
                             );
-                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             continue;
                         }
                         let new_token = uuid::Uuid::new_v4().to_string();
@@ -1492,12 +1539,12 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 &req.id,
                                 "unauthorized: gateway token missing (set CHAI_GATEWAY_TOKEN or gateway.auth.token)",
                             );
-                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             continue;
                         }
                         if provided != required {
                             let res = WsResponse::err(&req.id, "unauthorized: gateway token mismatch");
-                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                            let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             continue;
                         }
                     }
@@ -1513,7 +1560,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     auth: auth_for_hello,
                 };
                 let res = WsResponse::ok(&req.id, serde_json::to_value(&hello).unwrap_or(json!({})));
-                if socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await.is_ok() {
+                if socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await.is_ok() {
                     sent_hello = true;
                 }
             }
@@ -1523,7 +1570,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "protocol": PROTOCOL_VERSION,
                 });
                 let res = WsResponse::ok(&req.id, payload);
-                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             "status" => {
                 let auth_mode = if state.required_token.is_some() {
@@ -1539,18 +1586,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     &provider_choice,
                 );
 
-                let system_context = &state.system_context;
                 let orch_mode = orchestrator_context_mode(&state.config.agents);
-                let tools_string = state
-                    .tools_list
-                    .as_ref()
-                    .and_then(|tools| {
-                        if tools.is_empty() {
-                            None
-                        } else {
-                            serde_json::to_string_pretty(tools).ok()
-                        }
-                    });
                 let orchestrator_id = state
                     .config
                     .agents
@@ -1653,9 +1689,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "enabledProviders": serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
                     "enabledSkills": orch_enabled_skills,
                     "contextMode": orch_context_mode_wire,
-                    "systemContext": serde_json::to_value(&system_context).unwrap_or_else(|_| json!("")),
-                    "tools": serde_json::to_value(&tools_string).unwrap_or_else(|_| serde_json::Value::Null),
-                    "skillsContext": skills_context_json(state.skills.as_ref()),
                     "maxToolLoopsPerTurn": state.config.agents.max_tool_loops_per_turn,
                     "maxDelegationsPerTurn": state.config.agents.max_delegations_per_turn,
                     "maxDelegationsPerSession": state.config.agents.max_delegations_per_session,
@@ -1666,14 +1699,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let mut entries: Vec<serde_json::Value> = vec![orch_entry];
                 for wid in &worker_ids {
                     if let Some(rt) = state.worker_delegate_runtimes.get(wid) {
-                        let w_system_context = &rt.system_context;
-                        let w_tools_string = rt.tools_list.as_ref().and_then(|tools| {
-                            if tools.is_empty() {
-                                None
-                            } else {
-                                serde_json::to_string_pretty(tools).ok()
-                            }
-                        });
                         let (w_prov, w_model) = worker_defaults
                             .get(wid)
                             .cloned()
@@ -1691,12 +1716,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             "enabledProviders": serde_json::Value::Null,
                             "enabledSkills": w_enabled_skills,
                             "contextMode": w_context_mode_wire,
-                            "systemContext": serde_json::to_value(&w_system_context).unwrap_or_else(|_| json!("")),
-                            "tools": w_tools_string
-                                .as_ref()
-                                .map(|s| serde_json::Value::String(s.clone()))
-                                .unwrap_or(serde_json::Value::Null),
-                            "skillsContext": skills_context_json(rt.skills.as_ref()),
                             "maxToolLoopsPerTurn": serde_json::Value::Null,
                             "maxDelegationsPerTurn": serde_json::Value::Null,
                             "maxDelegationsPerSession": serde_json::Value::Null,
@@ -1723,7 +1742,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "auth": auth_mode,
                 });
                 let sandbox_block = json!({
-                    "disabled": state.config.sandbox.disabled,
+                    "mode": state.config.sandbox.mode.as_str(),
                     "roots": state.sandbox_roots_count,
                 });
                 // Key order matches `base/spec/GATEWAY_STATUS.md` and config cross-check:
@@ -1740,14 +1759,80 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 pl.insert("skills".into(), skills_block);
                 let payload = serde_json::Value::Object(pl);
                 let res = WsResponse::ok(&req.id, payload);
-                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+            }
+            "agentDetail" => {
+                let params: AgentDetailParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let res = WsResponse::err(&req.id, "invalid agentDetail params");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                let agent_id = params.agent_id.trim();
+                if agent_id.is_empty() {
+                    let res = WsResponse::err(&req.id, "missing agentId");
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                    continue;
+                }
+                let orchestrator_id = state
+                    .config
+                    .agents
+                    .orchestrator_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or("orchestrator");
+                if agent_id == orchestrator_id {
+                    let system_context = &state.system_context;
+                    let tools_string = state
+                        .tools_list
+                        .as_ref()
+                        .and_then(|tools| {
+                            if tools.is_empty() {
+                                None
+                            } else {
+                                serde_json::to_string_pretty(tools).ok()
+                            }
+                        });
+                    let payload = json!({
+                        "id": orchestrator_id,
+                        "role": "orchestrator",
+                        "systemContext": system_context,
+                        "tools": tools_string,
+                        "skillsContext": skills_context_json(state.skills.as_ref()),
+                    });
+                    let res = WsResponse::ok(&req.id, payload);
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                } else if let Some(rt) = state.worker_delegate_runtimes.get(agent_id) {
+                    let w_tools_string = rt.tools_list.as_ref().and_then(|tools| {
+                        if tools.is_empty() {
+                            None
+                        } else {
+                            serde_json::to_string_pretty(tools).ok()
+                        }
+                    });
+                    let payload = json!({
+                        "id": agent_id,
+                        "role": "worker",
+                        "systemContext": rt.system_context,
+                        "tools": w_tools_string,
+                        "skillsContext": skills_context_json(rt.skills.as_ref()),
+                    });
+                    let res = WsResponse::ok(&req.id, payload);
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                } else {
+                    let res = WsResponse::err(&req.id, "unknown agent id");
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                }
             }
             "send" => {
                 let params: SendParams = match serde_json::from_value(req.params.clone()) {
                     Ok(p) => p,
                     Err(_) => {
                         let res = WsResponse::err(&req.id, "invalid send params");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
                 };
@@ -1755,17 +1840,17 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 match channel {
                     None => {
                         let res = WsResponse::err(&req.id, "channel not found");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     }
                     Some(handle) => {
                         match handle.send_message(&params.conversation_id, &params.message).await {
                             Ok(()) => {
                                 let res = WsResponse::ok(&req.id, json!({ "sent": true }));
-                                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             }
                             Err(e) => {
                                 let res = WsResponse::err(&req.id, e);
-                                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                             }
                         }
                     }
@@ -1776,7 +1861,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     Ok(p) => p,
                     Err(_) => {
                         let res = WsResponse::err(&req.id, "invalid agent params");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
                 };
@@ -1792,7 +1877,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     .await
                 {
                     let res = WsResponse::err(&req.id, e);
-                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     continue;
                 }
                 broadcast_session_message(
@@ -1937,11 +2022,11 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             payload["pendingToolCalls"] = pending;
                         }
                         let res = WsResponse::ok(&req.id, payload);
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     }
                     Err(e) => {
                         let res = WsResponse::err(&req.id, e.to_string());
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     }
                 }
             }
@@ -1950,7 +2035,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     Ok(p) => p,
                     Err(_) => {
                         let res = WsResponse::err(&req.id, "invalid stop params");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
                 };
@@ -1962,7 +2047,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     log::debug!("stop: no active turn for session {}, ignoring", params.session_id);
                 }
                 let res = WsResponse::ok(&req.id, json!({ "stopped": true }));
-                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             "logs" => {
                 let after_seq = req.params.get("afterSeq").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -1973,11 +2058,11 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "lines": lines,
                     "maxSeq": max_seq,
                 }));
-                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             _ => {
                 let res = WsResponse::err(&req.id, format!("unknown method: {}", req.method));
-                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default())).await;
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
         }
             }

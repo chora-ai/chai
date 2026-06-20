@@ -8,10 +8,11 @@
 //! **`payload.skills`**: shared skill store metadata (**`packagesDiscovered`** on disk before per-agent filtering).
 //! **`payload.agents`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
 //! Each object includes **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**
-//! (orchestrator array; **`null`** for workers), **`enabledSkills`**, **`contextMode`**, **`systemContext`** (full static string with date
-//! for that role), **`tools`**, **`skillsContext`** (name → frontmatter-stripped body), and
+//! (orchestrator array; **`null`** for workers), **`enabledSkills`**, **`contextMode`**, and
 //! orchestrator-only delegation caps (**`maxToolLoopsPerTurn`**, **`maxDelegationsPerTurn`**,
 //! **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**; **`null`** for workers).
+//! Heavy per-agent data (**`systemContext`**, **`tools`**, **`skillsContext`**) is available via the
+//! on-demand **`agentDetail`** method, not included in the polling status response.
 //! Per-provider model lists live under **`payload.providers.<id>.models`** (each a flat string array); **`modelDiscovery`** is the discovery method (`"auto"`, `"lmstudio"`, `"static"`).
 use serde::{Deserialize, Serialize};
 
@@ -151,6 +152,14 @@ pub struct AgentParams {
 #[serde(rename_all = "camelCase")]
 pub struct StopParams {
     pub session_id: String,
+}
+
+/// Params for WS method "agentDetail": on-demand per-agent heavy data (system context, tools, skills context).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentDetailParams {
+    /// Agent id to fetch details for (orchestrator id or worker id).
+    pub agent_id: String,
 }
 
 impl WsResponse {

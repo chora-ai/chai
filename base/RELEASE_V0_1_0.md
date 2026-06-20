@@ -27,24 +27,9 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 
 ## Requirements
 
-### Skills Audit and Refinement
-
-- [x] Complete cross-skill audit ([AUDIT_SKILLS.md](AUDIT_SKILLS.md)) — all bundled skills reviewed
-
-### Code Quality and Structure
-
-- [ ] Audit naming conventions — consistent naming across crates, modules, types, and config fields
-- [ ] Audit file structure — no oversized files, logical module organization
-
 ### Documentation
 
-- [ ] Review and update `chai/docs/` for accuracy against shipped features
-- [ ] Review and update `tag/V0_1_0.md` for accuracy against shipped features 
-
-### Experimental Channels
-
-- [ ] Test Signal integration via `crates/spike` (signal-probe) and gateway end-to-end
-- [ ] Test Matrix integration via `crates/spike` (matrix-probe) and gateway end-to-end
+- [ ] Create `tag/V0_1_0.md` with overview of shipped features (no breaking changes) 
 
 ### Release Build and Distribution
 
@@ -66,8 +51,8 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### Release Commit and Tag
 
 - [ ] Update all `Cargo.toml` files to version `0.1.0`
-- [ ] Remove this working document if it still exists
 - [ ] Update `CHANGELOG.md` unreleased heading to version number heading following conventions
+- [ ] Remove this working document before proceeding with the release commit and release tag
 - [ ] Create commit using version number as the commit message `v0.1.0` and push to `release/v0.1.0`
 - [ ] Create annotated tag (`git tag -a`) with exact contents from `tag/V0_1_0.md` and push to origin
 - [ ] Create and switch to release branch `release/v0.1.0` and push to origin
@@ -81,7 +66,3 @@ Per project conventions (see sandbox `AGENTS.md`), backwards compatibility is **
 ### chai-examples
 
 The `chai-examples` repository contains example profiles and skills that users reference alongside chai. Before v0.1.0, these examples must be reviewed and updated to align with the release. The examples repository should be tagged with the same version number as chai so users can identify which examples work with which release (see [RELEASE.md](RELEASE.md) design question 7).
-
-- [ ] Add `skills.lock` for example profiles using v0.1.0 skill format and tools schema (no example skills locked)
-- [ ] Review example profiles (`assistant`, `developer`, `skillsmith`) against v0.1.0 config schema and agent model
-- [ ] Review example skills (`notesmd`, `notesmd-daily`, `websearch`) against v0.1.0 skill format and tools schema

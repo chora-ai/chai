@@ -45,7 +45,7 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
    chai profile switch testing
    chai skill lock
    ```
-   Without a `skills.lock` file, the gateway skips lock verification entirely — even in `strict` mode. Profiles created by `chai init` (`assistant`, `developer`) get a lock file automatically; manually created profiles do not.
+   Without a `skills.lock` file, the gateway refuses to start in `strict` mode (the default). Profiles created by `chai init` (`assistant`, `developer`) get a lock file automatically; manually created profiles do not.
 
 4. **Verify the new profile appears**
    ```bash

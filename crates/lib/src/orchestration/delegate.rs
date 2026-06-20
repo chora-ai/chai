@@ -39,6 +39,8 @@ pub const EVENT_ASSISTANT_PROGRESS: &str = "session.assistant_progress";
 pub const EVENT_TOOL_LOOP_LIMIT: &str = "session.tool_loop_limit";
 /// WebSocket event name: agent turn stopped by user (pause after current iteration).
 pub const EVENT_TURN_STOPPED: &str = "session.turn_stopped";
+/// WebSocket event name: gateway configuration changed (e.g. model discovery updated provider models).
+pub const EVENT_CONFIG_CHANGED: &str = "gateway.config.changed";
 /// Optional broadcast of structured orchestration events to gateway WebSocket clients (`type`: `event`).
 #[derive(Clone)]
 pub struct DelegateObservability {
@@ -248,7 +250,7 @@ pub fn delegate_task_tool_definition() -> ToolDefinition {
         typ: "function".to_string(),
         function: ToolFunctionDefinition {
             name: DELEGATE_TASK_TOOL_NAME.to_string(),
-            description: Some("Delegate a subtask to a worker agent. Use this when the task benefits from a different model, separate context, or specialized skills. Start your instruction with the worker's bracket prefix to target that worker. The worker runs one turn with your instruction and returns the result as a synthesized reply, not raw tool output.".to_string()),
+            description: Some("Delegate a task to a worker agent. Use this when the task benefits from a separate context and the worker has the relevant skills. Start your instruction with the worker's bracket prefix to target that worker. The worker runs one turn with your instruction and returns the result as a synthesized reply, not raw tool output.".to_string()),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {

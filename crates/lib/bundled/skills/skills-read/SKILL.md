@@ -1,5 +1,5 @@
 ---
-description: Inspect and validate Chai skill packages (read-only).
+description: Inspect and validate skill packages (read-only).
 capability_tier: minimal
 variant_of: skills
 metadata:

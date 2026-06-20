@@ -43,9 +43,10 @@ The sidebar organizes screens into groups:
 | Group | Screens |
 |-------|---------|
 | **Chat** | Chat (ungrouped) |
-| **Runtime** | Status, Context, Tools |
-| **Source** | Config, Skills |
-| **Diagnostics** | Logs |
+| **Skills** | Skills (ungrouped) |
+| **Agents** | Agent, Tools |
+| **System** | Config, Gateway, Logging |
+| **Desktop** | Settings |
 
 ### Chat
 
@@ -58,14 +59,24 @@ The sidebar organizes screens into groups:
 - **Turn stopped banner**: when the agent turn is stopped (either via the stop button or the `session.turn_stopped` WebSocket event), an amber-bordered info banner appears in the chat timeline. The banner explains that the agent turn was stopped and the user can send a new message to continue. The `agent` RPC response includes a `stopped: true` field; the desktop adds the banner on receipt if not already present from the WebSocket event. Dedup guards prevent duplicate banners when both the WebSocket event and RPC response arrive for the same stop.
 - **Worker reply rendering**: when `orchestration.delegate.complete` arrives with a `reply` field, the desktop emits a separate chat message with role `"worker"` and source `"worker"`, rendered with a blue border and the worker id as a label. This shows the worker's actual text response as a first-class chat line, not only inside the collapsed `delegate_task` tool result JSON.
 
-### Status
+### Skills
 
-Gateway `status` only — no `config.json` fallback when the gateway is down or status is pending.
+All available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents[]` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for the orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
 
-| Section | Content |
-|---------|---------|
-| **Agents** | Orchestrator (id, date, default provider/model) and workers (id, effective provider/model) from `status.agents`. |
-| **Models** | Discovery lists for all backends from `status.providers`. Orchestration catalog shows all rows. |
+### Agent
+
+`agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `contextMode`).
+
+| Agent | Layout |
+|-------|--------|
+| Orchestrator | Two columns: system text + skill bodies from `agentDetail` (`skillsContext`); falls back to disk when gateway is down. |
+| Workers | Single scroll: full text from `agentDetail`. |
+
+Falls back to disk reads when the `agents` array is absent or `agentDetail` is not yet loaded.
+
+### Tools
+
+Merged Tools JSON from `status`.
 
 ### Config
 
@@ -80,30 +91,21 @@ Read-only summary of `config.json` (loaded via `lib::config::load_config`, same 
 | Instruction routes | ✓ |
 | Full providers block enumeration | ✓ (all provider entries with endpoint type, resolved base URL, API key status, default model, model discovery, static models, and auto load) |
 
-### Context
+### Gateway
 
-`status.agents` supplies the data. Agent combo (orchestrator vs each worker) selects from each row's `systemContext`.
+Gateway `status` only — no `config.json` fallback when the gateway is down or status is pending.
 
-| Agent | Layout |
-|-------|--------|
-| Orchestrator | Two columns: system text + skill bodies from gateway status (`skillsContext`); falls back to disk when gateway is down. |
-| Workers | Single scroll: full text from gateway. |
+| Section | Content |
+|---------|---------|
+| **Agents** | Orchestrator (id, date, default provider/model) and workers (id, effective provider/model) from `status.agents`. |
+| **Models** | Discovery lists for all backends from `status.providers`. Orchestration catalog shows all rows. |
 
-Falls back to a single orchestrator string when the `agents` array is absent.
+### Logging
 
-### Skills
-
-All available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents[]` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for the orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
-
-### Tools
-
-Merged Tools JSON from `status`.
-
-### Logs
-
-In-memory buffer (2000 lines, monospace display) fed by gateway stderr/stdout when started from desktop, or by the `logs` WebSocket method when connected to an external gateway. No clear button.
+In-memory buffer (1000 lines, monospace display) fed by gateway stderr/stdout when started from desktop, or by the `logs` WebSocket method when connected to an external gateway. No clear button.
 
 See [LOGGING.md](LOGGING.md) for the full logging specification.
+
 ## Shared UI Helpers
 
 The desktop uses shared UI modules for consistency:
@@ -117,6 +119,58 @@ The desktop uses shared UI modules for consistency:
 | `layout::central_padded` | Central panel with padding |
 
 Dashboard `kv` uses a fixed-width key column (`KV_LABEL_COLUMN_WIDTH`) for alignment. Keys and values use default body text. Grid column headers use **strong**. Secondary hints use **weak** only where appropriate.
+
+## Desktop Configuration
+
+The desktop app reads `~/.chai/desktop.json` at startup for client-side settings that are machine-local and user-specific, not tied to any profile. This file is separate from per-profile `config.json`: `config.json` is a server-side operator document, while `desktop.json` holds desktop application preferences.
+
+When `desktop.json` is absent, all values use their defaults — no change from current behavior. Invalid values (bad theme, non-positive fontSize/bufferSize) are rejected at load time and the desktop falls back to defaults.
+
+### File Location
+
+`~/.chai/desktop.json` — the chai home root, not per-profile. Desktop settings are machine-local: a user who switches profiles does not change their desktop preferences.
+
+### Schema
+
+```json
+{
+  "appearance": {
+    "theme": "dark",
+    "fontSize": 14
+  },
+  "logs": {
+    "bufferSize": 1000
+  }
+}
+```
+
+All blocks and fields are optional.
+
+#### `appearance` Block
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `theme` | `string` | `"dark"` | Color theme: `"dark"` or `"light"`. |
+| `fontSize` | `number` | `14` | Base font size in points. Applied as a scale factor relative to the default size. |
+
+#### `logs` Block
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `bufferSize` | `number` | `1000` | Maximum number of log lines retained in memory per buffer (desktop and gateway). |
+
+### Loading
+
+The desktop loads `desktop.json` once at startup. Settings are not hot-reloaded. When the file is absent, all values use their built-in defaults. When the file fails to parse or validate, the desktop logs a warning and falls back to defaults.
+
+### Relationship to `config.json`
+
+| File | Owner | Who reads it | Contains |
+|------|-------|-------------|----------|
+| `config.json` (per-profile) | Operator / developer | `chai gateway` | Bind, port, auth, channels, providers, agents, skills |
+| `desktop.json` (home root) | Client / end user | `chai-desktop` | Appearance, logs |
+
+Nothing moves out of `config.json`. The desktop still reads `config.json` for display purposes (providers, agents, channels) and for the `gateway.bind:port` fallback. `desktop.json` is purely additive.
 
 ## Known Gaps
 

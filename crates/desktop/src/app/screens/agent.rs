@@ -1,6 +1,5 @@
 use eframe::egui;
 
-use crate::app::types::GatewayStatusDetails;
 use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
@@ -19,6 +18,13 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             }
 
             let total_height = ui.available_height();
+
+            // Load cached config before borrowing gateway status, to avoid a
+            // simultaneous &self.gateway_status and &mut self.cached_config.
+            let cached_config = app.load_config_cached()
+                .map(|(c, _)| c.clone())
+                .unwrap_or_default();
+
             let Some(ref gs) = app.gateway_status else {
                 ui.label("Loading from gateway status...");
                 return;
@@ -31,7 +37,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 .clone()
                 .unwrap_or_else(|| orch_owned.clone());
             let is_orchestrator_view =
-                gs.agent_system_contexts.is_empty() || selected_id.as_str() == orch_id;
+                gs.agent_skills.is_empty() || selected_id.as_str() == orch_id;
 
             ui.horizontal(|ui| {
                 ui.label(egui::RichText::new("Agent").strong());
@@ -39,7 +45,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .selected_text(&selected_id)
                     .width(220.0)
                     .show_ui(ui, |ui| {
-                        for id in gs.agent_system_contexts.keys() {
+                        for id in gs.agent_skills.keys() {
                             let suffix = if id == orch_id {
                                 " — orchestrator"
                             } else {
@@ -57,17 +63,12 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             });
             ui.add_space(spacing::SUBSECTION);
 
-            let context_text = effective_system_context(gs, selected_id.as_str());
-
-            // Determine context mode: prefer gateway status, fall back to config.
+            // Resolve context mode: prefer gateway status, fall back to cached config.
             let is_read_on_demand_orch = if let Some(rt) = gs.agent_skills.get(&selected_id) {
                 rt.context_mode.as_deref() == Some("readOnDemand")
             } else {
-                let config = lib::config::load_config(app.effective_profile_override())
-                    .map(|(c, _)| c)
-                    .unwrap_or_default();
                 matches!(
-                    lib::config::orchestrator_context_mode(&config.agents),
+                    lib::config::orchestrator_context_mode(&cached_config.agents),
                     lib::config::SkillContextMode::ReadOnDemand
                 )
             };
@@ -81,19 +82,15 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 {
                     mode == "readOnDemand"
                 } else {
-                    lib::config::load_config(app.effective_profile_override())
-                        .ok()
-                        .and_then(|(config, _)| {
-                            config.agents.workers.as_ref().and_then(|ws| {
-                                ws.iter().find(|w| w.id == selected_id).map(|w| {
-                                    matches!(
-                                        lib::config::worker_context_mode(w),
-                                        lib::config::SkillContextMode::ReadOnDemand
-                                    )
-                                })
-                            })
+                    cached_config.agents.workers.as_ref().and_then(|ws| {
+                        ws.iter().find(|w| w.id == selected_id).map(|w| {
+                            matches!(
+                                lib::config::worker_context_mode(w),
+                                lib::config::SkillContextMode::ReadOnDemand
+                            )
                         })
-                        .unwrap_or(false)
+                    })
+                    .unwrap_or(false)
                 }
             } else {
                 false
@@ -102,14 +99,16 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let use_read_on_demand_two_columns = (is_orchestrator_view && is_read_on_demand_orch)
                 || (!is_orchestrator_view && is_read_on_demand_worker);
 
-            // Extract skill context bodies from gateway status before entering
-            // any closures that also borrow `app`. Used to prefer gateway data
-            // over disk reads (parity with running gateway).
-            let status_bodies = gs
-                .agent_skills
-                .get(&selected_id)
-                .map(|rt| rt.skills_context.clone())
-                .filter(|m| !m.is_empty());
+            // Get on-demand agent detail (system context + skills context).
+            let agent_detail = app.agent_detail_cache.get(&selected_id).cloned();
+            let context_text = agent_detail.as_ref().and_then(|d| d.system_context.as_deref());
+            let status_bodies = agent_detail.as_ref().map(|d| d.skills_context.clone()).filter(|m| !m.is_empty());
+
+            // If agent detail is not yet loaded, show loading state.
+            if agent_detail.is_none() {
+                ui.label("Loading agent detail...");
+                return;
+            }
 
             ui.allocate_ui_with_layout(
                 egui::vec2(ui.available_width(), total_height),
@@ -205,10 +204,9 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                         }
                                     });
                             } else {
-                                // No gateway status skill data — fall back to disk reads.
-                                if let Ok((config, _paths)) =
-                                    lib::config::load_config(app.effective_profile_override())
+                                // No on-demand skill data — fall back to cached config.
                                 {
+                                    let config = &cached_config;
                                     let (skill_names, right_title): (&[String], &'static str) =
                                         if is_orchestrator_view {
                                             (
@@ -364,19 +362,6 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             );
         },
     );
-}
-
-fn effective_system_context<'a>(
-    details: &'a GatewayStatusDetails,
-    selected_id: &str,
-) -> Option<&'a str> {
-    if !details.agent_system_contexts.is_empty() {
-        return details
-            .agent_system_contexts
-            .get(selected_id)
-            .map(|s| s.as_str());
-    }
-    details.system_context.as_deref()
 }
 
 /// Strip YAML frontmatter (`---` ... `---`) from SKILL.md content so that the

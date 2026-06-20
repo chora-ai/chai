@@ -95,11 +95,11 @@ Manage skill packages — inspection, creation, updates, validation, and version
 
 ```bash
 chai skill list                                           # Show installed skills and status
-chai skill read --skill-name <name> --file skill_md       # Read SKILL.md
-chai skill read --skill-name <name> --file tools_json     # Read tools.json
-chai skill validate --skill-name <name>                   # Validate tools.json
-chai skill init --name <name> --description "..."         # Create a new skill
-chai skill delete --skill-name <name>                     # Remove a skill package
+chai skill read <name> --file skill_md                     # Read SKILL.md
+chai skill read <name> --file tools_json                   # Read tools.json
+chai skill validate <name>                                 # Validate tools.json
+chai skill init <name> --description "..."                 # Create a new skill
+chai skill delete <name>                                   # Remove a skill package
 ```
 
 ### Writing Content
@@ -108,16 +108,16 @@ Each write command creates a **new versioned snapshot** — the current active s
 
 ```bash
 # Write SKILL.md from a flag or stdin
-chai skill write-skill-md --skill-name <name> --content '...'
-echo "..." | chai skill write-skill-md --skill-name <name>
+chai skill write-skill-md <name> --content '...'
+echo "..." | chai skill write-skill-md <name>
 
 # Write tools.json (validated before writing)
-chai skill write-tools-json --skill-name <name> --content '...'
-echo '...' | chai skill write-tools-json --skill-name <name>
+chai skill write-tools-json <name> --content '...'
+echo '...' | chai skill write-tools-json <name>
 
 # Write a script
-chai skill write-script --skill-name <name> --script-name <base> --content '...'
-echo '...' | chai skill write-script --skill-name <name> --script-name <base>
+chai skill write-script <name> <base> --content '...'
+echo '...' | chai skill write-script <name> <base>
 ```
 
 When `--content` is omitted, content is read from stdin. The `--content` flag accepts values that begin with dashes (e.g. YAML frontmatter).
@@ -132,7 +132,7 @@ chai skill generations               # List saved lock generations
 chai skill rollback <generation>     # Restore a saved generation and repoint active symlinks
 ```
 
-The default `skills.lockMode` is `strict` — the gateway refuses to start when an enabled skill's active version does not match its locked hash. However, `strict` mode has no effect until a `skills.lock` file exists for the active profile. `chai init` generates the lock for profiles it creates; for manually created profiles, you must run `chai skill lock` yourself. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
+The default `skills.lockMode` is `strict` — the lockfile acts as a complete manifest, so the gateway refuses to start when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash. `chai init` generates the lock for profiles it creates; for manually created profiles, you must run `chai skill lock` yourself (or set `lockMode` to `"warn"`). See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode) for details.
 
 ### Discovery
 
@@ -175,15 +175,17 @@ chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
   --original-content '...' --content '...'
 ```
 
-The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--original-content` is provided, the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected.
+The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--original-content` is provided (or `--original-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--original-content-file` to read the expected content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
 
 ### Find and Replace
 
 ```bash
-chai file replace --path <PATH> --pattern <PATTERN> --replacement <REPLACEMENT> [--line-numbers]
+chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [--replacement <REPLACEMENT>] [--line-numbers] [--literal] [--max-replacements <N>]
 ```
 
 Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
+
+Either `--pattern` or `--pattern-file` is required. When `--replacement` is omitted, the replacement is read from stdin.
 
 **Line deletion** — Match the line content plus its trailing newline and replace with an empty string to delete the line entirely:
 
@@ -197,7 +199,24 @@ chai file replace --path config.toml --pattern 'obsolete_field: None,\n' --repla
 chai file replace --path config.toml --pattern 'version = "(\d+)\.(\d+)\.(\d+)"' --replacement 'version = "$1.$2.4"'
 ```
 
-When `--line-numbers` is omitted, it defaults to true (line numbers shown in the diff). If zero matches are found, exits 0 with a "0 replacements" message.
+**Literal mode** — When the pattern contains regex metacharacters (source code, markdown tables, JSON) that should be matched as-is:
+
+```bash
+chai file replace --path config.toml --pattern '| header |' --replacement '| updated |' --literal
+```
+
+Capture groups (`$1`–`$9`) are not supported in literal mode.
+
+| Flag | Description |
+|------|-------------|
+| `--pattern <PATTERN>` | Regex search pattern (extended regex, multiline mode) |
+| `--pattern-file <FILE>` | Read the pattern from a file (avoids CLI encoding issues for multi-line patterns; takes precedence over `--pattern`) |
+| `--replacement <REPLACEMENT>` | Replacement string (falls back to stdin when omitted) |
+| `--line-numbers` | Show line numbers in the diff output (off by default) |
+| `--literal` | Treat the pattern as literal text instead of regex |
+| `--max-replacements <N>` | Maximum number of replacements to apply; `0` (default) means unlimited; use `1` to replace only the first match |
+
+If zero matches are found, exits 0 with a "0 replacements" message.
 
 ### Deleting
 
@@ -214,15 +233,15 @@ chai file frontmatter-edit --path <PATH> --key <K> --value <V>  # Set a frontmat
 chai file frontmatter-delete --path <PATH> --key <K>        # Remove a frontmatter key
 ```
 
-Frontmatter is the YAML block between `---` delimiters at the top of a Markdown file. `frontmatter-edit` creates the block if absent and adds the key if missing. `frontmatter-delete` is a no-op if the key doesn't exist.
+Frontmatter is the YAML block between `---` delimiters at the top of a Markdown file. `frontmatter-edit` creates the block if absent and adds the key if missing. Use `--value-file` instead of `--value` to read the value from a file (avoids encoding issues for multi-line values). `frontmatter-delete` is a no-op if the key doesn't exist.
 
 ### Renaming With Wikilink Update
 
 ```bash
-chai file rename-note --from <OLD_PATH> --to <NEW_PATH> --root <SEARCH_DIR>
+chai file rename-note --from <OLD_PATH> --to <NEW_PATH> [--root <SEARCH_DIR>]
 ```
 
-Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikilinks in `.md` files under `--root`. The parent directory of `--to` must exist.
+Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikilinks in `.md` files under `--root`. When `--root` is omitted, it defaults to the current working directory. The parent directory of `--to` must exist.
 
 ## `chai logs`
 

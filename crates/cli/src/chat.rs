@@ -148,7 +148,7 @@ async fn agent_turn_via_gateway(
         "method": "connect",
         "params": connect_params
     });
-    ws.send(Message::Text(connect_req.to_string()))
+    ws.send(Message::Text(connect_req.to_string().into()))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -189,7 +189,7 @@ async fn agent_turn_via_gateway(
         "method": "agent",
         "params": agent_params
     });
-    ws.send(Message::Text(agent_req.to_string()))
+    ws.send(Message::Text(agent_req.to_string().into()))
         .await
         .map_err(|e| e.to_string())?;
 

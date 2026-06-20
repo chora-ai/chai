@@ -14,7 +14,7 @@ use std::io::Write;
 use std::sync::Mutex;
 
 /// Maximum number of log lines held in memory for the `logs` WebSocket method.
-const LOG_BUFFER_MAX_LINES: usize = 2000;
+const LOG_BUFFER_MAX_LINES: usize = 1000;
 
 /// A log entry in the ring buffer: the formatted line and its monotonically
 /// increasing sequence number.

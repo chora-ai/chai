@@ -4,5 +4,6 @@ pub mod config;
 pub mod files;
 pub mod gateway;
 pub mod logging;
+pub mod settings;
 pub mod skills;
 pub mod tools;

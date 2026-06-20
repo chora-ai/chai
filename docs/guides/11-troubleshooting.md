@@ -145,8 +145,10 @@ The directory name under `versions/` must be the 12-hex-character truncated SHA-
 
 ### Skills Lock Verification Failure
 
-The gateway refuses to start in `strict` mode (the default `skills.lockMode`) when an enabled skill's active version doesn't match its pinned hash in `skills.lock`. This can happen when:
+The gateway refuses to start in `strict` mode (the default `skills.lockMode`) when the lockfile is missing, any enabled skill has no lock entry (unpinned), or an enabled skill's active version doesn't match its pinned hash in `skills.lock`. This can happen when:
 
+- You created a profile manually without running `chai skill lock` — Run `chai skill lock` to create the lockfile.
+- You enabled a new skill in `config.json` but didn't re-lock — Run `chai skill lock` to add the new skill to the lockfile.
 - You updated a skill with `chai skill write-*` but didn't re-lock — Run `chai skill lock` to update the lock.
 - You rolled back a skill manually by repointing the `active` symlink — Run `chai skill lock` to re-pin.
 - The lock file is stale after a `chai init` update — Run `chai skill lock` to re-pin at the current versions.
@@ -165,7 +167,7 @@ This logs warnings instead of refusing to start. See [Skills → Skill Lock Mode
 
 ### Tool Validation Fails
 
-Run `chai skill validate --skill-name <name>` to check `tools.json` for schema errors. Common issues:
+Run `chai skill validate <name>` to check `tools.json` for schema errors. Common issues:
 
 - Missing required keys: `tools`, `allowlist`, or `execution`
 - Tool name in `execution` that doesn't match any entry in `tools`
@@ -186,7 +188,7 @@ rm ~/.chai/gateway.lock
 
 ### Wrong Profile Active After `chai init`
 
-`chai init` unconditionally sets `~/.chai/active` to `profiles/assistant/`. If you were using a different profile, switch back:
+`chai init` preserves the existing `~/.chai/active` symlink — it only sets the symlink to `profiles/assistant/` when no valid symlink already exists. If the symlink was changed, switch back:
 
 ```bash
 chai profile switch <name>
@@ -198,9 +200,9 @@ chai profile switch <name>
 
 1. **The gateway must be running.** Start it from the header button or via `chai gateway`.
 2. **Check the bind address.** The desktop connects to the address configured in `gateway.bind` and `gateway.port`. If you changed these, the desktop must use the same values.
-3. **Stale device token.** If `~/.chai/active/device_token.json` holds a token the gateway no longer recognizes (e.g., `paired.json` was deleted), the desktop should automatically re-pair. If it doesn't, delete the token file and restart the desktop:
+3. **Stale device token.** If `~/.chai/active/device_token` holds a token the gateway no longer recognizes (e.g., `paired.json` was deleted from the profile directory), the desktop should automatically re-pair. If it doesn't, delete the token file and restart the desktop:
    ```bash
-   rm ~/.chai/active/device_token.json
+   rm ~/.chai/active/device_token
    ```
 
 ### Desktop Gateway Fails to Start

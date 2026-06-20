@@ -1,5 +1,5 @@
 ---
-description: Design principles for chai skill tools — tools over inference, surface reduction, SKILL.md sizing.
+description: Design principles for skill packages — tools over inference, surface reduction, SKILL.md sizing.
 capability_tier: minimal
 metadata:
   requires:

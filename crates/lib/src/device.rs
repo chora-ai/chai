@@ -71,7 +71,7 @@ impl DeviceIdentity {
     /// Generate a new keypair. device_id is the first 16 chars of base64(public_key).
     pub fn generate() -> Result<Self> {
         let mut bytes = [0u8; 32];
-        getrandom::getrandom(&mut bytes).map_err(|e| anyhow::anyhow!("getrandom: {}", e))?;
+        getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("getrandom: {}", e))?;
         let signing_key = ed25519_dalek::SigningKey::from_bytes(&bytes);
         let verifying_key = signing_key.verifying_key();
         let public_key = base64::engine::general_purpose::STANDARD.encode(verifying_key.as_bytes());

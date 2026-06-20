@@ -4,14 +4,17 @@ use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
-    let Ok((config, paths)) = lib::config::load_config(app.effective_profile_override()) else {
-        crate::app::ui_screen(ui, "Skills", None, |ui| {
-            ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
-        });
-        return;
+    let (config, chai_home) = match app.load_config_cached() {
+        Ok(cp) => (cp.0.clone(), cp.1.chai_home.clone()),
+        Err(_) => {
+            crate::app::ui_screen(ui, "Skills", None, |ui| {
+                ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+            });
+            return;
+        }
     };
 
-    let skills_root = lib::config::default_skills_dir(&paths.chai_home);
+    let skills_root = lib::config::default_skills_dir(&chai_home);
 
     let Some(ref cached) = app.cached_skills else {
         let subtitle = format!("Values below are from {}", skills_root.display());

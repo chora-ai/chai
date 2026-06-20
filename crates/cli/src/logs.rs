@@ -37,7 +37,7 @@ fn gateway_base_url() -> String {
 /// Fetch all log lines from the gateway's /logs endpoint.
 fn fetch_logs() -> Result<Vec<String>> {
     let base = gateway_base_url();
-    let url = format!("{}/logs?afterSeq=0&lines=2000", base);
+    let url = format!("{}/logs?afterSeq=0&lines=1000", base);
     let output = std::process::Command::new("curl")
         .args(["-sf", "--max-time", "5", &url])
         .output()

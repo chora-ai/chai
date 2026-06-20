@@ -213,10 +213,9 @@ pub fn init_chai_home() -> Result<PathBuf> {
     // customizations (rollbacks, edits via skills_write_skill_md).
     extract_bundled_skills_versioned(&skills_dir)?;
 
-    // Generate skills.lock for newly seeded profiles so the defensive-by-default
-    // skills.lockMode=strict takes effect immediately. Without this, a user must
-    // manually run `chai skill lock` after `chai init` — which side-steps the
-    // strict default. Only profiles that were just created need a lock; existing
+    // Generate skills.lock for newly seeded profiles so the gateway can start.
+    // Strict mode (the default) refuses to start without a lockfile, so `chai init`
+    // must create one. Only profiles that were just created need a lock; existing
     // profiles retain whatever lock state they already have.
     if !newly_seeded.is_empty() {
         let all_entries = crate::skills::load_skills(&skills_dir)?;

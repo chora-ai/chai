@@ -71,17 +71,16 @@ The gateway refuses profile switches while it is running (it holds an advisory l
 
 ### Creating a New Profile
 
-Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.lock` file that pins bundled skill versions. When you create a profile manually, you must also generate a lock file to activate `skills.lockMode: strict` (the default). Without a lock file, the gateway skips lock verification entirely.
+Profiles created by `chai init` (`assistant`, `developer`) come with a `skills.lock` file that pins bundled skill versions. When you create a profile manually, you must also generate a lock file — in `strict` mode (the default), the gateway refuses to start without one.
 
 1. Create the profile directory and a minimal config:
    ```bash
    mkdir -p ~/.chai/profiles/my-profile
    echo '{}' > ~/.chai/profiles/my-profile/config.json
    ```
-2. Create the sandbox and agent context directories:
+2. Create the sandbox directory:
    ```bash
    mkdir -p ~/.chai/profiles/my-profile/sandbox
-   mkdir -p ~/.chai/profiles/my-profile/agents/orchestrator
    ```
 3. Switch to the new profile and generate the skills lock:
    ```bash
@@ -406,12 +405,15 @@ The `~/.chai/` directory structure:
 | `active` | Symlink to the active profile |
 | `skills/` | Shared on-disk skills tree |
 | `gateway.lock` | Advisory lock while gateway runs (profile + PID) |
+| `desktop.json` | Desktop appearance and log settings (see [Desktop Settings](09-desktop.md)) |
 
 ---
 
 ## Configuration Reference
 
 Complete field-level reference for `config.json`. All keys are `camelCase`.
+
+For desktop-specific settings (theme, font size, log buffer size), see [Desktop Settings](09-desktop.md). These live in `~/.chai/desktop.json`, not `config.json`.
 
 ### Gateway
 
@@ -421,8 +423,8 @@ Complete field-level reference for `config.json`. All keys are `camelCase`.
 | `gateway.bind` | `127.0.0.1` | - | - |
 | `gateway.auth.mode` | `none` | - | `none` or `token` |
 | `gateway.auth.token` | - | `CHAI_GATEWAY_TOKEN` | Only used if `mode` is `token` |
-| `sandbox.disabled` | `false` | - | Allow the gateway to start without a sandbox directory. When `false` (default), the gateway refuses to start if the sandbox directory is missing. When `true`, the gateway starts but CWD confinement and path validation are disabled. See [Write Sandbox](07-sandbox.md). |
-| `skills.lockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. No effect until `skills.lock` exists for the active profile. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
+| `sandbox.mode` | `strict` | - | `strict`, `current`, or `unsafe`. Controls sandbox enforcement at startup. `"strict"` (default): gateway refuses to start if the sandbox directory is missing. `"current"`: uses the current working directory as the sole writable root when the sandbox directory is missing (path validation remains active). `"unsafe"`: gateway starts without a sandbox; CWD confinement and path validation are disabled. When the sandbox directory exists, both `"strict"` and `"current"` behave identically. See [Write Sandbox](07-sandbox.md). |
+| `skills.lockMode` | `strict` | - | `strict` or `warn`. Controls lockfile verification at startup. `strict` (default): the lockfile acts as a complete manifest — gateway refuses to start when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash. `warn`: logs warnings on mismatches, allows unpinned skills, and skips verification when no lockfile is present. See [Skills → Skill Lock Mode](06-skills.md#skill-lock-mode). |
 
 ### Channels
 
@@ -450,17 +452,17 @@ The `providers` array contains provider definitions. Each provider has a unique 
 | `id` | `string` | Yes | — | Unique provider id referenced by agents. |
 | `endpointType` | `string` | Yes | — | One of: `"ollama"`, `"openai-compat"`. |
 | `baseUrl` | `string` | No | Per-endpoint type default | Override the endpoint type's default base URL. |
-| `apiKey` | `string` | No | Per-endpoint type env var | API key override. Env var takes precedence when set. |
+| `apiKey` | `string` | No | — | API key. Supports the `<VAR_NAME>` syntax to read from an environment variable (resolved at runtime from the shell environment or a `.env` file in the profile directory). When absent, no key is sent. |
 | `defaultModel` | `string` | No | Per-endpoint type default | Default model id fallback for this provider when the agent's `defaultModel` is unset. |
 | `modelDiscovery` | `string` | No | `"auto"` | One of: `"auto"`, `"lmstudio"`, `"static"`. When `"lmstudio"`, the gateway automatically retries chat requests on "unloaded" errors. |
 | `staticModels` | `string[]` | No | `[]` | Model list when `modelDiscovery: "static"`. |
 
 **Endpoint type defaults:**
 
-| Endpoint Type | Default `baseUrl` | Default `defaultModel` | Env var for API key |
-|---------------|-------------------|------------------------|---------------------|
-| `"ollama"` | `http://127.0.0.1:11434` | `llama3.2:3b` | — |
-| `"openai-compat"` | `http://127.0.0.1:1234/v1` | `llama-3.2-3B-instruct` | — |
+| Endpoint Type | Default `baseUrl` | Default `defaultModel` |
+|---------------|-------------------|------------------------|
+| `"ollama"` | `http://127.0.0.1:11434` | `llama3.2:3b` |
+| `"openai-compat"` | `http://127.0.0.1:1234/v1` | `llama-3.2-3B-instruct` |
 
 **Common provider configurations:**
 
@@ -485,7 +487,7 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `enabledProviders` | Only `defaultProvider` polled | same | Orchestrator-only. Provider ids must match entries in the `providers` array. `null` or `[]` → poll `defaultProvider` only; non-empty → only those. Workers do not have `enabledProviders`; a worker's provider must already be enabled at the orchestrator level. |
 | `enabledSkills` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
 | `contextMode` | `full` | same | `full` or `readOnDemand`. |
-| `maxToolLoopsPerTurn` | No limit | same | Orchestrator only. Maximum tool loops per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
+| `maxToolLoopsPerTurn` | No limit | same | Orchestrator-only configuration field that acts as a global cap for both orchestrator and worker tool loops. Maximum tool loops per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Workers cannot override this with their own value. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
 | `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |
 | `maxDelegationsPerSession` | No limit | same | Orchestrator only. |
 | `maxDelegationsPerWorker` | No per-worker cap | same | Orchestrator only. Keys are worker ids; values are max successful delegations per session. |

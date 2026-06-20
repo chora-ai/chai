@@ -38,9 +38,6 @@ fn log_panel(ui: &mut egui::Ui, heading: &str, buffer: &Mutex<VecDeque<String>>,
                     egui::RichText::new(line.as_str()).family(egui::FontFamily::Monospace),
                 );
             }
-            if lines.is_empty() {
-                ui.label("No log output yet.");
-            }
         });
 
     ui.add_space(8.0);
@@ -50,21 +47,21 @@ pub fn ui_logging_screen(_app: &ChaiApp, ui: &mut egui::Ui) {
     crate::app::ui_screen(
         ui,
         "Logging",
-        Some("Logs loaded from desktop app and connected gateway."),
+        Some("Logs loaded from connected gateway and desktop app."),
         |ui| {
             let available = ui.available_height();
             // 30.0 accounts for header and padding included in log_panel
             let half_height = ((available - SEPARATOR_HEIGHT - 30.0) / 2.0).max(0.0);
             let width = ui.available_width();
 
-            // Desktop logs — top half.
+            // Gateway logs — top half.
             // Use allocate_exact_size + child_ui (same pattern as the Chat screen)
             // so the panel gets a truly fixed rect that does not grow with content.
             let top_rect = ui
                 .allocate_exact_size(egui::vec2(width, half_height), egui::Sense::hover())
                 .0;
             let mut top_ui = ui.child_ui(top_rect, egui::Layout::top_down(egui::Align::Min));
-            log_panel(&mut top_ui, "Desktop Logs", desktop_log_buffer(), "desktop_logs_scroll");
+            log_panel(&mut top_ui, "Gateway Logs", gateway_log_buffer(), "gateway_logs_scroll");
 
             // Horizontal divider.
             let sep_stroke =
@@ -74,12 +71,12 @@ pub fn ui_logging_screen(_app: &ChaiApp, ui: &mut egui::Ui) {
             ui.painter()
                 .hline(sep_rect.x_range(), sep_rect.center().y, sep_stroke);
 
-            // Gateway logs — bottom half.
+            // Desktop logs — bottom half.
             let bottom_rect = ui
                 .allocate_exact_size(egui::vec2(width, half_height), egui::Sense::hover())
                 .0;
             let mut bottom_ui = ui.child_ui(bottom_rect, egui::Layout::top_down(egui::Align::Min));
-            log_panel(&mut bottom_ui, "Gateway Logs", gateway_log_buffer(), "gateway_logs_scroll");
+            log_panel(&mut bottom_ui, "Desktop Logs", desktop_log_buffer(), "desktop_logs_scroll");
         },
     );
 }

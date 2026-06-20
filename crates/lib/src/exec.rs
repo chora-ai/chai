@@ -307,6 +307,20 @@ impl WriteSandbox {
         Self { writable_roots }
     }
 
+    /// Build a sandbox that uses the current working directory as the sole
+    /// writable root. Used when `sandbox.mode` is `"current"` and the profile
+    /// sandbox directory does not exist.
+    ///
+    /// If the CWD cannot be canonicalized, the sandbox has no writable roots
+    /// and all write-path validations will fail.
+    pub fn from_cwd() -> Self {
+        let mut writable_roots = Vec::new();
+        if let Ok(cwd) = std::env::current_dir().and_then(|p| std::fs::canonicalize(&p)) {
+            writable_roots.push(cwd);
+        }
+        Self { writable_roots }
+    }
+
     /// Validate that a path falls within a writable root.
     ///
     /// Returns the canonical path on success. For paths that don't exist yet

@@ -165,6 +165,12 @@ impl ChaiApp {
                 Some(e) => e,
                 None => break,
             };
+            // Handle gateway config-changed events by triggering an immediate
+            // status refetch, then skip — these are not chat messages.
+            if ev.role == "config_changed" {
+                self.request_status_refetch();
+                continue;
+            }
             let session_id = ev.session_id.clone();
             let entry = self
                 .session_messages
@@ -434,7 +440,7 @@ impl ChaiApp {
         if self.session_events_receiver.is_none() && self.gateway_responds {
             let (tx, rx) = mpsc::channel();
             let tx_clone = tx.clone();
-            let profile_override = self.effective_profile_override().map(String::from);
+            let profile_override = self.cached_profile_override.clone();
             std::thread::spawn(move || {
                 // Wait a bit for gateway to be fully ready
                 std::thread::sleep(Duration::from_secs(1));
@@ -507,7 +513,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
             "method": "connect",
             "params": connect_params
         });
-        ws.send(Message::Text(connect_req.to_string()))
+        ws.send(Message::Text(connect_req.to_string().into()))
             .await
             .map_err(|e| e.to_string())?;
 
@@ -864,6 +870,29 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             let _ = tx.send(ev);
                             ctx.request_repaint();
                         }
+                    } else if event_name == "gateway.config.changed" {
+                        // Gateway reports a config change (e.g. model discovery updated
+                        // provider models). Send a lightweight signal so the desktop
+                        // triggers an immediate status refetch instead of waiting for
+                        // the next poll interval.
+                        let ev = SessionEvent {
+                            session_id: String::new(),
+                            role: "config_changed".to_string(),
+                            content: String::new(),
+                            channel_id: None,
+                            conversation_id: None,
+                            tool_calls: None,
+                            tool_results: None,
+                            delegation_event: None,
+                            tool_name: None,
+                            tool_args: None,
+                            tool_result: None,
+                            tool_index: None,
+                            source: None,
+                            pending_tool_calls: None,
+                        };
+                        let _ = tx.send(ev);
+                        ctx.request_repaint();
                     }
                 }
             }

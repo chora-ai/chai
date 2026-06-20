@@ -78,6 +78,13 @@ pub fn sidebar(current_screen: &mut Screen, ctx: &egui::Context) {
                     {
                         *current_screen = Screen::Logging;
                     }
+                    section_heading(ui, "Desktop");
+                    if ui
+                        .selectable_label(*current_screen == Screen::Settings, "Settings")
+                        .clicked()
+                    {
+                        *current_screen = Screen::Settings;
+                    }
                 });
         });
 }

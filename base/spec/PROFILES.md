@@ -62,6 +62,7 @@ The following resources are **shared across all profiles**:
 | Active symlink | `~/.chai/active` | Points to the persistent default profile |
 | Skill packages | `~/.chai/skills/` | Only package store; per-agent enablement selects subsets (see [AGENTS.md](AGENTS.md)) |
 | Gateway lock | `~/.chai/gateway.lock` | Advisory lock file (see Gateway Lock below) |
+| Desktop config | `~/.chai/desktop.json` | Desktop appearance and log settings (see [DESKTOP.md](DESKTOP.md)) |
 
 ## Active Profile Resolution
 
@@ -121,10 +122,8 @@ Configurable per profile via `skills.lockMode` in `config.json` (see [CONFIGURAT
 
 | Mode | Behavior |
 |------|----------|
-| `"strict"` (default) | Refuse to start the gateway when any enabled skill's `active` version does not match its locked hash. Appropriate for assistant profiles. |
-| `"warn"` | Log a warning when the `active` symlink target does not match the locked hash, but continue loading. Appropriate for developer profiles. |
-
-Unlocked skills (no entry in `skills.lock`) load normally — the lockfile only constrains skills that have been explicitly pinned.
+| `"strict"` (default) | Refuse to start the gateway when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's `active` version does not match its locked hash. The lockfile acts as a complete manifest: every enabled skill must be pinned. Appropriate for assistant profiles. |
+| `"warn"` | Log a warning when the `active` symlink target does not match the locked hash, but continue loading. Unpinned skills (no lock entry) load normally. Skip verification entirely when no lockfile is present. Appropriate for developer profiles. |
 
 ### Generation Tracking
 

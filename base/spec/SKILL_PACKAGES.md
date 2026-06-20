@@ -51,7 +51,7 @@ The hash is a truncated SHA-256 of the canonical skill content:
 
 After skill loading and config resolution, the gateway runs two validation passes before accepting the configuration:
 
-**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — For each enabled skill that has an entry in the profile's `skills.lock`, the gateway checks whether the `active` symlink target matches the locked hash. Behavior on mismatch is controlled by `skills.lockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) refuses to start; `"warn"` logs and continues. Unlocked skills (no entry in `skills.lock`) load normally.
+**Lockfile verification** (see [PROFILES.md](PROFILES.md)) — The gateway verifies enabled skills against the profile's `skills.lock`. Behavior is controlled by `skills.lockMode` in `config.json` (see [CONFIGURATION.md](CONFIGURATION.md)): `"strict"` (default) treats the lockfile as a complete manifest — refuses to start when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash; `"warn"` logs warnings on mismatches, allows unpinned skills, and skips verification when no lockfile is present.
 
 **Capability-tier validation** — For each agent's `enabledSkills` list:
 - **Tier vs model** — Warn when an enabled skill's `capability_tier` assumes more capability than the agent's effective model is likely to provide (e.g., a `full` skill with a 7B local model). Informational warnings only; no strict mode yet.

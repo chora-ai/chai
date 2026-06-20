@@ -4,11 +4,11 @@ Channels connect the gateway to messaging platforms. All channels deliver messag
 
 ## WebSocket
 
-Clients connect at `ws://<bind>:<port>/ws` (from `gateway.bind` and `gateway.port`), call `connect`, then `agent` (run a model turn), `send` (deliver text on a channel), `status` (runtime snapshot), or `health` (lightweight probe). Used by the desktop application and for scripting.
+Clients connect at `ws://<bind>:<port>/ws` (from `gateway.bind` and `gateway.port`), call `connect`, then `agent` (run a model turn), `send` (deliver text on a channel), `stop` (pause the current agent turn), `agentDetail` (heavy per-agent data on demand), `status` (runtime snapshot), or `health` (lightweight probe). Used by the desktop application and for scripting.
 
 When `gateway.bind` is not loopback, use `gateway.auth` with `mode` `token` and a secret (or `CHAI_GATEWAY_TOKEN`). See [Configuration](03-configuration.md#securing-the-gateway) for the security setup.
 
-**Device pairing and token fallback:** the desktop pairs with the gateway using a device identity and signature, then receives a `device_token` for subsequent connections. If a paired `device_token` becomes stale (e.g., the gateway's `paired.json` was deleted), the gateway rejects the connect with `"invalid device token"`. The desktop deletes the stale token and falls back to the device identity + signature flow to re-pair automatically.
+**Device pairing and token fallback:** the desktop pairs with the gateway using a device identity and signature, then receives a `device_token` for subsequent connections. If a paired `device_token` becomes stale (e.g., the profile's `paired.json` was deleted), the gateway rejects the connect with `"invalid device token"`. The desktop deletes the stale token and falls back to the device identity + signature flow to re-pair automatically.
 
 **Try it:** [Gateway (CLI) — health and WebSocket connect](../journey/01-gateway-cli-health-and-ws.md) · [Gateway WebSocket — agent & send](../journey/02-gateway-ws-agent.md)
 

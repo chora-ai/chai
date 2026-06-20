@@ -36,7 +36,7 @@ Top-level key order matches **`config.json`** blocks for cross-check: **`gateway
 }
 ```
 
-The top-level **`skills`** block holds shared skill store metadata (not per-agent). Per-agent skill fields (**`enabledSkills`**, **`contextMode`**, **`skillsContext`**) are flat fields on each **`agents[]`** object, mirroring their placement in **`config.json`**.
+The top-level **`skills`** block holds shared skill store metadata (not per-agent). Per-agent skill fields (**`enabledSkills`**, **`contextMode`**) are flat fields on each **`agents[]`** object. Heavy per-agent data (**`systemContext`**, **`tools`**, **`skillsContext`**) is not included in the polling `status` response; it is available on-demand via the **`agentDetail`** WebSocket method (see below).
 
 ### `gateway`
 
@@ -51,8 +51,8 @@ The top-level **`skills`** block holds shared skill store metadata (not per-agen
 
 | Field | Meaning |
 |-------|---------|
-| **`disabled`** | **`true`** when the gateway started without a sandbox directory (CWD confinement and path validation disabled). |
-| **`roots`** | Number of writable roots in the sandbox (0 when sandbox is missing). |
+| **`mode`** | Effective sandbox mode from **`config.json`** **`sandbox.mode`**: **`"strict"`**, **`"current"`**, or **`"unsafe"`**. |
+| **`roots`** | Number of writable roots in the sandbox (0 when sandbox is missing and mode is `"unsafe"`). |
 
 ### `channels`
 
@@ -96,13 +96,27 @@ Array of per-agent runtime rows. Orchestrator first (**`role`**: **`orchestrator
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
 | **`enabledSkills`** | Skill package names loaded for that agent. Mirrors **`config.json`** **`agents[].enabledSkills`**. |
 | **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
-| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). Injected as `messages[0]` on every turn; not persisted in the session store. |
-| **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. Sent as a separate top-level field in the provider request; never part of the messages array. |
-| **`skillsContext`** | Per-skill body (name → frontmatter-stripped body). Always populated in both modes (see [CONTEXT.md](CONTEXT.md)). **`null`** when no skills are loaded. |
 | **`maxToolLoopsPerTurn`** | Orchestrator: maximum tool loops per turn (integer or **`null`**; omitted = no limit; applies globally to both orchestrator and worker turns). Workers: **`null`**. |
 | **`maxDelegationsPerTurn`** | Orchestrator: optional cap on **`delegate_task`** calls per turn (integer or **`null`**). Workers: **`null`**. |
 | **`maxDelegationsPerSession`** | Orchestrator: optional cap on **`delegate_task`** calls per session (integer or **`null`**). Workers: **`null`**. |
 | **`maxDelegationsPerWorker`** | Orchestrator: optional per-worker delegation caps (object or **`null`**). Workers: **`null`**. |
+
+### `agentDetail` (On-Demand Per-Agent Data)
+
+**Protocol:** WebSocket `req` / `res` envelope; method **`"agentDetail"`**, params **`{ "agentId": "<id>" }`**.
+
+Heavy per-agent fields that are **not** included in the polling **`status`** response to reduce payload size. Fetched on-demand by the desktop when the Agent or Tools screen is active.
+
+| Field | Meaning |
+|-------|---------|
+| **`id`** | Agent id (same as the requested `agentId`). |
+| **`role`** | **`"orchestrator"`** or **`"worker"`**. |
+| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). Injected as `messages[0]` on every turn; not persisted in the session store. |
+| **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. Sent as a separate top-level field in the provider request; never part of the messages array. |
+| **`skillsContext`** | Per-skill body (name → frontmatter-stripped body). **`null`** when no skills are loaded. |
+
+Returns an error (`"unknown agent id"`) if the requested agent id does not match the orchestrator or any configured worker.
+
 ---
 
 ## Status Blocks And Redaction
@@ -112,7 +126,7 @@ Array of per-agent runtime rows. Orchestrator first (**`role`**: **`orchestrator
 | **`gateway`** | Bind, port, auth mode, protocol | Secrets |
 | **`channels`** | Active vs configured, transport hints | Tokens, passwords, Matrix access tokens |
 | **`providers`** | Endpoint type, model discovery method, model lists | API keys, URLs that embed credentials |
-| **`sandbox`** | Disabled flag, root count, directory path | — |
+| **`sandbox`** | Mode, root count | — |
 | **`agents`** | Effective defaults, per-agent runtime rows | Full raw **`config.json`** |
 | **`skills`** | Disk package count, lock mode, lockfile generation, locked skill count | Full directory trees |
 

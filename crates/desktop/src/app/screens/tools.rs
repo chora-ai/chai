@@ -1,6 +1,5 @@
 use eframe::egui;
 
-use crate::app::types::GatewayStatusDetails;
 use crate::app::ui::{readonly_code, spacing};
 use crate::app::ChaiApp;
 
@@ -38,7 +37,7 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .selected_text(&selected_id)
                     .width(220.0)
                     .show_ui(ui, |ui| {
-                        for id in gs.agent_system_contexts.keys() {
+                        for id in gs.agent_skills.keys() {
                             let suffix = if id == orch_id {
                                 " — orchestrator"
                             } else {
@@ -56,7 +55,11 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             });
             ui.add_space(spacing::SUBSECTION);
 
-            let tools_str = effective_tools_json(gs, selected_id.as_str(), orch_id);
+            // Get tools from on-demand agent detail cache.
+            let tools_str = app
+                .agent_detail_cache
+                .get(&selected_id)
+                .and_then(|d| d.tools.as_deref());
 
             if let Some(t) = tools_str {
                 if app.tools_display_buffer.as_str() != t {
@@ -71,27 +74,14 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     &mut app.tools_display_buffer,
                     20,
                 );
-            } else {
+            } else if app.agent_detail_cache.contains_key(&selected_id) {
+                // Detail is loaded but this agent has no tools.
                 app.tools_display_buffer.clear();
                 ui.label(egui::RichText::new("No tools reported for this agent.").weak());
+            } else {
+                // Agent detail not yet loaded.
+                ui.label("Loading agent detail...");
             }
         },
     );
-}
-
-fn effective_tools_json<'a>(
-    gs: &'a GatewayStatusDetails,
-    selected_id: &str,
-    orchestrator_id: &str,
-) -> Option<&'a str> {
-    gs.agent_tools
-        .get(selected_id)
-        .map(|s| s.as_str())
-        .or_else(|| {
-            if selected_id == orchestrator_id {
-                gs.tools.as_deref()
-            } else {
-                None
-            }
-        })
 }

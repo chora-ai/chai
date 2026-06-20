@@ -133,7 +133,7 @@
           },
           "original_content": {
             "type": "string",
-            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch, using a four-stage comparison: exact match, NFC normalization, Unicode-to-ASCII folding (for smart quotes, dashes, etc.), and trailing-whitespace tolerance with automatic preservation — if the only difference is trailing whitespace, the file's original trailing whitespace is preserved in the replacement. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
+            "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch. If the only difference is trailing whitespace, the file's original trailing whitespace is preserved in the replacement. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
           },
           "content": {
             "type": "string",
@@ -144,7 +144,7 @@
     },
     {
       "name": "files_replace",
-      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). Use this instead of multiple files_write_lines calls when the same edit applies to many locations in one file. When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (matches must align with line boundaries). Use literal mode when the pattern contains regex metacharacters that should be matched as-is.",
+      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in a markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
@@ -159,7 +159,7 @@
           },
           "replacement": {
             "type": "string",
-            "description": "Replacement string. Supports $1-$9 for capture group references (regex mode only). Use $$ for a literal $. Use an empty string to delete matches. For multi-line replacements, include actual newlines in the string."
+            "description": "Replacement string. Supports $1-$9 for capture group references (regex mode with capture groups only — when the pattern has no capture groups, $1-$9 are treated as literal text). Use $$ for a literal $ when the pattern has capture groups. Use an empty string to delete matches. For multi-line replacements, include actual newlines in the string. Note: if the regex pattern unintentionally contains capture groups (e.g., parentheses in code), $1-$9 in the replacement will expand those unintended groups — use literal: true or escape parentheses with \\(\\) to avoid this."
           },
           "max_replacements": {
             "type": "integer",
@@ -168,7 +168,7 @@
           },
           "literal": {
             "type": "boolean",
-            "description": "Treat the pattern as literal text instead of regex. Use this when the pattern contains regex metacharacters (especially |, (), [], ., *, +, ?, {}) that should be matched as-is — common in source code, markdown tables, JSON, and URLs. Capture groups ($1-$9) are not supported in literal mode. Default: false."
+            "description": "Treat the pattern as literal text instead of regex. In literal mode, the pattern can match as a substring within a line (standard find-and-replace semantics). The tool auto-detects degenerate regex matches (e.g., unintentional alternation from | in markdown tables) and retries as literal with line-boundary enforcement, but setting this explicitly ensures the pattern is never interpreted as regex and allows mid-line substring matches. Capture groups ($1-$9) are not supported in literal mode. Default: false."
           },
           "line_numbers": {
             "type": "boolean",

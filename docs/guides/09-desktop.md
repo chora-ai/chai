@@ -31,12 +31,12 @@ The sidebar provides navigation between screens:
 | Screen | Description |
 |--------|-------------|
 | **Chat** | Send messages to the orchestrator agent, view replies, see tool calls and delegation events. |
-| **Status** | Runtime snapshot from the gateway: providers, discovered models, agents, channels, skill packages. |
-| **Config** | Read-only view of the active profile's `config.json` with a summary of providers, agents, channels, and delegation rules. Provides the config file path so you can edit it externally. |
-| **Agent** | Inspect the system message for each agent (built at startup from `AGENT.md`, the workers roster, and skills content). The system message is injected as the first message on every turn, separate from the persistent session history. |
 | **Skills** | Browse installed skill packages, view SKILL.md and tools.json, toggle skills per agent. |
+| **Agent** | Inspect the system message for each agent (built at startup from `AGENT.md`, the workers roster, and skills content). The system message is injected as the first message on every turn, separate from the persistent session history. |
 | **Tools** | Inspect the resolved tool schemas for each agent. Tool schemas are sent as a separate top-level field on every turn, outside the messages array. |
-| **Logs** | Gateway log output (stdout/stderr from the spawned process). Useful for diagnosing connection errors or tool failures. |
+| **Config** | Read-only view of the active profile's `config.json` with a summary of providers, agents, channels, and delegation rules. Provides the config file path so you can edit it externally. |
+| **Gateway** | Runtime snapshot from the gateway: providers, discovered models, agents, channels, skill packages. |
+| **Logging** | Gateway log output (stdout/stderr from the spawned process). Useful for diagnosing connection errors or tool failures. |
 
 ## Profile Management
 
@@ -71,9 +71,9 @@ The desktop pairs with the gateway using a device identity and cryptographic sig
 
 1. The desktop generates a device key pair and saves it to `~/.chai/active/device.json`.
 2. It signs a challenge from the gateway and receives a `device_token`.
-3. The token is saved to `~/.chai/active/device_token.json` and used for subsequent connections.
+3. The token is saved to `~/.chai/active/device_token` and used for subsequent connections.
 
-If a token becomes stale (e.g. `paired.json` was deleted on the gateway side), the desktop automatically re-pairs by falling back to the device identity + signature flow.
+If a token becomes stale (e.g. `paired.json` was deleted from the profile directory), the desktop automatically re-pairs by falling back to the device identity + signature flow.
 
 When the gateway is configured with token auth (`gateway.auth.mode: "token"`), the desktop includes the token in its connect handshake. See [Configuration → Securing the Gateway](03-configuration.md#securing-the-gateway).
 
@@ -93,6 +93,34 @@ The chat screen renders different message types visually:
 | **Delegation error** | Red-highlighted error from the worker |
 | **Tool loop limit** | Amber warning banner — the orchestrator hit `maxToolLoopsPerTurn`, pending tool calls were paused |
 | **Turn stopped** | Amber info banner — the agent turn was stopped by the user, send a message to continue |
+
+## Desktop Settings
+
+The desktop app reads `~/.chai/desktop.json` at startup for appearance and log settings. This file is separate from per-profile `config.json` — it holds machine-local user preferences that don't change when you switch profiles.
+
+When the file is absent, all values use their defaults (dark theme, 14pt font, 1000-line log buffer). Invalid values are rejected at load time and the desktop falls back to defaults.
+
+```json
+{
+  "appearance": {
+    "theme": "light",
+    "fontSize": 16
+  },
+  "logs": {
+    "bufferSize": 5000
+  }
+}
+```
+
+All blocks and fields are optional.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `appearance.theme` | `"dark"` | Color theme: `"dark"` or `"light"`. |
+| `appearance.fontSize` | `14` | Base font size in points. |
+| `logs.bufferSize` | `1000` | Maximum number of log lines retained in memory per buffer (desktop and gateway). |
+
+Settings are loaded once at startup — changes require restarting the desktop app.
 
 ## Try It
 

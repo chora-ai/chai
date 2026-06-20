@@ -196,9 +196,9 @@ Several bundled skills come in **variants** — related skills that provide diff
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
-Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `notes-wikilink`, `notes-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill.
+Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `notes-wikilink`, `notes-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill. Note that `notes-daily` does declare `variant_of: notes` — co-enabling `notes-daily` with `notes` will trigger a variant overlap warning.
 
-**Rule of thumb:** Enable one `-read` variant per domain per agent. Extension variants can be added freely alongside the base skill.
+**Rule of thumb:** Enable one `-read` variant per domain per agent. Extension variants without `variant_of` can be added freely alongside the base skill. Skills with `variant_of` (including `notes-daily`) should not be co-enabled with their parent skill unless you accept the warning.
 
 ## Creating a Skill
 
@@ -207,7 +207,7 @@ Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool 
 Initialize a new skill with template files:
 
 ```bash
-chai skill init --name my-skill --description "Does something useful"
+chai skill init my-skill --description "Does something useful"
 ```
 
 This creates `~/.chai/skills/my-skill/` with a starter `SKILL.md` and `tools.json`. You can then customize the content using the write commands or by editing files directly.
@@ -219,10 +219,10 @@ This creates `~/.chai/skills/my-skill/` with a starter `SKILL.md` and `tools.jso
 chai skill list
 
 # Read a skill's SKILL.md
-chai skill read --skill-name my-skill --file skill_md
+chai skill read my-skill --file skill_md
 
 # Read a skill's tools.json
-chai skill read --skill-name my-skill --file tools_json
+chai skill read my-skill --file tools_json
 ```
 
 ### Validating Skills
@@ -230,7 +230,7 @@ chai skill read --skill-name my-skill --file tools_json
 After creating or editing a `tools.json`, validate it against the schema:
 
 ```bash
-chai skill validate --skill-name my-skill
+chai skill validate my-skill
 ```
 
 This checks JSON conformance and reports errors before the gateway loads the skill.
@@ -245,9 +245,9 @@ The `chai skill write-*` commands copy the current active tree, apply your chang
 
 | Command | What It Updates |
 |---------|-----------------|
-| `chai skill write-skill-md --skill-name <name> --content '...'` | `SKILL.md` |
-| `chai skill write-tools-json --skill-name <name> --content '...'` | `tools.json` (validated before write) |
-| `chai skill write-script --skill-name <name> --script-name <base> --content '...'` | `scripts/<base>.sh` |
+| `chai skill write-skill-md <name> --content '...'` | `SKILL.md` |
+| `chai skill write-tools-json <name> --content '...'` | `tools.json` (validated before write) |
+| `chai skill write-script <name> <base> --content '...'` | `scripts/<base>.sh` |
 
 Each command creates a **new** revision. For multi-file changes, run one command per file — each builds a new snapshot from whatever `active` was at the start of that command. For example, updating `SKILL.md` and then `tools.json` creates two new revisions. That is normal.
 
@@ -273,7 +273,7 @@ Use this when you want to edit several files in an editor and produce **one** ne
 2. **Edit** your files in the working directory.
 3. **Compute the 12-character content hash** using the algorithm above. There is no `chai skill hash` command today; use a small script or reproduce the algorithm from `versioning.rs`.
 4. **Install the snapshot** — `mkdir -p ~/.chai/skills/<name>/versions/<hash>`, copy your working tree into it, and repoint `active` to `versions/<hash>` (relative symlink).
-5. **Validate** — Run `chai skill validate --skill-name <name>`.
+5. **Validate** — Run `chai skill validate <name>`.
 
 ### What Not To Do
 
@@ -292,18 +292,18 @@ After changing skills, whether you need `lock` depends on how strictly you use l
 
 ### Skill Lock Mode
 
-The `skills.lockMode` field in `config.json` controls how the gateway handles mismatches between the lockfile and active skill versions at startup:
+The `skills.lockMode` field in `config.json` controls how the gateway handles the lockfile at startup:
 
 | Mode | Behavior |
 |------|----------|
-| `"strict"` (default) | The gateway **refuses to start** when any enabled skill's active version does not match its locked hash. |
-| `"warn"` | The gateway logs a warning for each mismatched skill but continues loading. |
+| `"strict"` (default) | The lockfile acts as a **complete manifest**. The gateway **refuses to start** when the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash. |
+| `"warn"` | The gateway logs a warning for each mismatched skill but continues loading. Unpinned skills (no lock entry) load normally. When no lockfile is present, verification is skipped entirely. |
 
-When no `skills.lock` file exists for the active profile, the gateway skips lock verification entirely — even in `strict` mode. This means `strict` mode only takes effect **after** a lock file has been generated.
+In `strict` mode, every enabled skill must be pinned in the lockfile — no orphans allowed. If the lockfile is missing or incomplete, the gateway refuses to start. Run `chai skill lock` to create or update the lockfile, or set `lockMode` to `"warn"` to allow unpinned skills.
 
 ### When `chai init` Generates a Lock
 
-`chai init` automatically generates `skills.lock` for each profile it creates. If the `assistant` or `developer` profile directory does not yet exist, `chai init` seeds the profile and writes a lock file that pins all bundled skills at their current versions. This ensures `strict` mode is enforced from the first gateway start.
+`chai init` automatically generates `skills.lock` for each profile it creates. If the `assistant` or `developer` profile directory does not yet exist, `chai init` seeds the profile and writes a lock file that pins all bundled skills at their current versions. This ensures the gateway can start under the default `strict` mode.
 
 Re-running `chai init` on an already-initialized directory does **not** overwrite existing lock files. Profiles that already exist retain whatever lock state they have.
 
@@ -312,6 +312,7 @@ Re-running `chai init` on an already-initialized directory does **not** overwrit
 You need to call `chai skill lock` yourself when:
 
 - **You create a new profile manually** — Profiles added by hand (outside of `chai init`) do not have a lock file. Run `chai skill lock` after creating the profile and switching to it.
+- **You enable a new skill** — After adding a skill to `enabledSkills` in `config.json`, the new skill has no lock entry. Run `chai skill lock` to pin it, or the gateway will refuse to start in `strict` mode.
 - **You update a skill** — After writing a new skill version (`chai skill write-*`), the active hash changes. Run `chai skill lock` to update the lock, or the gateway will refuse to start in `strict` mode.
 - **You rollback a skill** — After `chai skill rollback`, the lock file is already updated for you. No additional step is needed.
 
@@ -325,7 +326,7 @@ chai skill lock
 Remove a skill package entirely (the directory and all version snapshots):
 
 ```bash
-chai skill delete --skill-name my-skill
+chai skill delete my-skill
 ```
 
 ## Summary
@@ -337,7 +338,7 @@ chai skill delete --skill-name my-skill
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
 | What bundled skills are available? | 15 skills covering files, git, logs, notes, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
-| How do I create a skill? | `chai skill init --name <name> --description "..."`, then customize the files. |
+| How do I create a skill? | `chai skill init <name> --description "..."`, then customize the files. |
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |
 | Can I name a version directory arbitrarily? | No. Under `versions/`, the name must be the 12-hex content hash. |
 | How do I roll back? | `chai skill lock` to save, `chai skill rollback <generation>` to restore. |

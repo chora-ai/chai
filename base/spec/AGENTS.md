@@ -127,9 +127,8 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for delegation semantics, policy, limit
 | `defaultProvider`, `defaultModel` | Effective routing defaults |
 | `enabledSkills` | Skill package names loaded for this agent |
 | `contextMode` | Skill context mode for this agent |
-| `systemContext` | Full system context string for that agent |
-| `tools` | Pretty-printed JSON array of that agent's tool definitions |
-| `skillsContext` | Per-skill body (name → frontmatter-stripped body) |
+
+Heavy per-agent data (`systemContext`, `tools`, `skillsContext`) is available via the on-demand `agentDetail` WebSocket method, not the polling `status` response.
 
 See [GATEWAY_STATUS.md](GATEWAY_STATUS.md) for the full payload specification.
 
