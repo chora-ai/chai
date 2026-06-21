@@ -8,32 +8,23 @@ The `base` directory is the root of the chai notes and also contains ad-hoc work
 
 ## Conventions
 
-- **Issue tracking**: Audits, bugs, features, and release requirements are tracked in files prefixed with `AUDIT_`, `BUG_`, `FEAT_`, and `RELEASE_` respectively. Summaries are maintained in this file under "Active Work"; full details are in the individual files.
+- **Issue tracking**: Audits, bugs, and features are tracked in working notes (prefixed `AUDIT_`, `BUG_`, `FEAT_`) that live **only on feature branches** — they are never merged into `main`. Release requirements (`RELEASE_*`) are committed directly to `main` per the release process.
 
 ## Working Notes
 
-The `AUDIT_*`/`BUG_*`/`FEAT_*`/`RELEASE_*` files in the root of the `base` directory are a **lighter-weight tracking layer**. They are being worked on through the agent before being migrated to structured documentation. The relationship is:
+The `AUDIT_*`/`BUG_*`/`FEAT_*` files in the root of the `base` directory are a **lighter-weight tracking layer**. They are being worked on through the agent before being migrated to structured documentation. The relationship is:
 
-- **Working notes** (`AUDIT_*`/`BUG_*`/`FEAT_*`/`RELEASE_*`) = active tracking, ad-hoc. For agent-driven discovery and quick iteration.
+- **Working notes** (`AUDIT_*`/`BUG_*`/`FEAT_*`) = active tracking notes within a feature branch. Live on feature branches only.
+- **Release notes** (`RELEASE_*`) = release-specific tracking. Live on `main` temporarily and are deleted before the release commit.
 - **Structured docs** (`adr/`, `epic/`, `ref/`, `spec/`, `tag/`) = canonical, versioned, shared. For design decisions and formal reference.
 
-When a working note matures (e.g. a bug fix is verified, or a feature grows into a design decision), its substance should **graduate into structured documentation**:
+When a working note matures (e.g. a bug fix is verified, or a feature grows into a design decision), its substance should **graduate into structured documentation** before the feature branch is squash-merged:
 - A significant change in architecture → new ADR (`adr/`)
 - A feature that grows in scope → new epic (`epic/`)
 - A spec that needs updating → update existing spec (`spec/`)
 - A change to channels or providers → update existing ref (`ref/`)
-- A completed release tracking document → delete the working document
+- A completed feature → update the changelog, then delete the working note
+
+After graduation, the working note is deleted on the feature branch. The squash-merge into `main` includes only the permanent changes — the working note's creation and deletion cancel out.
 
 Always read [README.md](README.md) and the relevant `meta/` file **before updating structured documentation**.
-
-## Active Work
-
-- **[FEAT_BINARY_WRAPPER.md](FEAT_BINARY_WRAPPER.md)** — Add `binaryWrapper` to execution specs and OR-group semantics for `metadata.requires.bins`, so skills can invoke binaries through a wrapper (e.g. `nix develop --command`) when the declared binary is not directly on PATH.
-- **[FEAT_SKILL_CARGO.md](FEAT_SKILL_CARGO.md)** — Expose cargo check/test/build as a chai skill so the agent can verify code changes compile and pass tests.
-
-## Structured Documentation
-
-- **[README.md](README.md)** is the entry point for this directory's structured documentation.
-- **[RELEASE.md](RELEASE.md)** — Official release process: how releases are planned, tagged, documented, and distributed.
-- **[SECURITY.md](SECURITY.md)** — Known security considerations and vulnerabilities in Chai's agent sandboxing model.
-- **[VISION.md](VISION.md)** — Project vision and guiding principles.
