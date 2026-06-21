@@ -417,4 +417,34 @@ mod tests {
         assert_eq!(result.trim(), "exit=1");
         cleanup(&dir);
     }
+
+    #[test]
+    fn post_process_substitutes_absent_default_for_missing_param() {
+        // This test verifies that when $param_name references a parameter that
+        // is absent from tool_args, the caller should augment the args with
+        // absentDefault values before calling run_post_process. The
+        // augment_with_absent_defaults function in mod.rs handles this.
+        // Here we test that substitute_pp_args correctly picks up values that
+        // have been injected into the tool_args JSON.
+        let dir = setup_skill_with_script(
+            "pp-absent-default",
+            "echo-arg",
+            "#!/bin/sh\necho \"ref=$1\"",
+        );
+
+        let pp = PostProcessSpec {
+            script: Some("echo-arg".to_string()),
+            binary: None,
+            subcommand: None,
+            args: vec!["$ref".to_string()],
+            empty_is_result: None,
+        };
+
+        // Simulate what augment_with_absent_defaults would produce: "ref" is
+        // injected with its absentDefault value.
+        let tool_args = serde_json::json!({ "ref": "HEAD~1" });
+        let result = run_post_process(&pp, 0, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
+        assert_eq!(result.trim(), "ref=HEAD~1");
+        cleanup(&dir);
+    }
 }

@@ -15,7 +15,18 @@ cd "$working_dir" 2>/dev/null || {
     exit 1
 }
 
+# Try the normal path first (works during cherry-pick and normal operations).
 branch=$(git branch --show-current 2>/dev/null)
+
+# During rebase, git enters detached HEAD. Fall back to the rebase head-name file.
+if [ -z "$branch" ]; then
+    head_name_file="$(git rev-parse --git-dir 2>/dev/null)/rebase-merge/head-name"
+    if [ -f "$head_name_file" ]; then
+        ref=$(cat "$head_name_file")
+        # Strip the refs/heads/ prefix to get the branch name.
+        branch="${ref#refs/heads/}"
+    fi
+fi
 
 if [ -z "$branch" ]; then
     echo "error: not on a branch (detached HEAD)" >&2

@@ -191,10 +191,146 @@
           }
         }
       }
+    },
+    {
+      "name": "git_merge",
+      "description": "Merge a branch into the current branch. Defaults to squash merge (--squash) which stages the combined diff without creating a merge commit — follow with git_commit to finalize.",
+      "parameters": {
+        "type": "object",
+        "required": ["branch"],
+        "properties": {
+          "branch": {
+            "type": "string",
+            "description": "The branch to merge"
+          },
+          "squash": {
+            "type": "boolean",
+            "description": "Squash the branch's commits into a single staged change (default: true)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_rebase",
+      "description": "Rebase the current branch onto another branch or ref. Replays the current branch's commits on top of the target.",
+      "parameters": {
+        "type": "object",
+        "required": ["onto"],
+        "properties": {
+          "onto": {
+            "type": "string",
+            "description": "The branch or ref to rebase onto (e.g. 'main', 'feat/my-feature')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_cherry_pick",
+      "description": "Apply the changes introduced by specific commits onto the current branch. Defaults to creating a new commit for each picked commit.",
+      "parameters": {
+        "type": "object",
+        "required": ["commits"],
+        "properties": {
+          "commits": {
+            "type": "string",
+            "description": "One or more commit hashes to cherry-pick (space-separated for multiple, e.g. 'abc1234' or 'abc1234 def5678')"
+          },
+          "no_commit": {
+            "type": "boolean",
+            "description": "Stage changes without committing — follow with git_commit to finalize (default: false)"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_rebase_continue",
+      "description": "Continue a rebase after resolving conflicts. Stage resolved files with git_add first, then run this to proceed.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_rebase_abort",
+      "description": "Abort an in-progress rebase and restore the original branch state.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_cherry_pick_continue",
+      "description": "Continue a cherry-pick after resolving conflicts. Stage resolved files with git_add first, then run this to proceed.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_cherry_pick_abort",
+      "description": "Abort an in-progress cherry-pick and restore the original branch state.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_reset",
+      "description": "Undo the last commit(s) on the current branch. Defaults to a mixed reset (HEAD~1) which undoes the commit but keeps changes staged — follow with git_commit to re-commit or git_status to inspect.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "The ref to reset to (default: 'HEAD~1')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d"]
+    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d", "merge", "rebase", "cherry-pick", "reset"]
   },
   "execution": [
     {
@@ -262,7 +398,7 @@
       "binary": "git",
       "subcommand": "add",
       "args": [
-        { "param": "files", "kind": "positional" },
+        { "param": "files", "kind": "positional", "split": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },
@@ -277,7 +413,7 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
-          "denyPattern": "^(main|release/.+)$",
+          "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
           "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
         }
@@ -313,6 +449,156 @@
         { "param": "name", "kind": "positional", "denyPattern": "^(main|release/.+)$" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
+    },
+    {
+      "tool": "git_merge",
+      "binary": "git",
+      "subcommand": "merge",
+      "args": [
+        { "param": "squash", "kind": "flagifboolean", "flagIfTrue": "--squash", "optional": true },
+        { "param": "branch", "kind": "positional" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^release/.+$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "successExitCodes": [1],
+      "maxOutputLines": 50,
+      "postProcess": {
+        "script": "hint-merge",
+        "args": ["$squash"]
+      }
+    },
+    {
+      "tool": "git_rebase",
+      "binary": "git",
+      "subcommand": "rebase",
+      "args": [
+        { "param": "onto", "kind": "positional" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^(main|release/.+)$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "successExitCodes": [1],
+      "maxOutputLines": 50,
+      "postProcess": {
+        "script": "hint-rebase"
+      }
+    },
+    {
+      "tool": "git_cherry_pick",
+      "binary": "git",
+      "subcommand": "cherry-pick",
+      "args": [
+        { "param": "no_commit", "kind": "flagifboolean", "flagIfTrue": "--no-commit", "optional": true },
+        { "param": "commits", "kind": "positional", "split": true },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^release/.+$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "successExitCodes": [1],
+      "maxOutputLines": 50,
+      "postProcess": {
+        "script": "hint-cherry-pick",
+        "args": ["$no_commit"]
+      }
+    },
+    {
+      "tool": "git_rebase_continue",
+      "binary": "git",
+      "subcommand": "rebase",
+      "args": [
+        { "kind": "literal", "value": "--continue" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^(main|release/.+)$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "successExitCodes": [1],
+      "maxOutputLines": 50
+    },
+    {
+      "tool": "git_rebase_abort",
+      "binary": "git",
+      "subcommand": "rebase",
+      "args": [
+        { "kind": "literal", "value": "--abort" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+      ],
+      "maxOutputLines": 50
+    },
+    {
+      "tool": "git_cherry_pick_continue",
+      "binary": "git",
+      "subcommand": "cherry-pick",
+      "args": [
+        { "kind": "literal", "value": "--continue" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^release/.+$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "successExitCodes": [1],
+      "maxOutputLines": 50
+    },
+    {
+      "tool": "git_cherry_pick_abort",
+      "binary": "git",
+      "subcommand": "cherry-pick",
+      "args": [
+        { "kind": "literal", "value": "--abort" },
+        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+      ],
+      "maxOutputLines": 50
+    },
+    {
+      "tool": "git_reset",
+      "binary": "git",
+      "subcommand": "reset",
+      "args": [
+        { "param": "ref", "kind": "positional", "optional": true, "absentDefault": "HEAD~1" },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "denyPattern": "^(main|release/.+)$",
+          "denyAlwaysResolve": true,
+          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+        }
+      ],
+      "maxOutputLines": 50,
+      "postProcess": {
+        "script": "hint-reset",
+        "args": ["$ref"]
+      }
     }
   ]
 }

@@ -1,5 +1,5 @@
 ---
-description: Inspect Git repository state, history, and diffs. Stage files, create commits, and manage branches.
+description: Inspect Git repository state, history, and diffs. Stage files, create commits, manage branches, merge, rebase, cherry-pick, and reset.
 capability_tier: moderate
 metadata:
   requires:

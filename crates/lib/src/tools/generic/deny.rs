@@ -39,12 +39,12 @@ pub(crate) fn enforce_deny_patterns(
         // Get the raw param value from the tool call JSON.
         let raw_value = match arg.kind {
             ArgKind::Positional | ArgKind::Flag | ArgKind::WorkingDir => {
-                match obj.get(&arg.param) {
+                match obj.get(arg.param_name()) {
                     Some(v) if !v.is_null() => json_value_to_string(v),
                     _ => None,
                 }
             }
-            ArgKind::FlagIfBoolean | ArgKind::Stdin | ArgKind::TempFile => None,
+            ArgKind::FlagIfBoolean | ArgKind::Stdin | ArgKind::TempFile | ArgKind::Literal => None,
         };
 
         // Determine the effective value to check against the deny pattern.
@@ -64,7 +64,7 @@ pub(crate) fn enforce_deny_patterns(
             } else {
                 return Err(format!(
                     "denyAlwaysResolve is set on param '{}' but no denyResolveCommand is configured",
-                    arg.param
+                    arg.param_name()
                 ));
             }
         } else if let Some(ref val) = raw_value {
@@ -83,13 +83,13 @@ pub(crate) fn enforce_deny_patterns(
 
         // Check the effective value against the deny pattern.
         let re = regex::Regex::new(deny_pattern).map_err(|e| {
-            format!("invalid denyPattern '{}' on param '{}': {}", deny_pattern, arg.param, e)
+            format!("invalid denyPattern '{}' on param '{}': {}", deny_pattern, arg.param_name(), e)
         })?;
 
         if re.is_match(&effective_value) {
             return Err(format!(
                 "protected value on param '{}': '{}' matches deny pattern '{}'",
-                arg.param, effective_value, deny_pattern
+                arg.param_name(), effective_value, deny_pattern
             ));
         }
     }

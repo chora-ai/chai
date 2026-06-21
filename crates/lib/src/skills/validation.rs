@@ -91,7 +91,7 @@ fn check_unsafe_path_params(agent_label: &str, entries: &[SkillEntry]) {
                         agent_label,
                         entry.name,
                         spec.tool,
-                        arg.param,
+                        arg.param_name(),
                     );
                 }
             }

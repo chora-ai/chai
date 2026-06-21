@@ -147,7 +147,7 @@ pub(crate) fn extract_stdin_content(
             continue;
         }
         let is_optional = arg.optional == Some(true);
-        let value = match obj.get(&arg.param) {
+        let value = match obj.get(arg.param_name()) {
             Some(v) if !v.is_null() => {
                 match json_value_to_string(v) {
                     Some(s) => s,
@@ -156,13 +156,13 @@ pub(crate) fn extract_stdin_content(
                             log::warn!(
                                 "tool {}: stdin parameter '{}' has non-string type, skipping",
                                 spec.tool,
-                                arg.param
+                                arg.param_name()
                             );
                             return Ok(None);
                         }
                         return Err(format!(
                             "stdin parameter '{}' must be a string, number, or boolean",
-                            arg.param
+                            arg.param_name()
                         ));
                     }
                 }
@@ -174,11 +174,11 @@ pub(crate) fn extract_stdin_content(
                 log::warn!(
                     "tool {}: required stdin parameter '{}' is missing or null",
                     spec.tool,
-                    arg.param
+                    arg.param_name()
                 );
                 return Err(format!(
                     "missing required parameter: {}",
-                    arg.param
+                    arg.param_name()
                 ));
             }
         };
@@ -206,7 +206,7 @@ pub(crate) fn write_temp_files(
         if arg.kind != ArgKind::TempFile {
             continue;
         }
-        let value = match obj.get(&arg.param) {
+        let value = match obj.get(arg.param_name()) {
             Some(v) if !v.is_null() => {
                 match json_value_to_string(v) {
                     Some(s) => s,
@@ -216,7 +216,7 @@ pub(crate) fn write_temp_files(
                         }
                         return Err(format!(
                             "tempfile parameter '{}' must be a string, number, or boolean",
-                            arg.param
+                            arg.param_name()
                         ));
                     }
                 }
@@ -227,7 +227,7 @@ pub(crate) fn write_temp_files(
                 }
                 return Err(format!(
                     "missing required parameter: {}",
-                    arg.param
+                    arg.param_name()
                 ));
             }
         };
@@ -235,15 +235,15 @@ pub(crate) fn write_temp_files(
 
         // Write the value to a temp file.
         let temp_dir = std::env::temp_dir();
-        let file_name = format!("chai_{}_{}", spec.tool, arg.param);
+        let file_name = format!("chai_{}_{}", spec.tool, arg.param_name());
         let temp_path = temp_dir.join(&file_name);
         std::fs::write(&temp_path, resolved.as_bytes())
-            .map_err(|e| format!("failed to write temp file for '{}': {}", arg.param, e))?;
+            .map_err(|e| format!("failed to write temp file for '{}': {}", arg.param_name(), e))?;
         let temp_path_str = temp_path.to_string_lossy().into_owned();
         temp_paths.push(temp_path);
 
         // Append --flag <path> to argv.
-        let flag = arg.flag.as_deref().unwrap_or(&arg.param);
+        let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
         argv_entries.push(format_flag(flag));
         argv_entries.push(temp_path_str);
     }
@@ -279,23 +279,30 @@ pub(crate) fn build_argv(
     for arg in &spec.args {
         match arg.kind {
             ArgKind::Positional => {
-                let s = match obj.get(&arg.param) {
+                let s = match obj.get(arg.param_name()) {
                     Some(v) if !v.is_null() => json_value_to_string(v).ok_or_else(|| {
                         format!(
                             "parameter {} must be a string, number, or boolean",
-                            arg.param
+                            arg.param_name()
                         )
                     })?,
+                    _ if arg.absent_default.is_some() => {
+                        json_value_to_string(arg.absent_default.as_ref().unwrap()).ok_or_else(|| {
+                            format!(
+                                "absentDefault for parameter {} must be a string, number, or boolean",
+                                arg.param_name()
+                            )
+                        })?
+                    }
+                    _ if arg.optional != Some(true) => {
+                        return Err(format!("missing parameter: {}", arg.param_name()));
+                    }
+                    _ if arg.resolve_command.is_some() => {
+                        String::new()
+                    }
                     _ => {
-                        if arg.optional != Some(true) {
-                            return Err(format!("missing parameter: {}", arg.param));
-                        }
-                        if arg.resolve_command.is_some() {
-                            String::new()
-                        } else {
-                            skipped_optional_positional = true;
-                            continue;
-                        }
+                        skipped_optional_positional = true;
+                        continue;
                     }
                 };
                 if arg.disambiguate_after_skipped_positionals == Some(true)
@@ -304,18 +311,25 @@ pub(crate) fn build_argv(
                     argv.push("--".to_string());
                 }
                 skipped_optional_positional = false;
-                argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
+                let resolved = transform_param_value(s, arg, allowlist, skill_dir, args);
+                if arg.split == Some(true) {
+                    for part in resolved.split_whitespace() {
+                        argv.push(part.to_string());
+                    }
+                } else {
+                    argv.push(resolved);
+                }
             }
             ArgKind::Flag => {
-                match obj.get(&arg.param) {
+                match obj.get(arg.param_name()) {
                     Some(v) if !v.is_null() => {
                         let s = json_value_to_string(v).ok_or_else(|| {
                             format!(
                                 "parameter {} must be a string, number, or boolean",
-                                arg.param
+                                arg.param_name()
                             )
                         })?;
-                        let flag = arg.flag.as_deref().unwrap_or(&arg.param);
+                        let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
                         argv.push(format_flag(flag));
                         argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
                     }
@@ -324,15 +338,15 @@ pub(crate) fn build_argv(
                         let s = json_value_to_string(default).ok_or_else(|| {
                             format!(
                                 "absentDefault for parameter {} must be a string, number, or boolean",
-                                arg.param
+                                arg.param_name()
                             )
                         })?;
-                        let flag = arg.flag.as_deref().unwrap_or(&arg.param);
+                        let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
                         argv.push(format_flag(flag));
                         argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
                     }
                     _ if arg.optional == Some(true) && arg.resolve_command.is_some() => {
-                        let flag = arg.flag.as_deref().unwrap_or(&arg.param);
+                        let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
                         let resolved = transform_param_value(String::new(), arg, allowlist, skill_dir, args);
                         if !resolved.is_empty() {
                             argv.push(format_flag(flag));
@@ -356,7 +370,7 @@ pub(crate) fn build_argv(
                 continue;
             }
             ArgKind::FlagIfBoolean => {
-                let value = obj.get(&arg.param);
+                let value = obj.get(arg.param_name());
                 // When the parameter is absent, use absentDefault if set;
                 // otherwise treat as false (the original behavior).
                 let effective_value = if value.is_none() || value == Some(&serde_json::Value::Null) {
@@ -371,6 +385,11 @@ pub(crate) fn build_argv(
                 };
                 if let Some(f) = flag {
                     argv.push(f.to_string());
+                }
+            }
+            ArgKind::Literal => {
+                if let Some(ref v) = arg.value {
+                    argv.push(v.clone());
                 }
             }
         }
@@ -434,7 +453,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "content".to_string(),
+                param: Some("content".to_string()),
                 kind: ArgKind::Stdin,
                 ..Default::default()
             }],
@@ -454,7 +473,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "content".to_string(),
+                param: Some("content".to_string()),
                 kind: ArgKind::Stdin,
                 ..Default::default()
             }],
@@ -477,7 +496,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "content".to_string(),
+                param: Some("content".to_string()),
                 kind: ArgKind::Stdin,
                 ..Default::default()
             }],
@@ -496,7 +515,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "content".to_string(),
+                param: Some("content".to_string()),
                 kind: ArgKind::Stdin,
                 optional: Some(true),
                 ..Default::default()
@@ -526,7 +545,7 @@ mod tests {
             subcommand: "".to_string(),
             args: vec![
                 ArgMapping {
-                    param: "date".to_string(),
+                    param: Some("date".to_string()),
                     kind: ArgKind::Flag,
                     flag: Some("path".to_string()),
                     optional: Some(true),
@@ -539,7 +558,7 @@ mod tests {
                     ..Default::default()
                 },
                 ArgMapping {
-                    param: "content".to_string(),
+                    param: Some("content".to_string()),
                     kind: ArgKind::Stdin,
                     ..Default::default()
                 },
@@ -573,7 +592,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "optional_flag".to_string(),
+                param: Some("optional_flag".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("opt".to_string()),
                 optional: Some(true),
@@ -602,7 +621,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "required_flag".to_string(),
+                param: Some("required_flag".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("req".to_string()),
                 ..Default::default()
@@ -627,7 +646,7 @@ mod tests {
             binary: "git".to_string(),
             subcommand: "log".to_string(),
             args: vec![ArgMapping {
-                param: "count".to_string(),
+                param: Some("count".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("n".to_string()),
                 ..Default::default()
@@ -651,7 +670,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "read".to_string(),
             args: vec![ArgMapping {
-                param: "path".to_string(),
+                param: Some("path".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("path".to_string()),
                 ..Default::default()
@@ -675,7 +694,7 @@ mod tests {
             binary: "test".to_string(),
             subcommand: "cmd".to_string(),
             args: vec![ArgMapping {
-                param: "output".to_string(),
+                param: Some("output".to_string()),
                 kind: ArgKind::Flag,
                 flag: None, // no explicit flag — uses param name
                 ..Default::default()
@@ -701,19 +720,19 @@ mod tests {
             subcommand: "log".to_string(),
             args: vec![
                 ArgMapping {
-                    param: "count".to_string(),
+                    param: Some("count".to_string()),
                     kind: ArgKind::Flag,
                     flag: Some("n".to_string()),
                     ..Default::default()
                 },
                 ArgMapping {
-                    param: "oneline".to_string(),
+                    param: Some("oneline".to_string()),
                     kind: ArgKind::FlagIfBoolean,
                     flag_if_true: Some("--oneline".to_string()),
                     ..Default::default()
                 },
                 ArgMapping {
-                    param: "path".to_string(),
+                    param: Some("path".to_string()),
                     kind: ArgKind::WorkingDir,
                     optional: Some(true),
                     ..Default::default()
@@ -739,7 +758,7 @@ mod tests {
             binary: "git".to_string(),
             subcommand: "commit".to_string(),
             args: vec![ArgMapping {
-                param: "message".to_string(),
+                param: Some("message".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("m".to_string()),
                 ..Default::default()
@@ -754,5 +773,198 @@ mod tests {
 
         assert_eq!(argv, vec!["-m", "Add search endpoint"],
             "git_commit with message should produce '-m \"msg\"', not '--m \"msg\"'");
+    }
+
+    // --- Literal kind tests ---
+
+    #[test]
+    fn build_argv_literal_pushes_fixed_value() {
+        let spec = ExecutionSpec {
+            tool: "git_rebase_continue".to_string(),
+            binary: "git".to_string(),
+            subcommand: "rebase".to_string(),
+            args: vec![ArgMapping {
+                param: None,
+                kind: ArgKind::Literal,
+                value: Some("--continue".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({});
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["--continue"]);
+    }
+
+    #[test]
+    fn build_argv_literal_with_no_value_is_skipped() {
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "git".to_string(),
+            subcommand: "rebase".to_string(),
+            args: vec![ArgMapping {
+                param: None,
+                kind: ArgKind::Literal,
+                value: None,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({});
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert!(argv.is_empty(), "literal with no value should produce no argv entry");
+    }
+
+    // --- Split positional tests ---
+
+    #[test]
+    fn build_argv_split_positional_splits_on_whitespace() {
+        let spec = ExecutionSpec {
+            tool: "git_add".to_string(),
+            binary: "git".to_string(),
+            subcommand: "add".to_string(),
+            args: vec![ArgMapping {
+                param: Some("files".to_string()),
+                kind: ArgKind::Positional,
+                split: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "files": "file1.rs file2.rs file3.rs" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["file1.rs", "file2.rs", "file3.rs"]);
+    }
+
+    #[test]
+    fn build_argv_split_positional_single_value() {
+        let spec = ExecutionSpec {
+            tool: "git_add".to_string(),
+            binary: "git".to_string(),
+            subcommand: "add".to_string(),
+            args: vec![ArgMapping {
+                param: Some("files".to_string()),
+                kind: ArgKind::Positional,
+                split: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "files": "." });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["."]);
+    }
+
+    #[test]
+    fn build_argv_positional_without_split_keeps_value_intact() {
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "test".to_string(),
+            subcommand: "".to_string(),
+            args: vec![ArgMapping {
+                param: Some("query".to_string()),
+                kind: ArgKind::Positional,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "query": "hello world" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["hello world"],
+            "positional without split should keep value as single argv entry");
+    }
+
+    #[test]
+    fn build_argv_positional_absent_default_when_param_absent() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({});
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["HEAD~1"],
+            "absent optional positional should use absentDefault value");
+    }
+
+    #[test]
+    fn build_argv_positional_absent_default_overridden_by_explicit_value() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "ref": "HEAD~3" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["HEAD~3"],
+            "explicit value should override absentDefault");
+    }
+
+    #[test]
+    fn build_argv_positional_no_absent_default_still_skips() {
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "test".to_string(),
+            subcommand: "".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({});
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert!(argv.is_empty(),
+            "optional positional without absentDefault should still be skipped when absent");
     }
 }

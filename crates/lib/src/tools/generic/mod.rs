@@ -17,8 +17,59 @@ use std::sync::{Arc, Mutex};
 
 use crate::agent::ToolExecutor;
 use crate::exec::{Allowlist, WriteSandbox};
-use crate::skills::ToolDescriptor;
+use crate::skills::{ArgKind, ToolDescriptor};
 use crate::tools::post_process::run_post_process;
+
+/// Augment tool call args with `absentDefault` values from the execution spec.
+/// When a parameter is absent from the tool call JSON and its `ArgMapping` has an
+/// `absent_default`, the default is injected so that post-process scripts can
+/// reference `$param_name` and get the effective value rather than an empty string.
+fn augment_with_absent_defaults(
+    spec: &crate::skills::ExecutionSpec,
+    args: &serde_json::Value,
+) -> serde_json::Value {
+    let obj = match args.as_object() {
+        Some(o) => o,
+        None => return args.clone(),
+    };
+    let mut needs_augment = false;
+    for arg in &spec.args {
+        // Only consider args that have an absent_default and are currently
+        // absent from the tool call JSON. WorkingDir and Literal args don't
+        // have user-facing params; Stdin and TempFile are not referenced in
+        // postProcess args.
+        if arg.absent_default.is_some()
+            && arg.kind != ArgKind::WorkingDir
+            && arg.kind != ArgKind::Literal
+            && arg.kind != ArgKind::Stdin
+            && arg.kind != ArgKind::TempFile
+        {
+            let param_name = arg.param_name();
+            if !obj.contains_key(param_name) || obj.get(param_name) == Some(&serde_json::Value::Null) {
+                needs_augment = true;
+                break;
+            }
+        }
+    }
+    if !needs_augment {
+        return args.clone();
+    }
+    let mut augmented = obj.clone();
+    for arg in &spec.args {
+        if arg.absent_default.is_some()
+            && arg.kind != ArgKind::WorkingDir
+            && arg.kind != ArgKind::Literal
+            && arg.kind != ArgKind::Stdin
+            && arg.kind != ArgKind::TempFile
+        {
+            let param_name = arg.param_name();
+            if !augmented.contains_key(param_name) || augmented.get(param_name) == Some(&serde_json::Value::Null) {
+                augmented.insert(param_name.to_string(), arg.absent_default.as_ref().unwrap().clone());
+            }
+        }
+    }
+    serde_json::Value::Object(augmented)
+}
 
 /// Executes tools using a descriptor's allowlist and execution mapping.
 /// Holds per-tool (allowlist, spec, skill_dir) for param resolution and argv building.
@@ -145,7 +196,8 @@ impl ToolExecutor for GenericToolExecutor {
         let (exit_code, output) = result?;
 
         let result = if let Some(ref pp) = spec.post_process {
-            run_post_process(pp, exit_code, &output, allowlist, skill_dir.as_deref(), effective_args)
+            let pp_args = augment_with_absent_defaults(spec, effective_args);
+            run_post_process(pp, exit_code, &output, allowlist, skill_dir.as_deref(), &pp_args)
         } else {
             output
         };
@@ -161,5 +213,147 @@ impl ToolExecutor for GenericToolExecutor {
         } else {
             Ok(result)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::skills::{ArgKind, ArgMapping, ExecutionSpec};
+
+    #[test]
+    fn augment_injects_absent_default_for_missing_positional() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({});
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        assert_eq!(augmented["ref"], "HEAD~1");
+    }
+
+    #[test]
+    fn augment_does_not_override_explicit_value() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "ref": "HEAD~3" });
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        assert_eq!(augmented["ref"], "HEAD~3");
+    }
+
+    #[test]
+    fn augment_preserves_existing_params() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "path": "./chai" });
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        assert_eq!(augmented["path"], "./chai");
+        assert_eq!(augmented["ref"], "HEAD~1");
+    }
+
+    #[test]
+    fn augment_skips_working_dir_and_literal_kinds() {
+        let spec = ExecutionSpec {
+            tool: "test".to_string(),
+            binary: "test".to_string(),
+            subcommand: "".to_string(),
+            args: vec![
+                ArgMapping {
+                    param: Some("path".to_string()),
+                    kind: ArgKind::WorkingDir,
+                    optional: Some(true),
+                    absent_default: Some(serde_json::json!("/should/not/inject")),
+                    ..Default::default()
+                },
+                ArgMapping {
+                    kind: ArgKind::Literal,
+                    value: Some("--continue".to_string()),
+                    absent_default: Some(serde_json::json!("should-not-inject")),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({});
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        // WorkingDir and Literal args should not inject into tool_args
+        assert!(augmented.as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn augment_handles_null_value_as_absent() {
+        let spec = ExecutionSpec {
+            tool: "git_reset".to_string(),
+            binary: "git".to_string(),
+            subcommand: "reset".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!("HEAD~1")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "ref": null });
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        assert_eq!(augmented["ref"], "HEAD~1");
+    }
+
+    #[test]
+    fn augment_returns_clone_when_no_defaults_needed() {
+        let spec = ExecutionSpec {
+            tool: "test".to_string(),
+            binary: "test".to_string(),
+            subcommand: "".to_string(),
+            args: vec![ArgMapping {
+                param: Some("ref".to_string()),
+                kind: ArgKind::Positional,
+                optional: Some(true),
+                // no absent_default
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({});
+        let augmented = augment_with_absent_defaults(&spec, &args);
+        assert!(augmented.as_object().unwrap().is_empty());
     }
 }

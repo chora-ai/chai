@@ -103,9 +103,9 @@ pub(crate) fn validate_write_paths(
         // and no unsafePath.
         if !is_write && !is_read && !is_unsafe {
             if arg.kind == ArgKind::Positional || arg.kind == ArgKind::Flag {
-                if let Some(value) = obj.get(&arg.param).and_then(|v| v.as_str()) {
+                if let Some(value) = obj.get(arg.param_name()).and_then(|v| v.as_str()) {
                     if !value.is_empty() {
-                        check_path_like_value(&arg.param, value)?;
+                        check_path_like_value(arg.param_name(), value)?;
                     }
                 }
             }
@@ -125,28 +125,28 @@ pub(crate) fn validate_write_paths(
         let sandbox = sandbox.as_ref().ok_or_else(|| {
             format!(
                 "tool {} has {} parameter '{}' but no write sandbox is configured",
-                spec.tool, kind_label, arg.param
+                spec.tool, kind_label, arg.param_name()
             )
         })?;
 
         let raw_value = match arg.kind {
-            ArgKind::Positional => match obj.get(&arg.param) {
+            ArgKind::Positional => match obj.get(arg.param_name()) {
                 Some(v) if !v.is_null() => json_value_to_string(v)
-                    .ok_or_else(|| format!("{} parameter {} must be a string", kind_label, arg.param))?,
+                    .ok_or_else(|| format!("{} parameter {} must be a string", kind_label, arg.param_name()))?,
                 _ => {
                     if arg.optional == Some(true) && arg.resolve_command.is_some() {
                         String::new()
                     } else if arg.optional == Some(true) {
                         continue
                     } else {
-                        return Err(format!("missing {} parameter: {}", kind_label, arg.param));
+                        return Err(format!("missing {} parameter: {}", kind_label, arg.param_name()));
                     }
                 }
             },
             ArgKind::Flag => {
-                match obj.get(&arg.param) {
+                match obj.get(arg.param_name()) {
                     Some(v) if !v.is_null() => json_value_to_string(v).ok_or_else(|| {
-                        format!("{} parameter {} must be a string", kind_label, arg.param)
+                        format!("{} parameter {} must be a string", kind_label, arg.param_name())
                     })?,
                     _ => {
                         if arg.optional == Some(true) && arg.resolve_command.is_some() {
@@ -160,10 +160,11 @@ pub(crate) fn validate_write_paths(
             ArgKind::FlagIfBoolean => continue,
             ArgKind::Stdin => continue,
             ArgKind::TempFile => continue,
+            ArgKind::Literal => continue,
             ArgKind::WorkingDir => {
-                match obj.get(&arg.param) {
+                match obj.get(arg.param_name()) {
                     Some(v) if !v.is_null() => json_value_to_string(v).ok_or_else(|| {
-                        format!("{} parameter {} must be a string", kind_label, arg.param)
+                        format!("{} parameter {} must be a string", kind_label, arg.param_name())
                     })?,
                     _ => {
                         if arg.optional == Some(true) && arg.resolve_command.is_some() {
@@ -198,7 +199,7 @@ pub(crate) fn validate_write_paths(
         }
 
         canonical_paths.insert(
-            arg.param.clone(),
+            arg.param_name().to_string(),
             canonical.to_string_lossy().into_owned(),
         );
 
@@ -238,7 +239,7 @@ pub(crate) fn ensure_write_path_parents(
         if arg.write_path != Some(true) {
             continue;
         }
-        let canonical = match canonical_paths.get(&arg.param) {
+        let canonical = match canonical_paths.get(arg.param_name()) {
             Some(p) => std::path::Path::new(p),
             None => continue,
         };
@@ -422,7 +423,7 @@ mod tests {
             binary: "cat".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "target".to_string(),
+                param: Some("target".to_string()),
                 kind: ArgKind::Positional,
                 ..Default::default()
             }],
@@ -456,7 +457,7 @@ mod tests {
             binary: "cat".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "name".to_string(),
+                param: Some("name".to_string()),
                 kind: ArgKind::Flag,
                 flag: Some("name".to_string()),
                 ..Default::default()
@@ -490,7 +491,7 @@ mod tests {
             binary: "chai".to_string(),
             subcommand: "skill list".to_string(),
             args: vec![ArgMapping {
-                param: "skill_name".to_string(),
+                param: Some("skill_name".to_string()),
                 kind: ArgKind::Positional,
                 ..Default::default()
             }],
@@ -521,7 +522,7 @@ mod tests {
             binary: "cat".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "target".to_string(),
+                param: Some("target".to_string()),
                 kind: ArgKind::Positional,
                 unsafe_path: Some(true),
                 ..Default::default()
@@ -557,7 +558,7 @@ mod tests {
             binary: "cat".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "path".to_string(),
+                param: Some("path".to_string()),
                 kind: ArgKind::Positional,
                 read_path: Some(true),
                 ..Default::default()
@@ -592,7 +593,7 @@ mod tests {
             binary: "ls".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "all".to_string(),
+                param: Some("all".to_string()),
                 kind: ArgKind::FlagIfBoolean,
                 flag_if_true: Some("--all".to_string()),
                 ..Default::default()
@@ -664,7 +665,7 @@ mod tests {
             binary: "ls".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "path".to_string(),
+                param: Some("path".to_string()),
                 kind: ArgKind::Positional,
                 read_path: Some(true),
                 ..Default::default()
@@ -715,7 +716,7 @@ mod tests {
             binary: "ls".to_string(),
             subcommand: "".to_string(),
             args: vec![ArgMapping {
-                param: "path".to_string(),
+                param: Some("path".to_string()),
                 kind: ArgKind::Positional,
                 read_path: Some(true),
                 ..Default::default()

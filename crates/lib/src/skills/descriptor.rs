@@ -175,10 +175,16 @@ pub struct ResolveCommandSpec {
 #[serde(rename_all = "camelCase")]
 pub struct ArgMapping {
     /// JSON parameter name (e.g. "query").
-    pub param: String,
-    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", "workingdir", or "tempfile".
+    /// Required for all kinds except `literal` (which pushes a fixed value
+    /// and reads nothing from the tool call JSON).
+    #[serde(default)]
+    pub param: Option<String>,
+    /// How to pass it: "positional", "flag", "flagifboolean", "stdin", "workingdir", "tempfile", or "literal".
     #[serde(default)]
     pub kind: ArgKind,
+    /// For kind "literal", the fixed value to push onto argv.
+    #[serde(default)]
+    pub value: Option<String>,
     /// For kind "flag" or "tempfile", the flag name. Single-character names produce short flags
     /// (e.g. "n" -> `-n`); multi-character names produce long flags (e.g. "path" -> `--path`).
     /// If absent, uses param (which will always produce a long flag).
@@ -215,6 +221,11 @@ pub struct ArgMapping {
     /// string). Default: required (same as false).
     #[serde(default)]
     pub optional: Option<bool>,
+    /// For `positional` only: when true, split the value on whitespace and
+    /// push each element as a separate argv entry. Use for tools that accept
+    /// multiple positional arguments (e.g. `git add file1.rs file2.rs`).
+    #[serde(default)]
+    pub split: Option<bool>,
     /// For `positional` only: when true, insert `--` before this value if any
     /// prior optional positional in this spec was skipped (disambiguates paths
     /// from refs for commands like `git diff`).
@@ -256,8 +267,9 @@ pub struct ArgMapping {
 impl Default for ArgMapping {
     fn default() -> Self {
         Self {
-            param: String::new(),
+            param: None,
             kind: ArgKind::default(),
+            value: None,
             flag: None,
             flag_if_true: None,
             flag_if_false: None,
@@ -266,12 +278,28 @@ impl Default for ArgMapping {
             write_path: None,
             read_path: None,
             optional: None,
+            split: None,
             disambiguate_after_skipped_positionals: None,
             deny_pattern: None,
             deny_resolve_command: None,
             deny_always_resolve: None,
             unsafe_path: None,
         }
+    }
+}
+
+impl ArgMapping {
+    /// Return the parameter name as a string slice.
+    /// For `literal` kind args (which have no param), returns a placeholder.
+    /// All other kinds require a param name; this panics if it is missing.
+    pub fn param_name(&self) -> &str {
+        self.param.as_deref().unwrap_or_else(|| {
+            if self.kind == ArgKind::Literal {
+                "(literal)"
+            } else {
+                panic!("arg mapping for kind {:?} is missing required 'param' field", self.kind)
+            }
+        })
     }
 }
 
@@ -301,6 +329,10 @@ pub enum ArgKind {
     /// match file content byte-for-byte (e.g. verification tokens like
     /// original_content). No size limits, no encoding issues.
     TempFile,
+    /// A fixed value pushed directly onto argv. No parameter is read from the
+    /// tool call JSON. Used for command flags like `--continue` and `--abort`
+    /// that are always present when the tool is called.
+    Literal,
 }
 
 impl ToolDescriptor {
