@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Write sandbox now excludes `.git/` directories from all write targets, preventing bypass of `git` skill branch protection and allowlist restrictions (attack vectors: branch rewrite, branch deletion, force switch, hook injection, config manipulation, object injection)
 - Runtime path-like value check now rejects unannotated `positional` and `flag` parameters that target a `.git/` directory
 - `files_replace` and `files_write_lines` diff output now uses post-edit line numbers: removed lines show original-file numbers, added and context-after lines show new-file numbers (previously, context-after lines showed stale original numbers, and multi-match replacements could produce misordered diffs due to LCS ambiguity with repeated lines)
+- `files_write_lines` `original_content` validation now tolerates blank-line boundary differences: a new Stage 5 in the `verify_original` cascade strips leading and trailing blank lines from both actual and expected content before comparing, allowing edits to succeed when the LLM includes or excludes blank lines at the range boundary differently from the file (interior blank lines are not tolerated)
+- `files_write_lines` `original_content` mismatch errors now include a line-diff hint identifying the first line that differs, in addition to the existing byte-offset hint
+- `files_replace` automatically collapses runs of two or more consecutive blank (or whitespace-only) lines down to a single blank line before writing the file, preventing double-blank-line artifacts from deletion operations
 
 ## [0.1.0] - 2026-06-20
 

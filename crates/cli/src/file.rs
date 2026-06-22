@@ -367,6 +367,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
                 match literal_match {
                     LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
+                        let new_content = collapse_consecutive_blank_lines(&new_content);
                         std::fs::write(target, new_content.as_bytes())
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
@@ -420,6 +421,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 );
                 match literal_match {
                     LiteralMatchResult::Matched { new_content, match_count: literal_count, match_ranges } => {
+                        let new_content = collapse_consecutive_blank_lines(&new_content);
                         std::fs::write(target, new_content.as_bytes())
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
@@ -483,7 +485,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 }
                 result.push_str(&original[last_end..]);
 
-                let new_content = result;
+                let new_content = collapse_consecutive_blank_lines(&result);
 
                 std::fs::write(target, new_content.as_bytes())
                     .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
@@ -525,6 +527,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             match literal_match {
                 LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
+                    let new_content = collapse_consecutive_blank_lines(&new_content);
                     std::fs::write(target, new_content.as_bytes())
                         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
@@ -1334,6 +1337,37 @@ fn build_stripped_to_original_offset_map(original: &str, stripped: &str) -> Vec<
 /// Stages 2-4 matches are accepted with a log warning, since the file content
 /// has almost certainly not changed -- the only difference is how the LLM
 /// represented the characters or whitespace.
+/// Collapse runs of 2+ consecutive blank lines down to a single blank line.
+/// This is applied after deletion-only replacements to avoid leaving
+/// double blank lines where a deleted block's separator lines become
+/// adjacent. The collapse is applied to the entire file — blank-line
+/// runs are rare in well-formatted code and collapsing them is safe.
+fn collapse_consecutive_blank_lines(content: &str) -> String {
+    let trailing_newline = content.ends_with('\n');
+    let lines: Vec<&str> = content.lines().collect();
+    let mut result: Vec<&str> = Vec::with_capacity(lines.len());
+    let mut blank_run = 0;
+
+    for line in &lines {
+        if line.trim().is_empty() {
+            blank_run += 1;
+            if blank_run <= 1 {
+                result.push(line);
+            }
+            // Skip lines 2+ in a blank run
+        } else {
+            blank_run = 0;
+            result.push(line);
+        }
+    }
+
+    let mut out = result.join("\n");
+    if trailing_newline && !out.is_empty() {
+        out.push('\n');
+    }
+    out
+}
+
 fn verify_original(original: &str, start_line: usize, end_line: usize, expected: &str) -> Result<Vec<String>> {
     use unicode_normalization::UnicodeNormalization;
 
@@ -1406,9 +1440,73 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
         return Ok(trailing_ws);
     }
 
+    // Stage 5: Blank-line-boundary-tolerant match
+    // When the agent reads a line range and constructs original_content from
+    // what it saw, blank lines at the top or bottom of the range may be
+    // included or excluded differently from the actual file. Strip leading
+    // and trailing blank lines from both actual and expected before comparing
+    // (with trailing whitespace already stripped per Stage 4). Blank lines
+    // within the content body must still match — only boundary blank lines
+    // are tolerated.
+    let strip_boundary_blank_lines = |s: &str| -> String {
+        let lines: Vec<&str> = s.lines().collect();
+        let first_nonblank = lines.iter().position(|l| !l.trim().is_empty());
+        let last_nonblank = lines.iter().rposition(|l| !l.trim().is_empty());
+        match (first_nonblank, last_nonblank) {
+            (Some(first), Some(last)) => lines[first..=last].join("\n"),
+            _ => String::new(), // all blank or empty
+        }
+    };
+    let actual_boundary_stripped = strip_boundary_blank_lines(&actual_trimmed);
+    let expected_boundary_stripped = strip_boundary_blank_lines(&expected_trimmed);
+    if actual_boundary_stripped == expected_boundary_stripped {
+        log::warn!(
+            "original_content: stages 1-4 all failed but blank-line-boundary-tolerant match succeeded \
+             (lines {}-{}); the LLM's original_content differed from the file at the top or bottom blank-line boundary",
+            start_line,
+            effective_end,
+        );
+        // Extract trailing whitespace from each original line for reapplication
+        // to the replacement content, same as Stage 4.
+        let trailing_ws: Vec<String> = actual_lines
+            .iter()
+            .map(|l| {
+                let trimmed = l.trim_end();
+                l[trimmed.len()..].to_string()
+            })
+            .collect();
+        return Ok(trailing_ws);
+    }
+
     // All stages failed -- genuine mismatch
     let expected_fmt = expected.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
     let actual_fmt = actual.lines().map(|l| format!("    {}", l)).collect::<Vec<_>>().join("\n");
+
+    // Find the first line that differs between expected and actual, to give
+    // an actionable hint about where the mismatch is (rather than just byte
+    // offsets or lengths, which are hard to map to line boundaries).
+    let line_hint = {
+        let expected_lines: Vec<&str> = expected.lines().collect();
+        let actual_lines: Vec<&str> = actual.lines().collect();
+        let first_diff = expected_lines.iter().zip(actual_lines.iter())
+            .enumerate()
+            .find(|(_, (e, a))| e != a);
+        match first_diff {
+            Some((i, (exp_line, act_line))) => format!(
+                "\n  hint: first difference at line {} of the content — expected: {:?}, actual: {:?}",
+                i + 1,
+                exp_line,
+                act_line,
+            ),
+            None if expected_lines.len() != actual_lines.len() => format!(
+                "\n  hint: content lines match up to line {} but lengths differ — expected {} lines, actual {} lines",
+                expected_lines.len().min(actual_lines.len()),
+                expected_lines.len(),
+                actual_lines.len(),
+            ),
+            None => String::new(),
+        }
+    };
 
     // When the strings are the same length but differ, include byte-level
     // diff info so invisible character mismatches can be diagnosed.
@@ -1434,11 +1532,12 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     };
 
     anyhow::bail!(
-        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}",
+        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}{}",
         start_line,
         effective_end,
         expected_fmt,
         actual_fmt,
+        line_hint,
         byte_hint,
     )
 }
@@ -1646,6 +1745,7 @@ mod tests {
     use super::build_stripped_to_original_offset_map;
     use super::LiteralMatchResult;
     use super::byte_offset_to_line;
+    use super::collapse_consecutive_blank_lines;
 
     #[test]
     fn edit_frontmatter_updates_existing_with_leading_newlines() {
@@ -2758,6 +2858,122 @@ mod tests {
         let file_content = "a\r\nb\r\nc";
         let result = verify_original(file_content, 2, 2, "wrong");
         assert!(result.is_err());
+    }
+
+    // --- verify_original Stage 5: blank-line-boundary-tolerant match tests ---
+
+    #[test]
+    fn verify_original_accepts_leading_blank_line_difference() {
+        // File has a leading blank line in the range, agent's expected doesn't.
+        let file_content = "a\n\nb\nc\nd";
+        assert!(verify_original(file_content, 2, 4, "b\nc").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_trailing_blank_line_difference() {
+        // File has a trailing blank line in the range, agent's expected doesn't.
+        let file_content = "a\nb\nc\n\nd";
+        assert!(verify_original(file_content, 2, 4, "b\nc").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_both_boundary_blank_line_differences() {
+        // File has both leading and trailing blank lines, agent's expected has neither.
+        let file_content = "a\n\nb\nc\n\nd";
+        assert!(verify_original(file_content, 2, 5, "b\nc").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_extra_leading_blank_line_in_expected() {
+        // Agent's expected has a leading blank line, file doesn't.
+        let file_content = "a\nb\nc\nd";
+        assert!(verify_original(file_content, 2, 3, "\nb\nc").is_ok());
+    }
+
+    #[test]
+    fn verify_original_accepts_extra_trailing_blank_line_in_expected() {
+        // Agent's expected has a trailing blank line, file doesn't.
+        let file_content = "a\nb\nc\nd";
+        assert!(verify_original(file_content, 2, 3, "b\nc\n").is_ok());
+    }
+
+    #[test]
+    fn verify_original_rejects_interior_blank_line_difference() {
+        // Blank lines within the body (not at boundaries) must still match.
+        // File has a blank line between b and c, expected doesn't.
+        let file_content = "a\nb\n\nc\nd";
+        let result = verify_original(file_content, 2, 4, "b\nc");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn verify_original_boundary_tolerance_with_trailing_whitespace() {
+        // Both boundary blank-line difference and trailing whitespace difference.
+        let file_content = "a\n\nb   \nc  \n\nd";
+        let result = verify_original(file_content, 2, 5, "b\nc");
+        assert!(result.is_ok());
+        // Stage 5 should capture trailing whitespace same as Stage 4.
+        // Range lines 2-5: ["", "b   ", "c  ", ""]
+        let ws = result.unwrap();
+        assert_eq!(ws.len(), 4); // 4 lines in the file range
+        assert_eq!(ws[1], "   "); // trailing ws on "b" line (line 3)
+        assert_eq!(ws[2], "  ");  // trailing ws on "c" line (line 4)
+    }
+
+    // --- collapse_consecutive_blank_lines tests ---
+
+    #[test]
+    fn collapse_blank_lines_no_consecutive() {
+        assert_eq!(collapse_consecutive_blank_lines("a\n\nb\nc"), "a\n\nb\nc");
+    }
+
+    #[test]
+    fn collapse_blank_lines_double_blank() {
+        assert_eq!(collapse_consecutive_blank_lines("a\n\n\nb"), "a\n\nb");
+    }
+
+    #[test]
+    fn collapse_blank_lines_triple_blank() {
+        assert_eq!(collapse_consecutive_blank_lines("a\n\n\n\nb"), "a\n\nb");
+    }
+
+    #[test]
+    fn collapse_blank_lines_multiple_runs() {
+        assert_eq!(
+            collapse_consecutive_blank_lines("a\n\n\nb\n\n\nc"),
+            "a\n\nb\n\nc"
+        );
+    }
+
+    #[test]
+    fn collapse_blank_lines_preserves_trailing_newline() {
+        assert_eq!(collapse_consecutive_blank_lines("a\n\n\nb\n"), "a\n\nb\n");
+    }
+
+    #[test]
+    fn collapse_blank_lines_no_trailing_newline() {
+        assert_eq!(collapse_consecutive_blank_lines("a\n\n\nb"), "a\n\nb");
+    }
+
+    #[test]
+    fn collapse_blank_lines_whitespace_only_lines() {
+        // Lines with only whitespace are treated as blank.
+        assert_eq!(collapse_consecutive_blank_lines("a\n  \n\nb"), "a\n  \nb");
+    }
+
+    #[test]
+    fn collapse_blank_lines_empty_input() {
+        assert_eq!(collapse_consecutive_blank_lines(""), "");
+    }
+
+    #[test]
+    fn collapse_blank_lines_all_blank() {
+        assert_eq!(collapse_consecutive_blank_lines("\n\n\n"), "");
+    }
+
+    #[test]
+    fn collapse_blank_lines_single_line() {
+        assert_eq!(collapse_consecutive_blank_lines("hello"), "hello");
     }
 
 }
