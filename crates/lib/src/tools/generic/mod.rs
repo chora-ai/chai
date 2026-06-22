@@ -169,6 +169,7 @@ impl ToolExecutor for GenericToolExecutor {
         argv.extend(temp_argv);
 
         let success_codes = spec.success_exit_codes.as_deref().unwrap_or(&[]);
+        let binary_wrapper = spec.binary_wrapper.as_deref();
         let result = if let Some(ref content) = stdin_content {
             allowlist.run_with_stdin_with_codes_and_exit(
                 &spec.binary,
@@ -177,6 +178,7 @@ impl ToolExecutor for GenericToolExecutor {
                 working_dir.as_deref(),
                 content.as_bytes(),
                 success_codes,
+                binary_wrapper,
             )
         } else {
             allowlist.run_with_codes_and_exit(
@@ -185,6 +187,7 @@ impl ToolExecutor for GenericToolExecutor {
                 &argv,
                 working_dir.as_deref(),
                 success_codes,
+                binary_wrapper,
             )
         };
 

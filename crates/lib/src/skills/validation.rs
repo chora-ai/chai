@@ -240,6 +240,7 @@ mod tests {
             tool_descriptor: None,
             capability_tier: capability_tier.map(|s| s.to_string()),
             variant_of: variant_of.map(|s| s.to_string()),
+            matched_bin_group: None,
         }
     }
 }

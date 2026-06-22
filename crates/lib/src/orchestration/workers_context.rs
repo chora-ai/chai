@@ -205,6 +205,7 @@ mod tests {
             tool_descriptor: None,
             capability_tier: None,
             variant_of: None,
+            matched_bin_group: None,
         }];
         let s = build_workers_context(&a, &catalog);
         assert!(!s.contains("provider"));

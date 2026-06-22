@@ -555,6 +555,66 @@ fn validate_tools_json(content: &str) -> Result<()> {
         if subcommand.is_none() {
             errors.push(format!("execution[{}]: missing subcommand", i));
         }
+
+        // Validate binaryWrapper: when present, must be a non-empty array of strings.
+        if let Some(bw) = ex.get("binaryWrapper") {
+            if let Some(arr) = bw.as_array() {
+                if arr.is_empty() {
+                    errors.push(format!(
+                        "execution[{}]: binaryWrapper must be a non-empty array",
+                        i
+                    ));
+                } else if !arr.iter().all(|v| v.is_string()) {
+                    errors.push(format!(
+                        "execution[{}]: binaryWrapper must contain only strings",
+                        i
+                    ));
+                }
+            } else {
+                errors.push(format!(
+                    "execution[{}]: binaryWrapper must be an array, got {}",
+                    i,
+                    json_value_kind(bw)
+                ));
+            }
+        }
+
+        // Validate condition: when present, must have a valid binGroup index.
+        if let Some(cond) = ex.get("condition") {
+            if let Some(cond_obj) = cond.as_object() {
+                if let Some(bg) = cond_obj.get("binGroup") {
+                    if let Some(idx) = bg.as_u64() {
+                        // binGroup validation against the bins OR-groups is
+                        // deferred to load-time (the validator doesn't have
+                        // access to the SKILL.md frontmatter). Here we just
+                        // check it's a non-negative integer.
+                        if idx > usize::MAX as u64 {
+                            errors.push(format!(
+                                "execution[{}]: condition.binGroup index too large",
+                                i
+                            ));
+                        }
+                    } else {
+                        errors.push(format!(
+                            "execution[{}]: condition.binGroup must be an integer, got {}",
+                            i,
+                            json_value_kind(bg)
+                        ));
+                    }
+                } else {
+                    errors.push(format!(
+                        "execution[{}]: condition missing required field \"binGroup\"",
+                        i
+                    ));
+                }
+            } else {
+                errors.push(format!(
+                    "execution[{}]: condition must be an object, got {}",
+                    i,
+                    json_value_kind(cond)
+                ));
+            }
+        }
     }
 
     for name in &tool_names {

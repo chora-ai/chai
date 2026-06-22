@@ -51,11 +51,47 @@ Each element:
 | `tool` | string | Tool name (must match a `tools[].name`). |
 | `binary` | string | Binary to run (e.g. `chai`). Must be a key in `allowlist`. |
 | `subcommand` | string | Subcommand (e.g. `files read`). Must be in `allowlist[binary]`. The value is split by whitespace and each token is prepended before the `args` list when building the command. This allows fixed flags to be encoded as part of the subcommand (e.g. `"-E"` for `grep -E`). |
+| `binaryWrapper` | array of strings (optional) | Wrap the binary invocation through a command prefix (e.g. `["nix", "develop", "--command"]`). When present, the executor constructs `wrapper[0] wrapper[1..] binary subcommand args...` instead of `binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism, not a privilege escalation. Must be a non-empty array when set. Default: not set. |
+| `condition` | object (optional) | Condition that must be satisfied for this execution spec to be selected by the loader. See below. Default: not set. |
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
 | `successExitCodes` | array of integers (optional) | Exit codes to treat as success (in addition to 0). Use when a non-zero exit is a normal result, not an error (e.g. `[0, 1]` for `grep` where exit 1 means no matches). When a non-zero code is in this list, the executor includes stderr after stdout in the output — this allows `postProcess` hint scripts to match against error messages written to stderr. Exit codes not in this list (and not 0) surface as tool errors. Default: only exit 0 is success. |
 | `postProcess` | object (optional) | Post-process the command's stdout through a script before returning the result to the model. See below. Default: not set. |
 | `sideRead` | object (optional) | After the command (and any `postProcess`) completes, look for a file relative to a path parameter and append its contents to the tool result. Silently skipped when the file is absent. See below. Default: not set. |
 | `maxOutputLines` | integer (optional) | Maximum number of output lines to return to the model. When set, output exceeding this limit is truncated and a notice is appended indicating how many lines were omitted and suggesting the agent narrow its query. This prevents unbounded tool output (e.g. from `grep` or `git diff`) from exceeding the model's context window. Applies after `postProcess` but before `sideRead` (side-read content is not counted against the limit and is always appended in full). Default: not set (no limit). |
+
+#### `condition` (object)
+
+Condition that must be satisfied for an execution spec to be selected by the loader. When present, the loader filters execution specs to only those whose condition matches the loading context. This keeps the executor unaware of bin group logic — the loader handles selection, and the executor just runs what it is given.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `binGroup` | integer | Index of the bin group (in `metadata.requires.bins` OR-groups) that must have matched for this execution spec to be selected. For example, `0` means the first group matched (e.g. `["cargo"]`), `1` means the second group matched (e.g. `["nix"]`). Must be a non-negative integer. |
+
+When multiple execution specs share the same `tool` name but differ in `binaryWrapper` and `condition`, the loader selects only those whose `condition.binGroup` matches the group that satisfied the `bins` requirement. Specs with no `condition` are always included. When `bins` uses the flat (All) form, specs with a `condition` are filtered out (since no group index is available).
+
+**Example:** Two execution specs for the same tool, one direct and one wrapped:
+
+```json
+"execution": [
+  {
+    "tool": "cargo_check",
+    "binary": "cargo",
+    "subcommand": "check",
+    "condition": { "binGroup": 0 },
+    "args": [...]
+  },
+  {
+    "tool": "cargo_check",
+    "binary": "cargo",
+    "binaryWrapper": ["nix", "develop", "--command"],
+    "subcommand": "check",
+    "condition": { "binGroup": 1 },
+    "args": [...]
+  }
+]
+```
+
+With `bins: [["cargo"], ["nix"]]`, if `cargo` is on PATH, group 0 matches and the first spec is selected. If only `nix` is on PATH, group 1 matches and the second (wrapped) spec is selected.
 
 #### `args` (array of arg mapping)
 
@@ -233,9 +269,10 @@ One tool, one positional argument:
 
 ## Implementation Notes
 
-- **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`.
+- **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`. When `metadata.requires.bins` uses OR-groups and a group matches, the loader records the matched group index (`SkillEntry.matched_bin_group`) and filters execution specs: only specs with `condition.binGroup` equal to the matched index, or specs with no `condition`, are retained. This keeps the executor unaware of bin group logic — it receives a pre-filtered descriptor.
 - **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill's SKILL.md content in-process; see [CONTEXT.md](CONTEXT.md).
 - **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `resolveCommand` when set) and runs via the allowlist.
+- **Binary wrappers**: When `binaryWrapper` is set on an execution spec, the executor constructs the command as `wrapper[0] wrapper[1..] resolved_binary subcommand args...` instead of `resolved_binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism (e.g. `nix develop --command`), not a privilege escalation. The wrapper binary must be on PATH (guaranteed by the OR-group bin check at load time). `binaryWrapper` is an author-declared field in `tools.json`, not an agent-provided parameter; the agent cannot inject an arbitrary wrapper at runtime.
 - **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
 - **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill's `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
 - **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's stdout to the post-processor's stdin and returns the post-processor's stdout instead. On failure or empty output, the original stdout is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).

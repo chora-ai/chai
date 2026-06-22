@@ -404,6 +404,7 @@ mod tests {
             tool_descriptor: None,
             capability_tier: None,
             variant_of: None,
+            matched_bin_group: None,
         }];
 
         let lock = SkillsLock {
@@ -435,6 +436,7 @@ mod tests {
             tool_descriptor: None,
             capability_tier: None,
             variant_of: None,
+            matched_bin_group: None,
         }];
 
         let lock = SkillsLock {
@@ -466,6 +468,7 @@ mod tests {
             tool_descriptor: None,
             capability_tier: None,
             variant_of: None,
+            matched_bin_group: None,
         }];
 
         let lock = SkillsLock {
@@ -501,6 +504,7 @@ mod tests {
                 tool_descriptor: None,
                 capability_tier: None,
                 variant_of: None,
+                matched_bin_group: None,
             },
             SkillEntry {
                 name: "files".to_string(),
@@ -510,6 +514,7 @@ mod tests {
                 tool_descriptor: None,
                 capability_tier: None,
                 variant_of: None,
+                matched_bin_group: None,
             },
         ];
 
@@ -548,6 +553,7 @@ mod tests {
                 tool_descriptor: None,
                 capability_tier: None,
                 variant_of: None,
+                matched_bin_group: None,
             },
             SkillEntry {
                 name: "files".to_string(),
@@ -557,6 +563,7 @@ mod tests {
                 tool_descriptor: None,
                 capability_tier: None,
                 variant_of: None,
+                matched_bin_group: None,
             },
         ];
 

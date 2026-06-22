@@ -49,13 +49,32 @@ metadata:
 ---
 ```
 
+### OR-Group Bins Example
+
+```yaml
+---
+description: Build and check Rust projects.
+capability_tier: moderate
+metadata:
+  requires:
+    bins: [["cargo"], ["nix"]]
+---
+```
+
+This skill loads if `cargo` is on PATH (e.g. standard Rust install) **or** if `nix` is on PATH (e.g. NixOS with a nix develop shell). The matched group determines which execution spec the loader selects — see `binaryWrapper` and `condition` in [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md).
+
 ## Metadata (project-neutral)
 
 This project uses a **project-neutral** metadata shape so skills can be shared across runtimes without tying them to a single product.
 
-- **`metadata.requires.bins`** — Optional list of binary names (e.g. `["cat", "ls", "grep", "chai"]`). The skill is **only loaded** when every listed binary is found on the system `PATH`. If any are missing, the skill is skipped (e.g. so the Obsidian skill is only available when the Obsidian CLI is installed).
+- **`metadata.requires.bins`** — Optional binary requirement. Supports two forms:
 
-**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`enabledSkills`** array in **`config.json`**. Missing or empty **`enabledSkills`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["files", "git-read"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when binaries are missing—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
+  - **Flat list** (AND semantics): `["git", "curl"]` — the skill is only loaded when **every** listed binary is found on the system `PATH`. This is the backward-compatible default.
+  - **OR-groups** (OR of ANDs): `[["cargo"], ["nix"]]` — the skill is loaded when **any one group** has all its binaries on PATH. Each inner list is an AND group; the outer list is an OR over those groups.
+
+  When OR-groups are present, the loader records which group matched. This matched group index drives `condition.binGroup` selection in execution specs (see [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md)), allowing the same tool to be executed with or without a `binaryWrapper` depending on which group matched.
+
+**Enabling skills:** Discovery loads all packages under **`~/.chai/skills`**; **each agent** (orchestrator and workers) opts in with its own **`enabledSkills`** array in **`config.json`**. Missing or empty **`enabledSkills`** for an agent ⇒ **no** skill tools and **no** skill context for **that** agent. List the skill **names** you want per role (e.g. `["files", "git-read"]`). If a skill uses **`metadata.requires.bins`**, it is skipped at load time when the binary requirement is not satisfied—ensure CLIs are on **PATH when the gateway starts**. See [README](../../README.md), [CONFIGURATION.md](CONFIGURATION.md), and [CONTEXT.md](CONTEXT.md).
 
 ## Related Documents
 

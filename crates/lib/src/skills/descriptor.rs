@@ -49,6 +49,19 @@ pub struct ExecutionSpec {
     /// Order of arguments: how each JSON param becomes a CLI arg.
     #[serde(default)]
     pub args: Vec<ArgMapping>,
+    /// Optional: wrap the binary invocation through a command prefix (e.g.
+    /// `["nix", "develop", "--command"]`). When present, the executor
+    /// constructs `Command::new(wrapper[0]).args(wrapper[1..]).arg(binary).args(subcommand).args(args)`
+    /// instead of `Command::new(binary).args(subcommand).args(args)`.
+    /// The allowlist validates the declared `binary` and `subcommand`, not the
+    /// wrapper — the wrapper is a transport mechanism, not a privilege escalation.
+    #[serde(default, rename = "binaryWrapper")]
+    pub binary_wrapper: Option<Vec<String>>,
+    /// Optional: condition that must be satisfied for this execution spec to
+    /// be selected by the loader. When present, the loader filters execution
+    /// specs to only those whose condition matches the loading context.
+    #[serde(default)]
+    pub condition: Option<ConditionSpec>,
     /// Optional: post-process the command's stdout through a script before
     /// returning the result to the model. The script receives stdout on stdin
     /// and its own stdout becomes the tool result. On failure, the original
@@ -86,12 +99,30 @@ impl Default for ExecutionSpec {
             binary: String::new(),
             subcommand: String::new(),
             args: Vec::new(),
+            binary_wrapper: None,
+            condition: None,
             post_process: None,
             side_read: None,
             success_exit_codes: None,
             max_output_lines: None,
         }
     }
+}
+
+/// Condition that must be satisfied for an execution spec to be selected.
+///
+/// The loader evaluates conditions during skill loading and filters execution
+/// specs to only those whose conditions match. This keeps the executor unaware
+/// of bin group logic — the loader handles selection, and the executor just
+/// runs what it is given.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConditionSpec {
+    /// Index of the bin group (in `metadata.requires.bins` OR-groups) that
+    /// must have matched for this execution spec to be selected. For example,
+    /// `0` means the first group matched (e.g. `["cargo"]`), `1` means the
+    /// second group matched (e.g. `["nix"]`).
+    pub bin_group: usize,
 }
 
 /// Spec for appending a file's contents to the tool result when it exists.

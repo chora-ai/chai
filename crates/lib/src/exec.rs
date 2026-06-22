@@ -34,6 +34,38 @@ pub fn resolve_binary(binary: &str) -> String {
     binary.to_string()
 }
 
+/// Build a `Command` for the given resolved binary, subcommand, and args.
+///
+/// When `binary_wrapper` is present, the command is constructed as
+/// `wrapper[0] wrapper[1..] resolved_binary subcommand args...` instead of
+/// `resolved_binary subcommand args...`. The wrapper is a transparent prefix
+/// (e.g. `nix develop --command`) that determines *how* the binary is invoked,
+/// not *what* is invoked — the allowlist still validates the declared binary
+/// and subcommand.
+fn build_command(
+    resolved: &str,
+    subcommand: &str,
+    args: &[String],
+    binary_wrapper: Option<&[String]>,
+) -> Command {
+    match binary_wrapper {
+        Some(wrapper) => {
+            let mut cmd = Command::new(&wrapper[0]);
+            cmd.args(&wrapper[1..]);
+            cmd.arg(resolved);
+            cmd.args(subcommand.split_whitespace());
+            cmd.args(args);
+            cmd
+        }
+        None => {
+            let mut cmd = Command::new(resolved);
+            cmd.args(subcommand.split_whitespace());
+            cmd.args(args);
+            cmd
+        }
+    }
+}
+
 /// Allowlist: binary name -> set of allowed subcommands (e.g. "git" -> ["search", "create", ...]).
 #[derive(Debug, Clone, Default)]
 pub struct Allowlist {
@@ -78,13 +110,15 @@ impl Allowlist {
         args: &[String],
         working_dir: Option<&Path>,
     ) -> Result<String, String> {
-        self.run_with_codes(binary, subcommand, args, working_dir, &[])
+        self.run_with_codes(binary, subcommand, args, working_dir, &[], None)
     }
 
     /// Run `binary subcommand args...` if allowed, treating the given exit codes
     /// as success in addition to 0. Returns combined stdout; on failure stderr is
     /// included in the error. When `working_dir` is set, the child process runs
-    /// with that CWD.
+    /// with that CWD. When `binary_wrapper` is present, the command is constructed
+    /// as `wrapper[0] wrapper[1..] binary subcommand args...` instead of
+    /// `binary subcommand args...`.
     pub fn run_with_codes(
         &self,
         binary: &str,
@@ -92,8 +126,9 @@ impl Allowlist {
         args: &[String],
         working_dir: Option<&Path>,
         success_exit_codes: &[i32],
+        binary_wrapper: Option<&[String]>,
     ) -> Result<String, String> {
-        self.run_with_codes_and_exit(binary, subcommand, args, working_dir, success_exit_codes)
+        self.run_with_codes_and_exit(binary, subcommand, args, working_dir, success_exit_codes, binary_wrapper)
             .map(|(_, output)| output)
     }
 
@@ -105,6 +140,7 @@ impl Allowlist {
         args: &[String],
         working_dir: Option<&Path>,
         success_exit_codes: &[i32],
+        binary_wrapper: Option<&[String]>,
     ) -> Result<(i32, String), String> {
         let allowed = self
             .bins
@@ -117,8 +153,7 @@ impl Allowlist {
             ));
         }
         let resolved = resolve_binary(binary);
-        let mut cmd = Command::new(&resolved);
-        cmd.args(subcommand.split_whitespace()).args(args);
+        let mut cmd = build_command(&resolved, subcommand, args, binary_wrapper);
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
@@ -138,13 +173,15 @@ impl Allowlist {
         working_dir: Option<&Path>,
         stdin: &[u8],
     ) -> Result<String, String> {
-        self.run_with_stdin_with_codes(binary, subcommand, args, working_dir, stdin, &[])
+        self.run_with_stdin_with_codes(binary, subcommand, args, working_dir, stdin, &[], None)
     }
 
     /// Run `binary subcommand args...` if allowed, piping `stdin` bytes to the child's stdin,
     /// and treating the given exit codes as success in addition to 0. Returns combined stdout;
     /// on failure stderr is included in the error. When `working_dir` is set, the child process
-    /// runs with that CWD.
+    /// runs with that CWD. When `binary_wrapper` is present, the command is constructed as
+    /// `wrapper[0] wrapper[1..] binary subcommand args...` instead of
+    /// `binary subcommand args...`.
     pub fn run_with_stdin_with_codes(
         &self,
         binary: &str,
@@ -153,8 +190,9 @@ impl Allowlist {
         working_dir: Option<&Path>,
         stdin: &[u8],
         success_exit_codes: &[i32],
+        binary_wrapper: Option<&[String]>,
     ) -> Result<String, String> {
-        self.run_with_stdin_with_codes_and_exit(binary, subcommand, args, working_dir, stdin, success_exit_codes)
+        self.run_with_stdin_with_codes_and_exit(binary, subcommand, args, working_dir, stdin, success_exit_codes, binary_wrapper)
             .map(|(_, output)| output)
     }
 
@@ -167,6 +205,7 @@ impl Allowlist {
         working_dir: Option<&Path>,
         stdin: &[u8],
         success_exit_codes: &[i32],
+        binary_wrapper: Option<&[String]>,
     ) -> Result<(i32, String), String> {
         use std::io::Write;
         use std::process::Stdio;
@@ -182,8 +221,7 @@ impl Allowlist {
             ));
         }
         let resolved = resolve_binary(binary);
-        let mut cmd = Command::new(&resolved);
-        cmd.args(subcommand.split_whitespace()).args(args);
+        let mut cmd = build_command(&resolved, subcommand, args, binary_wrapper);
         cmd.stdin(Stdio::piped());
         cmd.stdout(Stdio::piped());
         cmd.stderr(Stdio::piped());

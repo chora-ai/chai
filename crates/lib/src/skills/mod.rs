@@ -10,6 +10,6 @@ pub mod lockfile;
 mod validation;
 pub mod versioning;
 
-pub use descriptor::{ArgKind, ArgMapping, ExecutionSpec, PostProcessSpec, ResolveCommandSpec, SideReadSpec, ToolDescriptor};
+pub use descriptor::{ArgKind, ArgMapping, ConditionSpec, ExecutionSpec, PostProcessSpec, ResolveCommandSpec, SideReadSpec, ToolDescriptor};
 pub use loader::{load_skills, Skill, SkillEntry};
 pub use validation::validate_skill_composition;
