@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `split` positional args for whitespace-separated multi-value parameters (e.g., `git_add` files, `git_cherry_pick` commits)
 - `tools.json` schema additions: `kind: "literal"` and `kind: "tempfile"` arg kinds, `value` field for literal args, `split` field for positional args
 
+### Fixed
+
+- Write sandbox now excludes `.git/` directories from all write targets, preventing bypass of `git` skill branch protection and allowlist restrictions (attack vectors: branch rewrite, branch deletion, force switch, hook injection, config manipulation, object injection)
+- Runtime path-like value check now rejects unannotated `positional` and `flag` parameters that target a `.git/` directory
+
 ## [0.1.0] - 2026-06-20
 
 ### Added

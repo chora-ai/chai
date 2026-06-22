@@ -53,12 +53,36 @@ Removing the symlink revokes access. No configuration file, no capability tier �
 
 For each `writePath`-annotated argument, before the command runs:
 
-1. **Resolve** the path to a canonical absolute path (resolving `..`, `.`, and symlinks)
-2. For new files that don't exist yet, canonicalize the parent directory and append the filename
-3. **Check** whether the canonical path starts with at least one writable root
-4. If it does, proceed; if not, reject the tool call
+1. **Exclude** `.git/` directories — reject any path whose canonical form contains a `.git` path component (see below)
+2. **Resolve** the path to a canonical absolute path (resolving `..`, `.`, and symlinks)
+3. For new files that don't exist yet, canonicalize the parent directory and append the filename
+4. **Check** whether the canonical path starts with at least one writable root
+5. If it passes all checks, proceed; if not, reject the tool call
 
-This mechanically prevents path traversal, symlink escape, and CWD-based implicit writes.
+This mechanically prevents path traversal, symlink escape, CWD-based implicit writes, and direct writes to `.git/` directories.
+
+## `.git/` Directory Exclusion
+
+The write sandbox unconditionally rejects any write target whose canonical path contains a `.git` **path component**. This check runs **before** the writable-root prefix check, so `.git/` directories are excluded even when they fall within a writable root.
+
+### Why This Matters
+
+The `git` skill uses deny patterns and branch protection to constrain how git state is modified. Without `.git/` exclusion, a model could bypass these protections entirely by writing directly to `.git/` files:
+
+| Attack Vector | Method | Protection Bypassed |
+|---|---|---|
+| Branch rewrite | Write to `.git/refs/heads/main` | `git_commit`/`git_push` deny patterns on `main` |
+| Branch deletion | Delete files in `.git/refs/heads/` | `git_branch_delete` deny pattern |
+| Force switch | Write to `.git/HEAD` | Any branch-scoped deny |
+| Hook injection | Write executable to `.git/hooks/` | Binary allowlist and sandbox constraints |
+| Config manipulation | Write to `.git/config` | Remote URL and protection integrity |
+| Object injection | Write to `.git/objects/` | Repository history integrity |
+
+### Scope
+
+The check uses **path-component matching** — it matches `.git` as a complete directory segment, not as a substring. Files like `.gitignore` and `.gitmodules` at the repository root are **not** affected.
+
+The runtime path-like value check also rejects unannotated `positional` and `flag` parameters that target a `.git/` directory (starting with `.git/` or containing `/.git/` as a component). Parameters annotated with `unsafePath` bypass this check.
 
 ## What the Sandbox Does Not Cover
 

@@ -16,4 +16,4 @@ The three doc sets serve different purposes and link to each other:
 | **Journeys** | Hands-on procedures — prerequisites, steps, expected outcomes. | Walking through a feature for the first time; verifying behavior after changes. |
 | **Testing** | Repeatable model/provider playbooks — controlled message sequences and result templates. | Comparing models on tool use; validating a provider setup; regression testing before a release. |
 
-Each guide links to the relevant journey for hands-on practice. Each journey links back to the guide for background. The testing playbooks link to specs and guides for provider and model details.
+Each guide links to the relevant journey for hands-on practice. Each journey links back to the guide for background. The testing playbooks link to guides and journeys for setup instructions.
