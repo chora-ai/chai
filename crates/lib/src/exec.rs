@@ -321,7 +321,8 @@ impl WriteSandbox {
         Self { writable_roots }
     }
 
-    /// Validate that a path falls within a writable root.
+    /// Validate that a path falls within a writable root and does not
+    /// target a `.git/` directory.
     ///
     /// Returns the canonical path on success. For paths that don't exist yet
     /// (new file creation), the parent directory is canonicalized and the
@@ -331,6 +332,11 @@ impl WriteSandbox {
     /// sandbox directory itself), not the process working directory. This
     /// ensures that tools providing sandbox-relative paths work correctly
     /// regardless of where the gateway process was launched.
+    ///
+    /// `.git/` directories are excluded from write access regardless of
+    /// whether they fall within a writable root. Git state must only be
+    /// modified through the git skill's constrained tools, not through
+    /// arbitrary file writes that bypass branch protection and hook safety.
     pub fn validate(&self, path: &str) -> Result<PathBuf, String> {
         if self.writable_roots.is_empty() {
             return Err("no writable roots configured (sandbox directory missing)".to_string());
@@ -348,6 +354,18 @@ impl WriteSandbox {
             target.to_path_buf()
         };
         let canonical = Self::canonicalize_for_write(&resolved_target)?;
+
+        // Reject writes that target a .git/ directory. The .git/ directory
+        // is a special filesystem namespace that should only be modified
+        // through git's own tools, not through arbitrary file writes. This
+        // prevents the files skill from bypassing the git skill's branch
+        // protection, hook safety, and other deny-pattern restrictions.
+        if path_intersects_git_dir(&canonical) {
+            return Err(format!(
+                "write path targets a .git directory: {}",
+                canonical.display()
+            ));
+        }
 
         for root in &self.writable_roots {
             if canonical.starts_with(root) {
@@ -410,6 +428,21 @@ impl WriteSandbox {
             current = parent.to_path_buf();
         }
     }
+}
+
+/// Check whether a canonical path intersects a `.git/` directory.
+///
+/// Returns true if:
+/// - The path ends with a `.git` component (e.g., `/project/.git`)
+/// - The path contains a `.git` component anywhere (e.g., `/project/.git/refs/heads/main`)
+///
+/// This is used by `WriteSandbox::validate()` to reject writes that target
+/// git's internal state, which must only be modified through the git skill's
+/// constrained tools.
+fn path_intersects_git_dir(canonical: &Path) -> bool {
+    canonical
+        .components()
+        .any(|c| c.as_os_str() == std::ffi::OsStr::new(".git"))
 }
 
 #[cfg(test)]
@@ -720,6 +753,121 @@ mod sandbox_tests {
         assert!(sb.validate(file.to_str().unwrap()).is_ok());
 
         cleanup(&base);
+    }
+
+    // --- .git/ directory exclusion tests ---
+
+    #[test]
+    fn git_dir_rejects_write_to_git_refs() {
+        let (base, sandbox) = setup_sandbox("git-refs");
+        let git_dir = sandbox.join("project").join(".git").join("refs").join("heads");
+        fs::create_dir_all(&git_dir).expect("create .git/refs/heads");
+        let ref_file = git_dir.join("main");
+        fs::write(&ref_file, "abc123").expect("write ref");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(ref_file.to_str().unwrap());
+        let err = result.expect_err("write to .git/refs/heads/main should be rejected");
+        assert!(err.contains(".git"), "error should mention .git: {}", err);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn git_dir_rejects_write_to_git_config() {
+        let (base, sandbox) = setup_sandbox("git-config");
+        let git_dir = sandbox.join("project").join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+        let config = git_dir.join("config");
+        fs::write(&config, "[core]").expect("write config");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(config.to_str().unwrap());
+        assert!(result.is_err(), "write to .git/config should be rejected");
+        assert!(result.unwrap_err().contains(".git"), "error should mention .git");
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn git_dir_rejects_write_to_git_hooks() {
+        let (base, sandbox) = setup_sandbox("git-hooks");
+        let hooks_dir = sandbox.join("project").join(".git").join("hooks");
+        fs::create_dir_all(&hooks_dir).expect("create .git/hooks");
+        let hook = hooks_dir.join("pre-commit");
+        fs::write(&hook, "#!/bin/sh").expect("write hook");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(hook.to_str().unwrap());
+        assert!(result.is_err(), "write to .git/hooks/pre-commit should be rejected");
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn git_dir_rejects_write_to_git_dir_itself() {
+        let (base, sandbox) = setup_sandbox("git-dir-itself");
+        let git_dir = sandbox.join("project").join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(git_dir.to_str().unwrap());
+        assert!(result.is_err(), "write to .git directory itself should be rejected");
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn git_dir_rejects_new_file_in_git_dir() {
+        let (base, sandbox) = setup_sandbox("git-new-file");
+        let git_dir = sandbox.join("project").join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+        // A new file that doesn't exist yet, but is inside .git/
+        let new_file = git_dir.join("MERGE_MSG");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(new_file.to_str().unwrap());
+        assert!(result.is_err(), "write to new file in .git/ should be rejected");
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn git_dir_allows_write_outside_git_dir() {
+        let (base, sandbox) = setup_sandbox("git-outside");
+        let project = sandbox.join("project");
+        let git_dir = project.join(".git");
+        fs::create_dir_all(&git_dir).expect("create .git");
+        let src_file = project.join("src").join("main.rs");
+        fs::create_dir_all(src_file.parent().unwrap()).expect("create src");
+        fs::write(&src_file, "fn main() {}").expect("write");
+
+        let sb = WriteSandbox::new(&sandbox);
+        let result = sb.validate(src_file.to_str().unwrap());
+        assert!(result.is_ok(), "write to file outside .git/ should be allowed: {:?}", result);
+
+        cleanup(&base);
+    }
+
+    #[test]
+    fn path_intersects_git_dir_returns_true_for_git_component() {
+        assert!(path_intersects_git_dir(Path::new("/home/user/project/.git")));
+        assert!(path_intersects_git_dir(Path::new("/home/user/project/.git/refs/heads/main")));
+        assert!(path_intersects_git_dir(Path::new("/home/user/project/.git/config")));
+    }
+
+    #[test]
+    fn path_intersects_git_dir_returns_false_for_no_git_component() {
+        assert!(!path_intersects_git_dir(Path::new("/home/user/project/src/main.rs")));
+        assert!(!path_intersects_git_dir(Path::new("/home/user/project/README.md")));
+        assert!(!path_intersects_git_dir(Path::new("/tmp/sandbox")));
+    }
+
+    #[test]
+    fn path_intersects_git_dir_does_not_match_gitignore() {
+        // ".gitignore" contains ".git" as a prefix but is NOT a .git directory
+        assert!(!path_intersects_git_dir(Path::new("/home/user/project/.gitignore")));
+        assert!(!path_intersects_git_dir(Path::new("/home/user/project/.gitmodules")));
     }
 }
 

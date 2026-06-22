@@ -15,3 +15,4 @@ metadata:
 - when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
 - after using `files_search_content` with `line_numbers: true` to find relevant lines, use `files_read_lines` to read context around those lines
 - use `files_write_lines` for targeted edits; use `files_replace` for bulk find-and-replace across a file
+- never write to `.git/` directories — git state must only be modified through the `git` skill's constrained tools

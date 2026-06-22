@@ -52,6 +52,33 @@ For each `writePath`-annotated argument, before execution:
 
 Path canonicalization happens at execution time (not startup), so renames and moves within writable roots are handled correctly. However, the set of writable roots is frozen at gateway construction time — adding or removing symlinks in the sandbox directory requires a gateway restart to take effect.
 
+## `.git/` Directory Exclusion
+
+The `.git/` directory is a special filesystem namespace that must only be modified through git's own tools, not through arbitrary file writes. The sandbox rejects writes that target any `.git/` directory, regardless of whether the path falls within a writable root.
+
+After canonicalizing a write target and before the prefix check, the executor verifies that no path component is `.git`. If the canonical path contains a `.git` component, the write is rejected with an error message. This applies to both `writePath`-annotated parameters (enforced by `WriteSandbox::validate()`) and unannotated parameters (enforced by the path-like value check).
+
+This exclusion prevents the `files` skill from bypassing the `git` skill's defense-in-depth model:
+
+| Attack Vector | Method | Protection Bypassed |
+|---------------|--------|---------------------|
+| Branch rewrite | Write to `.git/refs/heads/main` | `git_commit`/`git_push` deny patterns on `main` |
+| Branch deletion | Delete files in `.git/refs/heads/` | `git_branch_delete` deny pattern |
+| Force switch | Write to `.git/HEAD` | Any branch-scoped deny |
+| Hook injection | Write executable to `.git/hooks/` | Binary allowlist and sandbox constraints |
+| Config manipulation | Write to `.git/config` | Remote URL and protection integrity |
+| Object injection | Write to `.git/objects/` | Repository history integrity |
+
+Read operations within `.git/` are unaffected — reading git state is not a security concern in the current threat model. The `git` skill's own tools are unaffected because they execute git binaries directly, which modify `.git/` through git's own mechanisms rather than through the files skill's write sandbox.
+
+### Scope
+
+The `.git/` component check uses path-component matching (not prefix matching), so `.gitignore` and `.gitmodules` files are not affected — they do not contain a `.git` path component.
+
+### Escape Hatch
+
+If a future use case requires `.git/` write access, an `unsafePath`-annotated parameter would be the explicit escape hatch. No bundled skill uses `unsafePath`, and any skill that does triggers a startup warning.
+
 ## CWD Restriction
 
 When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `sandbox.mode` is `"unsafe"` and the sandbox directory is missing), no CWD override is applied — the process inherits the gateway's working directory. When `sandbox.mode` is `"current"` and the sandbox directory is missing, the CWD is used as the sole writable root, so CWD restriction naturally confines writes to the current directory.
@@ -62,7 +89,7 @@ Arguments annotated with `readPath` in `tools.json` are validated against the sa
 
 ## Default Path-Like Value Check
 
-Arguments of kind `positional` or `flag` with no path annotation are subject to a runtime path-like value check by default. Values that start with `/`, start with `~`, start with `file://`, or contain `..` as a path component are rejected unless the parameter is annotated with `readPath: true`, `writePath: true`, or `unsafePath: true`. This makes the default safe — unannotated parameters cannot be used to access paths outside the sandbox.
+Arguments of kind `positional` or `flag` with no path annotation are subject to a runtime path-like value check by default. Values that start with `/`, start with `~`, start with `file://`, contain `..` as a path component, or target a `.git/` directory (starting with `.git/` or containing `/.git/` as a component) are rejected unless the parameter is annotated with `readPath: true`, `writePath: true`, or `unsafePath: true`. This makes the default safe — unannotated parameters cannot be used to access paths outside the sandbox or write to git's internal state.
 
 Arguments annotated with `unsafePath: true` skip all sandbox validation and the runtime path-like value check. This is an escape hatch for parameters that intentionally need unrestricted path access. **Every use must be justified.** The gateway logs a startup warning for each `unsafePath` parameter in enabled skills.
 

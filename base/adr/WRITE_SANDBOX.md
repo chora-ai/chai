@@ -39,11 +39,12 @@ A **per-profile write sandbox** at `<profileRoot>/sandbox/` restricts where skil
 ## Consequences
 
 - **Write-path tools are mechanically confined.** The model cannot direct writes outside authorized roots, regardless of the path string it provides. Traversal (`..`), symlinks within the target path, and CWD-relative paths are all resolved and checked.
+- **`.git/` directories are excluded from writes.** The sandbox rejects writes that target any `.git/` directory, regardless of whether the path falls within a writable root. Git state must only be modified through the git skill's constrained tools — arbitrary file writes to `.git/` would bypass branch protection, hook safety, and other deny-pattern restrictions. This exclusion applies at both the sandbox validation layer (for `writePath`-annotated parameters) and the runtime path-like value check (for unannotated parameters).
 - **Authorization is explicit and auditable.** Listing the sandbox directory shows exactly which external directories the agent may write to. No hidden config — the filesystem is the source of truth.
 - **Binary-mediated writes require trusting the binary.** The sandbox does not apply to semantic-id writes. Skill authors must ensure their binaries reject traversal and confine writes.
 - **Read-path validation reuses the sandbox.** `readPath` arguments are validated against the same writable roots, so agents can only read within directories they could also write to. This keeps the readable surface aligned with the writable surface.
 - **The sandbox is shared across agents within a profile.** If stronger isolation between agents is needed in the future, the design can be extended with per-agent subdirectories.
-- **Unannotated parameters reject path-like values by default.** The runtime check catches absolute paths, home-relative paths, `file://` URLs, and directory traversal in parameters without `readPath`/`writePath`/`unsafePath` annotations. The CWD defaults to the sandbox root, confining relative paths. Together, these make the default state safe without requiring skill authors to annotate every parameter.
+- **Unannotated parameters reject path-like values by default.** The runtime check catches absolute paths, home-relative paths, `file://` URLs, `.git/` directory access, and directory traversal in parameters without `readPath`/`writePath`/`unsafePath` annotations. The CWD defaults to the sandbox root, confining relative paths. Together, these make the default state safe without requiring skill authors to annotate every parameter.
 - **`unsafePath` parameters are visible at startup.** The gateway logs a warning for each `unsafePath` parameter in enabled skills, making escape hatches auditable.
 
 ## References

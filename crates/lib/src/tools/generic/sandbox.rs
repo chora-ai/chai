@@ -4,8 +4,9 @@
 //! per-profile write sandbox, resolves canonical paths through symlinks,
 //! substitutes canonical paths into the tool call JSON, creates parent
 //! directories for write targets, and applies a runtime path-like value
-//! check (absolute paths, home-relative paths, `file://` URLs, and
-//! directory traversal) to unannotated `positional` and `flag` parameters.
+//! check (absolute paths, home-relative paths, `file://` URLs, `.git/`
+//! directory access, and directory traversal) to unannotated `positional`
+//! and `flag` parameters.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -16,18 +17,22 @@ use crate::skills::{ArgKind, ExecutionSpec};
 use super::argv::{json_value_to_string, transform_param_value};
 
 /// Check whether a value looks like a filesystem path that could escape
-/// the sandbox. Returns an error if the value matches a path-like pattern
-/// and the parameter is not annotated as a path parameter.
+/// the sandbox or access a protected directory. Returns an error if the
+/// value matches a path-like pattern and the parameter is not annotated
+/// as a path parameter.
 ///
 /// The check rejects:
 /// - Absolute paths starting with `/`
 /// - Home-relative paths starting with `~`
 /// - Paths containing `..` as a path component (directory traversal)
 /// - `file://` URLs (local filesystem access via URL scheme)
+/// - Paths targeting a `.git/` directory (git state must only be modified
+///   through the git skill's constrained tools)
 ///
 /// Values that don't match these patterns pass through: simple names,
 /// URLs (http/https/ssh), patterns, numbers, relative subpaths without
-/// traversal, and comment-like values starting with `//` or `///`.
+/// traversal or `.git/` access, and comment-like values starting with
+/// `//` or `///`.
 fn check_path_like_value(param: &str, value: &str) -> Result<(), String> {
     // Absolute path — reject single-slash paths (e.g. /etc/passwd) but allow
     // double-slash or triple-slash prefixes which are line comments (//, ///)
@@ -52,6 +57,23 @@ fn check_path_like_value(param: &str, value: &str) -> Result<(), String> {
             "parameter '{}' received a file:// URL '{}' but is not annotated as a path parameter; add readPath, writePath, or unsafePath",
             param, value
         ));
+    }
+    // .git/ directory access — git state must only be modified through the
+    // git skill's constrained tools, not through arbitrary file writes.
+    // Reject paths that start with ".git/" or contain "/.git/" as a component.
+    if value.starts_with(".git/") || value.starts_with(".git\\") || value == ".git" {
+        return Err(format!(
+            "parameter '{}' targets a .git directory '{}' but is not annotated as a path parameter; git state must only be modified through git skill tools",
+            param, value
+        ));
+    }
+    for component in value.split(|c: char| c == '/' || c == '\\') {
+        if component == ".git" {
+            return Err(format!(
+                "parameter '{}' targets a .git directory '{}' but is not annotated as a path parameter; git state must only be modified through git skill tools",
+                param, value
+            ));
+        }
     }
     // Traversal — `..` as a path component
     for component in value.split(|c: char| c == '/' || c == '\\') {
@@ -404,6 +426,48 @@ mod tests {
     fn check_path_like_rejects_single_slash_root() {
         // Bare `/` should still be rejected
         assert!(check_path_like_value("p", "/").is_err());
+    }
+
+    // --- .git/ directory access tests ---
+
+    #[test]
+    fn check_path_like_rejects_dot_git_prefix() {
+        assert!(check_path_like_value("path", ".git/config").is_err());
+    }
+
+    #[test]
+    fn check_path_like_rejects_dot_git_exact() {
+        assert!(check_path_like_value("path", ".git").is_err());
+    }
+
+    #[test]
+    fn check_path_like_rejects_dot_git_mid_path() {
+        assert!(check_path_like_value("path", "project/.git/refs/heads/main").is_err());
+    }
+
+    #[test]
+    fn check_path_like_rejects_dot_git_backslash() {
+        assert!(check_path_like_value("path", ".git\\config").is_err());
+    }
+
+    #[test]
+    fn check_path_like_dot_git_error_message() {
+        let err = check_path_like_value("target", ".git/refs/heads/main").unwrap_err();
+        assert!(err.contains(".git"), "error should mention .git: {}", err);
+        assert!(err.contains("target"), "error should mention param name: {}", err);
+        assert!(err.contains("git skill"), "error should mention git skill: {}", err);
+    }
+
+    #[test]
+    fn check_path_like_allows_gitignore() {
+        // ".gitignore" is a file, not a .git directory
+        assert!(check_path_like_value("p", ".gitignore").is_ok());
+    }
+
+    #[test]
+    fn check_path_like_allows_gitmodules() {
+        // ".gitmodules" is a file, not a .git directory
+        assert!(check_path_like_value("p", ".gitmodules").is_ok());
     }
 
     // --- validate_write_paths: runtime path-like check integration ---

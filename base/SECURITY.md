@@ -70,9 +70,9 @@ This prevents tampering with skill definitions (including allowlists, deny patte
 
 The sandbox enforces filesystem boundaries through three layers:
 
-1. **Runtime path-like value check** — Unannotated `positional` and `flag` parameters are inspected at runtime. Values matching a path-like pattern are rejected: absolute paths (`/etc/passwd`), home-relative paths (`~/.ssh/id_rsa`), directory traversal (`../../etc/passwd`), and `file://` URLs (`file:///etc/passwd`).
+1. **Runtime path-like value check** — Unannotated `positional` and `flag` parameters are inspected at runtime. Values matching a path-like pattern are rejected: absolute paths (`/etc/passwd`), home-relative paths (`~/.ssh/id_rsa`), directory traversal (`../../etc/passwd`), `file://` URLs (`file:///etc/passwd`), and `.git/` directory access (`.git/config`, `project/.git/refs`).
 2. **CWD confinement** — When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists, no CWD override is applied — the process inherits the gateway's working directory. By default (`sandbox.mode: "strict"`), the gateway refuses to start without a sandbox directory; operators can set `sandbox.mode` to `"current"` (CWD as writable root) or `"unsafe"` (no sandbox) to start without one (see [spec/CONFIGURATION.md](spec/CONFIGURATION.md)).
-3. **Sandbox path validation** — Parameters annotated with `readPath` or `writePath` are validated against the sandbox's writable roots (canonicalized, prefix-checked). The command is never spawned if validation fails. Parameters annotated with `unsafePath` bypass all validation and the runtime path-like value check; no bundled skill uses `unsafePath`, and operators should review startup warnings before enabling skills that do.
+3. **Sandbox path validation** — Parameters annotated with `readPath` or `writePath` are validated against the sandbox's writable roots (canonicalized, prefix-checked) and checked for `.git/` directory access. The `.git/` directory is excluded from writes regardless of whether the path falls within a writable root. The command is never spawned if validation fails. Parameters annotated with `unsafePath` bypass all validation and the runtime path-like value check; no bundled skill uses `unsafePath`, and operators should review startup warnings before enabling skills that do.
 
 ### Read-Path Validation
 
@@ -137,6 +137,18 @@ Supported secrets include: gateway auth token (`CHAI_GATEWAY_TOKEN`), Telegram b
 The runtime path-like value check rejects values starting with `file://`. This prevents the agent from using `file://` URLs to reference files outside the sandbox via tools that accept URL parameters (e.g., `git clone file:///home/user/private-repo`).
 
 **Residual risk**: If a parameter is annotated with `unsafePath: true`, the `file://` check is bypassed along with all other validation. This is by design — `unsafePath` is the explicit escape hatch — but it means a skill with `unsafePath` on a URL parameter could be used to access `file://` URLs.
+
+### `.git/` Directory Write Bypass (Mitigated)
+
+**Status**: Mitigated (sandbox validation and runtime heuristic reject `.git/` directory writes).
+
+The `files` skill could write to `.git/` directories within the sandbox, completely bypassing the `git` skill's branch protection and allowlist restrictions. This undermined the defense-in-depth model where git state is only modifiable through the `git` skill's constrained tools. Attack vectors included branch rewriting (writing to `.git/refs/heads/main`), hook injection (writing to `.git/hooks/`), config manipulation, and object injection.
+
+The fix adds two layers of protection:
+1. **`WriteSandbox::validate()`** rejects any write target whose canonical path contains a `.git` path component, before the writable-root prefix check.
+2. **`check_path_like_value()`** rejects values that target a `.git/` directory (starting with `.git/` or containing `/.git/` as a component) in unannotated `positional` and `flag` parameters.
+
+**Residual risk**: If a parameter is annotated with `unsafePath: true`, both the sandbox `.git/` exclusion and the runtime heuristic are bypassed. This is by design — `unsafePath` is the explicit escape hatch. No bundled skill uses `unsafePath`.
 
 ### `sideRead` File Disclosure Within Sandbox (Accepted)
 
