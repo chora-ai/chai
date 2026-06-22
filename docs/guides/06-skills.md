@@ -155,7 +155,7 @@ Set `contextMode` on the agent entry in `config.json`:
 
 `chai init` extracts bundled skills from the application to `~/.chai/skills/` using content-addressed versioning. On re-run, new version snapshots are created but the `active` symlink for each skill is left unchanged — existing customizations are preserved. See [Configuration](03-configuration.md) for the full `chai init` behavior.
 
-Bundled skills cover common agent operations with no external binary dependencies beyond `git` and `curl`:
+Bundled skills cover common agent operations with no external binary dependencies beyond `git`, `curl`, and `cargo`:
 
 | Skill | Tools | Tier | Description |
 |-------|-------|------|-------------|
@@ -174,6 +174,7 @@ Bundled skills cover common agent operations with no external binary dependencie
 | `skills` | 9 | full | Skill generation and management (discover, init, write, validate, delete) |
 | `skills-read` | 3 | minimal | Read-only skill inspection (read, list, validate) |
 | `skills-design` | 0 | minimal | Design principles for skill tools (context-only, no callable tools) |
+| `cargo` | 2 | moderate | Rust compilation and test verification (`cargo check`, `cargo test`) |
 
 Additional skills are available in the [chai-examples](https://github.com/chora-ai/chai-examples) repository as reference implementations.
 
@@ -336,7 +337,7 @@ chai skill delete my-skill
 | What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
 | How do I enable a skill? | Add its name to the `enabledSkills` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
-| What bundled skills are available? | 15 skills covering files, git, logs, notes, RSS, and skill management. See [Bundled Skills](#bundled-skills). |
+| What bundled skills are available? | 16 skills covering files, git, logs, notes, RSS, skill management, and Rust compilation. See [Bundled Skills](#bundled-skills). |
 | What are skill variants? | Related skills at different tiers for the same domain (e.g., `files-read` vs `files`). See [Skill Variants](#skill-variants). |
 | How do I create a skill? | `chai skill init <name> --description "..."`, then customize the files. |
 | How do I update a skill? | Use `chai skill write-*` commands (one per file), or use the manual workflow for multi-file edits. |

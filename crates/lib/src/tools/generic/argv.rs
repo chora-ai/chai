@@ -253,11 +253,14 @@ pub(crate) fn write_temp_files(
 /// Format a flag name for argv: single-character names get a single-dash prefix
 /// (`-n`), multi-character names get a double-dash prefix (`--number`).
 /// This follows the universal CLI convention for short vs long flags.
+/// Leading dashes are stripped first so that both bare names (`"p"`) and
+/// pre-dashed values (`"-p"`) produce the correct result.
 pub(crate) fn format_flag(flag: &str) -> String {
-    if flag.len() == 1 {
-        format!("-{}", flag)
+    let bare = flag.trim_start_matches('-');
+    if bare.len() == 1 {
+        format!("-{}", bare)
     } else {
-        format!("--{}", flag)
+        format!("--{}", bare)
     }
 }
 
@@ -637,8 +640,34 @@ mod tests {
         assert!(argv.is_empty());
     }
 
-    // --- short flag vs long flag tests ---
+    // --- format_flag tests ---
 
+    #[test]
+    fn format_flag_bare_single_char() {
+        assert_eq!(format_flag("n"), "-n");
+    }
+
+    #[test]
+    fn format_flag_bare_multi_char() {
+        assert_eq!(format_flag("path"), "--path");
+    }
+
+    #[test]
+    fn format_flag_pre_dashed_single_char() {
+        assert_eq!(format_flag("-p"), "-p");
+    }
+
+    #[test]
+    fn format_flag_pre_dashed_multi_char() {
+        assert_eq!(format_flag("--path"), "--path");
+    }
+
+    #[test]
+    fn format_flag_triple_dashed_multi_char() {
+        assert_eq!(format_flag("---verbose"), "--verbose");
+    }
+
+    // --- short flag vs long flag tests ---
     #[test]
     fn build_argv_single_char_flag_uses_single_dash() {
         let spec = ExecutionSpec {

@@ -218,7 +218,8 @@ pub struct ArgMapping {
     pub value: Option<String>,
     /// For kind "flag" or "tempfile", the flag name. Single-character names produce short flags
     /// (e.g. "n" -> `-n`); multi-character names produce long flags (e.g. "path" -> `--path`).
-    /// If absent, uses param (which will always produce a long flag).
+    /// If absent, uses param (which will always produce a long flag). Leading dashes are stripped
+    /// before prefixing, so pre-dashed values like `"-p"` also work correctly.
     #[serde(default)]
     pub flag: Option<String>,
     /// For kind "flagIfBoolean", the flag to emit when the param value is true (e.g. "--overwrite").

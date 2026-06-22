@@ -1,0 +1,143 @@
+{
+  "tools": [
+    {
+      "name": "cargo_check",
+      "description": "Run `cargo check` on the workspace or a specific package. Returns compilation errors and warnings. Use after making code changes to verify they compile.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "package": {
+            "type": "string",
+            "description": "Limit to a specific package (e.g. \"lib\", \"cli\", \"desktop\"). When omitted, checks the entire workspace."
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "cargo_test",
+      "description": "Run `cargo test` on the workspace or a specific package. Returns test results including failures.",
+      "parameters": {
+        "type": "object",
+        "required": [],
+        "properties": {
+          "package": {
+            "type": "string",
+            "description": "Limit to a specific package (e.g. \"lib\", \"cli\", \"desktop\"). When omitted, tests the entire workspace."
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    }
+  ],
+  "allowlist": {
+    "cargo": ["check", "test"]
+  },
+  "execution": [
+    {
+      "tool": "cargo_check",
+      "binary": "cargo",
+      "subcommand": "check",
+      "condition": { "binGroup": 0 },
+      "args": [
+        {
+          "param": "package",
+          "kind": "flag",
+          "flag": "p",
+          "optional": true
+        },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true
+        }
+      ],
+      "postProcess": {
+        "script": "hint-check",
+        "args": ["$package"]
+      },
+      "maxOutputLines": 100
+    },
+    {
+      "tool": "cargo_check",
+      "binary": "cargo",
+      "binaryWrapper": ["nix", "develop", "--command"],
+      "subcommand": "check",
+      "condition": { "binGroup": 1 },
+      "args": [
+        {
+          "param": "package",
+          "kind": "flag",
+          "flag": "p",
+          "optional": true
+        },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true
+        }
+      ],
+      "postProcess": {
+        "script": "hint-check",
+        "args": ["$package"]
+      },
+      "maxOutputLines": 100
+    },
+    {
+      "tool": "cargo_test",
+      "binary": "cargo",
+      "subcommand": "test",
+      "condition": { "binGroup": 0 },
+      "args": [
+        {
+          "param": "package",
+          "kind": "flag",
+          "flag": "p",
+          "optional": true
+        },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true
+        }
+      ],
+      "postProcess": {
+        "script": "hint-test",
+        "args": ["$package"]
+      },
+      "maxOutputLines": 100
+    },
+    {
+      "tool": "cargo_test",
+      "binary": "cargo",
+      "binaryWrapper": ["nix", "develop", "--command"],
+      "subcommand": "test",
+      "condition": { "binGroup": 1 },
+      "args": [
+        {
+          "param": "package",
+          "kind": "flag",
+          "flag": "p",
+          "optional": true
+        },
+        {
+          "param": "path",
+          "kind": "workingdir",
+          "optional": true
+        }
+      ],
+      "postProcess": {
+        "script": "hint-test",
+        "args": ["$package"]
+      },
+      "maxOutputLines": 100
+    }
+  ]
+}
