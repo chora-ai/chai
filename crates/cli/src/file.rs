@@ -85,7 +85,7 @@ pub(crate) enum FileCmd {
         #[arg(long)]
         line_numbers: bool,
     },
-    /// Read a range of lines from a file with line numbers. Outputs lines in the format {line_number}|{content}.
+    /// Read a range of lines from a file with line numbers. Outputs lines in the format {line_number}\t{content}.
     ReadLines {
         /// Absolute file path to read
         #[arg(long)]
@@ -574,7 +574,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             for (i, line) in content.lines().enumerate() {
                 let line_num = i + 1;
                 if line_num >= start_line && line_num <= end_line {
-                    println!("{}|{}", line_num, line);
+                    println!("{}\t{}", line_num, line);
                 }
                 if line_num > end_line {
                     break;
@@ -805,20 +805,20 @@ fn format_patch_diff(
     // Context lines before the change — these lines are unchanged so their
     // line numbers are the same in both the original and new file.
     for i in ctx_start..(start_line - 1) {
-        diff.push_str(&format!(" {}|{}\n", i + 1, lines[i]));
+        diff.push_str(&format!(" {}\t{}\n", i + 1, lines[i]));
     }
 
     // Removed lines — use original-file line numbers since these lines
     // only exist in the original.
     for i in (start_line - 1)..effective_end {
-        diff.push_str(&format!("-{}|{}\n", i + 1, lines[i]));
+        diff.push_str(&format!("-{}\t{}\n", i + 1, lines[i]));
     }
 
     // Added lines — use new-file line numbers so the diff reflects the
     // post-edit state.
     let replacement_lines: Vec<&str> = replacement.lines().collect();
     for (offset, line) in replacement_lines.iter().enumerate() {
-        diff.push_str(&format!("+{}|{}\n", start_line + offset, line));
+        diff.push_str(&format!("+{}\t{}\n", start_line + offset, line));
     }
 
     // Context lines after the change — use new-file line numbers. The shift
@@ -829,9 +829,8 @@ fn format_patch_diff(
     let net_change: isize = lines_added as isize - lines_removed as isize;
     for i in effective_end..ctx_end {
         let new_lineno = (i as isize + 1 + net_change) as usize;
-        diff.push_str(&format!(" {}|{}\n", new_lineno, lines[i]));
+        diff.push_str(&format!(" {}\t{}\n", new_lineno, lines[i]));
     }
-
 
     diff
 }
@@ -977,7 +976,7 @@ fn format_replace_diff_from_edits(
         for i in ctx_before_start..(orig_start - 1) {
             if line_numbers {
                 let new_lineno = (i as isize + 1 + cumulative_shift) as usize;
-                diff.push_str(&format!(" {}|{}\n", new_lineno, orig_lines[i]));
+                diff.push_str(&format!(" {}\t{}\n", new_lineno, orig_lines[i]));
             } else {
                 diff.push_str(&format!(" {}\n", orig_lines[i]));
             }
@@ -986,7 +985,7 @@ fn format_replace_diff_from_edits(
         // Removed lines — use original-file line numbers.
         for i in (orig_start - 1)..orig_end {
             if line_numbers {
-                diff.push_str(&format!("-{}|{}\n", i + 1, orig_lines[i]));
+                diff.push_str(&format!("-{}\t{}\n", i + 1, orig_lines[i]));
             } else {
                 diff.push_str(&format!("-{}\n", orig_lines[i]));
             }
@@ -995,7 +994,7 @@ fn format_replace_diff_from_edits(
         // Added lines — use new-file line numbers.
         for line_idx in (new_start - 1)..(new_end - 1).min(new_lines.len()) {
             if line_numbers {
-                diff.push_str(&format!("+{}|{}\n", line_idx + 1, new_lines[line_idx]));
+                diff.push_str(&format!("+{}\t{}\n", line_idx + 1, new_lines[line_idx]));
             } else {
                 diff.push_str(&format!("+{}\n", new_lines[line_idx]));
             }
@@ -1007,7 +1006,7 @@ fn format_replace_diff_from_edits(
             if line_numbers {
                 let new_lineno = (i as isize + 1 + shift_after) as usize;
                 diff.push_str(&format!(
-                    " {}|{}\n",
+                    " {}\t{}\n",
                     new_lineno,
                     new_lines
                         .get((i as isize + shift_after) as usize)
@@ -1900,55 +1899,55 @@ mod tests {
     fn format_patch_diff_shows_removed_and_added() {
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 2, Some(3), "x\ny");
-        assert!(diff.contains("-2|b"));
-        assert!(diff.contains("-3|c"));
-        assert!(diff.contains("+2|x"));
-        assert!(diff.contains("+3|y"));
+        assert!(diff.contains("-2\tb"));
+        assert!(diff.contains("-3\tc"));
+        assert!(diff.contains("+2\tx"));
+        assert!(diff.contains("+3\ty"));
     }
 
     #[test]
     fn format_patch_diff_shows_context_before() {
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 5, Some(5), "X");
-        assert!(diff.contains(" 4|d"));
+        assert!(diff.contains(" 4\td"));
     }
 
     #[test]
     fn format_patch_diff_shows_context_after() {
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 2, Some(2), "X");
-        assert!(diff.contains(" 3|c"));
+        assert!(diff.contains(" 3\tc"));
     }
 
     #[test]
     fn format_patch_diff_handles_start_of_file() {
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 1, Some(1), "X");
-        assert!(diff.contains("+1|X"));
-        assert!(!diff.contains(" 0|"));
+        assert!(diff.contains("+1\tX"));
+        assert!(!diff.contains(" 0\t"));
     }
 
     #[test]
     fn format_patch_diff_handles_end_of_file() {
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 5, Some(5), "X");
-        assert!(diff.contains("+5|X"));
+        assert!(diff.contains("+5\tX"));
     }
 
     #[test]
     fn format_patch_diff_single_line_replacement() {
         let input = "a\nb\nc";
         let diff = format_patch_diff(input, 2, None, "X");
-        assert!(diff.contains("-2|b"));
-        assert!(diff.contains("+2|X"));
+        assert!(diff.contains("-2\tb"));
+        assert!(diff.contains("+2\tX"));
     }
 
     #[test]
     fn format_patch_diff_deletion_shows_no_added() {
         let input = "a\nb\nc";
         let diff = format_patch_diff(input, 2, Some(3), "");
-        assert!(diff.contains("-2|b"));
-        assert!(diff.contains("-3|c"));
+        assert!(diff.contains("-2\tb"));
+        assert!(diff.contains("-3\tc"));
         assert!(!diff.contains("+"));
     }
 
@@ -1958,13 +1957,13 @@ mod tests {
         // Context-after lines should show shifted line numbers.
         let input = "a\nb\nc\nd\ne";
         let diff = format_patch_diff(input, 2, Some(2), "x\ny\nz");
-        assert!(diff.contains("-2|b"));
-        assert!(diff.contains("+2|x"));
-        assert!(diff.contains("+3|y"));
-        assert!(diff.contains("+4|z"));
+        assert!(diff.contains("-2\tb"));
+        assert!(diff.contains("+2\tx"));
+        assert!(diff.contains("+3\ty"));
+        assert!(diff.contains("+4\tz"));
         // "c" was at line 3 in original, now at line 5 in new file
-        assert!(diff.contains(" 5|c"), "context after should use new-file line number");
-        assert!(!diff.contains(" 3|c"), "should not show stale original line number");
+        assert!(diff.contains(" 5\tc"), "context after should use new-file line number");
+        assert!(!diff.contains(" 3\tc"), "should not show stale original line number");
     }
 
     #[test]
@@ -1973,11 +1972,11 @@ mod tests {
         // Context-after lines should show shifted line numbers.
         let input = "a\nb\nc\nd\ne\nf\ng";
         let diff = format_patch_diff(input, 3, Some(4), "");
-        assert!(diff.contains("-3|c"));
-        assert!(diff.contains("-4|d"));
+        assert!(diff.contains("-3\tc"));
+        assert!(diff.contains("-4\td"));
         // "e" was at line 5 in original, now at line 3 in new file
-        assert!(diff.contains(" 3|e"), "context after should use new-file line number");
-        assert!(!diff.contains(" 5|e"), "should not show stale original line number");
+        assert!(diff.contains(" 3\te"), "context after should use new-file line number");
+        assert!(!diff.contains(" 5\te"), "should not show stale original line number");
     }
 
     // --- format_replace_diff_from_edits tests ---
@@ -1989,12 +1988,12 @@ mod tests {
         let new = "a\nb\nX\nY\nd\ne";
         let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 2 }];
         let diff = format_replace_diff_from_edits(original, new, &edits, true);
-        assert!(diff.contains("-3|c"), "removed line uses original line number");
-        assert!(diff.contains("+3|X"), "first added line at new-file line 3");
-        assert!(diff.contains("+4|Y"), "second added line at new-file line 4");
+        assert!(diff.contains("-3\tc"), "removed line uses original line number");
+        assert!(diff.contains("+3\tX"), "first added line at new-file line 3");
+        assert!(diff.contains("+4\tY"), "second added line at new-file line 4");
         // Context after: "d" was at line 4 in original, now at line 5.
-        assert!(diff.contains(" 5|d"), "context after uses new-file line number");
-        assert!(!diff.contains(" 4|d"), "no stale line number for context after");
+        assert!(diff.contains(" 5\td"), "context after uses new-file line number");
+        assert!(!diff.contains(" 4\td"), "no stale line number for context after");
     }
 
     #[test]
@@ -2012,15 +2011,15 @@ mod tests {
         ];
         let diff = format_replace_diff_from_edits(original, new, &edits, true);
         // First edit: line 3 replaced by lines 3-4.
-        assert!(diff.contains("-3|},"), "first removed line at original line 3");
-        assert!(diff.contains("+3|matched_bin_group: None,"), "first inserted line at new-file line 3");
-        assert!(diff.contains("+4|},"), "first replacement closing brace at new-file line 4");
+        assert!(diff.contains("-3\t},"), "first removed line at original line 3");
+        assert!(diff.contains("+3\tmatched_bin_group: None,"), "first inserted line at new-file line 3");
+        assert!(diff.contains("+4\t},"), "first replacement closing brace at new-file line 4");
         // Second edit: line 6 replaced by lines 7-8 (shifted by +1 from first edit).
-        assert!(diff.contains("-6|},"), "second removed line at original line 6");
-        assert!(diff.contains("+7|matched_bin_group: None,"), "second inserted line at new-file line 7");
-        assert!(diff.contains("+8|},"), "second replacement closing brace at new-file line 8");
+        assert!(diff.contains("-6\t},"), "second removed line at original line 6");
+        assert!(diff.contains("+7\tmatched_bin_group: None,"), "second inserted line at new-file line 7");
+        assert!(diff.contains("+8\t},"), "second replacement closing brace at new-file line 8");
         // Context after second edit: "line7" was at line 7, now at line 9.
-        assert!(diff.contains(" 9|line7"), "context after second edit uses shifted new-file line number");
+        assert!(diff.contains(" 9\tline7"), "context after second edit uses shifted new-file line number");
     }
 
     #[test]
@@ -2098,10 +2097,10 @@ mod tests {
         let new = "a\nb\nd\ne";
         let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 0 }];
         let diff = format_replace_diff_from_edits(original, new, &edits, true);
-        assert!(diff.contains("-3|c"), "removed line uses original line number");
+        assert!(diff.contains("-3\tc"), "removed line uses original line number");
         // Context after: "d" was at line 4, now at line 3.
-        assert!(diff.contains(" 3|d"), "context after uses new-file line number after deletion");
-        assert!(!diff.contains(" 4|d"), "no stale line number for context after");
+        assert!(diff.contains(" 3\td"), "context after uses new-file line number after deletion");
+        assert!(!diff.contains(" 4\td"), "no stale line number for context after");
     }
 
     #[test]
@@ -2121,7 +2120,7 @@ mod tests {
         let diff = format_replace_diff_from_edits(original, new, &edits, false);
         assert!(diff.contains("-c"), "removed line without line number");
         assert!(diff.contains("+X"), "added line without line number");
-        assert!(!diff.contains("|"), "no line numbers when line_numbers=false");
+        assert!(!diff.contains("\t"), "no line numbers when line_numbers=false");
     }
 
     // --- verify_original tests ---

@@ -157,7 +157,7 @@ Most commands accept content via `--content` or stdin (when `--content` is omitt
 chai file read-lines --path <PATH> --start-line <N> [--end-line <N>]
 ```
 
-Read a range of lines from a file. Output format: `{line_number}|{content}`. Line numbers are 1-indexed and inclusive on both ends. When `--end-line` is omitted, only `--start-line` is read.
+Read a range of lines from a file. Output format: `{line_number}\t{content}`. Line numbers are 1-indexed and inclusive on both ends. When `--end-line` is omitted, only `--start-line` is read.
 
 ### Writing
 

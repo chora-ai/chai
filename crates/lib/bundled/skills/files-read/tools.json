@@ -16,7 +16,7 @@
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}|{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\t{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
