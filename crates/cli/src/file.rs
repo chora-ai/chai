@@ -366,11 +366,12 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 );
 
                 match literal_match {
-                    LiteralMatchResult::Matched { new_content, match_count, .. } => {
+                    LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
                         std::fs::write(target, new_content.as_bytes())
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
-                        let diff = format_replace_diff(&original, &new_content, line_numbers);
+                        let edits = compute_replace_edits(&original, &match_ranges, &replacement);
+                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
                         println!(
                             "{} replacement(s) in {} (literal match)\n{}",
                             match_count, path, diff
@@ -418,11 +419,12 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     &original, &pattern, &replacement, max_replacements, true,
                 );
                 match literal_match {
-                    LiteralMatchResult::Matched { new_content, match_count: literal_count, .. } => {
+                    LiteralMatchResult::Matched { new_content, match_count: literal_count, match_ranges } => {
                         std::fs::write(target, new_content.as_bytes())
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
-                        let diff = format_replace_diff(&original, &new_content, line_numbers);
+                        let edits = compute_replace_edits(&original, &match_ranges, &replacement);
+                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
                         println!(
                             "{} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
                             literal_count, path, count, diff
@@ -458,42 +460,40 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 // literal text. Using the replacement as-is avoids this.
                 let has_capture_groups = re.captures_len() > 1;
 
-                let new_content = if limit == count {
-                    // No limit or limit equals total matches — use replace_all
-                    if has_capture_groups {
-                        re.replace_all(&original, |caps: &regex::Captures| {
-                            let mut expanded = String::new();
-                            caps.expand(&replacement, &mut expanded);
-                            expanded
-                        }).into_owned()
+                // Collect match byte-offset ranges for diff generation.
+                let mut match_ranges: Vec<(usize, usize)> = Vec::with_capacity(limit);
+                let mut replacement_texts: Vec<String> = Vec::with_capacity(limit);
+                let mut result = String::with_capacity(original.len());
+                let mut last_end = 0;
+
+                for caps in all_captures.iter().take(limit) {
+                    let mat = caps.get(0).unwrap();
+                    result.push_str(&original[last_end..mat.start()]);
+                    let expanded = if has_capture_groups {
+                        let mut expanded = String::new();
+                        caps.expand(&replacement, &mut expanded);
+                        expanded
                     } else {
-                        re.replace_all(&original, regex::NoExpand(&replacement)).into_owned()
-                    }
-                } else {
-                    // Apply only the first `limit` matches, building the result
-                    // from left-to-right captures.
-                    let mut result = String::with_capacity(original.len());
-                    let mut last_end = 0;
-                    for caps in all_captures.iter().take(limit) {
-                        let mat = caps.get(0).unwrap();
-                        result.push_str(&original[last_end..mat.start()]);
-                        if has_capture_groups {
-                            let mut expanded = String::new();
-                            caps.expand(&replacement, &mut expanded);
-                            result.push_str(&expanded);
-                        } else {
-                            result.push_str(&replacement);
-                        }
-                        last_end = mat.end();
-                    }
-                    result.push_str(&original[last_end..]);
-                    result
-                };
+                        replacement.clone()
+                    };
+                    result.push_str(&expanded);
+                    match_ranges.push((mat.start(), mat.end()));
+                    replacement_texts.push(expanded);
+                    last_end = mat.end();
+                }
+                result.push_str(&original[last_end..]);
+
+                let new_content = result;
 
                 std::fs::write(target, new_content.as_bytes())
                     .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
-                let diff = format_replace_diff(&original, &new_content, line_numbers);
+                let edits = if has_capture_groups {
+                    compute_replace_edits_with_replacements(&original, &match_ranges, &replacement_texts)
+                } else {
+                    compute_replace_edits(&original, &match_ranges, &replacement)
+                };
+                let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
                 if limit < count {
                     println!(
                         "{} of {} match(es) replaced in {}\n{}",
@@ -524,11 +524,12 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             );
 
             match literal_match {
-                LiteralMatchResult::Matched { new_content, match_count, .. } => {
+                LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
                     std::fs::write(target, new_content.as_bytes())
                         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
-                    let diff = format_replace_diff(&original, &new_content, line_numbers);
+                    let edits = compute_replace_edits(&original, &match_ranges, &replacement);
+                    let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
                     println!(
                         "{} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
                         match_count, path, diff
@@ -775,6 +776,12 @@ fn patch_string(original: &str, start_line: usize, end_line: Option<usize>, repl
 /// Shows the removed lines prefixed with `-` and the added lines prefixed with `+`,
 /// with line numbers for each. Also includes a few lines of context before and after
 /// the change to help the agent verify boundary alignment.
+///
+/// Line numbers follow the post-edit convention:
+/// - **Removed lines** use original-file line numbers.
+/// - **Added lines** use new-file line numbers.
+/// - **Context-after lines** use new-file line numbers (shifted by the net
+///   line change).
 fn format_patch_diff(
     original: &str,
     start_line: usize,
@@ -792,70 +799,189 @@ fn format_patch_diff(
 
     let mut diff = String::new();
 
-    // Context lines before the change
+    // Context lines before the change — these lines are unchanged so their
+    // line numbers are the same in both the original and new file.
     for i in ctx_start..(start_line - 1) {
         diff.push_str(&format!(" {}|{}\n", i + 1, lines[i]));
     }
 
-    // Removed lines
+    // Removed lines — use original-file line numbers since these lines
+    // only exist in the original.
     for i in (start_line - 1)..effective_end {
         diff.push_str(&format!("-{}|{}\n", i + 1, lines[i]));
     }
 
-    // Added lines
+    // Added lines — use new-file line numbers so the diff reflects the
+    // post-edit state.
     let replacement_lines: Vec<&str> = replacement.lines().collect();
     for (offset, line) in replacement_lines.iter().enumerate() {
         diff.push_str(&format!("+{}|{}\n", start_line + offset, line));
     }
 
-    // Context lines after the change
+    // Context lines after the change — use new-file line numbers. The shift
+    // from original to new line numbers is the net line change:
+    //   (replacement lines) - (removed lines).
+    let lines_removed = effective_end - (start_line - 1);
+    let lines_added = replacement_lines.len();
+    let net_change: isize = lines_added as isize - lines_removed as isize;
     for i in effective_end..ctx_end {
-        diff.push_str(&format!(" {}|{}\n", i + 1, lines[i]));
+        let new_lineno = (i as isize + 1 + net_change) as usize;
+        diff.push_str(&format!(" {}|{}\n", new_lineno, lines[i]));
     }
+
 
     diff
 }
 
-/// Produce a diff between original and new content, showing all changed lines
-/// with context. Each hunk shows removed lines prefixed with `-` and added
-/// lines prefixed with `+`, with a few lines of surrounding context.
+/// A single replacement edit: lines `orig_start..orig_end` (1-indexed, inclusive
+/// on both ends) in the original file were replaced by `replacement_line_count`
+/// new lines in the new file. This captures the edit structure directly from the
+/// match positions, bypassing the LCS algorithm and avoiding the ambiguity
+/// problem when lines repeat in the file.
+struct ReplaceEdit {
+    /// 1-indexed start line in the original file (inclusive).
+    orig_start: usize,
+    /// 1-indexed end line in the original file (inclusive).
+    orig_end: usize,
+    /// Number of lines in the replacement text.
+    replacement_line_count: usize,
+}
+
+/// Convert a byte offset within `content` to a 1-indexed line number.
 ///
-/// When the only difference between original and new content is a trailing
-/// newline (added or removed), the LCS-based line diff produces no hunks
-/// because `.lines()` does not distinguish between files with and without
-/// trailing newlines. In that case, the function outputs a trailing-newline
-/// indicator so the agent can see that the file's newline status changed.
-fn format_replace_diff(original: &str, new: &str, line_numbers: bool) -> String {
-    let orig_lines: Vec<&str> = original.lines().collect();
-    let new_lines: Vec<&str> = new.lines().collect();
+/// This counts newlines rather than using `.lines().count()`, which avoids
+/// an off-by-one error when the offset falls partway through a line:
+/// `.lines()` treats a trailing partial line as a complete line, inflating
+/// the count by one.
+fn byte_offset_to_line(content: &str, offset: usize) -> usize {
+    if offset == 0 {
+        return 1;
+    }
+    content[..offset].matches('\n').count() + 1
+}
 
-    let hunks = compute_diff_hunks(&orig_lines, &new_lines);
+/// Compute `ReplaceEdit` list from byte-offset match ranges in the original
+/// content and the replacement text. Each `(byte_start, byte_end)` pair
+/// identifies a match in the original; the replacement text is the same for
+/// all matches.
+fn compute_replace_edits(original: &str, match_ranges: &[(usize, usize)], replacement: &str) -> Vec<ReplaceEdit> {
+    let replacement_line_count = if replacement.is_empty() { 0 } else { replacement.lines().count() };
+    let mut edits = Vec::with_capacity(match_ranges.len());
 
-    let orig_trailing_nl = original.ends_with('\n');
-    let new_trailing_nl = new.ends_with('\n');
-    let trailing_nl_changed = orig_trailing_nl != new_trailing_nl
-        && orig_lines == new_lines;
+    for &(byte_start, byte_end) in match_ranges {
+        let start_line = byte_offset_to_line(original, byte_start);
+        let end_line = if byte_end == 0 {
+            start_line
+        } else {
+            // The last byte of the match determines the line.
+            byte_offset_to_line(original, byte_end - 1).max(start_line)
+        };
+        edits.push(ReplaceEdit {
+            orig_start: start_line,
+            orig_end: end_line,
+            replacement_line_count,
+        });
+    }
 
-    if hunks.is_empty() && !trailing_nl_changed {
+    edits
+}
+
+/// Compute `ReplaceEdit` list from byte-offset match ranges in the original
+/// content, where each match may have a different replacement text (e.g.,
+/// regex with capture groups). The `replacements` slice must be the same
+/// length as `match_ranges`.
+fn compute_replace_edits_with_replacements(
+    original: &str,
+    match_ranges: &[(usize, usize)],
+    replacements: &[String],
+) -> Vec<ReplaceEdit> {
+    assert_eq!(match_ranges.len(), replacements.len());
+    let mut edits = Vec::with_capacity(match_ranges.len());
+
+    for (i, &(byte_start, byte_end)) in match_ranges.iter().enumerate() {
+        let start_line = byte_offset_to_line(original, byte_start);
+        let end_line = if byte_end == 0 {
+            start_line
+        } else {
+            byte_offset_to_line(original, byte_end - 1).max(start_line)
+        };
+        let replacement_line_count = if replacements[i].is_empty() { 0 } else { replacements[i].lines().count() };
+        edits.push(ReplaceEdit {
+            orig_start: start_line,
+            orig_end: end_line,
+            replacement_line_count,
+        });
+    }
+
+    edits
+}
+
+/// Produce a diff from a list of structured edit regions, showing all changed
+/// lines with context. Takes explicit edit positions rather than using the LCS
+/// algorithm to infer them. This avoids the LCS ambiguity problem when lines
+/// repeat in the file (e.g., two struct instances with identical surrounding
+/// lines).
+///
+/// Line numbers follow the post-edit convention: removed lines use
+/// original-file line numbers, added and context lines use new-file line
+/// numbers.
+fn format_replace_diff_from_edits(
+    original: &str,
+    new: &str,
+    edits: &[ReplaceEdit],
+    line_numbers: bool,
+) -> String {
+    if edits.is_empty() {
         return String::new();
     }
 
+    let orig_lines: Vec<&str> = original.lines().collect();
+    let new_lines: Vec<&str> = new.lines().collect();
+
     let context = 3;
     let mut diff = String::new();
+    let mut cumulative_shift: isize = 0;
 
-    for hunk in &hunks {
-        // Context before
-        let ctx_start = hunk.orig_start.saturating_sub(context);
-        for i in ctx_start..hunk.orig_start {
+    for edit in edits {
+        let orig_start = edit.orig_start; // 1-indexed
+        let orig_end = edit.orig_end;     // 1-indexed
+        let removed_count = orig_end - orig_start + 1;
+        let added_count = edit.replacement_line_count;
+        let net_change: isize = added_count as isize - removed_count as isize;
+
+        // Compute the new-file line range for this edit.
+        let new_start = (orig_start as isize + cumulative_shift) as usize;
+        let new_end = new_start + added_count; // exclusive
+
+        // Compute context range (0-indexed in orig_lines).
+        let ctx_before_start = (orig_start - 1).saturating_sub(context);
+        let ctx_after_end = (orig_end + context).min(orig_lines.len());
+        let ctx_before_count = (orig_start - 1) - ctx_before_start;
+        let ctx_after_count = ctx_after_end - orig_end;
+
+        // Hunk header.
+        let orig_count = removed_count + ctx_before_count + ctx_after_count;
+        let new_count = added_count + ctx_before_count + ctx_after_count;
+        let new_start_1idx = (ctx_before_start as isize + 1 + cumulative_shift) as usize;
+        let orig_start_1idx = ctx_before_start + 1;
+        diff.push_str(&format!(
+            "@@ -{},{} +{},{} @@\n",
+            orig_start_1idx, orig_count, new_start_1idx, new_count
+        ));
+
+        // Context before — unchanged lines. Their new-file line numbers are
+        // offset by the cumulative shift from earlier edits.
+        for i in ctx_before_start..(orig_start - 1) {
             if line_numbers {
-                diff.push_str(&format!(" {}|{}\n", i + 1, orig_lines[i]));
+                let new_lineno = (i as isize + 1 + cumulative_shift) as usize;
+                diff.push_str(&format!(" {}|{}\n", new_lineno, orig_lines[i]));
             } else {
                 diff.push_str(&format!(" {}\n", orig_lines[i]));
             }
         }
 
-        // Removed lines
-        for i in hunk.orig_start..hunk.orig_end {
+        // Removed lines — use original-file line numbers.
+        for i in (orig_start - 1)..orig_end {
             if line_numbers {
                 diff.push_str(&format!("-{}|{}\n", i + 1, orig_lines[i]));
             } else {
@@ -863,206 +989,41 @@ fn format_replace_diff(original: &str, new: &str, line_numbers: bool) -> String 
             }
         }
 
-        // Added lines — use original-file line numbers so the diff is internally
-        // consistent (all line numbers refer to the original file). The first
-        // added line corresponds to the original start of the hunk.
-        for (offset, line_idx) in (hunk.new_start..hunk.new_end).enumerate() {
+        // Added lines — use new-file line numbers.
+        for line_idx in (new_start - 1)..(new_end - 1).min(new_lines.len()) {
             if line_numbers {
-                diff.push_str(&format!("+{}|{}\n", hunk.orig_start + offset + 1, new_lines[line_idx]));
+                diff.push_str(&format!("+{}|{}\n", line_idx + 1, new_lines[line_idx]));
             } else {
                 diff.push_str(&format!("+{}\n", new_lines[line_idx]));
             }
         }
 
-        // Context after (from original, since we show the original context)
-        let ctx_end = (hunk.orig_end + context).min(orig_lines.len());
-        for i in hunk.orig_end..ctx_end {
+        // Context after — use new-file line numbers and new-file content.
+        let shift_after = cumulative_shift + net_change;
+        for i in orig_end..ctx_after_end {
             if line_numbers {
-                diff.push_str(&format!(" {}|{}\n", i + 1, orig_lines[i]));
+                let new_lineno = (i as isize + 1 + shift_after) as usize;
+                diff.push_str(&format!(
+                    " {}|{}\n",
+                    new_lineno,
+                    new_lines
+                        .get((i as isize + shift_after) as usize)
+                        .unwrap_or(&orig_lines[i])
+                ));
             } else {
-                diff.push_str(&format!(" {}\n", orig_lines[i]));
+                diff.push_str(&format!(
+                    " {}\n",
+                    new_lines
+                        .get((i as isize + shift_after) as usize)
+                        .unwrap_or(&orig_lines[i])
+                ));
             }
         }
-    }
 
-    // When the only change is a trailing newline (added or removed),
-    // the LCS-based line diff produces no hunks because .lines()
-    // treats both files the same. Show an explicit indicator instead.
-    if trailing_nl_changed {
-        if new_trailing_nl {
-            diff.push_str("+\\n (trailing newline added)\n");
-        } else {
-            diff.push_str("-\\n (trailing newline removed)\n");
-        }
+        cumulative_shift += net_change;
     }
 
     diff
-}
-
-/// A contiguous region of change between original and new content.
-#[derive(Debug)]
-struct DiffHunk {
-    /// Start index in orig_lines (inclusive)
-    orig_start: usize,
-    /// End index in orig_lines (exclusive)
-    orig_end: usize,
-    /// Start index in new_lines (inclusive)
-    new_start: usize,
-    /// End index in new_lines (exclusive)
-    new_end: usize,
-}
-
-/// Compute diff hunks using the LCS algorithm. Delete and Insert ops that are
-/// adjacent (not separated by an Equal) are merged into a single hunk. Nearby
-/// hunks within 6 lines are also merged.
-fn compute_diff_hunks(orig: &[&str], new: &[&str]) -> Vec<DiffHunk> {
-    let m = orig.len();
-    let n = new.len();
-
-    // Build LCS length table
-    let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for i in 1..=m {
-        for j in 1..=n {
-            if orig[i - 1] == new[j - 1] {
-                dp[i][j] = dp[i - 1][j - 1] + 1;
-            } else {
-                dp[i][j] = dp[i - 1][j].max(dp[i][j - 1]);
-            }
-        }
-    }
-
-    // Backtrack to produce tagged changes, but this time we also track
-    // the positions in both sequences so we can detect gaps.
-    #[derive(Debug)]
-    enum Tag {
-        Delete(usize), // orig index
-        Insert(usize), // new index
-    }
-
-    let mut tags = Vec::new();
-    let mut i = m;
-    let mut j = n;
-    while i > 0 || j > 0 {
-        if i > 0 && j > 0 && orig[i - 1] == new[j - 1] {
-            i -= 1;
-            j -= 1;
-        } else if j > 0 && (i == 0 || dp[i][j - 1] >= dp[i - 1][j]) {
-            tags.push(Tag::Insert(j - 1));
-            j -= 1;
-        } else {
-            tags.push(Tag::Delete(i - 1));
-            i -= 1;
-        }
-    }
-    tags.reverse();
-
-    if tags.is_empty() {
-        return Vec::new();
-    }
-
-    // Group tags into hunks. Tags that are adjacent in both sequences
-    // (no gap of equal lines) belong to the same hunk. We detect gaps
-    // by checking if consecutive Delete tags have adjacent orig indices,
-    // and consecutive Insert tags have adjacent new indices.
-    //
-    // Strategy: Walk the tags and maintain the current hunk's ranges.
-    // When we encounter a tag that creates a gap in both orig and new
-    // sequences, flush the current hunk and start a new one.
-    let mut hunks: Vec<DiffHunk> = Vec::new();
-    let mut cur_del: Option<(usize, usize)> = None; // (start, end_exclusive)
-    let mut cur_ins: Option<(usize, usize)> = None; // (start, end_exclusive)
-    let mut last_orig: Option<usize> = None;
-    let mut last_new: Option<usize> = None;
-
-    for tag in &tags {
-        let (tag_orig, tag_new) = match tag {
-            Tag::Delete(idx) => (Some(*idx), None),
-            Tag::Insert(idx) => (None, Some(*idx)),
-        };
-
-        // Check if this tag is adjacent to the previous one.
-        // A tag is adjacent if it doesn't create a gap in either sequence
-        // relative to the current hunk's extent.
-        let mut is_gap = false;
-        if let Some(lo) = last_orig {
-            if let Some(to) = tag_orig {
-                // Two Delete tags: check orig adjacency
-                if to > lo + 1 {
-                    is_gap = true;
-                }
-            }
-        }
-        if let Some(ln) = last_new {
-            if let Some(tn) = tag_new {
-                // Two Insert tags: check new adjacency
-                if tn > ln + 1 {
-                    is_gap = true;
-                }
-            }
-        }
-
-        // If there's a gap and we have an existing hunk, flush it
-        if is_gap {
-            if let Some((ds, de)) = cur_del.take() {
-                let (ns, ne) = cur_ins.take().unwrap_or((ds, ds));
-                hunks.push(DiffHunk { orig_start: ds, orig_end: de, new_start: ns, new_end: ne });
-            } else if let Some((ns, ne)) = cur_ins.take() {
-                hunks.push(DiffHunk { orig_start: ns.min(m), orig_end: ns.min(m), new_start: ns, new_end: ne });
-            }
-            last_orig = None;
-            last_new = None;
-        }
-
-        // Extend current hunk
-        match tag {
-            Tag::Delete(idx) => {
-                match &mut cur_del {
-                    Some((_, end)) => { *end = idx + 1; }
-                    None => { cur_del = Some((*idx, idx + 1)); }
-                }
-                last_orig = Some(*idx);
-            }
-            Tag::Insert(idx) => {
-                match &mut cur_ins {
-                    Some((_, end)) => { *end = idx + 1; }
-                    None => { cur_ins = Some((*idx, idx + 1)); }
-                }
-                last_new = Some(*idx);
-            }
-        }
-    }
-
-    // Flush final hunk
-    if let Some((ds, de)) = cur_del {
-        let (ns, ne) = cur_ins.unwrap_or((ds, ds));
-        hunks.push(DiffHunk { orig_start: ds, orig_end: de, new_start: ns, new_end: ne });
-    } else if let Some((ns, ne)) = cur_ins {
-        hunks.push(DiffHunk { orig_start: ns.min(m), orig_end: ns.min(m), new_start: ns, new_end: ne });
-    }
-
-    // Merge nearby hunks (within 6 lines in orig) for context overlap
-    if hunks.len() <= 1 {
-        return hunks;
-    }
-    let gap = 6;
-    let mut merged: Vec<DiffHunk> = Vec::new();
-    let (mut cos, mut coe) = (hunks[0].orig_start, hunks[0].orig_end);
-    let (mut cns, mut cne) = (hunks[0].new_start, hunks[0].new_end);
-
-    for hunk in hunks.iter().skip(1) {
-        if hunk.orig_start <= coe + gap {
-            coe = hunk.orig_end;
-            cne = hunk.new_end;
-        } else {
-            merged.push(DiffHunk { orig_start: cos, orig_end: coe, new_start: cns, new_end: cne });
-            cos = hunk.orig_start;
-            coe = hunk.orig_end;
-            cns = hunk.new_start;
-            cne = hunk.new_end;
-        }
-    }
-    merged.push(DiffHunk { orig_start: cos, orig_end: coe, new_start: cns, new_end: cne });
-    merged
 }
 
 /// Fold common Unicode characters to their ASCII equivalents for fuzzy comparison.
@@ -1103,6 +1064,9 @@ enum LiteralMatchResult {
     Matched {
         new_content: String,
         match_count: usize,
+        /// Byte-offset ranges of matches in the original content, for
+        /// producing structured diff output.
+        match_ranges: Vec<(usize, usize)>,
     },
     /// No match found even with whitespace tolerance.
     /// `leading_ws_hint` is true when the pattern would match if leading
@@ -1214,6 +1178,7 @@ fn try_literal_trailing_ws_match(
     let mut result = String::with_capacity(original.len());
     let mut last_orig_end = 0;
     let mut match_count = 0;
+    let mut orig_match_ranges: Vec<(usize, usize)> = Vec::with_capacity(match_ranges.len());
 
     for (stripped_start, stripped_end) in &match_ranges {
         let orig_start = stripped_to_orig[*stripped_start];
@@ -1247,6 +1212,7 @@ fn try_literal_trailing_ws_match(
         result.push_str(&replacement_lines.join("\n"));
         last_orig_end = orig_end;
         match_count += 1;
+        orig_match_ranges.push((orig_start, orig_end));
     }
 
     // Copy remaining content after the last match
@@ -1255,6 +1221,7 @@ fn try_literal_trailing_ws_match(
     LiteralMatchResult::Matched {
         new_content: result,
         match_count,
+        match_ranges: orig_match_ranges,
     }
 }
 
@@ -1667,8 +1634,10 @@ mod tests {
     use super::delete_frontmatter_key;
     use super::patch_string;
     use super::format_patch_diff;
-    use super::format_replace_diff;
-    use super::compute_diff_hunks;
+    use super::format_replace_diff_from_edits;
+    use super::compute_replace_edits;
+    use super::compute_replace_edits_with_replacements;
+    use super::ReplaceEdit;
     use super::verify_original;
     use super::fold_unicode_to_ascii;
     use super::try_literal_trailing_ws_match;
@@ -1676,6 +1645,7 @@ mod tests {
     use super::strip_trailing_ws_per_line;
     use super::build_stripped_to_original_offset_map;
     use super::LiteralMatchResult;
+    use super::byte_offset_to_line;
 
     #[test]
     fn edit_frontmatter_updates_existing_with_leading_newlines() {
@@ -1882,57 +1852,176 @@ mod tests {
         assert!(!diff.contains("+"));
     }
 
-    // --- format_replace_diff tests ---
-
     #[test]
-    fn format_replace_diff_added_lines_use_original_line_numbers() {
-        // Replace line 3 ("c") with two lines ("x" and "y").
-        // Added lines should use original-file line numbers (3 and 4),
-        // not new-file line numbers.
-        let original = "a\nb\nc\nd\ne";
-        let new = "a\nb\nx\ny\nd\ne";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("-3|c"), "should show removed line with original line number");
-        assert!(diff.contains("+3|x"), "added line should use original start line number");
-        assert!(diff.contains("+4|y"), "second added line should use original start + 1");
+    fn format_patch_diff_context_after_uses_new_line_numbers_on_insertion() {
+        // Replace 1 line with 3 lines: net change is +2.
+        // Context-after lines should show shifted line numbers.
+        let input = "a\nb\nc\nd\ne";
+        let diff = format_patch_diff(input, 2, Some(2), "x\ny\nz");
+        assert!(diff.contains("-2|b"));
+        assert!(diff.contains("+2|x"));
+        assert!(diff.contains("+3|y"));
+        assert!(diff.contains("+4|z"));
+        // "c" was at line 3 in original, now at line 5 in new file
+        assert!(diff.contains(" 5|c"), "context after should use new-file line number");
+        assert!(!diff.contains(" 3|c"), "should not show stale original line number");
     }
 
     #[test]
-    fn format_replace_diff_context_uses_original_line_numbers() {
+    fn format_patch_diff_context_after_uses_new_line_numbers_on_deletion() {
+        // Delete 2 lines: net change is -2.
+        // Context-after lines should show shifted line numbers.
+        let input = "a\nb\nc\nd\ne\nf\ng";
+        let diff = format_patch_diff(input, 3, Some(4), "");
+        assert!(diff.contains("-3|c"));
+        assert!(diff.contains("-4|d"));
+        // "e" was at line 5 in original, now at line 3 in new file
+        assert!(diff.contains(" 3|e"), "context after should use new-file line number");
+        assert!(!diff.contains(" 5|e"), "should not show stale original line number");
+    }
+
+    // --- format_replace_diff_from_edits tests ---
+
+    #[test]
+    fn format_replace_diff_from_edits_replacement_adds_lines() {
+        // Replace line 3 ("c") with 2 lines ("X" and "Y") — net +1.
         let original = "a\nb\nc\nd\ne";
-        let new = "a\nb\nX\nd\ne";
-        let diff = format_replace_diff(original, new, true);
-        // Context before: lines from original before the change
-        assert!(diff.contains(" 2|b"), "context before should use original line number");
-        // Context after: lines from original after the change
-        assert!(diff.contains(" 4|d"), "context after should use original line number");
+        let new = "a\nb\nX\nY\nd\ne";
+        let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 2 }];
+        let diff = format_replace_diff_from_edits(original, new, &edits, true);
+        assert!(diff.contains("-3|c"), "removed line uses original line number");
+        assert!(diff.contains("+3|X"), "first added line at new-file line 3");
+        assert!(diff.contains("+4|Y"), "second added line at new-file line 4");
+        // Context after: "d" was at line 4 in original, now at line 5.
+        assert!(diff.contains(" 5|d"), "context after uses new-file line number");
+        assert!(!diff.contains(" 4|d"), "no stale line number for context after");
     }
 
     #[test]
-    fn format_replace_diff_removal_only_shows_original_line_numbers() {
-        let original = "a\nb\nc\nd\ne";
-        let new = "a\nb\ne";  // removed lines 3 and 4
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("-3|c"), "removed line should use original line number");
-        assert!(diff.contains("-4|d"), "removed line should use original line number");
-        assert!(!diff.contains("+"), "no added lines expected");
+    fn format_replace_diff_from_edits_multi_edit_no_ambiguous_lcs() {
+        // This is the core bug scenario: two identical blocks with the same
+        // replacement. The LCS algorithm can match the wrong instances, but
+        // format_replace_diff_from_edits uses explicit edit positions.
+        let original = "line1\nvariant_of: None,\n},\nline4\nvariant_of: None,\n},\nline7";
+        let new =      "line1\nvariant_of: None,\nmatched_bin_group: None,\n},\nline4\nvariant_of: None,\nmatched_bin_group: None,\n},\nline7";
+        // Two edits: replace "}," (line 3) with "matched_bin_group: None,\n},"
+        // and replace "}," (line 6) with "matched_bin_group: None,\n},"
+        let edits = vec![
+            ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 2 },
+            ReplaceEdit { orig_start: 6, orig_end: 6, replacement_line_count: 2 },
+        ];
+        let diff = format_replace_diff_from_edits(original, new, &edits, true);
+        // First edit: line 3 replaced by lines 3-4.
+        assert!(diff.contains("-3|},"), "first removed line at original line 3");
+        assert!(diff.contains("+3|matched_bin_group: None,"), "first inserted line at new-file line 3");
+        assert!(diff.contains("+4|},"), "first replacement closing brace at new-file line 4");
+        // Second edit: line 6 replaced by lines 7-8 (shifted by +1 from first edit).
+        assert!(diff.contains("-6|},"), "second removed line at original line 6");
+        assert!(diff.contains("+7|matched_bin_group: None,"), "second inserted line at new-file line 7");
+        assert!(diff.contains("+8|},"), "second replacement closing brace at new-file line 8");
+        // Context after second edit: "line7" was at line 7, now at line 9.
+        assert!(diff.contains(" 9|line7"), "context after second edit uses shifted new-file line number");
     }
 
     #[test]
-    fn format_replace_diff_all_line_numbers_consistent() {
-        // Multi-line replacement where added lines exceed removed lines.
-        // All line numbers in the diff should refer to the original file.
-        let original = "line1\nline2\nline3\nline4\nline5";
-        let new =    "line1\nline2\nnew_a\nnew_b\nnew_c\nline4\nline5";
-        let diff = format_replace_diff(original, new, true);
-        // Removed: line 3 of original
-        assert!(diff.contains("-3|line3"));
-        // Added: 3 new lines starting at original position 3
-        assert!(diff.contains("+3|new_a"));
-        assert!(diff.contains("+4|new_b"));
-        assert!(diff.contains("+5|new_c"));
-        // Context after: line 4 of original
-        assert!(diff.contains(" 4|line4"));
+    fn byte_offset_to_line_at_start() {
+        assert_eq!(byte_offset_to_line("hello\nworld", 0), 1);
+    }
+
+    #[test]
+    fn byte_offset_to_line_mid_first_line() {
+        assert_eq!(byte_offset_to_line("hello\nworld", 3), 1);
+    }
+
+    #[test]
+    fn byte_offset_to_line_start_of_second_line() {
+        assert_eq!(byte_offset_to_line("hello\nworld", 6), 2);
+    }
+
+    #[test]
+    fn byte_offset_to_line_mid_second_line() {
+        assert_eq!(byte_offset_to_line("hello\nworld", 8), 2);
+    }
+
+    #[test]
+    fn byte_offset_to_line_indented_line() {
+        // Pattern like "let y = 2;" matching after indentation
+        let content = "fn main() {\n    let y = 2;\n    println!();\n}";
+        // "    let y = 2;" starts at byte 13 (after "fn main() {\n")
+        assert_eq!(byte_offset_to_line(content, 13), 2);
+        // The "l" of "let" is at byte 17 (after "fn main() {\n    ")
+        assert_eq!(byte_offset_to_line(content, 17), 2);
+    }
+
+    #[test]
+    fn compute_replace_edits_from_byte_ranges() {
+        let original = "a\nb\nc\nd\ne";
+        // Match "b\nc" which spans bytes 2..5 (after "a\n")
+        let match_ranges = vec![(2, 5)];
+        let edits = compute_replace_edits(original, &match_ranges, "x\ny");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].orig_start, 2); // line 2: "b"
+        assert_eq!(edits[0].orig_end, 3);   // line 3: "c"
+        assert_eq!(edits[0].replacement_line_count, 2);
+    }
+
+    #[test]
+    fn compute_replace_edits_multi_match() {
+        let original = "a\nb\nc\nb\nc\nd";
+        // Match "b\nc" at positions (2, 5) and (6, 9)
+        let match_ranges = vec![(2, 5), (6, 9)];
+        let edits = compute_replace_edits(original, &match_ranges, "x");
+        assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0].orig_start, 2);
+        assert_eq!(edits[0].orig_end, 3);
+        assert_eq!(edits[0].replacement_line_count, 1);
+        assert_eq!(edits[1].orig_start, 4);
+        assert_eq!(edits[1].orig_end, 5);
+        assert_eq!(edits[1].replacement_line_count, 1);
+    }
+
+    #[test]
+    fn compute_replace_edits_with_replacements_different_lengths() {
+        let original = "a\nb\nc\nd\ne";
+        let match_ranges = vec![(2, 3), (6, 7)];
+        let replacements = vec!["x\ny".to_string(), "z".to_string()];
+        let edits = compute_replace_edits_with_replacements(original, &match_ranges, &replacements);
+        assert_eq!(edits.len(), 2);
+        assert_eq!(edits[0].replacement_line_count, 2);
+        assert_eq!(edits[1].replacement_line_count, 1);
+    }
+
+    #[test]
+    fn format_replace_diff_from_edits_pure_deletion() {
+        // Delete line 3.
+        let original = "a\nb\nc\nd\ne";
+        let new = "a\nb\nd\ne";
+        let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 0 }];
+        let diff = format_replace_diff_from_edits(original, new, &edits, true);
+        assert!(diff.contains("-3|c"), "removed line uses original line number");
+        // Context after: "d" was at line 4, now at line 3.
+        assert!(diff.contains(" 3|d"), "context after uses new-file line number after deletion");
+        assert!(!diff.contains(" 4|d"), "no stale line number for context after");
+    }
+
+    #[test]
+    fn format_replace_diff_from_edits_empty_edits() {
+        let original = "a\nb\nc";
+        let new = "a\nb\nc";
+        let edits: Vec<ReplaceEdit> = vec![];
+        let diff = format_replace_diff_from_edits(original, new, &edits, true);
+        assert!(diff.is_empty(), "no edits should produce empty diff");
+    }
+
+    #[test]
+    fn format_replace_diff_from_edits_no_line_numbers() {
+        let original = "a\nb\nc\nd\ne";
+        let new = "a\nb\nX\nY\nd\ne";
+        let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 2 }];
+        let diff = format_replace_diff_from_edits(original, new, &edits, false);
+        assert!(diff.contains("-c"), "removed line without line number");
+        assert!(diff.contains("+X"), "added line without line number");
+        assert!(!diff.contains("|"), "no line numbers when line_numbers=false");
     }
 
     // --- verify_original tests ---
@@ -2229,7 +2318,7 @@ mod tests {
         let original = "foo   \nbar\nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nbar\nbaz\n");
             }
@@ -2242,7 +2331,7 @@ mod tests {
         let original = "foo   \nbar   \nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo\nbar", "FOO\nBAR", 0, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nBAR   \nbaz\n");
             }
@@ -2265,7 +2354,7 @@ mod tests {
         let original = "foo   \nbar   \nfoo\nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 2);
                 assert_eq!(new_content, "FOO   \nbar   \nFOO\nbaz\n");
             }
@@ -2278,7 +2367,7 @@ mod tests {
         let original = "foo   \nbar   \nfoo\nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo", "FOO", 1, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 // Only the first "foo" is replaced; trailing ws preserved
                 assert!(new_content.starts_with("FOO   \nbar   \nfoo\nbaz\n"));
@@ -2316,7 +2405,7 @@ mod tests {
         let original = "foo   \nbar\nfoo  \nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo", "FOO", 1, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO   \nbar\nfoo  \nbaz\n");
             }
@@ -2329,7 +2418,7 @@ mod tests {
         let original = "foo\nbar\nbaz\n";
         let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "FOO\nbar\nbaz\n");
             }
@@ -2385,7 +2474,7 @@ mod tests {
         let original = "fn main() {\n    let x = 1;\n}\n";
         let result = try_literal_trailing_ws_match(original, "    let x = 1;", "    let y = 2;", 0, true);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "fn main() {\n    let y = 2;\n}\n");
             }
@@ -2402,7 +2491,7 @@ mod tests {
         let original = "fn main() {\n    let x = 1;\n}\n";
         let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0, false);
         match result {
-            LiteralMatchResult::Matched { new_content, match_count } => {
+            LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
                 assert_eq!(new_content, "fn main() {\n    let x = 2;\n}\n");
             }
@@ -2671,157 +2760,4 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // --- Bug 2: format_replace_diff trailing newline tests ---
-
-    #[test]
-    fn format_replace_diff_shows_trailing_newline_added() {
-        let original = "a\nb\nc";
-        let new = "a\nb\nc\n";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("+\\n (trailing newline added)"),
-            "should indicate trailing newline was added, got: {:?}", diff);
-    }
-
-    #[test]
-    fn format_replace_diff_shows_trailing_newline_removed() {
-        let original = "a\nb\nc\n";
-        let new = "a\nb\nc";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("-\\n (trailing newline removed)"),
-            "should indicate trailing newline was removed, got: {:?}", diff);
-    }
-
-    #[test]
-    fn format_replace_diff_no_trailing_newline_change_when_content_differs() {
-        // When both content and trailing newline differ, the LCS hunks
-        // capture the content changes; the trailing-newline indicator
-        // should NOT appear (it only fires when lines are identical).
-        let original = "a\nb\nc";
-        let new = "a\nX\nc\n";
-        let diff = format_replace_diff(original, new, true);
-        assert!(!diff.contains("trailing newline"),
-            "should not show trailing newline indicator when content differs, got: {:?}", diff);
-        assert!(diff.contains("-2|b"), "should show content change");
-        assert!(diff.contains("+2|X"), "should show content change");
-    }
-
-    #[test]
-    fn format_replace_diff_empty_when_identical() {
-        let original = "a\nb\nc\n";
-        let new = "a\nb\nc\n";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.is_empty(), "identical content should produce empty diff");
-    }
-
-    #[test]
-    fn format_replace_diff_trailing_newline_added_no_line_numbers() {
-        let original = "a\nb";
-        let new = "a\nb\n";
-        let diff = format_replace_diff(original, new, false);
-        assert!(diff.contains("+\\n (trailing newline added)"),
-            "should show trailing newline indicator without line numbers, got: {:?}", diff);
-    }
-
-    #[test]
-    fn format_replace_diff_trailing_newline_single_line_file() {
-        let original = "hello";
-        let new = "hello\n";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("+\\n (trailing newline added)"),
-            "should show trailing newline added for single-line file, got: {:?}", diff);
-    }
-
-    #[test]
-    fn format_replace_diff_trailing_newline_removed_single_line() {
-        let original = "hello\n";
-        let new = "hello";
-        let diff = format_replace_diff(original, new, true);
-        assert!(diff.contains("-\\n (trailing newline removed)"),
-            "should show trailing newline removed for single-line file, got: {:?}", diff);
-    }
-
-    // --- compute_diff_hunks correctness tests ---
-
-    #[test]
-    fn compute_diff_hunks_single_line_change() {
-        let orig = vec!["a", "b", "c"];
-        let new = vec!["a", "X", "c"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].orig_start, 1);
-        assert_eq!(hunks[0].orig_end, 2);
-        assert_eq!(hunks[0].new_start, 1);
-        assert_eq!(hunks[0].new_end, 2);
-    }
-
-    #[test]
-    fn compute_diff_hunks_two_separate_changes() {
-        // Two changes separated by >6 unchanged lines in orig so they
-        // remain as separate hunks (merge gap is 6).
-        let orig = vec!["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"];
-        let new = vec!["a", "B", "c", "d", "e", "f", "g", "h", "i", "j", "K"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        // b→B at index 1 (orig_end=2), K→K at index 10 (orig_start=10)
-        // Gap in orig: 10 - 2 = 8 > 6, so separate hunks.
-        assert_eq!(hunks.len(), 2, "should have two hunks for two separate changes, got: {:?}", hunks);
-        assert_eq!(hunks[0].orig_start, 1);
-        assert_eq!(hunks[0].orig_end, 2);
-        assert_eq!(hunks[1].orig_start, 10);
-        assert_eq!(hunks[1].orig_end, 11);
-    }
-
-    #[test]
-    fn compute_diff_hunks_nearby_changes_merged() {
-        let orig = vec!["a", "b", "c", "d", "e"];
-        let new = vec!["a", "B", "c", "D", "e"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        // Two changes: b→B (line 2) and d→D (line 4), separated by
-        // only 1 unchanged line. The merge gap is 6, so they merge.
-        assert_eq!(hunks.len(), 1, "nearby changes should be merged into one hunk");
-    }
-
-    #[test]
-    fn compute_diff_hunks_insertion_only() {
-        let orig = vec!["a", "c"];
-        let new = vec!["a", "b", "c"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].orig_start, 1);
-        assert_eq!(hunks[0].orig_end, 1); // no lines removed
-        assert_eq!(hunks[0].new_start, 1);
-        assert_eq!(hunks[0].new_end, 2);
-    }
-
-    #[test]
-    fn compute_diff_hunks_deletion_only() {
-        let orig = vec!["a", "b", "c"];
-        let new = vec!["a", "c"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].orig_start, 1);
-        assert_eq!(hunks[0].orig_end, 2);
-        assert_eq!(hunks[0].new_start, 1);
-        assert_eq!(hunks[0].new_end, 1); // no lines added
-    }
-
-    #[test]
-    fn compute_diff_hunks_identical() {
-        let orig = vec!["a", "b", "c"];
-        let new = vec!["a", "b", "c"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        assert!(hunks.is_empty());
-    }
-
-    #[test]
-    fn compute_diff_hunks_multi_line_replacement() {
-        // Replace one line with three lines
-        let orig = vec!["a", "b", "c", "d"];
-        let new = vec!["a", "x", "y", "z", "c", "d"];
-        let hunks = compute_diff_hunks(&orig, &new);
-        assert_eq!(hunks.len(), 1);
-        assert_eq!(hunks[0].orig_start, 1);
-        assert_eq!(hunks[0].orig_end, 2); // removed "b"
-        assert_eq!(hunks[0].new_start, 1);
-        assert_eq!(hunks[0].new_end, 4); // added "x", "y", "z"
-    }
 }

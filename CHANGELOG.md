@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `format_flag()` now strips leading dashes before prefixing, so both bare flag names (`"p"`) and pre-dashed values (`"-p"`) produce the correct CLI flag (previously `"-p"` was mangled to `"---p"`)
 - Write sandbox now excludes `.git/` directories from all write targets, preventing bypass of `git` skill branch protection and allowlist restrictions (attack vectors: branch rewrite, branch deletion, force switch, hook injection, config manipulation, object injection)
 - Runtime path-like value check now rejects unannotated `positional` and `flag` parameters that target a `.git/` directory
+- `files_replace` and `files_write_lines` diff output now uses post-edit line numbers: removed lines show original-file numbers, added and context-after lines show new-file numbers (previously, context-after lines showed stale original numbers, and multi-match replacements could produce misordered diffs due to LCS ambiguity with repeated lines)
 
 ## [0.1.0] - 2026-06-20
 
