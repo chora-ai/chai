@@ -11,3 +11,5 @@ metadata:
 - always check `git_status` before interpreting diffs to understand the current state
 - always use specific refs (commit hashes, branch names) rather than ambiguous references
 - always write clear, concise, conventional commit messages that describe the change
+- always ask the user to revert commits to `main` or `release/*` - the branches are protected
+- only use `force: true` on `git_branch_delete` after verifying the branch was squash-merged

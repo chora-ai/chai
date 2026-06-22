@@ -373,6 +373,12 @@ pub(crate) fn build_argv(
                 continue;
             }
             ArgKind::FlagIfBoolean => {
+                // When subcommandOverride is set, this arg controls the
+                // subcommand selection (handled by resolve_subcommand in
+                // the executor) and does not produce an argv entry.
+                if arg.subcommand_override.is_some() {
+                    continue;
+                }
                 let value = obj.get(arg.param_name());
                 // When the parameter is absent, use absentDefault if set;
                 // otherwise treat as false (the original behavior).
@@ -995,5 +1001,64 @@ mod tests {
 
         assert!(argv.is_empty(),
             "optional positional without absentDefault should still be skipped when absent");
+    }
+
+    #[test]
+    fn build_argv_skips_flagifboolean_with_subcommand_override() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![
+                ArgMapping {
+                    param: Some("force".to_string()),
+                    kind: ArgKind::FlagIfBoolean,
+                    optional: Some(true),
+                    absent_default: Some(serde_json::json!(false)),
+                    subcommand_override: Some("branch -D".to_string()),
+                    ..Default::default()
+                },
+                ArgMapping {
+                    param: Some("name".to_string()),
+                    kind: ArgKind::Positional,
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "force": true, "name": "feat/test" });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        // force should NOT produce an argv entry (subcommandOverride controls
+        // the subcommand, not argv); only the name positional should appear.
+        assert_eq!(argv, vec!["feat/test"]);
+    }
+
+    #[test]
+    fn build_argv_flagifboolean_without_subcommand_override_still_produces_flag() {
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "test".to_string(),
+            subcommand: "".to_string(),
+            args: vec![ArgMapping {
+                param: Some("verbose".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                flag_if_true: Some("--verbose".to_string()),
+                optional: Some(true),
+                // no subcommand_override — should still produce argv entry
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let allowlist = Allowlist::new();
+        let args = serde_json::json!({ "verbose": true });
+        let argv = build_argv(&spec, &args, &allowlist, None)
+            .expect("build_argv should succeed");
+
+        assert_eq!(argv, vec!["--verbose"]);
     }
 }

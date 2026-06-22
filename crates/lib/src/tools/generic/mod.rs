@@ -71,6 +71,54 @@ fn augment_with_absent_defaults(
     serde_json::Value::Object(augmented)
 }
 
+/// Resolve the effective subcommand for an execution spec.
+///
+/// Checks whether any `flagIfBoolean` arg has a `subcommandOverride` and
+/// its boolean parameter evaluates to true in the tool call args. If so,
+/// returns the override subcommand; otherwise returns the spec's default.
+/// The override subcommand must be in the allowlist (the allowlist check
+/// happens later when the command is executed).
+fn resolve_subcommand<'a>(
+    spec: &'a crate::skills::ExecutionSpec,
+    args: &serde_json::Value,
+) -> &'a str {
+    let obj = match args.as_object() {
+        Some(o) => o,
+        None => return &spec.subcommand,
+    };
+
+    for arg in &spec.args {
+        if arg.kind != ArgKind::FlagIfBoolean {
+            continue;
+        }
+        let Some(ref override_sub) = arg.subcommand_override else {
+            continue;
+        };
+        let value = obj.get(arg.param_name());
+        let effective_value = if value.is_none() || value == Some(&serde_json::Value::Null) {
+            arg.absent_default.as_ref()
+        } else {
+            value
+        };
+        if parse_bool_ref(effective_value) == Some(true) {
+            return override_sub;
+        }
+    }
+
+    &spec.subcommand
+}
+
+/// Parse a JSON value reference as a boolean (mirrors argv::parse_bool but
+/// takes a reference to avoid cloning).
+fn parse_bool_ref(v: Option<&serde_json::Value>) -> Option<bool> {
+    match v {
+        Some(serde_json::Value::Bool(b)) => Some(*b),
+        Some(serde_json::Value::String(s)) => Some(s.eq_ignore_ascii_case("true")),
+        Some(serde_json::Value::Number(n)) => n.as_i64().map(|i| i != 0),
+        _ => None,
+    }
+}
+
 /// Executes tools using a descriptor's allowlist and execution mapping.
 /// Holds per-tool (allowlist, spec, skill_dir) for param resolution and argv building.
 /// When a `WriteSandbox` is present, validates `readPath`- and `writePath`-annotated
@@ -168,12 +216,13 @@ impl ToolExecutor for GenericToolExecutor {
         let (temp_argv, temp_paths) = argv::write_temp_files(spec, effective_args, allowlist, skill_dir.as_deref())?;
         argv.extend(temp_argv);
 
+        let effective_subcommand = resolve_subcommand(spec, effective_args);
         let success_codes = spec.success_exit_codes.as_deref().unwrap_or(&[]);
         let binary_wrapper = spec.binary_wrapper.as_deref();
         let result = if let Some(ref content) = stdin_content {
             allowlist.run_with_stdin_with_codes_and_exit(
                 &spec.binary,
-                &spec.subcommand,
+                effective_subcommand,
                 &argv,
                 working_dir.as_deref(),
                 content.as_bytes(),
@@ -183,7 +232,7 @@ impl ToolExecutor for GenericToolExecutor {
         } else {
             allowlist.run_with_codes_and_exit(
                 &spec.binary,
-                &spec.subcommand,
+                effective_subcommand,
                 &argv,
                 working_dir.as_deref(),
                 success_codes,
@@ -358,5 +407,151 @@ mod tests {
         let args = serde_json::json!({});
         let augmented = augment_with_absent_defaults(&spec, &args);
         assert!(augmented.as_object().unwrap().is_empty());
+    }
+
+    // --- resolve_subcommand tests ---
+
+    #[test]
+    fn resolve_subcommand_returns_default_when_no_override() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("name".to_string()),
+                kind: ArgKind::Positional,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "name": "feat/test" });
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -d");
+    }
+
+    #[test]
+    fn resolve_subcommand_returns_override_when_force_true() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("force".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!(false)),
+                subcommand_override: Some("branch -D".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "force": true });
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -D");
+    }
+
+    #[test]
+    fn resolve_subcommand_returns_default_when_force_false() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("force".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!(false)),
+                subcommand_override: Some("branch -D".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "force": false });
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -d");
+    }
+
+    #[test]
+    fn resolve_subcommand_returns_default_when_force_absent() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("force".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!(false)),
+                subcommand_override: Some("branch -D".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({});
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -d");
+    }
+
+    #[test]
+    fn resolve_subcommand_returns_override_when_absent_default_true() {
+        let spec = ExecutionSpec {
+            tool: "test".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("force".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!(true)),
+                subcommand_override: Some("branch -D".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({});
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -D");
+    }
+
+    #[test]
+    fn resolve_subcommand_ignores_non_flagifboolean_args() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![
+                ArgMapping {
+                    param: Some("force".to_string()),
+                    kind: ArgKind::Positional, // not FlagIfBoolean
+                    subcommand_override: Some("branch -D".to_string()),
+                    ..Default::default()
+                },
+            ],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "force": "true" });
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -d");
+    }
+
+    #[test]
+    fn resolve_subcommand_handles_string_true() {
+        let spec = ExecutionSpec {
+            tool: "git_branch_delete".to_string(),
+            binary: "git".to_string(),
+            subcommand: "branch -d".to_string(),
+            args: vec![ArgMapping {
+                param: Some("force".to_string()),
+                kind: ArgKind::FlagIfBoolean,
+                optional: Some(true),
+                absent_default: Some(serde_json::json!(false)),
+                subcommand_override: Some("branch -D".to_string()),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let args = serde_json::json!({ "force": "true" });
+        assert_eq!(resolve_subcommand(&spec, &args), "branch -D");
     }
 }

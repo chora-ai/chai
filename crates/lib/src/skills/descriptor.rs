@@ -294,6 +294,14 @@ pub struct ArgMapping {
     /// No current bundled skill parameter needs this.
     #[serde(default)]
     pub unsafe_path: Option<bool>,
+    /// Optional: overrides the execution spec's `subcommand` when this
+    /// `flagIfBoolean` parameter evaluates to true. The override subcommand
+    /// must be in the allowlist. Use for tools where a boolean flag changes
+    /// the git subcommand (e.g., `force: true` switches from `branch -d` to
+    /// `branch -D`). The default subcommand is used when the boolean is
+    /// false or absent.
+    #[serde(default, rename = "subcommandOverride")]
+    pub subcommand_override: Option<String>,
 }
 
 impl Default for ArgMapping {
@@ -316,6 +324,7 @@ impl Default for ArgMapping {
             deny_resolve_command: None,
             deny_always_resolve: None,
             unsafe_path: None,
+            subcommand_override: None,
         }
     }
 }

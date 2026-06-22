@@ -176,7 +176,7 @@
     },
     {
       "name": "git_branch_delete",
-      "description": "Delete a local branch.",
+      "description": "Delete a local branch. Use `force: true` to delete branches that were squash-merged (Git refuses `branch -d` for branches whose commit ancestry diverged from the target). Force-deleting a protected branch (`main`, `release/*`) is always blocked regardless of the `force` flag.",
       "parameters": {
         "type": "object",
         "required": ["name"],
@@ -184,6 +184,10 @@
           "name": {
             "type": "string",
             "description": "Branch name to delete (e.g. 'feature/old-branch')"
+          },
+          "force": {
+            "type": "boolean",
+            "description": "Force-delete the branch (use `git branch -D`). Required after squash merges where Git does not consider the branch fully merged. Protected branches (`main`, `release/*`) are always blocked. Default: false."
           },
           "path": {
             "type": "string",
@@ -330,7 +334,7 @@
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d", "merge", "rebase", "cherry-pick", "reset"]
+    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d", "branch -D", "merge", "rebase", "cherry-pick", "reset"]
   },
   "execution": [
     {
@@ -446,6 +450,7 @@
       "binary": "git",
       "subcommand": "branch -d",
       "args": [
+        { "param": "force", "kind": "flagifboolean", "optional": true, "absentDefault": false, "subcommandOverride": "branch -D" },
         { "param": "name", "kind": "positional", "denyPattern": "^(main|release/.+)$" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
