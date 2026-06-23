@@ -255,7 +255,7 @@ impl ToolExecutor for GenericToolExecutor {
         };
 
         let result = if let Some(max_lines) = spec.max_output_lines {
-            output::truncate_output(&result, max_lines)
+            output::truncate_output(&result, max_lines, spec.truncation_hint.as_deref())
         } else {
             result
         };

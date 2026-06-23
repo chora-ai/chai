@@ -90,6 +90,15 @@ pub struct ExecutionSpec {
     /// limit and is always appended in full).
     #[serde(default)]
     pub max_output_lines: Option<usize>,
+    /// Optional: per-tool truncation hint template. When set, this replaces the
+    /// generic "Narrow your query path, pattern, or range to reduce results."
+    /// notice with a tool-specific message. Template variables:
+    /// `{kept}` = non-hint lines shown, `{total}` = total lines (including hints),
+    /// `{omitted}` = non-hint lines omitted, `{next_start}` = `kept + 1` (first
+    /// omitted line). For line-range companion tools, use `{next_start}` to tell
+    /// the agent the exact `start_line` to use for pagination.
+    #[serde(default, rename = "truncationHint")]
+    pub truncation_hint: Option<String>,
 }
 
 impl Default for ExecutionSpec {
@@ -105,6 +114,7 @@ impl Default for ExecutionSpec {
             side_read: None,
             success_exit_codes: None,
             max_output_lines: None,
+            truncation_hint: None,
         }
     }
 }

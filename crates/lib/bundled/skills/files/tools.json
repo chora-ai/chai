@@ -16,7 +16,7 @@
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\t{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage.",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage, or when files_read_file output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
@@ -31,7 +31,7 @@
           },
           "end_line": {
             "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read) if omitted."
+            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
           }
         }
       }
@@ -230,7 +230,8 @@
       "postProcess": {
         "script": "hint-not-found"
       },
-      "maxOutputLines": 500
+      "maxOutputLines": 500,
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use files_read_lines with start_line: {next_start} to read the remaining lines."
     },
     {
       "tool": "files_read_lines",
@@ -249,8 +250,7 @@
       "successExitCodes": [1],
       "postProcess": {
         "script": "hint-not-found"
-      },
-      "maxOutputLines": 500
+      }
     },
     {
       "tool": "files_list_dir",

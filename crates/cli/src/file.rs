@@ -93,7 +93,7 @@ pub(crate) enum FileCmd {
         /// Line number to start reading at (1-indexed, inclusive)
         #[arg(long)]
         start_line: usize,
-        /// Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read).
+        /// Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file.
         #[arg(long)]
         end_line: Option<usize>,
     },
@@ -565,19 +565,22 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             if start_line == 0 {
                 anyhow::bail!("start_line must be at least 1 (1-indexed)");
             }
-            let end_line = end_line.unwrap_or(start_line);
-            if end_line < start_line {
-                anyhow::bail!("end line ({}) must be >= start line ({})", end_line, start_line);
+            if let Some(end) = end_line {
+                if end < start_line {
+                    anyhow::bail!("end_line ({}) must be >= start_line ({})", end, start_line);
+                }
             }
             let content = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}; {}", path, e))?;
             for (i, line) in content.lines().enumerate() {
                 let line_num = i + 1;
-                if line_num >= start_line && line_num <= end_line {
+                if line_num >= start_line {
                     println!("{}\t{}", line_num, line);
                 }
-                if line_num > end_line {
-                    break;
+                if let Some(end) = end_line {
+                    if line_num >= end {
+                        break;
+                    }
                 }
             }
             Ok(())

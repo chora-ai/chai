@@ -1,6 +1,7 @@
 mod chat;
 mod file;
 mod gateway;
+mod git;
 mod init;
 mod logs;
 mod profile;
@@ -62,6 +63,12 @@ enum Commands {
     File {
         #[command(subcommand)]
         sub: file::FileCmd,
+    },
+
+    /// Git operations for skill tool backends
+    Git {
+        #[command(subcommand)]
+        sub: git::GitCmd,
     },
 
     /// Read and search the gateway's in-memory log buffer
@@ -130,6 +137,12 @@ async fn main() {
         Some(Commands::File { sub }) => {
             if let Err(e) = file::run_file(sub) {
                 eprintln!("file: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Git { sub }) => {
+            if let Err(e) = git::run_git(sub) {
+                eprintln!("git: {}", e);
                 std::process::exit(1);
             }
         }

@@ -25,6 +25,10 @@
             "type": "string",
             "description": "Number of commits to show (e.g. '10'). Defaults to 10 if omitted."
           },
+          "skip": {
+            "type": "string",
+            "description": "Skip N commits before starting output (e.g. '10' to skip the first 10 commits). Use with count to paginate through history."
+          },
           "oneline": {
             "type": "boolean",
             "description": "Use compact one-line format per commit"
@@ -67,6 +71,40 @@
       }
     },
     {
+      "name": "git_diff_lines",
+      "description": "Read a range of lines from a git diff output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_diff output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "parameters": {
+        "type": "object",
+        "required": ["start_line"],
+        "properties": {
+          "start_line": {
+            "type": "integer",
+            "description": "Line number to start reading at (1-indexed, inclusive)"
+          },
+          "end_line": {
+            "type": "integer",
+            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
+          },
+          "staged": {
+            "type": "boolean",
+            "description": "Show staged changes (--cached)"
+          },
+          "ref": {
+            "type": "string",
+            "description": "Compare against a specific commit, branch, or ref"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          },
+          "file_path": {
+            "type": "string",
+            "description": "Limit diff to a specific file or directory path within the repository"
+          }
+        }
+      }
+    },
+    {
       "name": "git_show",
       "description": "Show the contents of a specific commit (message, author, diff).",
       "parameters": {
@@ -76,6 +114,32 @@
           "ref": {
             "type": "string",
             "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+          },
+          "path": {
+            "type": "string",
+            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+          }
+        }
+      }
+    },
+    {
+      "name": "git_show_lines",
+      "description": "Read a range of lines from a git show output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_show output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "parameters": {
+        "type": "object",
+        "required": ["start_line", "ref"],
+        "properties": {
+          "start_line": {
+            "type": "integer",
+            "description": "Line number to start reading at (1-indexed, inclusive)"
+          },
+          "end_line": {
+            "type": "integer",
+            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
+          },
+          "ref": {
+            "type": "string",
+            "description": "Commit hash, branch name, tag, or ref to show"
           },
           "path": {
             "type": "string",
@@ -104,7 +168,8 @@
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch"]
+    "git": ["status", "log", "diff", "show", "branch"],
+    "chai": ["git diff-lines", "git show-lines"]
   },
   "execution": [
     {
@@ -125,11 +190,13 @@
       "subcommand": "log",
       "args": [
         { "param": "count", "kind": "flag", "flag": "n", "optional": true, "absentDefault": "10" },
+        { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
         { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
-        { "param": "file_path", "kind": "positional", "optional": true },
+        { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
-      "maxOutputLines": 200
+      "maxOutputLines": 200,
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use skip to paginate (e.g. skip: '10' with the same count to show the next page of commits) or oneline: true for compact output."
     },
     {
       "tool": "git_diff",
@@ -142,10 +209,24 @@
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "maxOutputLines": 200,
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_diff_lines with start_line: {next_start} to read the remaining lines.",
       "postProcess": {
         "script": "hint-diff-ref-main",
         "args": ["$ref"]
       }
+    },
+    {
+      "tool": "git_diff_lines",
+      "binary": "chai",
+      "subcommand": "git diff-lines",
+      "args": [
+        { "param": "start_line", "kind": "flag", "flag": "start-line" },
+        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
+        { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--staged" },
+        { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
+        { "param": "file_path", "kind": "flag", "flag": "file-path", "optional": true },
+        { "param": "path", "kind": "flag", "flag": "path", "optional": true, "readPath": true }
+      ]
     },
     {
       "tool": "git_show",
@@ -155,7 +236,19 @@
         { "param": "ref", "kind": "positional" },
         { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
-      "maxOutputLines": 200
+      "maxOutputLines": 200,
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_show_lines with start_line: {next_start} to read the remaining lines."
+    },
+    {
+      "tool": "git_show_lines",
+      "binary": "chai",
+      "subcommand": "git show-lines",
+      "args": [
+        { "param": "start_line", "kind": "flag", "flag": "start-line" },
+        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
+        { "param": "ref", "kind": "flag", "flag": "ref" },
+        { "param": "path", "kind": "flag", "flag": "path", "optional": true, "readPath": true }
+      ]
     },
     {
       "tool": "git_branch",

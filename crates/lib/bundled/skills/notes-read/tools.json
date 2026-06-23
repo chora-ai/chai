@@ -16,7 +16,7 @@
     },
     {
       "name": "notes_read_lines",
-      "description": "Read a range of lines from a note with line numbers. Returns lines in the format {line_number}\t{content}. Use this instead of notes_read when you only need a specific portion of a note to reduce context usage.",
+      "description": "Read a range of lines from a note with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of notes_read when you only need a specific portion of a note to reduce context usage, or when notes_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
@@ -31,7 +31,7 @@
           },
           "end_line": {
             "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). Defaults to start_line (single line read) if omitted."
+            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
           }
         }
       }
@@ -117,7 +117,8 @@
       "postProcess": {
         "script": "hint-not-found"
       },
-      "maxOutputLines": 500
+      "maxOutputLines": 500,
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use notes_read_lines with start_line: {next_start} to read the remaining lines."
     },
     {
       "tool": "notes_read_lines",
@@ -145,8 +146,7 @@
       "successExitCodes": [1],
       "postProcess": {
         "script": "hint-not-found"
-      },
-      "maxOutputLines": 500
+      }
     },
     {
       "tool": "notes_list",
