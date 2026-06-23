@@ -20,10 +20,10 @@ pub(crate) enum GitCmd {
         ref_: Option<String>,
         /// Limit diff to a specific file or directory path within the repository
         #[arg(long)]
-        file_path: Option<String>,
+        path: Option<String>,
         /// Repository path (working directory for git). Defaults to the current directory.
         #[arg(long)]
-        path: Option<String>,
+        repo: Option<String>,
     },
     /// Read a range of lines from a git show output with line numbers. Outputs lines in the format {line_number}\t{content}.
     ShowLines {
@@ -38,7 +38,7 @@ pub(crate) enum GitCmd {
         r#ref: String,
         /// Repository path (working directory for git). Defaults to the current directory.
         #[arg(long)]
-        path: Option<String>,
+        repo: Option<String>,
     },
 }
 
@@ -49,8 +49,8 @@ pub(crate) fn run_git(cmd: GitCmd) -> Result<()> {
             end_line,
             staged,
             ref_,
-            file_path,
             path,
+            repo,
         } => {
             if start_line == 0 {
                 anyhow::bail!("start_line must be at least 1 (1-indexed)");
@@ -67,7 +67,7 @@ pub(crate) fn run_git(cmd: GitCmd) -> Result<()> {
                 git_cmd.arg(ref_val);
             }
 
-            if let Some(ref fp) = file_path {
+            if let Some(ref fp) = path {
                 // If ref was skipped, use -- to disambiguate paths from refs
                 if ref_.is_none() {
                     git_cmd.arg("--");
@@ -75,7 +75,7 @@ pub(crate) fn run_git(cmd: GitCmd) -> Result<()> {
                 git_cmd.arg(fp);
             }
 
-            if let Some(ref dir) = path {
+            if let Some(ref dir) = repo {
                 git_cmd.current_dir(dir);
             }
 
@@ -96,7 +96,7 @@ pub(crate) fn run_git(cmd: GitCmd) -> Result<()> {
             start_line,
             end_line,
             r#ref,
-            path,
+            repo,
         } => {
             if start_line == 0 {
                 anyhow::bail!("start_line must be at least 1 (1-indexed)");
@@ -105,7 +105,7 @@ pub(crate) fn run_git(cmd: GitCmd) -> Result<()> {
             let mut git_cmd = Command::new("git");
             git_cmd.arg("show").arg(&r#ref);
 
-            if let Some(ref dir) = path {
+            if let Some(ref dir) = repo {
                 git_cmd.current_dir(dir);
             }
 

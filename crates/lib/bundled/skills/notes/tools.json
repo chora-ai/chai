@@ -422,7 +422,7 @@
         {
           "param": "line_number",
           "kind": "flagifboolean",
-          "flagIfTrue": "--line-numbers",
+          "flagIfTrue": "--line-number",
           "absentDefault": true
         }
       ],

@@ -157,7 +157,7 @@ Most commands accept content via `--content` or stdin (when `--content` is omitt
 chai file read-lines --path <PATH> --start-line <N> [--end-line <N>]
 ```
 
-Read a range of lines from a file. Output format: `{line_number}\t{content}`. Line numbers are 1-indexed and inclusive on both ends. When `--end-line` is omitted, only `--start-line` is read.
+Read a range of lines from a file. Output format: `{line_number}\t{content}`. Line numbers are 1-indexed and inclusive on both ends. When `--end-line` is omitted, reads from `--start-line` to the end of the file.
 
 ### Writing
 
@@ -180,7 +180,7 @@ The `patch` command replaces lines `[start_line, end_line]` with new content. If
 ### Find and Replace
 
 ```bash
-chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [--replacement <REPLACEMENT>] [--line-numbers] [--literal] [--max-replacements <N>]
+chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [--replacement <REPLACEMENT>] [--line-number] [--literal] [--max-replacements <N>]
 ```
 
 Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
@@ -214,7 +214,7 @@ Capture groups (`$1`–`$9`) are not supported in literal mode.
 | `--pattern <PATTERN>` | Regex search pattern (extended regex, multiline mode) |
 | `--pattern-file <FILE>` | Read the pattern from a file (avoids CLI encoding issues for multi-line patterns; takes precedence over `--pattern`) |
 | `--replacement <REPLACEMENT>` | Replacement string (falls back to stdin when omitted) |
-| `--line-numbers` | Show line numbers in the diff output (off by default) |
+| `--line-number` | Show line numbers in the diff output (off by default) |
 | `--literal` | Treat the pattern as literal text instead of regex |
 | `--max-replacements <N>` | Maximum number of replacements to apply; `0` (default) means unlimited; use `1` to replace only the first match |
 
@@ -240,10 +240,10 @@ Frontmatter is the YAML block between `---` delimiters at the top of a Markdown 
 ### Renaming With Wikilink Update
 
 ```bash
-chai file rename-note --from <OLD_PATH> --to <NEW_PATH> [--root <SEARCH_DIR>]
+chai file rename --from <OLD_PATH> --to <NEW_PATH> [--scope <SEARCH_DIR>]
 ```
 
-Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikilinks in `.md` files under `--root`. When `--root` is omitted, it defaults to the current working directory. The parent directory of `--to` must exist.
+Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikilinks in `.md` files under `--scope`. When `--scope` is omitted, it defaults to the current working directory. The parent directory of `--to` must exist.
 
 ## `chai logs`
 

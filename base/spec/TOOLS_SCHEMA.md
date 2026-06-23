@@ -32,7 +32,8 @@ Pattern: `{skill}_{verb}` with noun suffix only for disambiguation. The `{skill}
 | Qualified identifier | `{domain}_name` | `git_branch_create` → `branch_name: "feat/search"` |
 | Multi-value parameter | Plural form | `git_add` → `paths: "src/main.rs"` |
 | Numeric count or offset | `integer` type | `git_log` → `count: 5` (not string `"5"`) |
-| CLI flag alignment | `snake_case` of long-form flag | `--files-with-matches` → `files_with_matches`, `--ignore-case` → `ignore_case` |
+| External binary flags | Align to binary's flag names | `--files-with-matches` → `files_with_matches`, `--ignore-case` → `ignore_case` |
+| Chai binary flags | CLI flags align to ADR conventions | `git diff-lines` uses `--repo` (not `--path`) and `--path` (not `--file-path`); `file rename` uses `--scope` (not `--root`) |
 
 ## File Location
 

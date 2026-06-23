@@ -83,7 +83,7 @@ pub(crate) enum FileCmd {
         literal: bool,
         /// Show line numbers in the diff output
         #[arg(long)]
-        line_numbers: bool,
+        line_number: bool,
     },
     /// Read a range of lines from a file with line numbers. Outputs lines in the format {line_number}\t{content}.
     ReadLines {
@@ -142,18 +142,18 @@ pub(crate) enum FileCmd {
         key: String,
     },
     /// Rename a markdown note and update all wikilinks that reference it.
-    /// Searches all .md files under --root for [[old-name]] links and replaces
+    /// Searches all .md files under --scope for [[old-name]] links and replaces
     /// them with [[new-name]].
-    RenameNote {
+    Rename {
         /// Absolute path to the existing note
         #[arg(long)]
         from: String,
         /// Absolute path to move the note to (parent directory must exist)
         #[arg(long)]
         to: String,
-        /// Root directory to search for wikilinks to update (defaults to current directory)
+        /// Directory to search for wikilinks to update (defaults to current directory)
         #[arg(long)]
-        root: Option<String>,
+        scope: Option<String>,
     },
 }
 
@@ -326,7 +326,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             );
             Ok(())
         }
-        FileCmd::Replace { path, pattern_file, pattern, replacement, max_replacements, literal, line_numbers } => {
+        FileCmd::Replace { path, pattern_file, pattern, replacement, max_replacements, literal, line_number } => {
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -372,7 +372,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                         let edits = compute_replace_edits(&original, &match_ranges, &replacement);
-                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
+                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
                         println!(
                             "{} replacement(s) in {} (literal match)\n{}",
                             match_count, path, diff
@@ -426,7 +426,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                         let edits = compute_replace_edits(&original, &match_ranges, &replacement);
-                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
+                        let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
                         println!(
                             "{} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
                             literal_count, path, count, diff
@@ -495,7 +495,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 } else {
                     compute_replace_edits(&original, &match_ranges, &replacement)
                 };
-                let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
+                let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
                 if limit < count {
                     println!(
                         "{} of {} match(es) replaced in {}\n{}",
@@ -532,7 +532,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                     let edits = compute_replace_edits(&original, &match_ranges, &replacement);
-                    let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_numbers);
+                    let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
                     println!(
                         "{} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
                         match_count, path, diff
@@ -666,10 +666,10 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             println!("removed {} from {}", key, path);
             Ok(())
         }
-        FileCmd::RenameNote { from, to, root } => {
+        FileCmd::Rename { from, to, scope } => {
             let from_path = std::path::Path::new(&from);
             let to_path = std::path::Path::new(&to);
-            let root_path = match root {
+            let scope_path = match scope {
                 Some(ref r) => std::path::PathBuf::from(r),
                 None => std::env::current_dir()?,
             };
@@ -691,8 +691,8 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     );
                 }
             }
-            if !root_path.is_dir() {
-                anyhow::bail!("root is not a directory: {}", root_path.display());
+            if !scope_path.is_dir() {
+                anyhow::bail!("scope is not a directory: {}", scope_path.display());
             }
 
             // Extract note names (filename without .md extension) for link updating.
@@ -712,7 +712,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             // Update wikilinks if the note name changed.
             if old_name != new_name {
-                let updated = update_wikilinks(&root_path, old_name, new_name)?;
+                let updated = update_wikilinks(&scope_path, old_name, new_name)?;
                 if updated > 0 {
                     println!("updated wikilinks in {} file(s)", updated);
                 }
@@ -934,7 +934,7 @@ fn format_replace_diff_from_edits(
     original: &str,
     new: &str,
     edits: &[ReplaceEdit],
-    line_numbers: bool,
+    line_number: bool,
 ) -> String {
     if edits.is_empty() {
         return String::new();
@@ -977,7 +977,7 @@ fn format_replace_diff_from_edits(
         // Context before — unchanged lines. Their new-file line numbers are
         // offset by the cumulative shift from earlier edits.
         for i in ctx_before_start..(orig_start - 1) {
-            if line_numbers {
+            if line_number {
                 let new_lineno = (i as isize + 1 + cumulative_shift) as usize;
                 diff.push_str(&format!(" {}\t{}\n", new_lineno, orig_lines[i]));
             } else {
@@ -987,7 +987,7 @@ fn format_replace_diff_from_edits(
 
         // Removed lines — use original-file line numbers.
         for i in (orig_start - 1)..orig_end {
-            if line_numbers {
+            if line_number {
                 diff.push_str(&format!("-{}\t{}\n", i + 1, orig_lines[i]));
             } else {
                 diff.push_str(&format!("-{}\n", orig_lines[i]));
@@ -996,7 +996,7 @@ fn format_replace_diff_from_edits(
 
         // Added lines — use new-file line numbers.
         for line_idx in (new_start - 1)..(new_end - 1).min(new_lines.len()) {
-            if line_numbers {
+            if line_number {
                 diff.push_str(&format!("+{}\t{}\n", line_idx + 1, new_lines[line_idx]));
             } else {
                 diff.push_str(&format!("+{}\n", new_lines[line_idx]));
@@ -1006,7 +1006,7 @@ fn format_replace_diff_from_edits(
         // Context after — use new-file line numbers and new-file content.
         let shift_after = cumulative_shift + net_change;
         for i in orig_end..ctx_after_end {
-            if line_numbers {
+            if line_number {
                 let new_lineno = (i as isize + 1 + shift_after) as usize;
                 diff.push_str(&format!(
                     " {}\t{}\n",
@@ -1955,7 +1955,7 @@ mod tests {
     }
 
     #[test]
-    fn format_patch_diff_context_after_uses_new_line_numbers_on_insertion() {
+    fn format_patch_diff_context_after_uses_new_line_number_on_insertion() {
         // Replace 1 line with 3 lines: net change is +2.
         // Context-after lines should show shifted line numbers.
         let input = "a\nb\nc\nd\ne";
@@ -1970,7 +1970,7 @@ mod tests {
     }
 
     #[test]
-    fn format_patch_diff_context_after_uses_new_line_numbers_on_deletion() {
+    fn format_patch_diff_context_after_uses_new_line_number_on_deletion() {
         // Delete 2 lines: net change is -2.
         // Context-after lines should show shifted line numbers.
         let input = "a\nb\nc\nd\ne\nf\ng";
@@ -2116,14 +2116,14 @@ mod tests {
     }
 
     #[test]
-    fn format_replace_diff_from_edits_no_line_numbers() {
+    fn format_replace_diff_from_edits_no_line_number() {
         let original = "a\nb\nc\nd\ne";
         let new = "a\nb\nX\nY\nd\ne";
         let edits = vec![ReplaceEdit { orig_start: 3, orig_end: 3, replacement_line_count: 2 }];
         let diff = format_replace_diff_from_edits(original, new, &edits, false);
         assert!(diff.contains("-c"), "removed line without line number");
         assert!(diff.contains("+X"), "added line without line number");
-        assert!(!diff.contains("\t"), "no line numbers when line_numbers=false");
+        assert!(!diff.contains("\t"), "no line numbers when line_number=false");
     }
 
     // --- verify_original tests ---

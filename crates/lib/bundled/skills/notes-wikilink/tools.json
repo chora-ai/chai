@@ -97,7 +97,7 @@
   ],
   "allowlist": {
     "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"],
-    "chai": ["file rename-note"]
+    "chai": ["file rename"]
   },
   "execution": [
     {
@@ -186,7 +186,7 @@
     {
       "tool": "notes_wikilink_rename",
       "binary": "chai",
-      "subcommand": "file rename-note",
+      "subcommand": "file rename",
       "args": [
         {
           "param": "from",
