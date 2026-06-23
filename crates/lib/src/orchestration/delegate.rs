@@ -14,7 +14,7 @@ use crate::session::SessionStore;
 use crate::skills::Skill;
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 
@@ -42,7 +42,6 @@ pub const EVENT_TURN_STOPPED: &str = "session.turn_stopped";
 /// WebSocket event name: gateway configuration changed (e.g. model discovery updated provider models).
 pub const EVENT_CONFIG_CHANGED: &str = "gateway.config.changed";
 /// Optional broadcast of structured orchestration events to gateway WebSocket clients (`type`: `event`).
-#[derive(Clone)]
 pub struct DelegateObservability {
     pub event_tx: broadcast::Sender<String>,
     pub session_id: Option<String>,
@@ -51,9 +50,32 @@ pub struct DelegateObservability {
     /// display the author and style worker messages differently.
     pub source: Option<String>,
     /// Offset added to tool call/result `index` values emitted by this observability instance.
-    /// Workers set this to the number of tool calls already executed by the orchestrator in the
-    /// current turn so that worker tool indices don't collide with orchestrator indices.
+    /// Copied from [`DelegateContext::tool_index_offset`] when the worker is spawned. The
+    /// orchestrator accumulates this value after each delegation so that successive workers
+    /// produce non-overlapping tool indices.
     pub tool_index_offset: usize,
+    /// Number of tool_call events emitted through this observability instance.
+    /// Incremented atomically by `emit_tool_call` so the count is available even
+    /// when the worker turn fails partway through (e.g. provider timeout after
+    /// some tool calls have already been emitted). The orchestrator reads this
+    /// via [`DelegateObservability::emitted_tool_call_count`] to accumulate
+    /// `tool_index_offset` correctly in the error path.
+    /// Always initialize to 0 when constructing a new instance.
+    pub emitted_tool_calls: AtomicUsize,
+}
+
+impl Clone for DelegateObservability {
+    fn clone(&self) -> Self {
+        Self {
+            event_tx: self.event_tx.clone(),
+            session_id: self.session_id.clone(),
+            source: self.source.clone(),
+            tool_index_offset: self.tool_index_offset,
+            // A cloned observability is a fresh instance for a new worker;
+            // the emitted count starts at zero.
+            emitted_tool_calls: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl DelegateObservability {
@@ -137,6 +159,16 @@ impl DelegateObservability {
             "index": effective_index,
         }));
         self.send(EVENT_TOOL_CALL, payload);
+        self.emitted_tool_calls.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Returns the number of tool_call events emitted through this observability
+    /// instance. Used by the orchestrator to accumulate `tool_index_offset` when
+    /// a worker turn fails partway through — the worker may have already emitted
+    /// some tool calls before the error, and those indices must not collide with
+    /// the next delegation's indices.
+    pub fn emitted_tool_call_count(&self) -> usize {
+        self.emitted_tool_calls.load(Ordering::Relaxed)
     }
 
     /// Emits [`EVENT_TOOL_RESULT`] when a tool execution completes.
@@ -226,8 +258,10 @@ pub struct DelegateContext<'a> {
     /// and stops gracefully when the flag becomes true.
     pub stop_flag: Option<Arc<AtomicBool>>,
     /// Offset added to tool call/result `index` values emitted by the worker's
-    /// observability. Set to the count of orchestrator tool calls already executed
-    /// in the current turn so worker indices don't collide with orchestrator indices.
+    /// observability. Initialized to 0 and accumulated by the orchestrator after
+    /// each delegation by adding the worker's `tool_call_count`. This ensures
+    /// successive delegations produce non-overlapping tool indices even when
+    /// workers share the same `source` label.
     pub tool_index_offset: usize,
 }
 
@@ -300,7 +334,6 @@ fn format_delegate_result(
     });
     payload.to_string()
 }
-
 
 #[derive(Debug)]
 struct DelegateTarget {
@@ -393,6 +426,10 @@ pub struct DelegateTaskResult {
     pub output: String,
     /// Whether the worker turn was stopped by a stop signal mid-execution.
     pub stopped: bool,
+    /// Number of tool calls executed by the worker during this delegation.
+    /// The orchestrator uses this to accumulate `tool_index_offset` so that
+    /// successive delegations produce non-overlapping tool indices.
+    pub tool_call_count: usize,
 }
 
 /// Run a worker turn: delegates to [`crate::agent::run_turn_with_messages_dyn`] (nested `delegate_task` is disabled there).
@@ -532,6 +569,7 @@ pub async fn execute_delegate_task(
         session_id: obs.session_id.clone(),
         source: Some(worker_id.unwrap_or("worker").to_string()),
         tool_index_offset: ctx.tool_index_offset,
+        emitted_tool_calls: AtomicUsize::new(0),
     });
     let result =
         match run_turn_with_messages_dyn(provider, &model, messages, worker_tools, tool_exec, max_iterations, worker_obs.as_ref(), ctx.stop_flag.clone()).await
@@ -539,6 +577,10 @@ pub async fn execute_delegate_task(
             Ok(r) => r,
             Err(e) => {
                 let msg = e.to_string();
+                let partial_tool_calls = worker_obs
+                    .as_ref()
+                    .map(|obs| obs.emitted_tool_call_count())
+                    .unwrap_or(0);
                 if let Some(ref obs) = ctx.observability {
                     let mut extra = json!({
                         "error": msg,
@@ -550,7 +592,11 @@ pub async fn execute_delegate_task(
                     }
                     obs.send(EVENT_DELEGATE_ERROR, obs.merge_base(extra));
                 }
-                return Err(msg);
+                return Ok(DelegateTaskResult {
+                    output: format!("error: {}", msg),
+                    stopped: false,
+                    tool_call_count: partial_tool_calls,
+                });
             }
         };
 
@@ -598,6 +644,7 @@ pub async fn execute_delegate_task(
             &model,
         ),
         stopped: result.stopped,
+        tool_call_count: result.tool_calls.len(),
     })
 }
 
@@ -726,6 +773,7 @@ mod tests {
             session_id: Some("sess-1".to_string()),
             source: None,
             tool_index_offset: 0,
+            emitted_tool_calls: AtomicUsize::new(0),
         };
         obs.send(
             EVENT_DELEGATE_START,
@@ -750,6 +798,7 @@ mod tests {
             session_id: Some("sess-2".to_string()),
             source: Some("worker".to_string()),
             tool_index_offset: 0,
+            emitted_tool_calls: AtomicUsize::new(0),
         };
         let merged = obs.merge_base(json!({ "toolName": "read_file" }));
         assert_eq!(merged["sessionId"], "sess-2");
@@ -765,6 +814,7 @@ mod tests {
             session_id: Some("sess-3".to_string()),
             source: None,
             tool_index_offset: 0,
+            emitted_tool_calls: AtomicUsize::new(0),
         };
         obs.send(
             EVENT_DELEGATE_COMPLETE,
@@ -793,6 +843,7 @@ mod tests {
             session_id: Some("sess-4".to_string()),
             source: None,
             tool_index_offset: 0,
+            emitted_tool_calls: AtomicUsize::new(0),
         };
         // When the worker was stopped, `delegate.complete` omits `reply` and
         // includes `stopped: true` to avoid duplicating the content already

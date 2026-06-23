@@ -668,17 +668,11 @@ async fn execute_turn_main(
             break;
         }
 
+
         messages.push(assistant_msg);
         for (idx, call) in last_tool_calls.iter().enumerate() {
             let name = call.function.name.as_str();
             let args = &call.function.arguments;
-
-            // Update tool_index_offset so the worker's tool indices don't
-            // collide with orchestrator indices. The offset accounts for all
-            // orchestrator tool calls in the current batch (including this one).
-            if let Some(ref mut ctx) = delegate {
-                ctx.tool_index_offset = executed_tool_calls.len() + last_tool_calls.len();
-            }
 
             // Emit session.tool_call event before execution so the desktop can
             // render tool calls as separate timeline entries as they happen.
@@ -710,8 +704,16 @@ async fn execute_turn_main(
                         )
                     } else {
                         match delegate {
-                            Some(ref ctx) => match execute_delegate_task(ctx, args).await {
-                                Ok(DelegateTaskResult { output, stopped }) => (output, stopped),
+                            Some(ref mut ctx) => match execute_delegate_task(ctx, args).await {
+                                Ok(DelegateTaskResult { output, stopped, tool_call_count }) => {
+                                    // Accumulate the worker's tool call count into the offset
+                                    // so that subsequent delegations produce non-overlapping
+                                    // tool indices. Without this, successive delegations
+                                    // collide with earlier worker indices and the desktop
+                                    // silently drops them as duplicates.
+                                    ctx.tool_index_offset += tool_call_count;
+                                    (output, stopped)
+                                }
                                 Err(e) => {
                                     log::warn!("agent: delegate_task failed: {}", e);
                                     (format!("error: {}", e), false)
@@ -725,8 +727,11 @@ async fn execute_turn_main(
                     }
                 } else {
                     match delegate {
-                        Some(ref ctx) => match execute_delegate_task(ctx, args).await {
-                            Ok(DelegateTaskResult { output, stopped }) => (output, stopped),
+                        Some(ref mut ctx) => match execute_delegate_task(ctx, args).await {
+                            Ok(DelegateTaskResult { output, stopped, tool_call_count }) => {
+                                ctx.tool_index_offset += tool_call_count;
+                                (output, stopped)
+                            }
                             Err(e) => {
                                 log::warn!("agent: delegate_task failed: {}", e);
                                 (format!("error: {}", e), false)

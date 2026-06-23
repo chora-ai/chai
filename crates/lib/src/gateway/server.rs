@@ -54,7 +54,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 use std::collections::{BTreeMap, HashMap, HashSet};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
@@ -661,6 +661,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             session_id: Some(session_id.clone()),
             source: Some("orchestrator".to_string()),
             tool_index_offset: 0,
+            emitted_tool_calls: AtomicUsize::new(0),
         }),
         session_store: Some(&state.session_store),
         session_id: Some(session_id.as_str()),
@@ -1936,6 +1937,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         session_id: Some(session_id.clone()),
                         source: Some("orchestrator".to_string()),
                         tool_index_offset: 0,
+                        emitted_tool_calls: AtomicUsize::new(0),
                     }),
                     session_store: Some(&state.session_store),
                     session_id: Some(session_id.as_str()),
