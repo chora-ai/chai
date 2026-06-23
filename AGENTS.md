@@ -4,7 +4,7 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 ## Primary Resources
 
-This document and the `base` directory are the primary resources for agents.
+This document and the `base` directory are the primary resources for agents. For knowledge base conventions (working notes lifecycle and graduation, structured docs), see `base/AGENTS.md`.
 
 ## Architecture Overview
 
@@ -39,15 +39,38 @@ This document and the `base` directory are the primary resources for agents.
 
 - Use title case for all section headings (capitalize the first letter of each major word, and keep articles, conjunctions, and prepositions lowercase unless they start or end the title).
 
+## Development Workflow
+
+All changes to `main` go through feature branches and squash merges. Direct commits to `main` are not permitted (except for release commits per the release process in `base/RELEASE.md`). Agents without write access should follow the pull request process in `CONTRIBUTING.md`.
+
+### Feature Branches
+
+Create feature branches from `main` with name `<type>/<short-description>`. Branch name prefixes follow conventional commit types: `feat/`, `fix/`, `docs/`, `refactor/`, `chore/`, etc.
+
+### Squash Merges
+
+Merges into `main` use squash merges. This keeps `main` history linear, readable, and semantically meaningful — each commit on `main` represents one complete, reviewable change. The squash-merge message follows conventional commits and is what matters; individual commits on feature branches are working commits.
+
+### Conventional Commit Types
+
+Documentation changes can be either `chore` or `docs` depending on the audience — use the following to decide:
+
+- `chore` for internal/project infrastructure changes (including `base/` directory updates, agent conventions, working notes management)
+- `docs` for user-facing documentation changes (`docs/`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`)
+
+### Testing Checkpoint
+
+Changes that modify runtime behavior **must be manually tested with a rebuilt binary** before proceeding to squash-merge. Do not update structured documentation, user documentation, or squash-merge until the changes are verified.
+
 ## User Documentation
 
 ### `docs/`
 
-- This directory provides user guides, step-by-step journeys, and testing playbooks. User documentation is isolated: do not link outside `docs/`; bring relevant content into the user doc instead.
+- This directory provides user guides, step-by-step journeys, and testing playbooks. User documentation is isolated: do not link outside `docs/`; bring relevant content into the user doc instead. Always update user documentation when merging feature branches into `main` and a change affects user-facing features.
 
 ### `CHANGELOG.md`
 
-- This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed. Always update this document when notable changes affect users.
+- This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed. Always update this document when merging feature branches into `main` and a change affects user-facing features.
 
 ### `CONTRIBUTING.md`
 
@@ -55,4 +78,4 @@ This document and the `base` directory are the primary resources for agents.
 
 ### `README.md`
 
-- This document provides instructions on how to build, install, and run the runtime. Treat this as user documentation: keep it concise, up to date, and free of decision notes.
+- This document provides instructions on how to build, install, and run the runtime. Treat this as user documentation: keep it concise, up to date, free of decision notes, and focused on using `nix` and `cargo` in the root directory.
