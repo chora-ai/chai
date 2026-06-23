@@ -11,7 +11,7 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
@@ -29,7 +29,7 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           },
@@ -51,7 +51,7 @@
             "type": "string",
             "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           },
@@ -80,7 +80,7 @@
           "optional": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$root"]
+            "args": ["$param", "$scope"]
           }
         }
       ],
@@ -103,7 +103,7 @@
           "writePath": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$root"]
+            "args": ["$param", "$scope"]
           }
         },
         {
@@ -128,7 +128,7 @@
           "writePath": true,
           "resolveCommand": {
             "script": "resolve-daily-path",
-            "args": ["$param", "$root"]
+            "args": ["$param", "$scope"]
           }
         },
         {

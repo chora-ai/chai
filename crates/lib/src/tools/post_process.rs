@@ -29,7 +29,7 @@ fn pipe_stdin(
 
 /// Substitute `$param_name` placeholders in post-process args with values from
 /// the tool call JSON. Placeholders use the format `$param_name` (e.g.
-/// `$root`). If the parameter is absent or null in the tool call args,
+/// `$scope`). If the parameter is absent or null in the tool call args,
 /// the placeholder is replaced with an empty string.
 fn substitute_pp_args(pp_args: &[String], tool_args: &serde_json::Value) -> Vec<String> {
     let obj = match tool_args.as_object() {
@@ -66,7 +66,7 @@ fn substitute_pp_args(pp_args: &[String], tool_args: &serde_json::Value) -> Vec<
 /// scripts can make decisions based on whether the command succeeded (0)
 /// or returned a non-zero code that was in `successExitCodes`.
 /// `tool_args` provides parameter values for `$param_name` substitution in
-/// `pp.args` (e.g. `$root` is replaced with the `root` parameter value).
+/// `pp.args` (e.g. `$scope` is replaced with the `scope` parameter value).
 pub fn run_post_process(
     pp: &PostProcessSpec,
     exit_code: i32,
@@ -315,11 +315,11 @@ mod tests {
             script: Some("echo-arg".to_string()),
             binary: None,
             subcommand: None,
-            args: vec!["$root".to_string()],
+            args: vec!["$scope".to_string()],
             empty_is_result: None,
         };
 
-        let tool_args = serde_json::json!({ "root": "my-notes" });
+        let tool_args = serde_json::json!({ "scope": "my-notes" });
         let result = run_post_process(&pp, 0, "input", &Allowlist::new(), Some(dir.as_path()), &tool_args);
         assert_eq!(result.trim(), "arg=my-notes");
         cleanup(&dir);
@@ -337,7 +337,7 @@ mod tests {
             script: Some("echo-arg".to_string()),
             binary: None,
             subcommand: None,
-            args: vec!["$root".to_string()],
+            args: vec!["$scope".to_string()],
             empty_is_result: None,
         };
 

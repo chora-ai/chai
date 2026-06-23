@@ -8,6 +8,32 @@ When a skill directory contains a `tools.json` file, the loader parses it and at
 
 **Parameters (JSON Schema):** Each tool's **`parameters`** object uses the same **JSON Schema subset** used across LLM **function / tool** APIs: typically `type: "object"`, **`properties`**, **`required`**, and per-argument **`type`**, **`description`**, and optional constraints. That matches what **OpenAI** (tools / function parameters), **Ollama** (`tools` in chat), and **OpenAI-compatible** servers expect. Chai forwards the descriptor's tool list to the active **`Provider`** without rewriting the schema. For examples and field conventions, see vendor docs (e.g. OpenAI function-calling parameter shape).
 
+## Naming Conventions
+
+All bundled skills follow consistent naming conventions for tool names and parameter names. Skill authors creating custom skills should follow the same conventions for a predictable API surface. See [adr/TOOL_PARAMETER_NAMING.md](../adr/TOOL_PARAMETER_NAMING.md) for the decision rationale.
+
+### Tool Names
+
+Pattern: `{skill}_{verb}` with noun suffix only for disambiguation. The `{skill}_` prefix is always the skill directory name. For sub-skills that introduce new tools, the sub-skill name becomes a middle segment: `{skill}_{subskill}_{verb}`.
+
+| Example | Pattern | Notes |
+|---------|---------|-------|
+| `files_read` | `{skill}_{verb}` | Primary read operation — no noun suffix |
+| `files_delete_dir` | `{skill}_{verb}_{noun}` | Noun suffix disambiguates from `files_delete` (file) |
+| `notes_wikilink_find_backlinks` | `{skill}_{subskill}_{verb}_{noun}` | Sub-skill introduces a middle segment; `find_` prefix for query operations |
+
+### Parameter Names
+
+| Semantic | Convention | Example |
+|----------|-----------|---------|
+| Target the tool operates on directly | `path` | `files_read` → `path: "./README.md"` |
+| Repository root (git skills) | `repo` | `git_status` → `repo: "./chai"` |
+| Directory to narrow search or operation | `scope` | `notes_daily_read` → `scope: "my-notes"` |
+| Qualified identifier | `{domain}_name` | `git_branch_create` → `branch_name: "feat/search"` |
+| Multi-value parameter | Plural form | `git_add` → `paths: "src/main.rs"` |
+| Numeric count or offset | `integer` type | `git_log` → `count: 5` (not string `"5"`) |
+| CLI flag alignment | `snake_case` of long-form flag | `--files-with-matches` → `files_with_matches`, `--ignore-case` → `ignore_case` |
+
 ## File Location
 
 - **Path**: `<skill_dir>/tools.json` (same directory as `SKILL.md`).
@@ -129,7 +155,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"resolve-feed-path"` → `scripts/resolve-feed-path.sh`). The executor runs it via `sh` with no allowlist entry, and only files under the skill's `scripts/` dir are executed. Script name must not contain `..`, `/`, or `\`. |
 | `binary` | string (optional) | Binary name for allowlisted command resolution (must be in the skill's allowlist). Use when not using `script`. |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). Use when not using `script`. |
-| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value; `"$param_name"` (e.g. `"$root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
+| `args` | array of strings | Arguments; `"$param"` is replaced by the current param value; `"$param_name"` (e.g. `"$scope"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 When `script` is set, the executor runs `sh <skill_dir>/scripts/<script> <args...>`. When `binary` and `subcommand` are set, the executor runs them via the allowlist. No extra setup (allowlist entry or separate binary) is required for scripts.
 
@@ -144,7 +170,7 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 | `script` | string (optional) | Name of a file in the skill's **`scripts/`** directory (e.g. `"parse-rss"`). Same path rules as `resolveCommand.script`. |
 | `binary` | string (optional) | Binary name for allowlisted post-processing (must be in the skill's allowlist). |
 | `subcommand` | string (optional) | Subcommand for allowlisted command (must be in allowlist for that binary). |
-| `args` | array of strings | Additional arguments passed to the script or command. `"$param_name"` (e.g. `"$root"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
+| `args` | array of strings | Additional arguments passed to the script or command. `"$param_name"` (e.g. `"$scope"`) is replaced by the corresponding parameter value from the tool call JSON (empty string if absent or null). |
 
 **Design notes:**
 - `postProcess` is set on the **execution spec** (per-tool), not on individual args. It transforms the final stdout, not a parameter value.
@@ -185,7 +211,7 @@ Appends a file's contents to the tool result when the file exists. After the mai
 
 ```json
 {
-  "tool": "files_list_dir",
+  "tool": "files_list",
   "binary": "ls",
   "subcommand": "",
   "args": [
@@ -225,7 +251,7 @@ One tool, one positional argument:
   "tools": [
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage, or when files_read_file output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],

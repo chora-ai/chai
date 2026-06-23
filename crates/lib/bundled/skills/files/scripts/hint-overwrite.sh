@@ -1,5 +1,5 @@
 #!/bin/sh
-# Post-process script: detect when files_write_file overwrites an existing
+# Post-process script: detect when files_write overwrites an existing
 # file and append a hint.
 # The chai file write command outputs "overwriting existing N lines"
 # when the file existed before.

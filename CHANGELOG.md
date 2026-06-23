@@ -34,8 +34,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `files_read_lines` and `notes_read_lines` output now uses tab as the line-number separator instead of pipe (`|`), eliminating visual ambiguity when file content contains `|` characters (e.g., markdown tables, pipe-delimited data); `files_write_lines` and `files_replace` diff output also updated to use tab separator for consistency
 - `files_read_lines` and `notes_read_lines` default `end_line` changed from single-line (`start_line`) to read-to-end: when `end_line` is omitted, reads from `start_line` to the end of the file instead of returning only one line. This makes line-range tools the natural pagination path after truncation
 - `files_read_lines` and `notes_read_lines` no longer have `maxOutputLines` truncation — the agent controls output size via the explicit range, so truncation of agent-chosen ranges is unnecessary
-- Truncated tool output now provides tool-specific pagination instructions via `truncationHint` templates: `git_diff` → `git_diff_lines`, `git_show` → `git_show_lines`, `files_read_file` → `files_read_lines`, `notes_read` → `notes_read_lines`, `git_log` → `skip`/`oneline`. Previously, all truncated output used a generic "Narrow your query" suggestion that was misleading when no pagination path existed
+- Truncated tool output now provides tool-specific pagination instructions via `truncationHint` templates: `git_diff` → `git_diff_lines`, `git_show` → `git_show_lines`, `files_read` → `files_read_lines`, `notes_read` → `notes_read_lines`, `git_log` → `skip`/`oneline`. Previously, all truncated output used a generic "Narrow your query" suggestion that was misleading when no pagination path existed
 - `files_replace` automatically collapses runs of two or more consecutive blank (or whitespace-only) lines down to a single blank line before writing the file, preventing double-blank-line artifacts from deletion operations
+
+### Changed
+
+- Tool name renames for consistency (drop redundant noun suffixes, adopt verb-based naming): `files_read_file` → `files_read`, `files_write_file` → `files_write`, `files_delete_file` → `files_delete`, `files_search_content` → `files_search`, `files_list_dir` → `files_list`, `notes_wikilink_backlinks` → `notes_wikilink_find_backlinks`, `notes_wikilink_outlinks` → `notes_wikilink_find_outlinks`, `notes_wikilink_by_tag` → `notes_wikilink_find_by_tag`, `notes_wikilink_broken` → `notes_wikilink_find_broken`
+- Parameter name renames for consistency: git `path` (repo root) → `repo`, git `file_path` → `path`, git `name`/`branch` → `branch_name`, git `files` → `paths`, notes `root` → `scope`, search `files_only` → `files_with_matches`, search `case_insensitive` → `ignore_case`, search/replace `line_numbers` → `line_number`, git-remote `directory` → `path`, git `count`/`skip` type changed from string to integer
 
 ## [0.1.0] - 2026-06-20
 

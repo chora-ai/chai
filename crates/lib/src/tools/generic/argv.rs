@@ -45,8 +45,8 @@ fn substitute_resolve_args(
 /// Resolve a parameter value by running its `resolveCommand` (script or
 /// allowlisted command). If no resolve command is configured, returns the
 /// value unchanged. `tool_args` provides parameter values for `$param_name`
-/// substitution in resolve command args (e.g. `$root` is replaced with the
-/// `root` parameter value from the tool call JSON).
+/// substitution in resolve command args (e.g. `$scope` is replaced with the
+/// `scope` parameter value from the tool call JSON).
 pub(crate) fn resolve_value(
     value: &str,
     arg: &crate::skills::ArgMapping,
@@ -867,7 +867,7 @@ mod tests {
             binary: "git".to_string(),
             subcommand: "add".to_string(),
             args: vec![ArgMapping {
-                param: Some("files".to_string()),
+                param: Some("paths".to_string()),
                 kind: ArgKind::Positional,
                 split: Some(true),
                 ..Default::default()
@@ -876,7 +876,7 @@ mod tests {
         };
 
         let allowlist = Allowlist::new();
-        let args = serde_json::json!({ "files": "file1.rs file2.rs file3.rs" });
+        let args = serde_json::json!({ "paths": "file1.rs file2.rs file3.rs" });
         let argv = build_argv(&spec, &args, &allowlist, None)
             .expect("build_argv should succeed");
 
@@ -890,7 +890,7 @@ mod tests {
             binary: "git".to_string(),
             subcommand: "add".to_string(),
             args: vec![ArgMapping {
-                param: Some("files".to_string()),
+                param: Some("paths".to_string()),
                 kind: ArgKind::Positional,
                 split: Some(true),
                 ..Default::default()
@@ -899,7 +899,7 @@ mod tests {
         };
 
         let allowlist = Allowlist::new();
-        let args = serde_json::json!({ "files": "." });
+        let args = serde_json::json!({ "paths": "." });
         let argv = build_argv(&spec, &args, &allowlist, None)
             .expect("build_argv should succeed");
 
@@ -1019,7 +1019,7 @@ mod tests {
                     ..Default::default()
                 },
                 ArgMapping {
-                    param: Some("name".to_string()),
+                    param: Some("branch_name".to_string()),
                     kind: ArgKind::Positional,
                     ..Default::default()
                 },
@@ -1028,12 +1028,12 @@ mod tests {
         };
 
         let allowlist = Allowlist::new();
-        let args = serde_json::json!({ "force": true, "name": "feat/test" });
+        let args = serde_json::json!({ "force": true, "branch_name": "feat/test" });
         let argv = build_argv(&spec, &args, &allowlist, None)
             .expect("build_argv should succeed");
 
         // force should NOT produce an argv entry (subcommandOverride controls
-        // the subcommand, not argv); only the name positional should appear.
+        // the subcommand, not argv); only the branch_name positional should appear.
         assert_eq!(argv, vec!["feat/test"]);
     }
 

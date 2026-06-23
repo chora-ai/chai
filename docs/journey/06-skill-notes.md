@@ -100,11 +100,11 @@ If you enabled `notes-frontmatter`, try these after creating a note with frontma
 If you enabled `notes-wikilink` (and have notes with `[[wikilink]]` syntax):
 
 - **Find backlinks:** "Find all notes that link to 'Conventions'."
-  - **Expect:** The agent uses `notes_wikilink_backlinks` with `note_name`.
+  - **Expect:** The agent uses `notes_wikilink_find_backlinks` with `note_name`.
 - **Check for broken links:** "Check for broken wikilinks in the note at 01-admin/AI Assistant.md."
-  - **Expect:** The agent uses `notes_wikilink_broken`. An empty result means all links resolve.
+  - **Expect:** The agent uses `notes_wikilink_find_broken`. An empty result means all links resolve.
 - **Find notes by tag:** "Find all notes tagged with 'agentic-systems'."
-  - **Expect:** The agent uses `notes_wikilink_by_tag`.
+  - **Expect:** The agent uses `notes_wikilink_find_by_tag`.
 - **Rename a note with link updates:** "Rename the note from '00-inbox/Old Name.md' to '03-research/New Name.md' and update all wikilinks."
   - **Expect:** The agent uses `notes_wikilink_rename`. The file moves and all `[[Old Name]]` references are updated.
 

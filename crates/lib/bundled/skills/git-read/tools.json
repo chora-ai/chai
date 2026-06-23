@@ -7,7 +7,7 @@
         "type": "object",
         "required": [],
         "properties": {
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -22,22 +22,22 @@
         "required": [],
         "properties": {
           "count": {
-            "type": "string",
-            "description": "Number of commits to show (e.g. '10'). Defaults to 10 if omitted."
+            "type": "integer",
+            "description": "Number of commits to show (e.g. 10). Defaults to 10 if omitted."
           },
           "skip": {
-            "type": "string",
-            "description": "Skip N commits before starting output (e.g. '10' to skip the first 10 commits). Use with count to paginate through history."
+            "type": "integer",
+            "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits). Use with count to paginate through history."
           },
           "oneline": {
             "type": "boolean",
             "description": "Use compact one-line format per commit"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           },
-          "file_path": {
+          "path": {
             "type": "string",
             "description": "Limit log to commits affecting this file or directory path within the repository"
           }
@@ -59,11 +59,11 @@
             "type": "string",
             "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           },
-          "file_path": {
+          "path": {
             "type": "string",
             "description": "Limit diff to a specific file or directory path within the repository"
           }
@@ -93,11 +93,11 @@
             "type": "string",
             "description": "Compare against a specific commit, branch, or ref"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           },
-          "file_path": {
+          "path": {
             "type": "string",
             "description": "Limit diff to a specific file or directory path within the repository"
           }
@@ -115,7 +115,7 @@
             "type": "string",
             "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -141,7 +141,7 @@
             "type": "string",
             "description": "Commit hash, branch name, tag, or ref to show"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -159,7 +159,7 @@
             "type": "boolean",
             "description": "Include remote-tracking branches"
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -177,7 +177,7 @@
       "binary": "git",
       "subcommand": "status",
       "args": [
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "successExitCodes": [128],
       "postProcess": {
@@ -192,11 +192,11 @@
         { "param": "count", "kind": "flag", "flag": "n", "optional": true, "absentDefault": "10" },
         { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
         { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
-        { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use skip to paginate (e.g. skip: '10' with the same count to show the next page of commits) or oneline: true for compact output."
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use skip to paginate (e.g. skip: 10 with the same count to show the next page of commits) or oneline: true for compact output."
     },
     {
       "tool": "git_diff",
@@ -205,8 +205,8 @@
       "args": [
         { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--cached" },
         { "param": "ref", "kind": "positional", "optional": true },
-        { "param": "file_path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "maxOutputLines": 200,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_diff_lines with start_line: {next_start} to read the remaining lines.",
@@ -224,8 +224,8 @@
         { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
         { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--staged" },
         { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
-        { "param": "file_path", "kind": "flag", "flag": "file-path", "optional": true },
-        { "param": "path", "kind": "flag", "flag": "path", "optional": true, "readPath": true }
+        { "param": "path", "kind": "flag", "flag": "path", "optional": true },
+        { "param": "repo", "kind": "flag", "flag": "repo", "optional": true, "readPath": true }
       ]
     },
     {
@@ -234,7 +234,7 @@
       "subcommand": "show",
       "args": [
         { "param": "ref", "kind": "positional" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "maxOutputLines": 200,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_show_lines with start_line: {next_start} to read the remaining lines."
@@ -247,7 +247,7 @@
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
         { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
         { "param": "ref", "kind": "flag", "flag": "ref" },
-        { "param": "path", "kind": "flag", "flag": "path", "optional": true, "readPath": true }
+        { "param": "repo", "kind": "flag", "flag": "repo", "optional": true, "readPath": true }
       ]
     },
     {
@@ -256,7 +256,7 @@
       "subcommand": "branch",
       "args": [
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "maxOutputLines": 200
     }

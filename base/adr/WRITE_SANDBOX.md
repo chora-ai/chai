@@ -8,7 +8,7 @@ Per-profile path boundary enforcement for skill tools with `writePath`-annotated
 
 ## Context
 
-Chai's allowlist controls *what* commands a skill tool may run (the action dimension). However, an allowlisted binary with a filesystem path argument could write anywhere the process can reach. A tool like `files_write_file` accepting a `path` parameter had no spatial boundary — the model could potentially write to `/etc/passwd` or any other location accessible to the process. The allowlist alone was insufficient: it enforced command identity but not filesystem location. Safe write-capable skills required both the action dimension (allowlist) and the spatial dimension (sandbox) composed together.
+Chai's allowlist controls *what* commands a skill tool may run (the action dimension). However, an allowlisted binary with a filesystem path argument could write anywhere the process can reach. A tool like `files_write` accepting a `path` parameter had no spatial boundary — the model could potentially write to `/etc/passwd` or any other location accessible to the process. The allowlist alone was insufficient: it enforced command identity but not filesystem location. Safe write-capable skills required both the action dimension (allowlist) and the spatial dimension (sandbox) composed together.
 
 ## Decision
 

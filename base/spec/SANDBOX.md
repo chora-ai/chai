@@ -16,7 +16,7 @@ Write operations in Chai fall into two categories with different enforcement mec
 
 | Category | How the write target is specified | Sandbox applies? | Enforcement |
 |----------|-----------------------------------|-----------------|-------------|
-| **Path-argument writes** | The model provides a filesystem path as a tool parameter (e.g., `files_write_file` with a `path` arg) | **Yes** | Executor validates the path against sandbox writable roots before execution |
+| **Path-argument writes** | The model provides a filesystem path as a tool parameter (e.g., `files_write` with a `path` arg) | **Yes** | Executor validates the path against sandbox writable roots before execution |
 | **Binary-mediated writes** | The model provides a semantic identifier, and the binary resolves the write target internally (e.g., `chai skill write-skill-md` takes `skill_name`) | **No** | Security depends on the binary rejecting traversal and confining writes to its expected directory |
 
 The sandbox applies to **path-argument writes only**. In practice, this primarily serves the `files` skill (write variants) and `git-remote` (clone). Most other writes (notes, skills) are binary-mediated.

@@ -418,14 +418,14 @@ mod tests {
             binary: "git".to_string(),
             subcommand: "branch -d".to_string(),
             args: vec![ArgMapping {
-                param: Some("name".to_string()),
+                param: Some("branch_name".to_string()),
                 kind: ArgKind::Positional,
                 ..Default::default()
             }],
             ..Default::default()
         };
 
-        let args = serde_json::json!({ "name": "feat/test" });
+        let args = serde_json::json!({ "branch_name": "feat/test" });
         assert_eq!(resolve_subcommand(&spec, &args), "branch -d");
     }
 

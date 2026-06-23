@@ -5,25 +5,25 @@
 # 2. Count links that don't resolve to existing files and append a hint.
 #
 # Receives wikilink targets on stdin (one per line, from grep -oP).
-# Usage: sanitize-outlinks.sh [root]
+# Usage: sanitize-outlinks.sh [scope]
 #
-# The root parameter may be:
+# The scope parameter may be:
 # - Empty/omitted: notes directory defaults to the sandbox root
 # - A relative path: resolved relative to the sandbox root
 # - An absolute path: used as-is (canonical path from the executor)
 
-root="$1"
+scope="$1"
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
-# Resolve root to an absolute path.
-case "$root" in
-    /*) notes_dir="$root" ;;
+# Resolve scope to an absolute path.
+case "$scope" in
+    /*) notes_dir="$scope" ;;
     *)
-        if [ -z "$root" ]; then
+        if [ -z "$scope" ]; then
             notes_dir="$sandbox_root"
         else
-            notes_dir="$sandbox_root/$root"
+            notes_dir="$sandbox_root/$scope"
         fi
         ;;
 esac
@@ -73,5 +73,5 @@ fi
 # Append broken-link hint if any were found.
 if [ "$broken" -gt 0 ]; then
     echo ""
-    echo "hint: ${broken} broken link(s) — use notes_wikilink_broken for details"
+    echo "hint: ${broken} broken link(s) — use notes_wikilink_find_broken for details"
 fi

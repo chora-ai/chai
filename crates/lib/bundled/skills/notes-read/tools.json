@@ -78,16 +78,16 @@
             "description": "Search directories recursively. On by default — set to false only when searching a single note path.",
             "default": true
           },
-          "line_numbers": {
+          "line_number": {
             "type": "boolean",
             "description": "Show line numbers in output",
             "default": true
           },
-          "case_insensitive": {
+          "ignore_case": {
             "type": "boolean",
             "description": "Ignore case when matching"
           },
-          "files_only": {
+          "files_with_matches": {
             "type": "boolean",
             "description": "Show only file names that contain matches, not the matching lines"
           }
@@ -191,18 +191,18 @@
           "absentDefault": true
         },
         {
-          "param": "line_numbers",
+          "param": "line_number",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-number",
           "absentDefault": true
         },
         {
-          "param": "case_insensitive",
+          "param": "ignore_case",
           "kind": "flagifboolean",
           "flagIfTrue": "--ignore-case"
         },
         {
-          "param": "files_only",
+          "param": "files_with_matches",
           "kind": "flagifboolean",
           "flagIfTrue": "--files-with-matches"
         },

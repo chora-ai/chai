@@ -1,6 +1,6 @@
 #!/bin/sh
 # Resolve a date to a daily note path.
-# Usage: resolve-daily-path.sh <date> [root]
+# Usage: resolve-daily-path.sh <date> [scope]
 #
 # If the input is already an absolute path, returns it unchanged. This makes
 # the script idempotent — when the generic executor substitutes a canonical
@@ -15,13 +15,13 @@
 #
 # If no date is provided, uses today's date (YYYY-MM-DD).
 #
-# The root parameter is a path relative to the sandbox root. When omitted,
+# The scope parameter is a path relative to the sandbox root. When omitted,
 # the notes directory defaults to the sandbox root.
 #
 # Output: <notes_dir>/<folder>/<date>.md
 
 date="$1"
-root_rel="$2"
+scope_rel="$2"
 
 # If the input is already an absolute path, return it as-is.
 case "$date" in
@@ -30,11 +30,11 @@ esac
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
-# Resolve the notes directory from root parameter.
-if [ -z "$root_rel" ]; then
+# Resolve the notes directory from scope parameter.
+if [ -z "$scope_rel" ]; then
     notes_dir="$sandbox_root"
 else
-    notes_dir="$sandbox_root/$root_rel"
+    notes_dir="$sandbox_root/$scope_rel"
 fi
 
 # Default to today if no date provided.

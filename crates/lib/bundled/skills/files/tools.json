@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "files_read_file",
+      "name": "files_read",
       "description": "Read the contents of a file.",
       "parameters": {
         "type": "object",
@@ -16,7 +16,7 @@
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read_file when you only need a specific portion of a file to reduce context usage, or when files_read_file output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
@@ -37,7 +37,7 @@
       }
     },
     {
-      "name": "files_list_dir",
+      "name": "files_list",
       "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
       "parameters": {
         "type": "object",
@@ -59,7 +59,7 @@
       }
     },
     {
-      "name": "files_search_content",
+      "name": "files_search",
       "description": "Search file contents for a pattern using grep. Returns matching lines with context.",
       "parameters": {
         "type": "object",
@@ -78,16 +78,16 @@
             "description": "Search directories recursively. On by default — set to false only when searching a single file path.",
             "default": true
           },
-          "line_numbers": {
+          "line_number": {
             "type": "boolean",
             "description": "Show line numbers in output",
             "default": true
           },
-          "case_insensitive": {
+          "ignore_case": {
             "type": "boolean",
             "description": "Ignore case when matching"
           },
-          "files_only": {
+          "files_with_matches": {
             "type": "boolean",
             "description": "Show only file names that contain matches, not the matching lines"
           }
@@ -95,7 +95,7 @@
       }
     },
     {
-      "name": "files_write_file",
+      "name": "files_write",
       "description": "Write content to a file. Creates the file if it does not exist, overwrites if it does. Parent directories are created automatically if they do not exist.",
       "parameters": {
         "type": "object",
@@ -114,7 +114,7 @@
     },
     {
       "name": "files_write_lines",
-      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Returns a diff showing removed lines (-prefix), added lines (+prefix), and surrounding context so you can verify the edit. Use this instead of files_write_file for targeted edits to large files.",
+      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Returns a diff showing removed lines (-prefix), added lines (+prefix), and surrounding context so you can verify the edit. Use this instead of files_write for targeted edits to large files.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line", "original_content", "content"],
@@ -144,7 +144,7 @@
     },
     {
       "name": "files_replace",
-      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in a markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
+      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
@@ -170,7 +170,7 @@
             "type": "boolean",
             "description": "Treat the pattern as literal text instead of regex. In literal mode, the pattern can match as a substring within a line (standard find-and-replace semantics). The tool auto-detects degenerate regex matches (e.g., unintentional alternation from | in markdown tables) and retries as literal with line-boundary enforcement, but setting this explicitly ensures the pattern is never interpreted as regex and allows mid-line substring matches. Capture groups ($1-$9) are not supported in literal mode. Default: false."
           },
-          "line_numbers": {
+          "line_number": {
             "type": "boolean",
             "description": "Show line numbers in the returned diff (default: true)",
             "default": true
@@ -179,7 +179,7 @@
       }
     },
     {
-      "name": "files_delete_file",
+      "name": "files_delete",
       "description": "Delete a file. Refuses to delete directories.",
       "parameters": {
         "type": "object",
@@ -222,7 +222,7 @@
   },
   "execution": [
     {
-      "tool": "files_read_file",
+      "tool": "files_read",
       "binary": "cat",
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
@@ -253,7 +253,7 @@
       }
     },
     {
-      "tool": "files_list_dir",
+      "tool": "files_list",
       "binary": "ls",
       "subcommand": "",
       "args": [
@@ -272,7 +272,7 @@
       }
     },
     {
-      "tool": "files_search_content",
+      "tool": "files_search",
       "binary": "grep",
       "subcommand": "-E",
       "args": [
@@ -283,18 +283,18 @@
           "absentDefault": true
         },
         {
-          "param": "line_numbers",
+          "param": "line_number",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-number",
           "absentDefault": true
         },
         {
-          "param": "case_insensitive",
+          "param": "ignore_case",
           "kind": "flagifboolean",
           "flagIfTrue": "--ignore-case"
         },
         {
-          "param": "files_only",
+          "param": "files_with_matches",
           "kind": "flagifboolean",
           "flagIfTrue": "--files-with-matches"
         },
@@ -308,7 +308,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "files_write_file",
+      "tool": "files_write",
       "binary": "chai",
       "subcommand": "file write",
       "args": [
@@ -367,7 +367,7 @@
           "flagIfTrue": "--literal"
         },
         {
-          "param": "line_numbers",
+          "param": "line_number",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-numbers",
           "absentDefault": true
@@ -376,7 +376,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "files_delete_file",
+      "tool": "files_delete",
       "binary": "chai",
       "subcommand": "file delete",
       "args": [

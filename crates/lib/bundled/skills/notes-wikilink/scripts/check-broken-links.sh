@@ -9,25 +9,25 @@
 #   2. Recursive search: find <target>.md anywhere under <notes_dir>
 #      (handles bare wikilinks like [[AI Assistant]] in a nested notes directory)
 #
-# Usage: check-broken-links.sh [root]
+# Usage: check-broken-links.sh [scope]
 #
-# The root parameter may be:
+# The scope parameter may be:
 # - Empty/omitted: notes directory defaults to the sandbox root
 # - A relative path: resolved relative to the sandbox root
 # - An absolute path: used as-is (canonical path from the executor)
 
-root="$1"
+scope="$1"
 
 sandbox_root="$HOME/.chai/active/sandbox"
 
 # If the input is already an absolute path, use it directly.
-case "$root" in
-    /*) notes_dir="$root" ;;
+case "$scope" in
+    /*) notes_dir="$scope" ;;
     *)
-        if [ -z "$root" ]; then
+        if [ -z "$scope" ]; then
             notes_dir="$sandbox_root"
         else
-            notes_dir="$sandbox_root/$root"
+            notes_dir="$sandbox_root/$scope"
         fi
         ;;
 esac

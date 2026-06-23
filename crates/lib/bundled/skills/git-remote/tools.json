@@ -5,17 +5,17 @@
       "description": "Clone a remote repository into a local directory.",
       "parameters": {
         "type": "object",
-        "required": ["url", "directory"],
+        "required": ["url", "path"],
         "properties": {
           "url": {
             "type": "string",
             "description": "Repository URL to clone (e.g. 'https://github.com/user/repo.git')"
           },
-          "directory": {
+          "path": {
             "type": "string",
             "description": "Directory name or path for the cloned repository (e.g. 'my-repo'). Relative names are resolved to the sandbox directory."
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -33,11 +33,11 @@
             "type": "string",
             "description": "Remote name (e.g. 'origin', 'upstream'). Must be specified explicitly when the branch has no tracking remote configured."
           },
-          "branch": {
+          "branch_name": {
             "type": "string",
             "description": "Branch name to pull (e.g. 'main'). Must be specified explicitly when the branch has no tracking information configured."
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -59,11 +59,11 @@
             "type": "string",
             "description": "Remote name (e.g. 'origin'). Must be specified explicitly when pushing a branch for the first time (no tracking remote configured)."
           },
-          "branch": {
+          "branch_name": {
             "type": "string",
             "description": "Branch name to push (e.g. 'feature/add-search'). Must be specified explicitly when the branch has no upstream configured."
           },
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -77,7 +77,7 @@
         "type": "object",
         "required": [],
         "properties": {
-          "path": {
+          "repo": {
             "type": "string",
             "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
@@ -95,8 +95,8 @@
       "subcommand": "clone",
       "args": [
         { "param": "url", "kind": "positional" },
-        { "param": "directory", "kind": "positional", "writePath": true, "resolveCommand": { "script": "resolve-clone-path", "args": ["$param"] } },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "path", "kind": "positional", "writePath": true, "resolveCommand": { "script": "resolve-clone-path", "args": ["$param"] } },
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     },
     {
@@ -105,8 +105,8 @@
       "subcommand": "pull",
       "args": [
         { "param": "remote", "kind": "positional", "optional": true },
-        { "param": "branch", "kind": "positional", "optional": true },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "branch_name", "kind": "positional", "optional": true },
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "successExitCodes": [1, 128],
       "postProcess": {
@@ -121,13 +121,13 @@
         { "param": "set_upstream", "kind": "flagifboolean", "flagIfTrue": "--set-upstream" },
         { "param": "remote", "kind": "positional", "optional": true },
         {
-          "param": "branch",
+          "param": "branch_name",
           "kind": "positional",
           "optional": true,
           "denyPattern": "^(main|release/.+)$",
           "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
         },
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ],
       "successExitCodes": [1, 128],
       "postProcess": {
@@ -139,7 +139,7 @@
       "binary": "git",
       "subcommand": "remote -v",
       "args": [
-        { "param": "path", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
       ]
     }
   ]

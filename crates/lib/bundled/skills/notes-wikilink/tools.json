@@ -1,7 +1,7 @@
 {
   "tools": [
     {
-      "name": "notes_wikilink_backlinks",
+      "name": "notes_wikilink_find_backlinks",
       "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
       "parameters": {
         "type": "object",
@@ -11,7 +11,7 @@
             "type": "string",
             "description": "Note name to search for backlinks to (e.g. 'Conventions', 'AI Assistant')"
           },
-          "path": {
+          "scope": {
             "type": "string",
             "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
           }
@@ -19,7 +19,7 @@
       }
     },
     {
-      "name": "notes_wikilink_outlinks",
+      "name": "notes_wikilink_find_outlinks",
       "description": "Extract all wikilink targets from a note. Returns one link target per line (note names only, without brackets).",
       "parameters": {
         "type": "object",
@@ -29,7 +29,7 @@
             "type": "string",
             "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
@@ -37,7 +37,7 @@
       }
     },
     {
-      "name": "notes_wikilink_by_tag",
+      "name": "notes_wikilink_find_by_tag",
       "description": "Find notes that contain a given tag in their content or frontmatter.",
       "parameters": {
         "type": "object",
@@ -47,7 +47,7 @@
             "type": "string",
             "description": "Tag to search for (e.g. 'agentic-systems' or '#agentic-systems')"
           },
-          "path": {
+          "scope": {
             "type": "string",
             "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
           }
@@ -55,7 +55,7 @@
       }
     },
     {
-      "name": "notes_wikilink_broken",
+      "name": "notes_wikilink_find_broken",
       "description": "Check a note for broken wikilinks. Returns a list of link targets that do not resolve to existing notes.",
       "parameters": {
         "type": "object",
@@ -65,7 +65,7 @@
             "type": "string",
             "description": "Note path relative to the sandbox root (use ./ prefix)"
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
@@ -87,7 +87,7 @@
             "type": "string",
             "description": "New note path relative to the sandbox root (use ./ prefix)"
           },
-          "root": {
+          "scope": {
             "type": "string",
             "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
           }
@@ -101,7 +101,7 @@
   },
   "execution": [
     {
-      "tool": "notes_wikilink_backlinks",
+      "tool": "notes_wikilink_find_backlinks",
       "binary": "grep",
       "subcommand": "-rn --include=*.md",
       "args": [
@@ -114,7 +114,7 @@
           }
         },
         {
-          "param": "path",
+          "param": "scope",
           "kind": "positional",
           "readPath": true,
           "optional": true
@@ -124,7 +124,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "notes_wikilink_outlinks",
+      "tool": "notes_wikilink_find_outlinks",
       "binary": "grep",
       "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
       "args": [
@@ -136,13 +136,13 @@
       ],
       "postProcess": {
         "script": "sanitize-outlinks",
-        "args": ["$root"]
+        "args": ["$scope"]
       },
       "successExitCodes": [0, 1],
       "maxOutputLines": 200
     },
     {
-      "tool": "notes_wikilink_by_tag",
+      "tool": "notes_wikilink_find_by_tag",
       "binary": "grep",
       "subcommand": "-rn --include=*.md",
       "args": [
@@ -155,7 +155,7 @@
           }
         },
         {
-          "param": "path",
+          "param": "scope",
           "kind": "positional",
           "readPath": true,
           "optional": true
@@ -165,7 +165,7 @@
       "maxOutputLines": 200
     },
     {
-      "tool": "notes_wikilink_broken",
+      "tool": "notes_wikilink_find_broken",
       "binary": "grep",
       "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
       "args": [
@@ -177,7 +177,7 @@
       ],
       "postProcess": {
         "script": "check-broken-links",
-        "args": ["$root"],
+        "args": ["$scope"],
         "emptyIsResult": true
       },
       "successExitCodes": [0, 1],
@@ -201,9 +201,9 @@
           "writePath": true
         },
         {
-          "param": "root",
+          "param": "scope",
           "kind": "flag",
-          "flag": "root",
+          "flag": "scope",
           "readPath": true,
           "optional": true
         }

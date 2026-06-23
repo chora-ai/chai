@@ -78,16 +78,16 @@
             "description": "Search directories recursively. On by default — set to false only when searching a single note path.",
             "default": true
           },
-          "line_numbers": {
+          "line_number": {
             "type": "boolean",
             "description": "Show line numbers in output",
             "default": true
           },
-          "case_insensitive": {
+          "ignore_case": {
             "type": "boolean",
             "description": "Ignore case when matching"
           },
-          "files_only": {
+          "files_with_matches": {
             "type": "boolean",
             "description": "Show only file names that contain matches, not the matching lines"
           }
@@ -144,7 +144,7 @@
     },
     {
       "name": "notes_replace",
-      "description": "Replace all occurrences of a pattern in a note. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full note content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the note content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in a markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
+      "description": "Replace all occurrences of a pattern in a note. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full note content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the note content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
@@ -170,7 +170,7 @@
             "type": "boolean",
             "description": "Treat the pattern as literal text instead of regex. In literal mode, the pattern can match as a substring within a line (standard find-and-replace semantics). The tool auto-detects degenerate regex matches (e.g., unintentional alternation from | in markdown tables) and retries as literal with line-boundary enforcement, but setting this explicitly ensures the pattern is never interpreted as regex and allows mid-line substring matches. Capture groups ($1-$9) are not supported in literal mode. Default: false."
           },
-          "line_numbers": {
+          "line_number": {
             "type": "boolean",
             "description": "Show line numbers in the returned diff (default: true)",
             "default": true
@@ -310,18 +310,18 @@
           "absentDefault": true
         },
         {
-          "param": "line_numbers",
+          "param": "line_number",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-number",
           "absentDefault": true
         },
         {
-          "param": "case_insensitive",
+          "param": "ignore_case",
           "kind": "flagifboolean",
           "flagIfTrue": "--ignore-case"
         },
         {
-          "param": "files_only",
+          "param": "files_with_matches",
           "kind": "flagifboolean",
           "flagIfTrue": "--files-with-matches"
         },
@@ -420,7 +420,7 @@
           "flagIfTrue": "--literal"
         },
         {
-          "param": "line_numbers",
+          "param": "line_number",
           "kind": "flagifboolean",
           "flagIfTrue": "--line-numbers",
           "absentDefault": true

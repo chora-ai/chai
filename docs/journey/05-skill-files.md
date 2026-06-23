@@ -4,7 +4,7 @@
 
 **Background:** [Skills](../guides/06-skills.md) · [Write Sandbox](../guides/07-sandbox.md)
 
-This journey covers the **`files`** skill (full read + write + delete). The read-only variant **`files-read`** provides the same read tools (`files_read_file`, `files_read_lines`, `files_list_dir`, `files_search_content`) without the write/delete surface. See [Skill Variants](../guides/06-skills.md#skill-variants) for guidance on choosing between them.
+This journey covers the **`files`** skill (full read + write + delete). The read-only variant **`files-read`** provides the same read tools (`files_read`, `files_read_lines`, `files_list`, `files_search`) without the write/delete surface. See [Skill Variants](../guides/06-skills.md#skill-variants) for guidance on choosing between them.
 
 ## Prerequisites
 
@@ -37,15 +37,15 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 
 3. **Read a file**
    - Send an agent message: "List the files in the current directory, then read the config.json file."
-   - **Expect:** The agent uses `files_list_dir` and `files_read_file` to list the sandbox and read the file. The reply includes the directory listing and file contents.
+   - **Expect:** The agent uses `files_list` and `files_read` to list the sandbox and read the file. The reply includes the directory listing and file contents.
 
 4. **Search for content**
    - Send: "Search for the word 'agent' in all files in this directory and show me the matches with line numbers."
-   - **Expect:** The agent uses `files_search_content` with `line_numbers: true`. The reply shows matching lines with line numbers.
+   - **Expect:** The agent uses `files_search` with `line_number: true`. The reply shows matching lines with line numbers.
 
 5. **Write a file**
    - Send: "Create a file called test-note.md with the content '# Test Note\n\nHello from the files skill.'"
-   - **Expect:** The agent uses `files_write_file`. Verify the file exists: `cat ~/.chai/profiles/assistant/sandbox/test-note.md`.
+   - **Expect:** The agent uses `files_write`. Verify the file exists: `cat ~/.chai/profiles/assistant/sandbox/test-note.md`.
    - **Expect:** The file contains the heading and body text.
 
 6. **Patch a file (write specific lines)**
@@ -59,7 +59,7 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 
 8. **Delete a file**
    - Send: "Delete the file test-note.md."
-   - **Expect:** The agent uses `files_delete_file`. Verify: `ls ~/.chai/profiles/assistant/sandbox/test-note.md` should fail (file not found).
+   - **Expect:** The agent uses `files_delete`. Verify: `ls ~/.chai/profiles/assistant/sandbox/test-note.md` should fail (file not found).
 
 9. **Verify sandbox enforcement (optional)**
    - Send: "Write a file at /tmp/outside-sandbox.txt with content 'test'."
@@ -69,8 +69,8 @@ This journey covers the **`files`** skill (full read + write + delete). The read
 
 ## How to Verify the Files Skill Was Used
 
-- **Reply content:** The model's reply should reflect actual file data or confirm actions. If the model does not call tools, try a more explicit message: "Use the files_list_dir tool to list the current directory."
-- **Logs:** With `RUST_LOG=debug`, tool calls and their results are visible. Tool failures appear as `agent: tool files_write_file failed: ...` (or other `files_*` tool names).
+- **Reply content:** The model's reply should reflect actual file data or confirm actions. If the model does not call tools, try a more explicit message: "Use the files_list tool to list the current directory."
+- **Logs:** With `RUST_LOG=debug`, tool calls and their results are visible. Tool failures appear as `agent: tool files_write failed: ...` (or other `files_*` tool names).
 - **Filesystem:** Write and delete operations can be verified by checking the sandbox directory directly.
 
 ## Context Size
@@ -82,8 +82,8 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 ## If Something Fails
 
 - **"loaded 0 skill(s)"** — The `files` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
-- **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the files_search_content tool to find files containing 'config' and show me the results."
-- **"agent: tool files_write_file failed: path not in writable roots"** — The file path is outside the sandbox. All write operations target the sandbox directory (`~/.chai/profiles/<active>/sandbox/`). Use relative paths; the skill's directives instruct the model to use `./`-relative paths.
+- **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the files_search tool to find files containing 'config' and show me the results."
+- **"agent: tool files_write failed: path not in writable roots"** — The file path is outside the sandbox. All write operations target the sandbox directory (`~/.chai/profiles/<active>/sandbox/`). Use relative paths; the skill's directives instruct the model to use `./`-relative paths.
 - **"agent: tool files_write_lines failed: original_content mismatch"** — The file changed between the read and the write. The agent should re-read and retry; this is expected behavior for the verification mechanism.
 - **File not found after write** — The file may have been written inside the sandbox but you checked the wrong path. Check `~/.chai/profiles/<active>/sandbox/` for the file.
 - **Agent writes to wrong path** — The model may have used an absolute path. The skill's directives instruct relative paths, but models vary in compliance. Check the sandbox root for the file.

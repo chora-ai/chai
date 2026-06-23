@@ -42,6 +42,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[MATRIX_ADAPTER.md](adr/MATRIX_ADAPTER.md)** — Why Matrix lives in a separate adapter package with an optional Cargo feature (experimental).
 - **[SIGNAL_ADAPTER.md](adr/SIGNAL_ADAPTER.md)** — Why Signal lives in a separate adapter package with an optional Cargo feature (experimental).
 - **[DIAGNOSTIC_HINTS.md](adr/DIAGNOSTIC_HINTS.md)** — Why chai skill tools use diagnostic hints in tool output instead of directives in SKILL.md.
+- **[TOOL_PARAMETER_NAMING.md](adr/TOOL_PARAMETER_NAMING.md)** — Why bundled skills follow consistent tool and parameter naming conventions (`{skill}_{verb}`, `path`/`repo`/`scope` semantics, qualified identifiers, flag alignment).
 
 ### `/epic`
 
