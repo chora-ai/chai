@@ -1,6 +1,6 @@
 # Release v0.2.0
 
-**Status** — Requirements gathering
+**Status** — In-progress
 
 ## Scope
 
@@ -8,7 +8,7 @@ This release addresses changelog accuracy (including an undocumented breaking CL
 
 ### In Scope
 
-- Changelog accuracy (two missing entries, one of which is a breaking change)
+- Changelog accuracy (missing entries, breaking changes)
 - Skill audit against `adr/TOOL_PARAMETER_NAMING.md`
 - Structured documentation review
 - User documentation review
@@ -19,33 +19,9 @@ This release addresses changelog accuracy (including an undocumented breaking CL
 
 ## Requirements
 
-### 1. Changelog Accuracy and Breaking Change
+### 1. Changelog Accuracy and Breaking Change — Completed
 
-The `## [Unreleased]` changelog has two gaps that must be resolved before tagging:
-
-#### 1a. Missing CLI breaking change from `395696d` (fix: align CLI flags with ADR parameter naming conventions)
-
-The fix commit renamed CLI subcommands and flags to align with `adr/TOOL_PARAMETER_NAMING.md`. These are **breaking changes for CLI users** that are not reflected in the changelog:
-
-- **Subcommand rename**: `chai file rename-note` → `chai file rename`
-- **Flag renames**:
-  - `git diff-lines`: `--path` → `--repo` (repo root), `--file-path` → `--path` (file within repo)
-  - `git show-lines`: `--path` → `--repo` (repo root)
-  - `file rename`: `--root` → `--scope`
-  - `file replace`: `--line-numbers` → `--line-number`
-
-The changelog's `### Changed` section mentions *tool parameter* renames but not these *CLI subcommand and flag* renames. Since v0.2.0 is a minor bump (pre-1.0), breaking changes are allowed, but they **must be documented** — both in the `### Changed` section and in a `### Breaking Changes` section (or equivalent).
-
-- [ ] Add CLI subcommand rename (`rename-note` → `rename`) to changelog `### Changed`
-- [ ] Add CLI flag renames to changelog `### Changed`
-- [ ] Add a `### Breaking Changes` section or clearly mark these as breaking in the changelog
-- [ ] Verify the tag file for v0.2.0 includes a `## Breaking Changes` section listing these CLI renames
-
-#### 1b. Missing fix from `795c71a` (fix: prevent worker tool call index collisions across delegations)
-
-This commit fixed a bug where the orchestrator's `tool_index_offset` only accounted for orchestrator-level tool calls, not worker tool calls from previous delegations. This caused overlapping indices that triggered the desktop's duplicate detection, silently dropping worker tool call events. The changelog does not mention this fix.
-
-- [ ] Add a changelog entry under `### Fixed` for the worker tool call index collision fix (in a new `#### Orchestration` subsection)
+All changelog gaps resolved. CLI subcommand and flag renames added to `### Changed` and `### Breaking Changes`; worker tool call index collision fix added to `### Fixed` → `#### Desktop`. Changelog structural conventions documented in `AGENTS.md`.
 
 ### 2. Skill Audit Against `adr/TOOL_PARAMETER_NAMING.md`
 

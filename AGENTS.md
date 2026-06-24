@@ -58,6 +58,8 @@ Documentation changes can be either `chore` or `docs` depending on the audience 
 - `chore` for internal/project infrastructure changes (including `base/` directory updates, agent conventions, working notes management)
 - `docs` for user-facing documentation changes (`docs/`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`)
 
+When a branch touches multiple types, the prefix reflects the primary change — the change with the highest user-facing impact.
+
 ### Testing Checkpoint
 
 Changes that modify runtime behavior **must be manually tested with a rebuilt binary** before proceeding to squash-merge. Do not update structured documentation, user documentation, or squash-merge until the changes are verified.
@@ -71,6 +73,8 @@ Changes that modify runtime behavior **must be manually tested with a rebuilt bi
 ### `CHANGELOG.md`
 
 - This document tracks notable changes per release. Keep entries concise and user-facing; internal refactors that don't affect users need not be listed. Always update this document when merging feature branches into `main` and a change affects user-facing features.
+- Subsection headings (`####`) group entries by user-facing surface area (e.g., Desktop, Skills, Skill Authoring, CLI) — use subsections when a section has entries spanning multiple surfaces, omit them when all entries share the same surface.
+- `### Breaking Changes` is a chai-specific section for changes that break backwards compatibility; each entry must state what breaks and what the user must change.
 
 ### `CONTRIBUTING.md`
 

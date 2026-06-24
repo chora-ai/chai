@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `git_diff_lines` and `git_show_lines` line-range companion tools: read a range of lines from truncated `git diff` or `git show` output with `{line_number}\t{content}` format. When `end_line` is omitted, reads from `start_line` to the end of the output. CLI subcommands: `chai git diff-lines` and `chai git show-lines`
 - `git_log` `skip` parameter: skip N commits before starting output, enabling native pagination through commit history
 - `git_branch_delete` `force` parameter: when `true`, runs `git branch -D` instead of `git branch -d`, enabling deletion of branches that were squash-merged (where Git does not consider the branch fully merged). Protected branches (`main`, `release/*`) are always blocked by the deny pattern regardless of the `force` setting
+
+#### Skill Authoring
+
 - `absentDefault` support for positional args (e.g., `git_reset` default ref `HEAD~1`), with `postProcess` arg substitution
 - `split` positional args for whitespace-separated multi-value parameters (e.g., `git_add` files, `git_cherry_pick` commits)
 - `tools.json` schema additions: `kind: "literal"` and `kind: "tempfile"` arg kinds, `value` field for literal args, `split` field for positional args, `subcommandOverride` field on `flagIfBoolean` args to switch the execution spec's subcommand when the boolean is true, `truncationHint` field on execution specs for per-tool truncation notice templates
@@ -38,10 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Long error messages in the header are truncated to 80 characters with a hover tooltip showing the full text
 - Screen subtitles are always shown alongside errors on Config and Skills screens, consistent with the Gateway screen pattern
 - Removed vestigial `chat_error` field that was never set to a non-None value
+- Worker tool call events from successive delegations are no longer silently dropped — previously, overlapping tool call indices between delegations triggered the desktop's duplicate detection, causing worker tool call results to disappear from the chat view
 
 #### Skills
 
-- `format_flag()` now strips leading dashes before prefixing, so both bare flag names (`"p"`) and pre-dashed values (`"-p"`) produce the correct CLI flag (previously `"-p"` was mangled to `"---p"`)
+- CLI flags with leading dashes (e.g. `-p`) are no longer mangled into invalid forms (e.g. `---p`) when passed to underlying commands
 - Write sandbox now excludes `.git/` directories from all write targets, preventing bypass of `git` skill branch protection and allowlist restrictions (attack vectors: branch rewrite, branch deletion, force switch, hook injection, config manipulation, object injection)
 - Runtime path-like value check now rejects unannotated `positional` and `flag` parameters that target a `.git/` directory
 - `files_replace` and `files_write_lines` diff output now uses post-edit line numbers: removed lines show original-file numbers, added and context-after lines show new-file numbers (previously, context-after lines showed stale original numbers, and multi-match replacements could produce misordered diffs due to LCS ambiguity with repeated lines)
@@ -57,6 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Tool name renames for consistency (drop redundant noun suffixes, adopt verb-based naming): `files_read_file` → `files_read`, `files_write_file` → `files_write`, `files_delete_file` → `files_delete`, `files_search_content` → `files_search`, `files_list_dir` → `files_list`, `notes_wikilink_backlinks` → `notes_wikilink_find_backlinks`, `notes_wikilink_outlinks` → `notes_wikilink_find_outlinks`, `notes_wikilink_by_tag` → `notes_wikilink_find_by_tag`, `notes_wikilink_broken` → `notes_wikilink_find_broken`
 - Parameter name renames for consistency: git `path` (repo root) → `repo`, git `file_path` → `path`, git `name`/`branch` → `branch_name`, git `files` → `paths`, notes `root` → `scope`, search `files_only` → `files_with_matches`, search `case_insensitive` → `ignore_case`, search/replace `line_numbers` → `line_number`, git-remote `directory` → `path`, git `count`/`skip` type changed from string to integer
+- CLI subcommand rename for consistency: `chai file rename-note` → `chai file rename`
+- CLI flag renames for consistency with ADR parameter naming: `git diff-lines --path` → `--repo` (repo root), `git diff-lines --file-path` → `--path` (file within repo), `git show-lines --path` → `--repo` (repo root), `file replace --line-numbers` → `--line-number`, `file rename --root` → `--scope`
+
+### Breaking Changes
+
+- CLI subcommand `chai file rename-note` renamed to `chai file rename` — scripts using `rename-note` will fail
+- CLI flag renames — existing scripts using old flag names will fail:
+  - `git diff-lines`: `--path` (repo root) → `--repo`, `--file-path` → `--path`
+  - `git show-lines`: `--path` (repo root) → `--repo`
+  - `file replace`: `--line-numbers` → `--line-number`
+  - `file rename`: `--root` → `--scope`
 
 ## [0.1.0] - 2026-06-20
 
