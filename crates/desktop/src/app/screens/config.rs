@@ -7,9 +7,9 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     app.invalidate_enabled_providers_cache();
     let (config, paths) = match app.load_config_cached() {
         Ok(cp) => (cp.0.clone(), cp.1.clone()),
-        Err(_) => {
-            crate::app::ui_screen(ui, "Config", None, |ui| {
-                ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+        Err(e) => {
+            crate::app::ui_screen(ui, "Config", Some("Fix the error below to load config."), |ui| {
+                ui.colored_label(egui::Color32::RED, format!("failed to load config: {}", e));
             });
             return;
         }

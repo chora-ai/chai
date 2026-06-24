@@ -63,6 +63,66 @@ pub(crate) fn push_gateway_log_line(line: String) {
     }
 }
 
+/// Extract the most relevant error message from recent gateway log lines.
+///
+/// When the gateway exits unexpectedly, the error that caused the exit is
+/// typically the last ERROR-level log line. This function searches the most
+/// recent `n` gateway log lines for the last ERROR-level entry and returns
+/// just the message part (stripping the `[timestamp LEVEL target]` prefix).
+///
+/// If no ERROR-level line is found, falls back to the last non-INFO line
+/// (e.g. a WARN). If all lines are INFO, returns None — the gateway likely
+/// exited for an external reason not captured in logs.
+///
+/// This is used to surface gateway errors to the user as a plain error
+/// message, not as formatted log output (which belongs on the Logging screen).
+pub fn extract_gateway_error_message(n: usize) -> Option<String> {
+    let lines = if let Ok(buf) = gateway_log_buffer().lock() {
+        let len = buf.len();
+        let start = len.saturating_sub(n);
+        buf.iter().skip(start).cloned().collect::<Vec<_>>()
+    } else {
+        return None;
+    };
+
+    // Search backwards for the last ERROR-level line.
+    for line in lines.iter().rev() {
+        if let Some(msg) = extract_log_message(line, "ERROR") {
+            return Some(msg);
+        }
+    }
+
+    // No ERROR found — try WARN.
+    for line in lines.iter().rev() {
+        if let Some(msg) = extract_log_message(line, "WARN") {
+            return Some(msg);
+        }
+    }
+
+    None
+}
+
+/// Extract the message portion from a log line if it matches the given level.
+///
+/// Gateway log lines are formatted as `[timestamp LEVEL target] message`.
+/// Returns just the `message` part if the level matches, or None otherwise.
+fn extract_log_message(line: &str, level: &str) -> Option<String> {
+    // Look for the pattern: ] message after the closing bracket.
+    // The level appears between the timestamp and the target, e.g.:
+    // [2025-01-15T10:30:00Z ERROR gateway] sandbox directory not found at /foo
+    let closing = line.find(']')?;
+    let prefix = &line[..closing + 1];
+    // Check if the level appears in the prefix.
+    if !prefix.contains(&format!(" {} ", level)) {
+        return None;
+    }
+    let message = line[closing + 1..].trim();
+    if message.is_empty() {
+        return None;
+    }
+    Some(message.to_string())
+}
+
 /// Initialize global logging for the desktop app.
 ///
 /// Loads the profile `.env` (so `RUST_LOG` takes effect) before building the logger.

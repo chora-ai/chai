@@ -80,14 +80,15 @@ pub struct ChaiApp {
     /// True once a status fetch has completed with an error since the gateway was last detected.
     /// Used to suppress `need_immediate` so failed fetches don't trigger a tight retry loop.
     status_fetch_ever_failed: bool,
+    /// True when the user explicitly stopped the gateway via the Stop button.
+    /// Used to distinguish a user-initiated stop from an unexpected gateway exit/crash.
+    gateway_was_stopped_by_user: bool,
     /// Current chat session id (created on first agent call).
     chat_session_id: Option<String>,
     /// In-memory chat transcript for the current session.
     chat_messages: Vec<ChatMessage>,
     /// Current input text for the chat box.
     chat_input: String,
-    /// Last error from a chat turn, if any.
-    chat_error: Option<String>,
     /// When Some, a chat turn is in flight; we read the result here.
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
     /// When Some, a stop request is in flight; we read the result here.
@@ -169,6 +170,8 @@ pub struct ChaiApp {
     cached_desktop_config_mtime: Option<SystemTime>,
     /// Cached skill entries loaded from the skills directory (on-demand: immediate when empty, periodic only on Skills/Agent screen).
     cached_skills: Option<Vec<lib::skills::SkillEntry>>,
+    /// Last error from a skills fetch, shown on the Skills screen when cached_skills is None.
+    skills_fetch_error: Option<String>,
     /// When Some, a skills fetch is in flight; we read the result here.
     skills_fetch_receiver: Option<mpsc::Receiver<Result<Vec<lib::skills::SkillEntry>, String>>>,
     /// Frames since we last started a skills fetch.
@@ -186,6 +189,9 @@ pub struct ChaiApp {
     /// when the gateway stops, or when a status refresh detects that the agent
     /// roster, skill lock generation, or a cached agent's context mode has changed.
     agent_detail_cache: BTreeMap<String, crate::app::types::AgentDetail>,
+    /// Last error from an agent detail fetch, shown on the Agent/Tools screen.
+    /// Stores (agent_id, error_message).
+    agent_detail_fetch_error: Option<(String, String)>,
     /// When Some, an `agentDetail` WS fetch is in flight for the given agent id.
     agent_detail_receiver: Option<(String, mpsc::Receiver<Result<crate::app::types::AgentDetail, String>>)>,
     /// Agent id that was last requested for detail fetch. Used to detect when the
@@ -238,10 +244,10 @@ impl Default for ChaiApp {
             frames_since_status: 0,
             gateway_status: None,
             status_fetch_ever_failed: false,
+            gateway_was_stopped_by_user: false,
             chat_session_id: None,
             chat_messages: Vec::new(),
             chat_input: String::new(),
-            chat_error: None,
             chat_turn_receiver: None,
             stop_receiver: None,
             chat_stopping: false,
@@ -280,12 +286,14 @@ impl Default for ChaiApp {
             cached_desktop_config: None,
             cached_desktop_config_mtime: None,
             cached_skills: None,
+            skills_fetch_error: None,
             skills_fetch_receiver: None,
             frames_since_skills_fetch: 0,
             gateway_logs_receiver: None,
             frames_since_gateway_logs: 0,
             gateway_logs_cursor: 0,
             agent_detail_cache: BTreeMap::new(),
+            agent_detail_fetch_error: None,
             agent_detail_receiver: None,
             agent_detail_requested_id: None,
         }
@@ -357,8 +365,10 @@ impl ChaiApp {
         let config = if !config_path.exists() {
             lib::config::Config::default()
         } else {
-            let s = std::fs::read_to_string(&config_path).map_err(|e| e.to_string())?;
-            serde_json::from_str(&s).map_err(|e| e.to_string())?
+            let s = std::fs::read_to_string(&config_path)
+                .map_err(|e| format!("reading config from {}: {}", config_path.display(), e))?;
+            serde_json::from_str(&s)
+                .map_err(|e| format!("parsing config from {}: {}", config_path.display(), e))?
         };
 
         self.cached_config = Some((config, paths));
@@ -537,7 +547,6 @@ impl ChaiApp {
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.chat_messages.clear();
-        self.chat_error = None;
         self.chat_messages.push(ChatMessage::system(
             "New Session. Next message will start with a clean history.".to_string(),
         ));
@@ -547,7 +556,6 @@ impl ChaiApp {
     fn clear_session_and_messages(&mut self) {
         self.chat_session_id = None;
         self.chat_messages.clear();
-        self.chat_error = None;
         self.chat_turn_receiver = None;
         self.stop_receiver = None;
         self.chat_stopping = false;
@@ -804,7 +812,6 @@ impl ChaiApp {
                                 .or_insert_with(Vec::new);
                             entry.push(ChatMessage::error(err_text));
                         }
-                        self.chat_error = None;
                     }
                 }
             }
@@ -836,7 +843,7 @@ impl ChaiApp {
         let binary = match state::gateway::resolve_chai_binary() {
             Some(p) => p,
             None => {
-                self.gateway_error = Some("could not find chai binary".to_string());
+                self.gateway_error = Some("could not find chai binary (expected next to desktop binary or on PATH)".to_string());
                 return;
             }
         };
@@ -847,6 +854,23 @@ impl ChaiApp {
         // load its own .env via lib::config::load_profile_env, but that function
         // won't override variables already present in the inherited environment.
         let env_map = state::env::build_gateway_env(&paths.profile_dir);
+
+        // Validate CHAI_BIN if set in .env. The gateway binary (started below)
+        // uses resolve_chai_binary() which ignores CHAI_BIN, but the gateway's
+        // tool executor reads CHAI_BIN from the child environment via
+        // lib::exec::resolve_binary(). If CHAI_BIN points to a non-existent
+        // binary, tool calls will fail silently — the gateway starts but tools
+        // are broken. Catch this early so the user sees a clear error instead
+        // of mysterious tool failures.
+        if let Some(chai_bin) = env_map.get("CHAI_BIN") {
+            if !chai_bin.is_empty() && !std::path::Path::new(chai_bin).exists() {
+                self.gateway_error = Some(format!(
+                    "CHAI_BIN={} does not exist (set in .env)",
+                    chai_bin
+                ));
+                return;
+            }
+        }
 
         let mut cmd = std::process::Command::new(&binary);
         cmd.args(["gateway", "--port", &port.to_string()])
@@ -898,6 +922,7 @@ impl ChaiApp {
     }
 
     fn stop_gateway(&mut self) {
+        self.gateway_was_stopped_by_user = true;
         if let Some(mut child) = self.gateway_process.take() {
             let _ = child.kill();
             // Reap the child to avoid zombies; the gateway releases `gateway.lock` on exit (advisory lock).
@@ -935,7 +960,6 @@ impl ChaiApp {
         if message.is_empty() {
             return;
         }
-        self.chat_error = None;
         self.chat_input.clear();
         self.pending_user_message = Some(message.clone());
         self.chat_turn_is_new_session = self.chat_session_id.is_none();
@@ -1031,8 +1055,22 @@ impl eframe::App for ChaiApp {
         let owned = self.gateway_owned();
         let running = owned || self.gateway_responds;
         if self.was_gateway_running && !running {
+            // If the gateway was not stopped by the user, it exited unexpectedly.
+            // Extract the actual error message from the gateway log buffer (e.g.
+            // "sandbox directory not found at...") rather than showing raw log
+            // lines, which belong on the Logging screen.
+            if !self.gateway_was_stopped_by_user && self.gateway_error.is_none() {
+                if let Some(msg) = state::logs::extract_gateway_error_message(10) {
+                    self.gateway_error = Some(msg);
+                } else {
+                    self.gateway_error = Some("gateway exited unexpectedly (no log output captured)".to_string());
+                }
+            }
+            self.gateway_was_stopped_by_user = false;
             self.clear_session_and_messages();
             self.invalidate_skills_cache();
+            self.skills_fetch_error = None;
+            self.agent_detail_fetch_error = None;
             self.invalidate_config_cache();
             self.invalidate_desktop_config_cache();
             self.profile_switch_error = None;
@@ -1051,6 +1089,13 @@ impl eframe::App for ChaiApp {
                     let _ = std::fs::remove_file(&lock_path);
                 }
             }
+        }
+        // Clear gateway error when the gateway starts running (either owned or
+        // external). This handles the case where an external gateway comes online
+        // after a previous crash, and also ensures the error from start_gateway()
+        // failures is cleared once the gateway is actually running.
+        if running && !self.was_gateway_running {
+            self.gateway_error = None;
         }
         self.was_gateway_running = running;
 
@@ -1148,6 +1193,7 @@ impl eframe::App for ChaiApp {
             None
         };
         let profile_error = self.profile_switch_error.clone();
+        let gateway_error = self.gateway_error.clone();
         ui::header::header(
             ctx,
             running,
@@ -1157,6 +1203,7 @@ impl eframe::App for ChaiApp {
             effective_profile,
             profile_dropdown_enabled,
             profile_error.as_deref(),
+            gateway_error.as_deref(),
             profile_mismatch_label.as_deref(),
             |name| {
                 switch_profile_to = Some(name);

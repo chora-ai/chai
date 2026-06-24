@@ -4,12 +4,18 @@ use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, SettingsViewMode};
 
 pub fn ui_settings_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
-    let desktop_config = app.load_desktop_config_cached()
-        .cloned()
-        .unwrap_or_else(|e| {
+    let desktop_config_load_error;
+    let desktop_config = match app.load_desktop_config_cached() {
+        Ok(config) => {
+            desktop_config_load_error = None;
+            config.clone()
+        }
+        Err(e) => {
             log::warn!("failed to load desktop.json, using defaults: {}", e);
+            desktop_config_load_error = Some(e.to_string());
             lib::config::DesktopConfig::default()
-        });
+        }
+    };
 
     let config_path = lib::profile::chai_home()
         .ok()
@@ -73,6 +79,13 @@ pub fn ui_settings_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
                     return;
                 }
 
+                if let Some(ref err) = desktop_config_load_error {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(200, 150, 50),
+                        format!("Using default settings (failed to load desktop.json: {})", err),
+                    );
+                    ui.add_space(spacing::SUBSECTION);
+                }
                 settings_summary_dashboard(ui, &desktop_config);
             });
     });

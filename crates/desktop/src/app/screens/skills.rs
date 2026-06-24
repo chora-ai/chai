@@ -6,9 +6,9 @@ use crate::app::ChaiApp;
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let (config, chai_home) = match app.load_config_cached() {
         Ok(cp) => (cp.0.clone(), cp.1.chai_home.clone()),
-        Err(_) => {
-            crate::app::ui_screen(ui, "Skills", None, |ui| {
-                ui.label(egui::RichText::new("could not load profile (run `chai init`)").weak());
+        Err(e) => {
+            crate::app::ui_screen(ui, "Skills", Some("Fix the error below to load skills."), |ui| {
+                ui.colored_label(egui::Color32::RED, format!("failed to load config: {}", e));
             });
             return;
         }
@@ -19,7 +19,11 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     let Some(ref cached) = app.cached_skills else {
         let subtitle = format!("Values below are from {}", skills_root.display());
         crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
-            ui.label("Loading skills...");
+            if let Some(ref err) = app.skills_fetch_error {
+                ui.colored_label(egui::Color32::RED, err);
+            } else {
+                ui.label("Loading skills...");
+            }
         });
         return;
     };
@@ -29,7 +33,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
     if skills.is_empty() {
         let subtitle = format!("Values below are from {}", skills_root.display());
         crate::app::ui_screen(ui, "Skills", Some(&subtitle), |ui| {
-            ui.label("No skills found in the configured directories.");
+            ui.label(format!("No skills found in {}.", skills_root.display()));
         });
         return;
     }

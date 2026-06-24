@@ -229,10 +229,20 @@ impl ChaiApp {
     /// user switched to a different agent).
     pub(crate) fn poll_agent_detail(&mut self) {
         // Check for in-flight result.
-        if let Some((ref _in_flight_id, ref rx)) = self.agent_detail_receiver {
+        if let Some((ref in_flight_id, ref rx)) = self.agent_detail_receiver {
             if let Ok(result) = rx.try_recv() {
-                if let Ok(detail) = result {
-                    self.agent_detail_cache.insert(detail.agent_id.clone(), detail);
+                match result {
+                    Ok(detail) => {
+                        self.agent_detail_cache.insert(detail.agent_id.clone(), detail);
+                        self.agent_detail_fetch_error = None;
+                    }
+                    Err(e) => {
+                        if !self.agent_detail_cache.contains_key(in_flight_id) {
+                            // Only store the error when there is no cached data
+                            // to fall back on for this agent.
+                            self.agent_detail_fetch_error = Some((in_flight_id.clone(), e));
+                        }
+                    }
                 }
                 self.agent_detail_receiver = None;
             }
@@ -274,6 +284,7 @@ impl ChaiApp {
     /// when the gateway stops.
     pub(crate) fn invalidate_agent_detail_cache(&mut self) {
         self.agent_detail_cache.clear();
+        self.agent_detail_fetch_error = None;
         self.agent_detail_receiver = None;
         self.agent_detail_requested_id = None;
     }

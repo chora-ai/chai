@@ -262,7 +262,6 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 }
             });
 
-        // chat_error is surfaced as an in-stream message; footer remains empty.
     });
 }
 

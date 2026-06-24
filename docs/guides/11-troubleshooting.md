@@ -207,7 +207,14 @@ chai profile switch <name>
 
 ### Desktop Gateway Fails to Start
 
-The desktop spawns `chai gateway` as a subprocess. If it fails immediately, check the **Logs** screen for the error output. Common causes are the same as the CLI gateway issues above (port in use, missing config, provider unreachable).
+The desktop spawns `chai gateway` as a subprocess. If it fails to start or crashes, the error is shown in the header (visible from any screen) and on the Gateway screen. Common causes:
+
+- **Config parse error** — Invalid JSON in `config.json`. The error message includes the file path and the specific parse error.
+- **Missing `chai` binary** — The desktop cannot find the `chai` binary next to itself or on `PATH`.
+- **`CHAI_BIN` in `.env` points to a non-existent path** — The profile's `.env` sets `CHAI_BIN` to a path that does not exist. Remove or fix the line in `.env`.
+- **Other startup failures** — Same causes as CLI gateway issues (port in use, provider unreachable, sandbox errors). The error message from the gateway log is displayed directly (e.g. "sandbox directory not found at...").
+
+For full log output, check the **Logging** screen.
 
 ## Chat
 

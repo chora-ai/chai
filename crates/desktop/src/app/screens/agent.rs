@@ -104,9 +104,17 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let context_text = agent_detail.as_ref().and_then(|d| d.system_context.as_deref());
             let status_bodies = agent_detail.as_ref().map(|d| d.skills_context.clone()).filter(|m| !m.is_empty());
 
-            // If agent detail is not yet loaded, show loading state.
+            // If agent detail is not yet loaded, show loading or error state.
             if agent_detail.is_none() {
-                ui.label("Loading agent detail...");
+                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error {
+                    if err_id == &selected_id {
+                        ui.colored_label(egui::Color32::RED, err_msg);
+                    } else {
+                        ui.label("Loading agent detail...");
+                    }
+                } else {
+                    ui.label("Loading agent detail...");
+                }
                 return;
             }
 

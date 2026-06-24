@@ -25,6 +25,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+#### Desktop
+
+- Gateway errors (config parse failure, missing binary, spawn failure) are now visible on the Gateway screen and in the header — previously, the error label was inside a `!running` guard that hid it when the gateway failed to start
+- Gateway crash errors are surfaced with the actual error message extracted from the log buffer (e.g. "sandbox directory not found at...") — previously, crashes were completely silent
+- Crash vs. user-initiated stop is now distinguished: clicking "Stop gateway" shows no error, while an unexpected exit surfaces the error from the log buffer
+- `CHAI_BIN` set in `.env` to a non-existent path now prevents the gateway from starting with a clear error message — previously, the gateway started with a broken tool executor that failed silently on every tool call
+- Skills fetch failures show a red error message on the Skills screen instead of an indefinite "Loading skills..." spinner
+- Agent detail fetch failures show a red error message on the Agent and Tools screens instead of an indefinite "Loading agent detail..." placeholder
+- Desktop config load failure (`desktop.json`) shows an amber notice on the Settings screen — previously, failures fell back to defaults silently
+- Config screen parse errors now show the actual error message with file path and detail (e.g. "failed to load config: parsing config from /path/to/config.json: expected ...") — previously, a vague weak-text "could not load profile" message was shown
+- Long error messages in the header are truncated to 80 characters with a hover tooltip showing the full text
+- Screen subtitles are always shown alongside errors on Config and Skills screens, consistent with the Gateway screen pattern
+- Removed vestigial `chat_error` field that was never set to a non-None value
+
+#### Skills
+
 - `format_flag()` now strips leading dashes before prefixing, so both bare flag names (`"p"`) and pre-dashed values (`"-p"`) produce the correct CLI flag (previously `"-p"` was mangled to `"---p"`)
 - Write sandbox now excludes `.git/` directories from all write targets, preventing bypass of `git` skill branch protection and allowlist restrictions (attack vectors: branch rewrite, branch deletion, force switch, hook injection, config manipulation, object injection)
 - Runtime path-like value check now rejects unannotated `positional` and `flag` parameters that target a `.git/` directory

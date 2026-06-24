@@ -173,6 +173,66 @@ The desktop loads `desktop.json` once at startup. Settings are not hot-reloaded.
 
 Nothing moves out of `config.json`. The desktop still reads `config.json` for display purposes (providers, agents, channels) and for the `gateway.bind:port` fallback. `desktop.json` is purely additive.
 
+## Error Handling
+
+The desktop app surfaces errors from multiple sources. Errors are always displayed as red text on the relevant screen, and critical gateway errors are also shown in the header (visible from any screen). Subtitles are never hidden when an error is present — every screen shows a subtitle regardless of error state, consistent with the Gateway screen pattern.
+
+### Gateway Errors
+
+Gateway errors are the highest-priority error surface because they prevent the gateway from functioning. The `gateway_error` field holds an error string set when the gateway fails to start or exits unexpectedly.
+
+| Condition | Error Message | Where Displayed |
+|-----------|---------------|-----------------|
+| Config load fails | `"failed to load config: {detail}"` | Gateway screen (red text above ScrollArea) + header |
+| `CHAI_BIN` in `.env` points to non-existent path | `"CHAI_BIN={path} does not exist (set in .env)"` | Gateway screen + header |
+| `chai` binary not found | `"could not find chai binary (expected next to desktop binary or on PATH)"` | Gateway screen + header |
+| `cmd.spawn()` fails | `"failed to start gateway: {detail}"` | Gateway screen + header |
+| Gateway exits unexpectedly (crash) | Extracted from log buffer (last ERROR-level message, or WARN fallback) | Gateway screen + header |
+| Gateway exits with no log output | `"gateway exited unexpectedly (no log output captured)"` | Gateway screen + header |
+
+**Crash vs. user-initiated stop:** A `gateway_was_stopped_by_user` flag distinguishes intentional stops from unexpected exits. Only unexpected exits surface an error. When the user clicks "Stop gateway", no error is shown.
+
+**Log buffer extraction:** When the gateway crashes, `extract_gateway_error_message(n)` searches the most recent `n` gateway log lines for the last ERROR-level entry, strips the `[timestamp LEVEL target]` prefix, and returns just the message. Falls back to WARN-level if no ERROR is found. If no error-level line is found at all, the generic "gateway exited unexpectedly (no log output captured)" message is used. Raw log lines are never shown as error messages — formatted log output belongs on the Logging screen.
+
+**Error lifecycle:** `gateway_error` is cleared when `start_gateway()` runs (at the top of the function, before validation), so clicking "Start gateway" always clears the previous error. It is also cleared when the gateway transitions from not-running to running (e.g. an external gateway comes online).
+
+**Header truncation:** Gateway errors shown in the header are truncated to 80 characters with an ellipsis. Hovering over a truncated label shows the full message in a tooltip. The full (non-truncated) error is always shown on the Gateway screen itself, wrapping as needed.
+
+### Profile Switch Errors
+
+Profile switch errors are shown in the header as right-aligned red text, matching the position and size of amber profile-mismatch warnings.
+
+| Condition | Error Message |
+|-----------|---------------|
+| Gateway is running | `"gateway is running; stop it before switching profile"` |
+| `switch_active_profile()` fails | Propagated error string |
+
+These are also truncated in the header with a hover tooltip (same 80-character limit as gateway errors).
+
+### Config Load Errors
+
+When `load_config_cached()` fails on the Config or Skills screens, the actual error message is shown as red error text with a `"failed to load config: "` prefix. The error includes the file path and the specific parse/read error (e.g. `"failed to load config: parsing config from /path/to/config.json: expected ',' or '}' at line 12 column 34"`). The subtitle is always shown alongside the error, matching the pattern of other screens.
+
+### Skills Fetch Errors
+
+When `fetch_skills()` fails and there is no cached data, the error is shown on the Skills screen as red text instead of "Loading skills...". The error message is user-facing (e.g. `"failed to load skills from ~/.chai/skills: ..."`) rather than raw log output. The error is cleared on the next successful fetch, on cache invalidation, and when the gateway stops. Error messages on the Skills screen are not truncated.
+
+### Agent Detail Fetch Errors
+
+When `fetch_agent_detail()` fails for a selected agent and the agent is not in the cache, the error is shown on the Agent and Tools screens as red text instead of "Loading agent detail...". The error is only displayed when it matches the currently selected agent. The error is cleared on the next successful fetch, on cache invalidation, and when the gateway stops. Error messages on these screens are not truncated.
+
+### Desktop Config Load Failure
+
+When `load_desktop_config()` fails (e.g. corrupt `desktop.json`), the Settings screen shows an amber notice above the dashboard: `"Using default settings (failed to load desktop.json: {error})"`. Missing `desktop.json` is a valid state (not an error) and shows no notice.
+
+### Chat Turn Errors
+
+Chat turn errors are rendered inline in the chat message stream as `ChatMessage::error()` with red border and text styling. This is the established mechanism; there is no separate error field for chat errors.
+
+### Profile Mismatch Warnings
+
+Profile mismatch warnings (from `CHAI_PROFILE` or gateway lock profile ≠ active symlink) are shown as right-aligned amber text in the header, matching the position and size of error labels but in amber color. These are truncated in the header with a hover tooltip (same 80-character limit).
+
 ## Known Gaps
 
 These gaps describe what the system exposes but the desktop does not yet surface:
@@ -181,6 +241,8 @@ These gaps describe what the system exposes but the desktop does not yet surface
 |-----|--------|-------|
 | HTTP health endpoint | Gateway `GET /` | Desktop uses TCP probe only |
 | Clear buffer button | Logs screen | No in-memory log clear button |
+| Gateway status fetch failure | `fetch_gateway_status()` WebSocket | Silent; user sees stale status or "Loading from gateway status..." placeholder |
+| Session events listener disconnection | WebSocket reconnect loop | Silent with exponential backoff retry; events may be missed during reconnection gap |
 
 ## Related Documents
 

@@ -94,6 +94,19 @@ The chat screen renders different message types visually:
 | **Tool loop limit** | Amber warning banner — the orchestrator hit `maxToolLoopsPerTurn`, pending tool calls were paused |
 | **Turn stopped** | Amber info banner — the agent turn was stopped by the user, send a message to continue |
 
+## Error Indicators
+
+The desktop app surfaces errors from multiple sources using consistent visual patterns:
+
+| Indicator | Meaning |
+|-----------|---------|
+| **Red text in header** | Gateway startup failure or unexpected crash (visible from any screen). Hover for the full message if truncated. |
+| **Red text on a screen** | A fetch or load operation failed for that screen (e.g. config parse error on the Config screen, skills fetch failure on the Skills screen). |
+| **Amber text in header** | Profile mismatch (the gateway is running a different profile than the desktop's active profile) or desktop config load failure (Settings screen shows a notice). |
+| **Red-bordered chat message** | An error occurred during a chat turn (e.g. WebSocket RPC failure). |
+
+When the gateway crashes unexpectedly, the desktop extracts the actual error message from the gateway log output (e.g. "sandbox directory not found at...") and displays it in the header and on the Gateway screen. Clicking "Start gateway" clears the previous error. User-initiated stops ("Stop gateway") do not show an error.
+
 ## Desktop Settings
 
 The desktop app reads `~/.chai/desktop.json` at startup for appearance and log settings. This file is separate from per-profile `config.json` — it holds machine-local user preferences that don't change when you switch profiles.

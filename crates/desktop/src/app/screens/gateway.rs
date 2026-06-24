@@ -14,6 +14,14 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             "Start the gateway to load gateway status."
         }),
         |ui| {
+            // Show gateway error outside the running guard so the user can see
+            // it even when the gateway failed to start (e.g. config parse error,
+            // missing binary, or unexpected process exit).
+            if let Some(ref err) = app.gateway_error {
+                ui.label(egui::RichText::new(err).color(egui::Color32::RED));
+                ui.add_space(spacing::SUBSECTION);
+            }
+
             if running {
                 view_toggle::status_view_radios(ui, &mut app.status_view_mode);
                 ui.add_space(spacing::SUBSECTION);
@@ -55,7 +63,6 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     status_summary_dashboard(
                         ui,
                         app.gateway_status.as_ref(),
-                        app.gateway_error.as_deref(),
                     );
                 });
         },
@@ -65,11 +72,10 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 fn status_summary_dashboard(
     ui: &mut egui::Ui,
     status: Option<&GatewayStatusDetails>,
-    gateway_error: Option<&str>,
 ) {
     dashboard::dashboard_two_columns(ui, |left, right| {
         left.vertical(|ui| {
-            status_column_left(ui, status, gateway_error);
+            status_column_left(ui, status);
         });
         right.vertical(|ui| {
             status_sandbox_section(ui, status);
@@ -114,7 +120,6 @@ fn channel_status_field_display(v: &JsonValue, max_chars: usize) -> String {
 fn status_gateway_section(
     ui: &mut egui::Ui,
     status: Option<&GatewayStatusDetails>,
-    gateway_error: Option<&str>,
 ) {
     dashboard::section_group(ui, "Gateway", |ui| {
         if let Some(s) = status {
@@ -130,9 +135,6 @@ fn status_gateway_section(
             );
         } else {
             ui.label(egui::RichText::new("Loading from gateway status...").weak());
-        }
-        if let Some(err) = gateway_error {
-            ui.colored_label(egui::Color32::RED, err);
         }
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
@@ -288,9 +290,8 @@ fn status_providers_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDeta
 fn status_column_left(
     ui: &mut egui::Ui,
     status: Option<&GatewayStatusDetails>,
-    gateway_error: Option<&str>,
 ) {
-    status_gateway_section(ui, status, gateway_error);
+    status_gateway_section(ui, status);
     status_channels_section(ui, status);
     status_providers_section(ui, status);
 }

@@ -79,8 +79,16 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 app.tools_display_buffer.clear();
                 ui.label(egui::RichText::new("No tools reported for this agent.").weak());
             } else {
-                // Agent detail not yet loaded.
-                ui.label("Loading agent detail...");
+                // Agent detail not yet loaded — show error or loading state.
+                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error {
+                    if err_id == &selected_id {
+                        ui.colored_label(egui::Color32::RED, err_msg);
+                    } else {
+                        ui.label("Loading agent detail...");
+                    }
+                } else {
+                    ui.label("Loading agent detail...");
+                }
             }
         },
     );

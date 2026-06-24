@@ -13,8 +13,19 @@ impl ChaiApp {
     pub(crate) fn poll_skills_fetch(&mut self) {
         if let Some(rx) = &self.skills_fetch_receiver {
             if let Ok(result) = rx.try_recv() {
-                if let Ok(skills) = result {
-                    self.cached_skills = Some(skills);
+                match result {
+                    Ok(skills) => {
+                        self.cached_skills = Some(skills);
+                        self.skills_fetch_error = None;
+                    }
+                    Err(e) => {
+                        if self.cached_skills.is_none() {
+                            // Only store the error when there is no cached data
+                            // to fall back on; otherwise the stale cache is
+                            // preferable to an error message.
+                            self.skills_fetch_error = Some(e);
+                        }
+                    }
                 }
                 self.skills_fetch_receiver = None;
             }
@@ -49,6 +60,7 @@ impl ChaiApp {
     /// Invalidate the skills cache, forcing a refresh on the next poll.
     pub(crate) fn invalidate_skills_cache(&mut self) {
         self.cached_skills = None;
+        self.skills_fetch_error = None;
         // Reset frame counter so the immediate fetch on next poll starts a
         // fresh interval afterward.
         self.frames_since_skills_fetch = 0;
@@ -57,8 +69,8 @@ impl ChaiApp {
 
 /// Load skills from the default skills directory. Runs in a background thread.
 fn fetch_skills(profile_override: Option<&str>) -> Result<Vec<lib::skills::SkillEntry>, String> {
-    let (_, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let (_, paths) = lib::config::load_config(profile_override).map_err(|e| format!("failed to load config: {}", e))?;
     let chai_home = &paths.chai_home;
     let skills_root = lib::config::default_skills_dir(chai_home);
-    lib::skills::load_skills(skills_root.as_path()).map_err(|e| e.to_string())
+    lib::skills::load_skills(skills_root.as_path()).map_err(|e| format!("failed to load skills from {}: {}", skills_root.display(), e))
 }
