@@ -23,59 +23,22 @@ This release addresses changelog accuracy (including an undocumented breaking CL
 
 All changelog gaps resolved. CLI subcommand and flag renames added to `### Changed` and `### Breaking Changes`; worker tool call index collision fix added to `### Fixed` → `#### Desktop`. Changelog structural conventions documented in `AGENTS.md`.
 
-### 2. Skill Audit Against `adr/TOOL_PARAMETER_NAMING.md`
+### 2. Skill Audit Against `adr/TOOL_PARAMETER_NAMING.md` — Completed
 
-The ADR `TOOL_PARAMETER_NAMING.md` was added in `eddf391` and updated in `395696d`. It establishes naming conventions for all bundled skills. Since the implementation spanned two commits (initial rename + CLI flag alignment fix), there is a risk that some skills or CLI subcommands still deviate from the conventions.
+All 86 tools across 16 skill directories audited; tool naming, parameter naming, external binary flag alignment, chai CLI flag alignment, and `flagIfTrue` values all conform to the ADR. 34 hint scripts across 15 skills audited; all follow `hint: <message>` format, fire on appropriate conditions, and the DIAGNOSTIC_HINTS ADR is current. No deviations found, no fixes required.
 
-Audit all bundled skills against the ADR:
+### 3. Structured Documentation Review — Completed
 
-- [ ] Verify all tool names follow `{skill}_{verb}` (noun suffix only for disambiguation)
-- [ ] Verify all sub-skill tool names follow `{skill}_{subskill}_{verb}`
-- [ ] Verify parameter naming: `path` (target), `repo` (git root), `scope` (directory narrowing), `{domain}_name` (qualified identifiers), plural for multi-value
-- [ ] Verify numeric parameters use `integer` type
-- [ ] Verify external binary flags align to the binary's flag names (e.g., `--ignore-case` → `ignore_case`)
-- [ ] Verify chai CLI flags align to ADR conventions (e.g., `--repo` not `--path` for repo root, `--scope` not `--root` for search directory)
-- [ ] Verify the `tools.json` `flagIfTrue` values match the actual CLI flag names after the renames
-- [ ] Report any remaining deviations and fix them
+All 12 structured documents (10 specs, 2 ADRs) reviewed against 15 commits that touched `base/` since v0.1.0; all changes properly graduated at the time of each commit, no additional updates needed.
 
-### 3. Structured Documentation Review
+### 4. User Documentation Review — Completed
 
-Ensure all specs, ADRs, and other structured docs in `base/` are current with changes merged since v0.1.0.
-
-#### Specs to review
-
-- [ ] `spec/TOOLS_SCHEMA.md` — Confirm naming conventions section matches the ADR (was updated in both `eddf391` and `395696d`; verify consistency)
-- [ ] `spec/SANDBOX.md` — Confirm tool name references are current (was updated in `eddf391` to use `files_write` instead of `files_write_file`)
-- [ ] `spec/ORCHESTRATION.md` — Confirm tool event index semantics section is current (was updated in `795c71a` to document the offset fix)
-- [ ] `spec/DESKTOP.md` — Confirm tool event deduplication and worker reply rendering are current (was updated in `795c71a`)
-- [ ] `spec/SKILL_FORMAT.md` — Confirm schema additions are documented (`binaryWrapper`, `condition`, OR-group bins, `split`, `absentDefault`, `truncationHint`, `subcommandOverride`, `kind: literal/tempfile`)
-- [ ] `spec/CONTEXT.md` — Confirm no changes needed
-- [ ] `spec/CHANNELS.md` — Confirm no changes needed
-- [ ] `spec/PROFILES.md` — Confirm no changes needed
-- [ ] `spec/AGENTS.md` — Confirm no changes needed
-- [ ] `spec/CONFIGURATION.md` — Confirm no changes needed
-
-#### ADRs to review
-
-- [ ] `adr/TOOL_PARAMETER_NAMING.md` — Confirm it is current after the `395696d` update (directional flag alignment rule, chai binary flag alignment)
-- [ ] `adr/WRITE_SANDBOX.md` — Confirm tool name references are current (was updated in `eddf391`)
-
-### 4. User Documentation Review
-
-Ensure `docs/` and `README.md` are current with changes merged since v0.1.0.
-
-- [ ] `docs/guides/06-skills.md` — Confirm tool names and parameter names are current after renames
-- [ ] `docs/guides/07-sandbox.md` — Confirm `.git/` exclusion is documented (was updated in `b5cfb98`); confirm tool name references are current
-- [ ] `docs/guides/08-cli-reference.md` — Confirm all CLI subcommand names and flag names are current after renames (`rename-note` → `rename`, `--line-numbers` → `--line-number`, `--root` → `--scope`, git `--path` → `--repo`, git `--file-path` → `--path`). Was updated in `395696d` but should be verified
-- [ ] `docs/guides/09-desktop.md` — Confirm no changes needed
-- [ ] `docs/guides/11-troubleshooting.md` — Confirm no changes needed
-- [ ] `README.md` — Confirm no changes needed (or update if CLI subcommands are mentioned)
-- [ ] `CHANGELOG.md` — Final accuracy review after requirements 1a and 1b are addressed
+6 issues found and fixed in `docs/guides/06-skills.md`: `git` tool count 10 → 20, `git-read` tool count 5 → 7, `notes` tool count 10 → 9, descriptions updated for git/git-read to reflect merge/rebase/cherry-pick/reset/line-range tools, duplicate word "for notes notes" → "for notes". All other user-facing docs verified current.
 
 ### 5. Release Mechanics
 
-- [ ] Update structured documentation per requirement 3
-- [ ] Update user documentation per requirement 4
+- [x] Update structured documentation per requirement 3 (no changes needed — all docs current)
+- [x] Update user documentation per requirement 4 (6 issues fixed in `docs/guides/06-skills.md`)
 - [ ] Validate experimental feature builds
 - [ ] Write tag file `base/tag/V0_2_0.md` following `base/meta/TAG.md` format
 - [ ] Update `CHANGELOG.md` — replace `## [Unreleased]` with `## [0.2.0] - YYYY-MM-DD`, add new `## [Unreleased]` heading

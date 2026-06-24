@@ -160,14 +160,14 @@ Bundled skills cover common agent operations with no external binary dependencie
 | Skill | Tools | Tier | Description |
 |-------|-------|------|-------------|
 | `files-read` | 4 | minimal | Read-only file inspection (read, list, search, read lines) |
-| `files` | 9 | full | Full file operations including write, append, delete, line-level patching, and bulk find-and-replace |
-| `git-read` | 5 | minimal | Read-only git operations (status, log, diff, show, branch) |
-| `git` | 10 | moderate | Local git operations (read + add, commit, branch create, checkout, branch delete) |
+| `files` | 9 | full | Full file operations including write, delete, line-level patching, and bulk find-and-replace |
+| `git-read` | 7 | minimal | Read-only git operations (status, log, diff, show, branch, diff lines, show lines) |
+| `git` | 20 | moderate | Local git operations (read + add, commit, branch create/checkout/delete, merge, rebase, cherry-pick, reset, line-range inspection) |
 | `git-remote` | 4 | minimal | Git remote operations (clone, pull, push, remote) |
 | `notes-read` | 4 | minimal | Read-only inspection (read, list, search, read lines) |
-| `notes` | 10 | moderate | Notes CRUD (read, write, append, delete, list, search, read lines, write lines, replace, delete dir) |
+| `notes` | 9 | moderate | Notes CRUD (read, write, delete, list, search, read lines, write lines, replace, delete dir) |
 | `notes-daily` | 3 | minimal | Daily note operations with date-based path resolution |
-| `notes-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for notes notes |
+| `notes-frontmatter` | 3 | moderate | YAML frontmatter read, edit, and delete for notes |
 | `notes-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
 | `logs` | 2 | minimal | Gateway log access (recent lines, pattern search) |
 | `rss` | 2 | moderate | RSS feed monitoring via curl |
@@ -186,14 +186,14 @@ Several bundled skills come in **variants** — related skills that provide diff
 |--------|---------|-------|------|----------|
 | Files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
 | Files | `files` | 9 | full | Agents that need to write, patch, replace, and delete files |
-| Git | `git-read` | 5 | minimal | Reviewer agents that only need read access |
-| Git | `git` | 10 | moderate | Local development (commit, branch, checkout) |
+| Git | `git-read` | 7 | minimal | Reviewer agents that only need read access (includes line-range inspection) |
+| Git | `git` | 20 | moderate | Local development (commit, branch, merge, rebase, cherry-pick, reset, line-range inspection) |
 | Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
 | notes | `notes-read` | 4 | minimal | Inspector agents that only need to read notes |
 | notes | `notes-daily` | 3 | minimal | Daily note creation and appending |
 | notes | `notes-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
 | notes | `notes-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
-| notes | `notes` | 10 | moderate | Full note CRUD including bulk find-and-replace |
+| notes | `notes` | 9 | moderate | Full note CRUD including bulk find-and-replace |
 | Skills | `skills-read` | 3 | minimal | Inspection and validation only |
 | Skills | `skills` | 9 | full | Skill authoring and management |
 
