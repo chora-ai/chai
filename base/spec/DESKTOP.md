@@ -66,14 +66,15 @@ All available skills are listed in alphabetical order with no agent selector or 
 
 ### Agent
 
-`agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `contextMode`).
+
+`agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `contextMode`). The gateway is the sole authoritative source — no on-disk fallbacks.
 
 | Agent | Layout |
 |-------|--------|
-| Orchestrator | Two columns: system text + skill bodies from `agentDetail` (`skillsContext`); falls back to disk when gateway is down. |
+| Orchestrator | Two columns: system text + skill bodies from `agentDetail` (`skillsContext`). When skills context is empty, shows "No skills context for this agent." |
 | Workers | Single scroll: full text from `agentDetail`. |
 
-Falls back to disk reads when the `agents` array is absent or `agentDetail` is not yet loaded.
+The screen follows a clear data flow: gateway not running → "Start the gateway to load agent context." subtitle; gateway running but status not loaded → "Loading from gateway status..." placeholder; gateway running but `agentDetail` not loaded → "Loading agent detail..." placeholder (or red error text on fetch failure); data available → render from gateway data.
 
 ### Tools
 
