@@ -46,7 +46,8 @@ Always read the relevant convention file before adding or modifying a document i
 
 ### `/epic`
 
-- **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and file editing for Chai config, agent context, and skill files.
+- **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and editor for Chai agent context, skill files, and sandbox.
+- **[MULTI_ORCHESTRATOR.md](epic/MULTI_ORCHESTRATOR.md)** — (draft) Enable support for multiple orchestrator agents in a single profile.
 - **[PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md)** — (draft) Enable the orchestrator agent to run multiple delegation calls in parallel.
 - **[PERSISTENT_SESSIONS.md](epic/PERSISTENT_SESSIONS.md)** — (draft) Persist chat sessions to disk so they survive gateway and desktop restarts.
 - **[SPLIT_DEPLOYMENT.md](epic/SPLIT_DEPLOYMENT.md)** — (draft) Enable a hosted-gateway deployment model with secure data transfer.
@@ -108,4 +109,4 @@ Always read the relevant convention file before adding or modifying a document i
 
 ### `/tag`
 
-- **[V0_1_0.md](tag/V0_1_0.md)** — v0.1.0 release notes (pending).
+- **[V0_1_0.md](tag/V0_1_0.md)** — v0.1.0 release notes.
