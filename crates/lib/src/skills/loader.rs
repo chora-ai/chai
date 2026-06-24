@@ -403,6 +403,39 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
+    /// Helper: create a temp dir containing a fake executable named `name`,
+    /// set PATH to that dir, run `f`, then restore PATH.
+    fn with_fake_bin_on_path<F>(name: &str, f: F)
+    where
+        F: FnOnce(),
+    {
+        let tmp = std::env::temp_dir().join(format!("chai-test-bins-{:?}-{}", std::thread::current().id(), name));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let bin_path = tmp.join(name);
+        // Create an empty file; on Unix we also need the executable bit.
+        std::fs::write(&bin_path, b"").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&bin_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let old_path = std::env::var_os("PATH");
+        let mut new_path = tmp.clone().into_os_string();
+        if let Some(ref prev) = old_path {
+            new_path.push(":");
+            new_path.push(prev);
+        }
+        std::env::set_var("PATH", &new_path);
+        f();
+        // Restore PATH.
+        match old_path {
+            Some(p) => std::env::set_var("PATH", p),
+            None => std::env::remove_var("PATH"),
+        }
+        let _ = std::fs::remove_file(&bin_path);
+        let _ = std::fs::remove_dir(&tmp);
+    }
+
     #[test]
     fn load_skills_parses_tools_json_when_present() {
         let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
@@ -434,10 +467,11 @@ mod tests {
 
     #[test]
     fn bins_requirement_all_satisfied() {
-        let req = BinsRequirement::All(vec!["git".to_string()]);
-        // git is almost certainly on PATH in any dev environment.
-        assert!(req.check().is_some());
-        assert_eq!(req.check().unwrap(), None); // All form returns None for group index
+        with_fake_bin_on_path("fake_test_bin_all", || {
+            let req = BinsRequirement::All(vec!["fake_test_bin_all".to_string()]);
+            assert!(req.check().is_some());
+            assert_eq!(req.check().unwrap(), None); // All form returns None for group index
+        });
     }
 
     #[test]
@@ -454,24 +488,28 @@ mod tests {
 
     #[test]
     fn bins_requirement_anyof_first_group_matches() {
-        let req = BinsRequirement::AnyOf(vec![
-            vec!["git".to_string()],
-            vec!["no_such_binary_xyz_12345".to_string()],
-        ]);
-        let result = req.check();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), Some(0)); // first group matched
+        with_fake_bin_on_path("fake_test_bin_anyof1", || {
+            let req = BinsRequirement::AnyOf(vec![
+                vec!["fake_test_bin_anyof1".to_string()],
+                vec!["no_such_binary_xyz_12345".to_string()],
+            ]);
+            let result = req.check();
+            assert!(result.is_some());
+            assert_eq!(result.unwrap(), Some(0)); // first group matched
+        });
     }
 
     #[test]
     fn bins_requirement_anyof_second_group_matches() {
-        let req = BinsRequirement::AnyOf(vec![
-            vec!["no_such_binary_xyz_12345".to_string()],
-            vec!["git".to_string()],
-        ]);
-        let result = req.check();
-        assert!(result.is_some());
-        assert_eq!(result.unwrap(), Some(1)); // second group matched
+        with_fake_bin_on_path("fake_test_bin_anyof2", || {
+            let req = BinsRequirement::AnyOf(vec![
+                vec!["no_such_binary_xyz_12345".to_string()],
+                vec!["fake_test_bin_anyof2".to_string()],
+            ]);
+            let result = req.check();
+            assert!(result.is_some());
+            assert_eq!(result.unwrap(), Some(1)); // second group matched
+        });
     }
 
     #[test]

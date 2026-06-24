@@ -45,7 +45,7 @@ All changes to `main` go through feature branches and squash merges. Direct comm
 
 ### Feature Branches
 
-Create feature branches from `main` with name `<type>/<short-description>`. Branch name prefixes follow conventional commit types: `feat/`, `fix/`, `docs/`, `refactor/`, `chore/`, etc.
+Create feature branches from `main` with name `<type>/<short-description>`. Branch name prefixes follow [Conventional Commits](https://www.conventionalcommits.org/) types. All standard types are valid: `feat/`, `fix/`, `docs/`, `style/`, `refactor/`, `perf/`, `test/`, `build/`, `ci/`, `chore/`. Choose the type that reflects the nature of the code change — for example, `test/` for adding or correcting tests, `build/` for dependency or build system updates that don't modify source code.
 
 ### Squash Merges
 
@@ -58,7 +58,7 @@ Documentation changes can be either `chore` or `docs` depending on the audience 
 - `chore` for internal/project infrastructure changes (including `base/` directory updates, agent conventions, working notes management)
 - `docs` for user-facing documentation changes (`docs/`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`)
 
-When a branch touches multiple types, the prefix reflects the primary change — the change with the highest user-facing impact.
+When a branch touches multiple types, the prefix reflects the primary change — the substantive code change takes priority over incidental or supporting changes (e.g., `test` over `chore` when fixing tests also prompts a convention update, `docs` over `chore` when user documentation changes also involve internal updates).
 
 ### Testing Checkpoint
 

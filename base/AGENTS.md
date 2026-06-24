@@ -12,7 +12,7 @@ The `base` directory serves two roles:
 ## Conventions
 
 - Always read [README.md](README.md) and the relevant `meta/` file **before updating structured documentation**.
-- **Issue tracking**: Audits, bugs, and features are tracked in working notes (prefixed `AUDIT_*`, `BUG_*`, `FEAT_*`).
+- **Issue tracking**: Audits, bugs, and features are tracked in working notes (prefixed `AUDIT_*`, `BUG_*`, `FEAT_*`). Working note prefixes describe the *motivation* (why the work exists), while conventional commit types describe the *nature of the change* (what the code change is). These are independent — for example, a `BUG_*` note tracking a test flakiness issue may result in a `test/` branch and commit type, just as a `FEAT_*` note may result in a `refactor/` type.
 
 ## Working Notes
 
