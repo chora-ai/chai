@@ -20,8 +20,8 @@ use crate::config::{
 use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
-    AgentDetailParams, AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk, SendParams,
-    StopParams, WsRequest, WsResponse,
+    AgentDetailParams, AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk,
+    SendParams, SessionsDeleteParams, SessionsHistoryParams, StopParams, WsRequest, WsResponse,
 };
 use crate::init;
 use crate::orchestration::{
@@ -539,6 +539,22 @@ fn broadcast_session_message(
     if let Ok(text) = serde_json::to_string(&event) {
         let _ = state.event_tx.send(text);
     }
+}
+
+/// Convert a `SessionMessage` to a JSON value with camelCase keys for the wire protocol.
+/// Uses manual construction (not `serde_json::to_value`) because `SessionMessage` serializes
+/// with snake_case keys for on-disk storage, but the WebSocket protocol uses camelCase.
+fn session_message_to_json(m: &crate::session::SessionMessage) -> serde_json::Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("role".to_string(), json!(m.role));
+    obj.insert("content".to_string(), json!(m.content));
+    if let Some(ref calls) = m.tool_calls {
+        obj.insert("toolCalls".to_string(), serde_json::to_value(calls).unwrap_or_else(|_| json!([])));
+    }
+    if let Some(ref name) = m.tool_name {
+        obj.insert("toolName".to_string(), json!(name));
+    }
+    serde_json::Value::Object(obj)
 }
 
 /// Broadcast a `gateway.config.changed` event to connected WebSocket clients.
@@ -2101,6 +2117,116 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "lines": lines,
                     "maxSeq": max_seq,
                 }));
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+            }
+            "sessions.list" => {
+                let summaries = state.session_store.scan().await;
+                let mut entries = Vec::new();
+                for s in &summaries {
+                    let mut entry = json!({
+                        "id": s.id,
+                        "createdAt": s.created_at,
+                        "updatedAt": s.updated_at,
+                        "messageCount": s.message_count,
+                    });
+                    if let Some((ch, conv)) = state.bindings.get_channel_binding(&s.id).await {
+                        entry.as_object_mut().unwrap().insert(
+                            "channelBinding".to_string(),
+                            json!({ "channelId": ch, "conversationId": conv }),
+                        );
+                    }
+                    entries.push(entry);
+                }
+                // Sort by updatedAt descending (most recently updated first).
+                entries.sort_by(|a, b| {
+                    let ua = a.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
+                    let ub = b.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
+                    ub.cmp(ua)
+                });
+                let res = WsResponse::ok(&req.id, json!({ "sessions": entries }));
+                let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+            }
+            "sessions.history" => {
+                let params: SessionsHistoryParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let res = WsResponse::err(&req.id, "invalid sessions.history params");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                match state.session_store.get(&params.session_id).await {
+                    Some(session) => {
+                        let offset = params.offset.unwrap_or(0);
+                        let messages: Vec<serde_json::Value> = if let Some(limit) = params.limit {
+                            session.messages.iter()
+                                .skip(offset)
+                                .take(limit)
+                                .map(session_message_to_json)
+                                .collect()
+                        } else {
+                            session.messages.iter()
+                                .skip(offset)
+                                .map(session_message_to_json)
+                                .collect()
+                        };
+                        let res = WsResponse::ok(&req.id, json!({
+                            "id": session.id,
+                            "messages": messages,
+                            "createdAt": session.created_at,
+                            "updatedAt": session.updated_at,
+                        }));
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                    }
+                    None => {
+                        let res = WsResponse::err(&req.id, "session not found");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                    }
+                }
+            }
+            "sessions.delete" => {
+                let params: SessionsDeleteParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let res = WsResponse::err(&req.id, "invalid sessions.delete params");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                match state.session_store.remove(&params.session_id).await {
+                    Some(_) => {
+                        state.bindings.remove_binding(&params.session_id).await;
+                        // Broadcast session.deleted event so clients can update without polling.
+                        let event = json!({
+                            "type": "event",
+                            "event": "session.deleted",
+                            "payload": { "sessionId": params.session_id },
+                        });
+                        if let Ok(text) = serde_json::to_string(&event) {
+                            let _ = state.event_tx.send(text);
+                        }
+                        let res = WsResponse::ok(&req.id, json!({ "deleted": true }));
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                    }
+                    None => {
+                        let res = WsResponse::err(&req.id, "session not found");
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                    }
+                }
+            }
+            "sessions.delete_all" => {
+                let count = state.session_store.remove_all().await;
+                state.bindings.remove_all().await;
+                // Broadcast sessions.cleared event so clients can update without polling.
+                let event = json!({
+                    "type": "event",
+                    "event": "sessions.cleared",
+                    "payload": {},
+                });
+                if let Ok(text) = serde_json::to_string(&event) {
+                    let _ = state.event_tx.send(text);
+                }
+                let res = WsResponse::ok(&req.id, json!({ "deletedCount": count }));
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             _ => {

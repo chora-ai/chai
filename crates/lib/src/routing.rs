@@ -213,6 +213,18 @@ impl SessionBindingStore {
             .get(session_id)
             .map(|k| (k.channel_id.clone(), k.conversation_id.clone()))
     }
+
+    /// Remove all bindings from memory and disk.
+    /// Clears both in-memory maps and rewrites `bindings.json` as an empty array.
+    pub async fn remove_all(&self) {
+        let mut to_session = self.to_session.write().await;
+        let mut to_channel = self.to_channel.write().await;
+        to_session.clear();
+        to_channel.clear();
+        drop(to_session);
+        drop(to_channel);
+        self.persist_to_disk().await;
+    }
 }
 
 #[cfg(test)]
@@ -308,5 +320,25 @@ mod tests {
         let sid = store.get_session_id("telegram", "123").await.unwrap();
         assert_eq!(sid, "sess-new");
         assert!(store.get_channel_binding("sess-old").await.is_none());
+    }
+
+    #[tokio::test]
+    async fn binding_store_remove_all_clears_maps() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionBindingStore::with_data_dir(dir.path().to_path_buf());
+        store.bind("telegram", "123", "sess-abc").await;
+        store.bind("matrix", "456", "sess-def").await;
+
+        store.remove_all().await;
+
+        assert!(store.get_session_id("telegram", "123").await.is_none());
+        assert!(store.get_session_id("matrix", "456").await.is_none());
+        assert!(store.get_channel_binding("sess-abc").await.is_none());
+        assert!(store.get_channel_binding("sess-def").await.is_none());
+
+        // Verify persisted after removal — new store loads empty.
+        let store2 = SessionBindingStore::with_data_dir(dir.path().to_path_buf());
+        assert!(store2.get_session_id("telegram", "123").await.is_none());
+        assert!(store2.get_session_id("matrix", "456").await.is_none());
     }
 }

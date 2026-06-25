@@ -9,5 +9,5 @@ mod pairing;
 mod protocol;
 mod server;
 
-pub use protocol::{ConnectParams, ConnectPayload, HelloOk, WsRequest, WsResponse};
+pub use protocol::{ConnectParams, ConnectPayload, HelloOk, SessionsDeleteParams, SessionsHistoryParams, WsRequest, WsResponse};
 pub use server::run_gateway;

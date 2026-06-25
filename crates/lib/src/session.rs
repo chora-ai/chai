@@ -425,6 +425,34 @@ impl SessionStore {
         self.write_to_disk(&session_clone);
         Ok(())
     }
+
+    /// Remove all sessions from memory and disk. Returns the number of sessions removed.
+    /// Deletes all `sess-*.json` files from `data_dir` and clears the disk index.
+    pub async fn remove_all(&self) -> usize {
+        let mut g = self.inner.write().await;
+        let count = g.len();
+        g.clear();
+        drop(g);
+        // Delete all session files from disk.
+        if let Some(ref dir) = self.data_dir {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                        if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                            if stem.starts_with("sess-") {
+                                let _ = std::fs::remove_file(&path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if let Ok(mut index) = self.disk_index.try_write() {
+            index.clear();
+        }
+        count
+    }
 }
 
 /// Return the current time as an ISO 8601 string.
@@ -676,5 +704,41 @@ mod tests {
         assert_eq!(&ts[10..11], "T");
         assert_eq!(&ts[13..14], ":");
         assert_eq!(&ts[16..17], ":");
+    }
+
+    #[tokio::test]
+    async fn session_store_remove_all_deletes_files() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::with_data_dir(dir.path().to_path_buf());
+
+        let id1 = store.create().await;
+        let id2 = store.create().await;
+        store.append_message(&id1, "user", "hello").await.unwrap();
+        store.append_message(&id2, "user", "world").await.unwrap();
+
+        let count = store.remove_all().await;
+        assert_eq!(count, 2);
+
+        // Files should be deleted.
+        assert!(!dir.path().join(format!("{}.json", id1)).exists());
+        assert!(!dir.path().join(format!("{}.json", id2)).exists());
+
+        // In-memory map should be empty.
+        assert!(store.get(&id1).await.is_none());
+        assert!(store.get(&id2).await.is_none());
+
+        // Disk index should be empty — scan returns nothing.
+        let store2 = SessionStore::with_data_dir(dir.path().to_path_buf());
+        let summaries = store2.scan().await;
+        assert!(summaries.is_empty());
+    }
+
+    #[tokio::test]
+    async fn session_store_remove_all_empty_store() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::with_data_dir(dir.path().to_path_buf());
+
+        let count = store.remove_all().await;
+        assert_eq!(count, 0);
     }
 }

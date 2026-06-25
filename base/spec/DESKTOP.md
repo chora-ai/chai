@@ -243,8 +243,8 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | Clear buffer button | Logs screen | No in-memory log clear button |
 | Gateway status fetch failure | `fetch_gateway_status()` WebSocket | Silent; user sees stale status or "Loading from gateway status..." placeholder |
 | Session events listener disconnection | WebSocket reconnect loop | Silent with exponential backoff retry; events may be missed during reconnection gap |
-| Session sidebar empty after gateway restart | Desktop session sidebar | Sessions are persisted on disk but the desktop does not call `sessions.list` to discover existing sessions on gateway connect; sidebar only shows sessions observed via events in the current app session. Requires `sessions.list` protocol method (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md), Phase 2). |
-| Message history not displayed for persisted sessions | Desktop chat area | When selecting a session persisted from a previous gateway run, the chat area does not show message history because the desktop's `session_messages` map is empty for unobserved sessions. Requires `sessions.history` protocol method (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md), Phase 2). |
+| Session sidebar empty after gateway restart | Desktop session sidebar | The `sessions.list` protocol method exists (Phase 2) but the desktop does not yet call it on gateway connect; sidebar only shows sessions observed via events in the current app session. Desktop integration is Phase 3 (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md)). |
+| Message history not displayed for persisted sessions | Desktop chat area | The `sessions.history` protocol method exists (Phase 2) but the desktop does not yet call it when switching to a persisted session; the desktop's `session_messages` map is empty for unobserved sessions. Desktop integration is Phase 3 (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md)). |
 
 ## Related Documents
 

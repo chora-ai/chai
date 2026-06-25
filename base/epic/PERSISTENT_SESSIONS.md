@@ -4,9 +4,9 @@ status: in-progress
 
 # Epic: Persistent Sessions
 
-**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol and desktop UI. Phase 1 (core persistence) is complete; sessions and bindings now survive gateway restarts. Protocol methods, desktop integration, and CLI commands remain.
+**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol and desktop UI. Phases 1–2 are complete; sessions and bindings survive gateway restarts, and four protocol methods enable session discovery, inspection, and deletion. Desktop integration and CLI commands remain.
 
-**Status** — **Phase 1 complete.** Sessions are persisted to disk and restored on gateway restart. Binding persistence and inbound message session resolution are working. Phase 2 (protocol methods), Phase 3 (desktop session management), and Phase 4 (CLI session management) remain.
+**Status** — **Phase 2 complete.** Sessions are persisted to disk, restored on gateway restart, and manageable via four WebSocket protocol methods (`sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all`). Desktop integration (Phase 3) and CLI commands (Phase 4) remain.
 
 ## Problem Statement
 
@@ -32,10 +32,10 @@ This creates several user-facing problems:
 
 ### Server-Side Session Storage
 
-- **`SessionStore`** (`crates/lib/src/session.rs`) — ~~In-memory `HashMap<SessionId, Session>` with no disk I/O.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, sessions are persisted to disk as JSON files with write-through on every mutation and lazy loading on `get()`. `Session` now derives `Serialize, Deserialize`. New `scan()` method returns `SessionSummary` metadata without loading full history.
+- **`SessionStore`** (`crates/lib/src/session.rs`) — ~~In-memory `HashMap<SessionId, Session>` with no disk I/O.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, sessions are persisted to disk as JSON files with write-through on every mutation and lazy loading on `get()`. `Session` now derives `Serialize, Deserialize`. New `scan()` method returns `SessionSummary` metadata without loading full history. **Phase 2:** New `remove_all()` method clears all sessions from memory and disk, deletes all `sess-*.json` files, clears the disk index, and returns the count of removed sessions.
 - **`Session`** struct — Fields: `id: SessionId`, `messages: Vec<SessionMessage>`, `delegation_count: usize`, `delegation_by_worker: HashMap<String, usize>`. **Phase 1:** Added `created_at: String` and `updated_at: String` (ISO 8601 timestamps with `#[serde(default)]`).
 - **`SessionMessage`** struct — Fields: `role: String`, `content: String`, `tool_calls: Option<Vec<ToolCall>>`, `tool_name: Option<String>`. Derives `Serialize, Deserialize`.
-- **`SessionBindingStore`** (`crates/lib/src/routing.rs`) — ~~Bidirectional in-memory mapping between `(channel_id, conversation_id)` and `session_id`. Also lost on restart.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, bindings are persisted to `bindings.json` on every mutation. New `remove_binding()` and `load_from_disk()` methods. `ChannelConvKey` now derives `Serialize, Deserialize`.
+- **`SessionBindingStore`** (`crates/lib/src/routing.rs`) — ~~Bidirectional in-memory mapping between `(channel_id, conversation_id)` and `session_id`. Also lost on restart.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, bindings are persisted to `bindings.json` on every mutation. New `remove_binding()` and `load_from_disk()` methods. `ChannelConvKey` now derives `Serialize, Deserialize`. **Phase 2:** New `remove_all()` method clears both in-memory maps and rewrites `bindings.json` as an empty array.
 
 ### Agent Context Directories
 
@@ -46,14 +46,18 @@ This creates several user-facing problems:
 
 ### Gateway Protocol
 
-- **`agent`** method — Accepts optional `sessionId`. If absent, creates a new session. If present, resumes via `get_or_create`. **Phase 1:** `get_or_create` now lazy-loads persisted sessions from disk, so `sessionId` can reference a session from a previous gateway run. No listing or deletion yet.
+- **`agent`** method — Accepts optional `sessionId`. If absent, creates a new session. If present, resumes via `get_or_create`. **Phase 1:** `get_or_create` now lazy-loads persisted sessions from disk, so `sessionId` can reference a session from a previous gateway run.
 - **`send`** method — Delivers message to a channel conversation; creates/reuses session via `SessionBindingStore`. **Phase 1:** `process_inbound_message` now calls `session_store.get()` to ensure the session is loaded before appending, and creates a new session if the bound session no longer exists on disk.
-- **No session management methods** — There is no `sessions.list`, `sessions.history`, `sessions.delete`, or equivalent.
+- **`sessions.list`** method — **Phase 2:** Returns summary metadata for all sessions (id, timestamps, message count, optional channel binding), sorted by `updatedAt` descending. Rescans the sessions directory on each call so the disk is the source of truth.
+- **`sessions.history`** method — **Phase 2:** Returns full message history for a given session id, with optional `limit` and `offset` pagination. Messages are serialized with camelCase keys (`toolCalls`, `toolName`) for the wire protocol. Returns an error for nonexistent sessions.
+- **`sessions.delete`** method — **Phase 2:** Deletes a session from memory and disk, removes the associated binding, and broadcasts a `session.deleted` event. Returns an error for nonexistent sessions.
+- **`sessions.delete_all`** method — **Phase 2:** Deletes all sessions from memory and disk, clears all bindings, and broadcasts a `sessions.cleared` event. Returns the count of deleted sessions.
+- **Session events** — **Phase 2:** `session.deleted` (payload: `{ "sessionId": "..." }`) broadcast after `sessions.delete`; `sessions.cleared` (empty payload) broadcast after `sessions.delete_all`.
 
 ### Desktop Application
 
-- **`session_messages: BTreeMap<String, Vec<ChatMessage>>`** — Per-session transcript storage, entirely in-memory. Cleared implicitly when the app closes. **Phase 1 testing:** Message history is not displayed for persisted sessions after a gateway restart — the desktop has no mechanism to load history from the gateway (requires `sessions.history` protocol method from Phase 2).
-- **`session_order: Vec<String>`** — MRU-ordered session IDs for the sidebar. Only populated from events observed during the current app session. **Phase 1 testing:** Sidebar is empty after a gateway restart — the desktop does not call any gateway method to discover existing sessions (requires `sessions.list` protocol method from Phase 2).
+- **`session_messages: BTreeMap<String, Vec<ChatMessage>>`** — Per-session transcript storage, entirely in-memory. Cleared implicitly when the app closes. **Phase 2:** The `sessions.history` protocol method now exists for loading history from the gateway; desktop integration (calling it on session switch) is Phase 3.
+- **`session_order: Vec<String>`** — MRU-ordered session IDs for the sidebar. Only populated from events observed during the current app session. **Phase 2:** The `sessions.list` protocol method now exists for discovering sessions on gateway connect; desktop integration (calling it on connect) is Phase 3.
 - **`session_meta: HashMap<String, (Option<String>, Option<String>)>`** — Per-session channel metadata. Not persisted.
 - **Session sidebar** (`crates/desktop/src/app/ui/sessions.rs`) — Lists sessions in MRU order. Labels are raw session IDs (e.g. `sess-a1b2c3...`) optionally with channel metadata. No delete, rename, or clear buttons.
 - **"New session" button** — Only visible when `chat_session_id` is `None` (before the first message or after a gateway restart clears it). No way to explicitly start a new session once one exists.
@@ -142,9 +146,10 @@ The current `SessionStore` is an in-memory `HashMap` with no disk awareness. The
 4. **On `append_message_full()` / `record_delegation()`** — Update the in-memory session **and** write the updated session file to disk. Use atomic writes (write to `.tmp`, then rename) to avoid corruption on crash. The `updated_at` timestamp is advanced on every write.
 5. **On `get()`** — Return from memory if present. If not in memory but the file exists on disk, load it, insert into the HashMap, update `updated_at`, and return. This enables lazy loading.
 6. **On `remove()`** — Remove from memory **and** delete the file from disk.
-7. **On gateway start** — Call `scan()` to scan the `sessions/` directory for `.json` files and read metadata only (id, timestamps, message count) without loading full message history. This populates a metadata index that enables lazy loading: `get()` can check the index to see if a session exists on disk before attempting to load it.
-8. **New `SessionSummary` struct** — Lightweight summary returned by `scan()`: `id`, `created_at`, `updated_at`, `message_count`.
-9. **New `config::sessions_dir()` helper** — `sessions_dir(profile_dir, agent_id) -> PathBuf` returns `<profile_dir>/agents/<agent_id>/sessions/`. Kept alongside `orchestrator_context_dir()` and `worker_context_dir()`.
+7. **On `remove_all()`** — **Phase 2:** Clear all sessions from the in-memory map, delete all `sess-*.json` files from `data_dir`, clear the disk index, and return the count of removed sessions.
+8. **On gateway start** — Call `scan()` to scan the `sessions/` directory for `.json` files and read metadata only (id, timestamps, message count) without loading full message history. This populates a metadata index that enables lazy loading: `get()` can check the index to see if a session exists on disk before attempting to load it.
+9. **New `SessionSummary` struct** — Lightweight summary returned by `scan()`: `id`, `created_at`, `updated_at`, `message_count`.
+10. **New `config::sessions_dir()` helper** — `sessions_dir(profile_dir, agent_id) -> PathBuf` returns `<profile_dir>/agents/<agent_id>/sessions/`. Kept alongside `orchestrator_context_dir()` and `worker_context_dir()`.
 
 **Why write-through instead of periodic flush?** Every message append is a state change that the user expects to be durable. A periodic flush risks losing the last few messages on a crash. The per-file granularity means writes are small (one session's data), so the I/O cost is acceptable.
 
@@ -155,7 +160,8 @@ The current `SessionStore` is an in-memory `HashMap` with no disk awareness. The
 - **`bindings.json`** is stored in the agent's `sessions/` directory alongside session files. The format is a JSON array of `{ "channel_id", "conversation_id", "session_id" }` objects — a `Vec` rather than a `HashMap`, since `ChannelConvKey` is a composite key and serializing it as a HashMap key would require string interpolation or custom serde logic.
 - **`ChannelConvKey`** derives `Serialize, Deserialize` to enable JSON serialization.
 - **On `bind()`** — Update in-memory map **and** write `bindings.json` to disk (atomic write: `.tmp` then rename).
-- **On `remove_binding()`** — New method: removes a binding by session_id from both in-memory maps and rewrites `bindings.json` to disk. Needed by the future `sessions.delete` protocol method (Phase 2) and by the `/new` session trigger cleanup.
+- **On `remove_binding()`** — Removes a binding by session_id from both in-memory maps and rewrites `bindings.json` to disk. Used by the `/new` session trigger cleanup and by `sessions.delete` (Phase 2).
+- **On `remove_all()`** — **Phase 2:** New method that clears both in-memory maps and rewrites `bindings.json` as an empty array. Used by `sessions.delete_all`.
 - **On gateway start** — `load_from_disk()` is called at construction time by `with_data_dir()`, populating the in-memory maps from `bindings.json`.
 - **Stale binding handling** — If `bindings.json` references a session whose file was deleted from disk, `process_inbound_message` detects this (session not found via `session_store.get()`), creates a new session, and rebinds the channel conversation. The old binding is overwritten.
 - **Graceful degradation** — If `bindings.json` is missing, the store starts with empty bindings. If it's corrupt, log a warning and start empty. Channel conversations will create new sessions on their next inbound message, which is the current behavior anyway.
@@ -170,7 +176,7 @@ The gateway wires the persistent stores into the runtime:
 
 ### Gateway Protocol Additions
 
-Three new WebSocket methods:
+Four new WebSocket methods:
 
 #### `sessions.list`
 
@@ -196,17 +202,17 @@ Response:
     "sessions": [
       {
         "id": "sess-a1b2c3d4",
-        "created_at": "2025-06-10T12:34:56Z",
-        "updated_at": "2025-06-10T12:35:01Z",
-        "message_count": 5,
-        "channel_binding": { "channel_id": "telegram", "conversation_id": "123" }
+        "createdAt": "2025-06-10T12:34:56Z",
+        "updatedAt": "2025-06-10T12:35:01Z",
+        "messageCount": 5,
+        "channelBinding": { "channelId": "telegram", "conversationId": "123" }
       }
     ]
   }
 }
 ```
 
-Returns summary metadata (no full message history) for each session, sorted by `updated_at` descending (most recent first). Includes channel binding info if present.
+Returns summary metadata (no full message history) for each session, sorted by `updatedAt` descending (most recent first). Includes channel binding info if present (field omitted when no binding exists).
 
 #### `sessions.history`
 
@@ -231,8 +237,8 @@ Response:
   "payload": {
     "id": "sess-a1b2c3d4",
     "messages": [ ... ],
-    "created_at": "2025-06-10T12:34:56Z",
-    "updated_at": "2025-06-10T12:35:01Z"
+    "createdAt": "2025-06-10T12:34:56Z",
+    "updatedAt": "2025-06-10T12:35:01Z"
   }
 }
 ```
@@ -263,7 +269,7 @@ Response:
 }
 ```
 
-Removes the session from memory, deletes the file from disk, and removes any associated binding entry.
+Removes the session from memory, deletes the file from disk, removes any associated binding entry, and broadcasts a `session.deleted` event.
 
 #### `sessions.delete_all`
 
@@ -285,11 +291,20 @@ Response:
   "type": "res",
   "id": "4",
   "ok": true,
-  "payload": { "deleted_count": 12 }
+  "payload": { "deletedCount": 12 }
 }
 ```
 
-Clears all sessions from memory, deletes all session files and `bindings.json` from disk.
+Clears all sessions from memory, deletes all session files and `bindings.json` from disk, and broadcasts a `sessions.cleared` event.
+
+#### Session Events
+
+Two server-sent events notify clients of session deletion in real time, so desktop clients can update their local state without polling:
+
+| Event | Payload | When |
+|-------|---------|------|
+| `session.deleted` | `{ "sessionId": "..." }` | After `sessions.delete` succeeds |
+| `sessions.cleared` | `{}` | After `sessions.delete_all` succeeds |
 
 ### Desktop Application Changes
 
@@ -326,7 +341,7 @@ Manual testing of Phase 1 identified two desktop issues that need to be addresse
 
 2. **Message history not displayed for persisted sessions** — When selecting a session in the desktop that was persisted from a previous gateway run, the chat area does not show the message history, even though the session JSON file on disk contains the full conversation. The desktop's `session_messages` map is empty for sessions not observed in the current app session, and there is no mechanism to load history from the gateway. Fix: call `sessions.history` when the user selects a session whose messages are not in the local `session_messages` map.
 
-Both issues are expected given that the `sessions.list` and `sessions.history` protocol methods (Phase 2) do not yet exist. They are tracked here to ensure Phase 3 addresses them once the protocol methods are available.
+**Phase 2 resolved:** The `sessions.list` and `sessions.history` protocol methods now exist (Phase 2). These issues are now desktop-side integration tasks for Phase 3.
 
 ### CLI Changes
 
@@ -363,10 +378,10 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 - [x] **Session persistence** — Every session created by the gateway is written to disk as a JSON file under `<profile>/agents/<agentId>/sessions/`. Messages, delegation counters, and timestamps are persisted.
 - [x] **Session restoration** — On gateway start, persisted sessions are discoverable and loadable. The `agent` method with a `sessionId` that refers to a persisted session resumes that session's history.
 - [x] **Session metadata** — `Session` includes `created_at` and `updated_at` timestamps. `Session` derives `Serialize, Deserialize`.
-- [ ] **`sessions.list` protocol method** — Returns summary metadata for all sessions (id, timestamps, message count, channel binding), sorted by most recently updated.
-- [ ] **`sessions.history` protocol method** — Returns full message history for a given session id, with optional pagination.
-- [ ] **`sessions.delete` protocol method** — Deletes a session from memory and disk, removes associated bindings.
-- [ ] **`sessions.delete_all` protocol method** — Deletes all sessions for the active profile from memory and disk.
+- [x] **`sessions.list` protocol method** — Returns summary metadata for all sessions (id, timestamps, message count, channel binding), sorted by most recently updated.
+- [x] **`sessions.history` protocol method** — Returns full message history for a given session id, with optional pagination.
+- [x] **`sessions.delete` protocol method** — Deletes a session from memory and disk, removes associated bindings.
+- [x] **`sessions.delete_all` protocol method** — Deletes all sessions for the active profile from memory and disk.
 - [x] **Binding persistence** — `SessionBindingStore` mappings are persisted to `bindings.json` and restored on gateway start.
 - [x] **Directory auto-creation** — The `sessions/` directory is created automatically on gateway start (empty if no persisted sessions exist). Session files are created within it on first session creation.
 - [x] **Manual cleanup** — Deleting the `sessions/` directory on disk is a valid way to clear all session history. The gateway handles missing files gracefully.
@@ -392,7 +407,7 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1. Core persistence | Add `Serialize`/`Deserialize` on `Session`, timestamps, `sessions/` directory layout, write-through `SessionStore`, binding persistence, gateway start restoration | Complete |
-| 2. Protocol methods | `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all` WebSocket methods | Not started |
+| 2. Protocol methods | `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all` WebSocket methods | Complete |
 | 3. Desktop session management | Load session list on connect (sidebar is empty after restart), session history rendering (message history not displayed for persisted sessions), session labels, "New session" button, session loading on switch, delete and clear actions | Not started |
 | 4. CLI session management | `chai sessions list`, `chai sessions delete`, `chai sessions clear` subcommands | Not started |
 | 5. Hardening | Atomic writes verification, startup performance with many sessions, error recovery for corrupt files, integration tests | Not started |

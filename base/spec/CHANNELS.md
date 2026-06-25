@@ -57,7 +57,8 @@ Binding persistence ensures that channel→session routing survives gateway rest
 - **`bindings.json`** — Stored in the agent's `sessions/` directory alongside session files. Format is a JSON array of `{ "channel_id", "conversation_id", "session_id" }` objects (a `Vec` rather than a `HashMap`, since `ChannelConvKey` is a composite key). Rebuilt from in-memory maps on every write and reconstructed into maps on every load.
 - **`ChannelConvKey`** — Derives `Serialize, Deserialize` to enable JSON serialization.
 - **On `bind()`** — Update in-memory maps **and** write `bindings.json` to disk (atomic write: `.tmp` then rename).
-- **`remove_binding(session_id)`** — Removes a binding by session_id from both in-memory maps and rewrites `bindings.json` to disk. Used by the `/new` session trigger cleanup and the future `sessions.delete` protocol method.
+- **`remove_binding(session_id)`** — Removes a binding by session_id from both in-memory maps and rewrites `bindings.json` to disk. Used by the `/new` session trigger cleanup and by the `sessions.delete` protocol method.
+- **`remove_all()`** — Clears both in-memory maps and rewrites `bindings.json` as an empty array. Used by the `sessions.delete_all` protocol method.
 - **Stale binding handling** — If `bindings.json` references a session whose file was deleted from disk, `process_inbound_message` detects this (session not found via `session_store.get()`), creates a new session, and rebinds the channel conversation. The old binding is overwritten.
 - **Graceful degradation** — If `bindings.json` is missing, the store starts with empty bindings. If it's corrupt, a warning is logged and the store starts empty.
 

@@ -162,6 +162,24 @@ pub struct AgentDetailParams {
     pub agent_id: String,
 }
 
+/// Params for WS method "sessions.history": retrieve full message history for a session.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsHistoryParams {
+    pub session_id: String,
+    #[serde(default)]
+    pub limit: Option<usize>,
+    #[serde(default)]
+    pub offset: Option<usize>,
+}
+
+/// Params for WS method "sessions.delete": delete a session by id.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsDeleteParams {
+    pub session_id: String,
+}
+
 impl WsResponse {
     pub fn ok(id: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {
@@ -181,5 +199,35 @@ impl WsResponse {
             payload: None,
             error: Some(error.into()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sessions_history_params_defaults() {
+        let json = r#"{ "sessionId": "sess-abc" }"#;
+        let params: SessionsHistoryParams = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(params.session_id, "sess-abc");
+        assert_eq!(params.limit, None);
+        assert_eq!(params.offset, None);
+    }
+
+    #[test]
+    fn sessions_history_params_with_limit_offset() {
+        let json = r#"{ "sessionId": "sess-abc", "limit": 10, "offset": 5 }"#;
+        let params: SessionsHistoryParams = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(params.session_id, "sess-abc");
+        assert_eq!(params.limit, Some(10));
+        assert_eq!(params.offset, Some(5));
+    }
+
+    #[test]
+    fn sessions_delete_params_deserialize() {
+        let json = r#"{ "sessionId": "sess-xyz" }"#;
+        let params: SessionsDeleteParams = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(params.session_id, "sess-xyz");
     }
 }
