@@ -1099,6 +1099,11 @@ fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
     profile_dir.join("agents").join(agent_id)
 }
 
+/// Sessions directory for an agent: `<profile_dir>/agents/<agent_id>/sessions/`.
+pub fn sessions_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
+    agent_context_dir(profile_dir, agent_id).join("sessions")
+}
+
 /// Orchestrator skill context mode (default full).
 pub fn orchestrator_context_mode(agents: &AgentsConfig) -> SkillContextMode {
     agents.context_mode.unwrap_or_default()

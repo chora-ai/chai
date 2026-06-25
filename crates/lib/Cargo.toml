@@ -36,3 +36,6 @@ signal-channel = { path = "../adapters/signal", optional = true }
 thiserror = "2"
 tokio = { version = "1", features = ["rt-multi-thread", "net", "macros", "fs", "sync", "signal"] }
 uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tempfile = "3"

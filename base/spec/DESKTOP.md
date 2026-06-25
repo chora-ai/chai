@@ -66,7 +66,6 @@ All available skills are listed in alphabetical order with no agent selector or 
 
 ### Agent
 
-
 `agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `contextMode`). The gateway is the sole authoritative source — no on-disk fallbacks.
 
 | Agent | Layout |
@@ -244,6 +243,8 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | Clear buffer button | Logs screen | No in-memory log clear button |
 | Gateway status fetch failure | `fetch_gateway_status()` WebSocket | Silent; user sees stale status or "Loading from gateway status..." placeholder |
 | Session events listener disconnection | WebSocket reconnect loop | Silent with exponential backoff retry; events may be missed during reconnection gap |
+| Session sidebar empty after gateway restart | Desktop session sidebar | Sessions are persisted on disk but the desktop does not call `sessions.list` to discover existing sessions on gateway connect; sidebar only shows sessions observed via events in the current app session. Requires `sessions.list` protocol method (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md), Phase 2). |
+| Message history not displayed for persisted sessions | Desktop chat area | When selecting a session persisted from a previous gateway run, the chat area does not show message history because the desktop's `session_messages` map is empty for unobserved sessions. Requires `sessions.history` protocol method (see [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md), Phase 2). |
 
 ## Related Documents
 
@@ -255,4 +256,5 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | [spec/TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` validation reference |
 | [spec/GATEWAY_STATUS.md](GATEWAY_STATUS.md) | WebSocket `status` payload |
 | [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |
+| [epic `PERSISTENT_SESSIONS`](../epic/PERSISTENT_SESSIONS.md) | Session persistence and desktop session management |
 | [spec/CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks |

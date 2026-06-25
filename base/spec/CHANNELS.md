@@ -51,6 +51,16 @@ Defined in **`crates/lib/src/channels/registry.rs`** (`async_trait`):
 
 **`SessionBindingStore`** (**`crates/lib/src/routing.rs`**) maps **`(channel_id, conversation_id)` ↔ `session_id`**. Inbound processing uses this so each conversation on a channel gets its own session history.
 
+Binding persistence ensures that channel→session routing survives gateway restarts:
+
+- **`SessionBindingStore::with_data_dir(data_dir)`** — Constructor that sets the data directory and loads `bindings.json` from disk if it exists. The existing `SessionBindingStore::new()` (no data_dir, no disk I/O) is unchanged for tests and non-persistent contexts.
+- **`bindings.json`** — Stored in the agent's `sessions/` directory alongside session files. Format is a JSON array of `{ "channel_id", "conversation_id", "session_id" }` objects (a `Vec` rather than a `HashMap`, since `ChannelConvKey` is a composite key). Rebuilt from in-memory maps on every write and reconstructed into maps on every load.
+- **`ChannelConvKey`** — Derives `Serialize, Deserialize` to enable JSON serialization.
+- **On `bind()`** — Update in-memory maps **and** write `bindings.json` to disk (atomic write: `.tmp` then rename).
+- **`remove_binding(session_id)`** — Removes a binding by session_id from both in-memory maps and rewrites `bindings.json` to disk. Used by the `/new` session trigger cleanup and the future `sessions.delete` protocol method.
+- **Stale binding handling** — If `bindings.json` references a session whose file was deleted from disk, `process_inbound_message` detects this (session not found via `session_store.get()`), creates a new session, and rebinds the channel conversation. The old binding is overwritten.
+- **Graceful degradation** — If `bindings.json` is missing, the store starts with empty bindings. If it's corrupt, a warning is logged and the store starts empty.
+
 ## Inbound Path
 
 1. **Queue** — **`GatewayState::inbound_tx`** is an **`mpsc::Sender<InboundMessage>`** with buffer **64** (see **`run_gateway`** in **`crates/lib/src/gateway/server.rs`**). If the queue is full, **`send().await`** blocks; if the receiver is gone, sends fail (the Telegram webhook handler returns **503**).
@@ -58,8 +68,8 @@ Defined in **`crates/lib/src/channels/registry.rs`** (`async_trait`):
 2. **Processor** — A single spawned task drains the queue and, for each message, runs **`process_inbound_message`** (same file). Processing is **sequential** (one inbound at a time globally across all channels).
 
 3. **`process_inbound_message`** (text channels):
-   - Trims inbound text. If it equals **`/new`** (case-insensitive), creates a new session, rebinds **`(channel_id, conversation_id)`**, removes the old session store entry, sends a fixed confirmation string via **`send_message`**, and returns.
-   - Otherwise: resolve or create **`session_id`**, **`bindings.bind`**, append the user message to **`SessionStore`**, **`broadcast_session_message`** (WebSocket **`session.message`** with **`channelId`** / **`conversationId`**), run **`agent::run_turn_dyn`** with orchestrator tools, then if the turn produced non-empty assistant **`content`**, broadcast again and **`send_message`** with that reply.
+   - Trims inbound text. If it equals **`/new`** (case-insensitive), creates a new session, rebinds **`(channel_id, conversation_id)`**, removes the old session store entry (and its file from disk), sends a fixed confirmation string via **`send_message`**, and returns.
+   - Otherwise: resolve or create **`session_id`**, **`bindings.bind`**, then call **`session_store.get()`** to ensure the session is loaded in memory (lazy-load from disk if it was persisted from a previous gateway run). If the bound session no longer exists on disk (deleted or corrupt), create a new session and update the binding. Then append the user message to **`SessionStore`**, **`broadcast_session_message`** (WebSocket **`session.message`** with **`channelId`** / **`conversationId`**), run **`agent::run_turn_dyn`** with orchestrator tools, then if the turn produced non-empty assistant **`content`**, broadcast again and **`send_message`** with that reply.
    - On agent error, sends a fallback error string via **`send_message`** if the channel handle exists.
    - **`channel_reply_text`** trims assistant content; **empty content means no outbound message** (e.g. tool-only turns with no assistant text).
 

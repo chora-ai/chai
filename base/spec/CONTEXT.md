@@ -159,6 +159,18 @@ The **`read_skill`** tool (plus skill tools from **`tools.json`**) is included i
 - The session store persists messages with roles **`user`**, **`assistant`** (with optional **`tool_calls`**), and **`tool`** (results with **`tool_name`**). Tool calls and tool results are part of the session history and are replayed on subsequent turns.
 - The **system** message is **not** persisted in the session store. It is built from the cached startup string and injected as `messages[0]` before the session history each turn (see **`agent.rs`** `run_turn_dyn` / provider **`chat`**).
 
+### Session Persistence
+
+Sessions are persisted to disk so they survive gateway restarts. See [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md) for the full design and phased delivery plan.
+
+- **Storage layout** — Each session is stored as a JSON file (`{session_id}.json`) under `<profileRoot>/agents/<agentId>/sessions/`. Only the orchestrator's `sessions/` directory is populated in the current architecture.
+- **`Session` struct** — Derives `Serialize, Deserialize` and includes `created_at: String` and `updated_at: String` (ISO 8601 timestamps, with `#[serde(default)]` for backward compatibility).
+- **Write-through** — Every mutation (`create`, `append_message_full`, `record_delegation`, `remove`) writes to disk immediately via atomic writes (`.tmp` then rename). The `updated_at` timestamp advances on every write.
+- **Lazy loading** — On gateway start, `session_store.scan()` reads metadata only (id, timestamps, message count) without loading full message history. Full history is loaded on the first `get()` call for that session, keeping startup fast.
+- **`SessionStore::new()` vs `with_data_dir(data_dir)`** — `new()` creates an in-memory-only store (no disk I/O, used by tests). `with_data_dir()` enables persistence to the given directory.
+- **Graceful degradation** — Missing or corrupt session files are logged (warn level) and skipped. A missing `data_dir` is treated as empty (no sessions on disk).
+- **Manual cleanup** — Deleting the `sessions/` directory on disk is a valid way to clear all session history. The gateway handles missing files gracefully.
+
 ## 3. Tools
 
 Tool schemas are sent as a **separate top-level field** in the provider request — they are never part of the messages array.

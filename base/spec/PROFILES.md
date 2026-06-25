@@ -17,7 +17,8 @@ Each profile is a directory under `~/.chai/profiles/<name>/` containing all trus
 │   ├── assistant/                    # profile directory
 │   │   ├── agents/
 │   │   │   └── orchestrator/
-│   │   │       └── AGENT.md
+│   │   │       ├── AGENT.md
+│   │   │       └── sessions/        # persisted sessions and bindings
 │   │   ├── sandbox/
 │   │   ├── .env
 │   │   ├── config.json
@@ -28,7 +29,8 @@ Each profile is a directory under `~/.chai/profiles/<name>/` containing all trus
 │   └── developer/                    # profile directory
 │       ├── agents/
 │       │   └── orchestrator/
-│       │       └── AGENT.md
+│       │       ├── AGENT.md
+│       │       └── sessions/        # persisted sessions and bindings
 │       ├── sandbox/
 │       ├── .env
 │       ├── config.json
@@ -45,6 +47,7 @@ The following resources are **isolated per profile** — each profile has its ow
 | Resource | Location under profile | Notes |
 |----------|----------------------|-------|
 | Agent context | `agents/<agentId>/AGENT.md` | On-disk instructions per agent (see [AGENTS.md](AGENTS.md)) |
+| Agent sessions | `agents/<agentId>/sessions/` | Persisted session files and bindings (see [CONTEXT.md](CONTEXT.md)) |
 | Write sandbox | `sandbox/` | Per-profile write boundary (see [SANDBOX.md](SANDBOX.md)) |
 | Secrets | `.env` | Optional profile-local environment file |
 | Configuration | `config.json` | Agent entries, providers, channels, gateway settings |
@@ -177,6 +180,7 @@ Default profile names are **mnemonics**, not different runtime policies. Users m
 | System | How profiles interact |
 |--------|-----------------------|
 | **Agents** (see [AGENTS.md](AGENTS.md)) | Agent context directories live under `<profileRoot>/agents/<agentId>/`. Per-agent `enabledSkills` and `contextMode` are in that profile's `config.json`. |
+| **Sessions** (see [CONTEXT.md](CONTEXT.md)) | Session files are stored per agent under `<profileRoot>/agents/<agentId>/sessions/`. Each session is one JSON file; binding mappings are in `bindings.json`. Sessions survive gateway restarts. |
 | **Sandbox** (see [SANDBOX.md](SANDBOX.md)) | The write sandbox directory is `<profileRoot>/sandbox/`. All agents in a profile share one sandbox. |
 | **Skills** (see [SKILL_PACKAGES.md](SKILL_PACKAGES.md)) | Skill packages live in the shared `~/.chai/skills/` store with versioned snapshots. Profiles differ by per-agent enablement and per-profile lockfile pins, not by duplicated package trees. |
 | **Orchestration** (see [ORCHESTRATION.md](ORCHESTRATION.md)) | Orchestrator settings, delegation policy, and worker definitions come from the active profile's `config.json`. |

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+#### Runtime and Configuration
+
+- Persistent sessions: chat sessions and channel bindings survive gateway restarts — sessions are written to disk as JSON files under `<profile>/agents/<agentId>/sessions/` with write-through persistence, lazy loading on startup, and atomic writes. `chai chat --session <ID>` can resume a session from a previous gateway run. Users can delete the `sessions/` directory to clear all session history. Desktop integration (session sidebar, history display) is forthcoming
+
 ## [0.2.0] - 2026-06-24
 
 ### Added

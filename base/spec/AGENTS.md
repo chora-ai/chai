@@ -49,10 +49,12 @@ Each agent has its own on-disk context directory under the active profile:
 
 ```
 <profileRoot>/agents/<agentId>/AGENT.md
+<profileRoot>/agents/<agentId>/sessions/
 ```
 
 - The gateway reads `AGENT.md` for each agent at startup and includes its contents in that agent's system context string.
-- `chai init` creates `agents/orchestrator/AGENT.md` for each default profile.
+- The `sessions/` directory holds persisted session files (`{session_id}.json`) and `bindings.json` for that agent. Only the orchestrator's `sessions/` directory is populated in the current architecture. See [CONTEXT.md](CONTEXT.md) for session persistence details.
+- `chai init` creates `agents/orchestrator/AGENT.md` for each default profile. The `sessions/` directory is created automatically by the gateway on startup.
 - When workers are defined in `config.json`, operators add `agents/<workerId>/AGENT.md` with worker-specific instructions.
 
 ## Per-Agent Skill Configuration

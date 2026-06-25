@@ -14,7 +14,7 @@ use crate::channels::{
 };
 use crate::config::{
     self, matrix_channel_configured, orchestrator_context_mode, resolve_telegram_webhook_secret,
-    worker_context_mode, Config, SkillContextMode,
+    sessions_dir, worker_context_mode, Config, SkillContextMode,
 };
 #[cfg(feature = "matrix")]
 use crate::gateway::matrix_routes;
@@ -576,6 +576,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             .bind(&msg.channel_id, &msg.conversation_id, &new_id)
             .await;
         if let Some(id) = old_id {
+            state.bindings.remove_binding(&id).await;
             state.session_store.remove(&id).await;
         }
         if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
@@ -594,7 +595,20 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         .get_session_id(&msg.channel_id, &msg.conversation_id)
         .await;
     let session_id = match session_id {
-        Some(id) => id,
+        Some(id) => {
+            // Ensure the session is loaded (lazy-load from disk if needed).
+            if state.session_store.get(&id).await.is_some() {
+                id
+            } else {
+                // Session was deleted or corrupt — create a new one and rebind.
+                let new_id = state.session_store.create().await;
+                state
+                    .bindings
+                    .bind(&msg.channel_id, &msg.conversation_id, &new_id)
+                    .await;
+                new_id
+            }
+        }
         None => {
             let id = state.session_store.create().await;
             state
@@ -945,6 +959,22 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     }
     let worker_delegate_runtimes = Arc::new(worker_map);
 
+    // Build persistent session and binding stores.
+    let orch_id = config
+        .agents
+        .orchestrator_id
+        .as_deref()
+        .unwrap_or("orchestrator")
+        .trim();
+    let orch_id = if orch_id.is_empty() {
+        "orchestrator"
+    } else {
+        orch_id
+    };
+    let sessions_path = sessions_dir(&paths.profile_dir, orch_id);
+    let session_store = Arc::new(SessionStore::with_data_dir(sessions_path.clone()));
+    let binding_store = Arc::new(SessionBindingStore::with_data_dir(sessions_path.clone()));
+
     #[cfg_attr(not(feature = "matrix"), allow(unused_mut))]
     let mut state = GatewayState {
         config: Arc::new(config.clone()),
@@ -953,9 +983,9 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         event_tx: event_tx.clone(),
         channel_tasks: channel_tasks.clone(),
         inbound_tx: inbound_tx.clone(),
-        session_store: Arc::new(SessionStore::new()),
+        session_store: session_store.clone(),
         channel_registry: Arc::new(ChannelRegistry::new()),
-        bindings: Arc::new(SessionBindingStore::new()),
+        bindings: binding_store.clone(),
         provider_states: Arc::new(provider_states),
         provider_clients,
         skills: Arc::new(skills),
@@ -972,6 +1002,18 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         sandbox_roots_count,
         session_stop_flags: Arc::new(RwLock::new(HashMap::new())),
     };
+
+    // Scan persisted sessions on startup (populates disk index for lazy loading).
+    {
+        let summaries = session_store.scan().await;
+        if !summaries.is_empty() {
+            log::info!(
+                "loaded {} persisted session(s) from {}",
+                summaries.len(),
+                sessions_path.display(),
+            );
+        }
+    }
     // Spawn model discovery tasks for each configured provider.
     {
         let states = state.provider_states.clone();
@@ -1695,7 +1737,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "maxDelegationsPerSession": state.config.agents.max_delegations_per_session,
                     "maxDelegationsPerWorker": serde_json::to_value(&state.config.agents.max_delegations_per_worker).unwrap_or_else(|_| serde_json::Value::Null),
                 });
-
 
                 let mut entries: Vec<serde_json::Value> = vec![orch_entry];
                 for wid in &worker_ids {
