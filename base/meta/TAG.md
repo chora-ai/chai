@@ -96,4 +96,5 @@ cargo build --release --manifest-path crates/cli/Cargo.toml --features matrix,si
 
 ## Maintenance
 
-- Tag files are written at release time and not modified after the tag is created.
+- Tag files are written at release time and not modified after the tag is created
+- When a tag file is added, update `base/README.md` to include it in the `/tag` section. The description must use the exact Summary text from the tag file — do not substitute a generic description like "vX.Y.Z release notes." The Summary is the canonical short description of the release and should be reproduced verbatim

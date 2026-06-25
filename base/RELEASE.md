@@ -8,7 +8,7 @@ Chai follows [Semantic Versioning](https://semver.org/). Before v1.0.0, breaking
 
 ## Release Branches
 
-Each release has a branch named `release/vX.Y.Z`, created from `main`. The release branch exists for the lifetime of that version — it is the target for patch releases.
+Each release has a branch named `release/vX.Y.x`, created from `main`. The `x` denotes the patch version slot — the branch exists for the lifetime of that minor version and is the target for all patch releases within it (e.g., `release/v0.1.x` receives v0.1.0, v0.1.1, v0.1.2, etc.).
 
 The release commit (version bump, tag file, doc updates, working document deletion) is made on `main`. The release branch is then created from that commit. This ensures `main` reflects the current release and the tag file is accessible on `main`.
 
@@ -58,34 +58,36 @@ Each release has a working document in the root of `base/` named `RELEASE_VX_Y_Z
 2. **Complete all requirements** — Check off each item as it is completed.
 3. **Update structured documentation** — Ensure all specs, refs, ADRs, and other structured docs in `base/` are current with the release.
 4. **Update user documentation** — Ensure `docs/` and the repository `README.md` are current.
-5. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
-6. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section.
-7. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
-8. **Bump versions** — Update all `Cargo.toml` files to the release version.
-9. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
-10. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
-11. **Commit** — Stage all changes (version bump, lockfile update, tag file, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
-12. **Create the release branch** — `git branch release/vX.Y.Z` from the release commit.
-13. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
-14. **Push** — Push `main`, the release branch, and the tag to origin.
-15. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
-16. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
-17. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
-18. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
+5. **Update the knowledge base index** — Update `base/README.md` to reflect the current state of all structured docs. Add any new or restructured documents (ADRs, specs, refs, etc.) created during the release.
+6. **Validate build script and experimental feature builds** — Verify that `scripts/build-release.sh` produces build artifacts successfully and experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
+7. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section. Add the new tag file entry to `base/README.md` using the exact Summary text from the tag file (see `base/meta/TAG.md`).
+8. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
+9. **Bump versions** — Update all `Cargo.toml` files to the release version.
+10. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
+11. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
+12. **Commit** — Stage all changes (version bump, lockfile update, tag file, knowledge base index, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
+13. **Create the release branch** — `git branch release/vX.Y.x` from the release commit (e.g. `git branch release/v0.1.x`).
+14. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
+15. **Push** — Push `main`, the release branch, and the tag to origin.
+16. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
+17. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
+18. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
+19. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
 
 ### Patch Releases
 
-1. **Make fixes** — Apply bug fixes to the `release/vX.Y.Z` branch.
+1. **Make fixes** — Apply bug fixes to the `release/vX.Y.x` branch.
 2. **Write the tag file** — Create `base/tag/VX_Y_Z_P.md` for the patch version.
-3. **Update the changelog** — Add a `## [X.Y.P] - YYYY-MM-DD` entry in `CHANGELOG.md` with the patch changes.
-4. **Bump the patch version** — Update `Cargo.toml` files to `X.Y.P`.
-5. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
-6. **Commit and tag** — Commit on the release branch with message `vX.Y.P`, then create an annotated tag using the tag file with `--cleanup=verbatim` to preserve markdown formatting.
-7. **Push** — Push the release branch and the new tag to origin.
-8. **Build release binaries** — Run `scripts/build-release.sh` for each supported system.
-9. **Publish platform release notes** — Create a release on Codeberg/GitHub using the tag file contents. Attach release binaries as assets.
-10. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly.
-11. **Merge fixes to `main`** — Cherry-pick or merge the fixes and changelog entry from the release branch into `main`.
+3. **Update the knowledge base index** — Update `base/README.md` to add the new tag file entry using the exact Summary text from the tag file. Add any new structured docs created for the patch.
+4. **Update the changelog** — Add a `## [X.Y.P] - YYYY-MM-DD` entry in `CHANGELOG.md` with the patch changes.
+5. **Bump the patch version** — Update `Cargo.toml` files to `X.Y.P`.
+6. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
+7. **Commit and tag** — Commit on the release branch with message `vX.Y.P`, then create an annotated tag using the tag file with `--cleanup=verbatim` to preserve markdown formatting.
+8. **Push** — Push the release branch and the new tag to origin.
+9. **Build release binaries** — Run `scripts/build-release.sh` for each supported system.
+10. **Publish platform release notes** — Create a release on Codeberg/GitHub using the tag file contents. Attach release binaries as assets.
+11. **Validate experimental feature builds** — Verify that experimental feature builds compile and link correctly.
+12. **Merge fixes to `main`** — Cherry-pick or merge the fixes, knowledge base index, and changelog entry from the release branch into `main`.
 
 ## Build and Distribution
 

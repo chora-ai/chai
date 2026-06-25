@@ -56,14 +56,17 @@ Ensure `docs/` and `README.md` are current with the persistent sessions implemen
 
 - [ ] Update structured documentation per requirement 2
 - [ ] Update user documentation per requirement 3
-- [ ] Validate experimental feature builds
+- [ ] Update `base/README.md` to reflect the current state of all structured docs
+- [ ] Validate `scripts/build-release.sh 0.3.0` and experimental feature builds
 - [ ] Write tag file `base/tag/V0_3_0.md` following `base/meta/TAG.md` format
+- [ ] Update knowledge base index `base/README.md` — add new tag file entry using exact Summary text
 - [ ] Update `CHANGELOG.md` — replace `## [Unreleased]` with `## [0.3.0] - YYYY-MM-DD`, add new `## [Unreleased]` heading
 - [ ] Bump versions in all `Cargo.toml` files to `0.3.0`
 - [ ] Update lockfile (`cargo update`)
 - [ ] Delete this working document (`base/RELEASE_V0_3_0.md`)
 - [ ] Commit to `main` with message `v0.3.0`
-- [ ] Create release branch `release/v0.3.0`
+- [ ] Push new release branches to replace existing ones that use the old naming convention: create `release/v0.1.x` pointing at the same commit as `release/v0.1.0`, create `release/v0.2.x` pointing at the same commit as `release/v0.2.0`, push both new branches, then delete the old `release/v0.1.0` and `release/v0.2.0` branches locally and on origin
+- [ ] Create release branch `release/v0.3.x`
 - [ ] Create annotated tag: `git tag -a v0.3.0 -F base/tag/V0_3_0.md --cleanup=verbatim`
 - [ ] Push `main`, release branch, and tag to origin
 - [ ] Build release binaries (`scripts/build-release.sh 0.3.0`)

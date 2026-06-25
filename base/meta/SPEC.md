@@ -55,3 +55,5 @@ Specs are less prescriptive in structure than epics. The content should be organ
 - Update the frontmatter `status` from `draft` to `stable` when the spec reflects implemented behavior
 - When implementation changes behavior, update the spec in the same change or session when practical
 - Prefer keeping specs accurate over leaving known drift; link to the relevant **`epic/*.md`** when history or motivation helps
+- When adding a spec, update `base/README.md` to include it in the `/spec` section
+- When modifying a spec, verify the description and status in the `base/README.md` index are still accurate

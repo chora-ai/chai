@@ -52,3 +52,5 @@ Most of the time you should **edit the doc and leave `status: current`** rather 
 
 - When an external API changes or you change how Chai calls it, **update this reference** and verify the integration still matches
 - If you cannot update immediately, set `status: outdated` until the doc matches reality again, then return to `current`
+- When adding a reference document, update `base/README.md` to include it in the `/ref` section
+- When modifying a reference document, verify the description and status in the `base/README.md` index are still accurate

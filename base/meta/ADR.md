@@ -54,3 +54,5 @@ status: accepted
 - If a decision is reversed or replaced, set `status: superseded` and add a note linking to the new decision
 - When code or product reality **changes the consequences** of an accepted decision (without a full reversal), update the ADR: amend **Consequences**, add a short dated note, or write a new ADR and **supersede** the old one if the narrative is cleaner
 - Touching related code is a good moment to re-read the ADR and fix drift so **`accepted`** stays truthful
+- When adding an ADR, update `base/README.md` to include it in the `/adr` section
+- When modifying an ADR, verify the description and status in the `base/README.md` index are still accurate

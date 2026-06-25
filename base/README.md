@@ -103,10 +103,15 @@ Always read the relevant convention file before adding or modifying a document i
 - **[PROVIDERS.md](spec/PROVIDERS.md)** — Backend ids, URLs and keys, discovery, native vs OpenAI-compat paths.
 - **[MODELS.md](spec/MODELS.md)** — Model strings, families, repo inventory, tool-calling expectations.
 
+#### Diagnostics
+
+- **[LOGGING.md](spec/LOGGING.md)** — Gateway log buffer, `logs` WebSocket method, desktop unified log view, log filtering.
+
 #### Desktop Application
 
 - **[DESKTOP.md](spec/DESKTOP.md)** — Current state of the desktop application: screens, data sources, interactions, known gaps.
 
 ### `/tag`
 
-- **[V0_1_0.md](tag/V0_1_0.md)** — v0.1.0 release notes.
+- **[V0_1_0.md](tag/V0_1_0.md)** — First official release of Chai, a privacy-preserving multi-agent management system designed for constrained-model operation. Provides a local gateway with orchestrator–worker delegation, Telegram messaging, skill-based tooling with content-addressed versioning, per-profile configuration and sandboxing, and a native desktop application.
+- **[V0_2_0.md](tag/V0_2_0.md)** — Second release of Chai. Adds a `cargo` skill for compilation and test verification during sessions, branch integration tools (merge, rebase, cherry-pick, reset) for the `git` skill, and line-range pagination companions for truncated diff/show output. Fixes multiple desktop error-handling gaps and skill output issues. Renames tools and parameters for consistency with the tool and parameter naming ADR.

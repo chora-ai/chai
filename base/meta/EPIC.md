@@ -107,3 +107,5 @@ When present, sections appear in this order:
 - Move resolved Open Questions to Design decisions or remove them
 - Update stale references to other documents (e.g. "not yet implemented" for features that have shipped)
 - When a requirement changes runtime behavior, **update the corresponding `spec/*.md`** (and link to the epic from the spec if background helps readers)
+- When adding an epic, update `base/README.md` to include it in the `/epic` section
+- When modifying an epic, verify the description and status in the `base/README.md` index are still accurate
