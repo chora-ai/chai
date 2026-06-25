@@ -23,8 +23,8 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     };
     crate::app::ui_screen(ui, "Chat", subtitle, |ui| {
         let can_send_base = running
-            && (app.selected_session_id == app.chat_session_id
-                || (app.selected_session_id.is_none() && app.session_messages.is_empty()));
+            && (app.chat_session_id.is_some()
+                || (app.selected_session_id.is_none() && app.chat_session_id.is_none()));
         let mut can_send = can_send_base;
 
         let row_height = ui.spacing().interact_size.y + 8.0;
@@ -63,6 +63,11 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 for (idx, m) in messages_to_show.iter().enumerate() {
                     render_chat_message(ui, idx, m, &user_display, orchestrator_id);
                     ui.add_space(8.0);
+                }
+                // Show loading indicator when session history is being fetched.
+                if app.loading_session_id.is_some() {
+                    ui.add_space(12.0);
+                    ui.label(egui::RichText::new("Loading session history…").weak());
                 }
             });
 

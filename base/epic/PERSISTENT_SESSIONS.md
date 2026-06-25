@@ -4,9 +4,9 @@ status: in-progress
 
 # Epic: Persistent Sessions
 
-**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol and desktop UI. Phases 1–2 are complete; sessions and bindings survive gateway restarts, and four protocol methods enable session discovery, inspection, and deletion. Desktop integration and CLI commands remain.
+**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol and desktop UI. Phases 1–3 are complete; sessions survive gateway restarts, four protocol methods enable session management, and the desktop sidebar loads sessions on connect, shows timestamp labels, loads history on switch, and supports delete/clear actions. CLI commands and hardening remain.
 
-**Status** — **Phase 2 complete.** Sessions are persisted to disk, restored on gateway restart, and manageable via four WebSocket protocol methods (`sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all`). Desktop integration (Phase 3) and CLI commands (Phase 4) remain.
+**Status** — **Phase 3 complete.** Sessions are persisted to disk, restored on gateway restart, manageable via four WebSocket protocol methods, and fully integrated into the desktop UI. CLI commands (Phase 4) and hardening (Phase 5) remain.
 
 ## Problem Statement
 
@@ -32,7 +32,7 @@ This creates several user-facing problems:
 
 ### Server-Side Session Storage
 
-- **`SessionStore`** (`crates/lib/src/session.rs`) — ~~In-memory `HashMap<SessionId, Session>` with no disk I/O.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, sessions are persisted to disk as JSON files with write-through on every mutation and lazy loading on `get()`. `Session` now derives `Serialize, Deserialize`. New `scan()` method returns `SessionSummary` metadata without loading full history. **Phase 2:** New `remove_all()` method clears all sessions from memory and disk, deletes all `sess-*.json` files, clears the disk index, and returns the count of removed sessions.
+- **`SessionStore`** (`crates/lib/src/session.rs`) — ~~In-memory `HashMap<SessionId, Session>` with no disk I/O.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, sessions are persisted to disk as JSON files with write-through on every mutation and lazy loading on `get()`. `Session` now derives `Serialize, Deserialize`. New `scan()` method returns `SessionSummary` metadata without loading full history. **Phase 2:** New `remove_all()` method clears all sessions from memory and disk, deletes all `sess-*.json` files, clears the disk index, and returns the count of removed sessions. **Phase 3 (bug fix):** `get_or_create` now includes a `load_from_disk` fallback when the in-memory index doesn't contain the ID — the index can become stale when `try_write()` fails due to lock contention (e.g. during `create()`, `remove()`, or `remove_all()`). Without this fallback, `get_or_create` would skip the filesystem and create a new empty session, silently overwriting any existing session file on disk. The stale-index entry is also patched when found, consistent with how `get()` already works.
 - **`Session`** struct — Fields: `id: SessionId`, `messages: Vec<SessionMessage>`, `delegation_count: usize`, `delegation_by_worker: HashMap<String, usize>`. **Phase 1:** Added `created_at: String` and `updated_at: String` (ISO 8601 timestamps with `#[serde(default)]`).
 - **`SessionMessage`** struct — Fields: `role: String`, `content: String`, `tool_calls: Option<Vec<ToolCall>>`, `tool_name: Option<String>`. Derives `Serialize, Deserialize`.
 - **`SessionBindingStore`** (`crates/lib/src/routing.rs`) — ~~Bidirectional in-memory mapping between `(channel_id, conversation_id)` and `session_id`. Also lost on restart.~~ **Phase 1:** Now supports optional `data_dir: PathBuf` via `with_data_dir()`. When set, bindings are persisted to `bindings.json` on every mutation. New `remove_binding()` and `load_from_disk()` methods. `ChannelConvKey` now derives `Serialize, Deserialize`. **Phase 2:** New `remove_all()` method clears both in-memory maps and rewrites `bindings.json` as an empty array.
@@ -56,12 +56,16 @@ This creates several user-facing problems:
 
 ### Desktop Application
 
-- **`session_messages: BTreeMap<String, Vec<ChatMessage>>`** — Per-session transcript storage, entirely in-memory. Cleared implicitly when the app closes. **Phase 2:** The `sessions.history` protocol method now exists for loading history from the gateway; desktop integration (calling it on session switch) is Phase 3.
-- **`session_order: Vec<String>`** — MRU-ordered session IDs for the sidebar. Only populated from events observed during the current app session. **Phase 2:** The `sessions.list` protocol method now exists for discovering sessions on gateway connect; desktop integration (calling it on connect) is Phase 3.
-- **`session_meta: HashMap<String, (Option<String>, Option<String>)>`** — Per-session channel metadata. Not persisted.
-- **Session sidebar** (`crates/desktop/src/app/ui/sessions.rs`) — Lists sessions in MRU order. Labels are raw session IDs (e.g. `sess-a1b2c3...`) optionally with channel metadata. No delete, rename, or clear buttons.
-- **"New session" button** — Only visible when `chat_session_id` is `None` (before the first message or after a gateway restart clears it). No way to explicitly start a new session once one exists.
-- **Gateway stop** — Clears `chat_session_id` and `chat_messages` but **preserves** `session_messages`, `session_order`, and `session_meta` in memory.
+- **`session_messages: BTreeMap<String, Vec<ChatMessage>>`** — Per-session transcript storage. **Phase 3:** Now populated from `sessions.history` on session switch for persisted sessions. Empty assistant messages from the history conversion are skipped to match the live event stream behavior (prevents extra spacing between tool calls and messages).
+- **`session_order: Vec<String>`** — MRU-ordered session IDs for the sidebar. **Phase 3:** Now populated from `sessions.list` on gateway connect.
+- **`session_summaries: HashMap<String, SessionSummary>`** — Per-session summary metadata (id, timestamps, message count, channel binding). **Phase 3:** Replaces the former `session_meta` HashMap. Populated from `sessions.list` on gateway connect and updated via session events.
+- **`SessionSummary`** (desktop types) — **Phase 3:** Desktop-side struct with `id`, `created_at`, `updated_at`, `message_count`, and `channel_binding: Option<ChannelBinding>`. The `channel_meta()` helper returns a display string for the sidebar label — channel-bound sessions show `(channel_id)` only (e.g. `(telegram)`), dropping the `conversation_id` which is an internal identifier.
+- **Session sidebar** (`crates/desktop/src/app/ui/sessions.rs`) — **Phase 3:** Lists sessions with timestamp labels (e.g. "Jun 10, 12:34"), short session IDs below, channel binding tags, per-session "×" delete buttons (right-aligned via RTL layout section so labels cannot push them off screen), and a "Clear all sessions" button with stacked confirmation dialog. "New session" button is always visible. All sessions from `session_summaries` are shown (not filtered by `session_messages`).
+- **"New session" button** — **Phase 3:** Always visible, regardless of whether a session is active. Clicking it calls `start_new_session()`.
+- **Session event handling** — **Phase 3:** `session.deleted` and `sessions.cleared` broadcast events are processed: `session.deleted` removes the session from `session_messages`, `session_order`, and `session_summaries` (switching to "New session" mode if it was the selected session); `sessions.cleared` clears all local session state and switches to "New session" mode.
+- **Channel-bound session read-only guard** — **Phase 3:** Clicking a channel-bound session in the sidebar sets `selected_session_id` (for viewing) but not `chat_session_id` (for sending). The `can_send_base` guard checks `chat_session_id.is_some()`, correctly disabling the chat input for channel-bound sessions. This prevents the desktop from sending a message that would cause the gateway's `get_or_create` to create a new empty session overwriting the channel session's history on disk.
+- **History loading** — **Phase 3:** When switching to a persisted session not in `session_messages`, a `sessions.history` RPC is triggered. The chat area shows "Loading session history…" while the fetch is in flight. The history conversion emits assistant progress text before tool call entries (matching the live event stream order where `session.assistant_progress` arrives before `session.tool_call` events).
+- **Gateway stop** — Clears `chat_session_id` and `chat_messages` but **preserves** `session_messages`, `session_order`, and `session_summaries` in memory. Resets `sessions_list_fetched` so the list is re-fetched on reconnect.
 
 ### CLI
 
@@ -308,40 +312,34 @@ Two server-sent events notify clients of session deletion in real time, so deskt
 
 ### Desktop Application Changes
 
-#### Session Sidebar Enhancements
+#### Session Sidebar
 
-The session sidebar (`crates/desktop/src/app/ui/sessions.rs`) needs several improvements:
+The session sidebar (`crates/desktop/src/app/ui/sessions.rs`) was enhanced in Phase 3:
 
-1. **Load session list from gateway** — On gateway connect, call `sessions.list` and populate `session_order` and `session_meta` from the response. This replaces the current behavior of only showing sessions observed via WebSocket events.
-2. **Session labels** — Display `created_at` timestamp (e.g. "Jun 10, 12:34") alongside the session ID. Optionally show the first user message as a preview line.
-3. **Always-visible "New session" button** — Allow the user to explicitly start a new session at any time, even when a session is active. Clicking it sets `selected_session_id = None` and `chat_session_id = None`, so the next message creates a fresh session.
-4. **Delete button** — Per-session delete affordance (e.g. a small "×" or right-click context menu). Calls `sessions.delete` on the gateway and removes the session from local state.
-5. **"Clear all" button** — At the bottom of the sidebar, a "Clear all sessions" button that calls `sessions.delete_all`. Requires confirmation.
+1. **Load session list from gateway** — On gateway connect, `sessions.list` is called and `session_order` and `session_summaries` are populated from the response. This replaces the previous behavior of only showing sessions observed via WebSocket events.
+2. **Session labels** — `created_at` timestamp is displayed as the primary label (e.g. "Jun 10, 12:34") with the short session ID below in dimmer text. Channel binding info is shown as a small tag — channel-bound sessions display `(channel_id)` only (e.g. `(telegram)`), dropping the `conversation_id` which is an internal identifier not useful in the sidebar. The timestamp-only approach was chosen over first-user-message preview because timestamps are available from `sessions.list` metadata alone and require no additional data loading.
+3. **Always-visible "New session" button** — The user can explicitly start a new session at any time, even when a session is active. Clicking it sets `selected_session_id = None` and `chat_session_id = None`, so the next message creates a fresh session.
+4. **Delete button** — Per-session "×" button right-aligned via a `ui.with_layout(egui::Layout::right_to_left(...))` section (same pattern as `header.rs`). The RTL section reserves space from the right edge first, so the label is constrained to the remaining width and cannot push the button off screen. Calls `sessions.delete` on the gateway.
+5. **"Clear all" button** — At the bottom of the sidebar, a "Clear all sessions" button with a stacked confirmation dialog (warning label vertically above the buttons, fitting the narrow 220px panel). Calls `sessions.delete_all`.
 
 #### Session Loading on Switch
 
-When the user clicks a session in the sidebar that is not in the local `session_messages` map (e.g. a session from a previous gateway run), the desktop should:
+When the user clicks a session in the sidebar that is not in the local `session_messages` map (e.g. a session from a previous gateway run), the desktop:
 
-1. Call `sessions.history` with the session id.
-2. Convert the returned `SessionMessage` array to desktop `ChatMessage` objects.
-3. Populate `session_messages[session_id]` with the converted messages.
-4. Set `selected_session_id` to the session id.
+1. Sets `loading_session_id` and triggers a `sessions.history` RPC.
+2. Shows "Loading session history…" in the chat area while the fetch is in flight.
+3. Converts the returned `SessionMessage` array to desktop `ChatMessage` objects — empty assistant messages are skipped (matching the live event stream behavior where `session.message` events with empty content are dropped), and assistant progress text is emitted before tool call entries (matching the live event stream order where `session.assistant_progress` arrives before `session.tool_call` events).
+4. Populates `session_messages[session_id]` with the converted messages.
 
 This is a lazy-load pattern: sessions are listed with metadata only, and full history is loaded on demand when the user selects a session.
 
+#### Channel-Bound Session Read-Only Guard
+
+Clicking a channel-bound session in the sidebar sets `selected_session_id` (for viewing) but not `chat_session_id` (for sending). The `can_send_base` guard checks `chat_session_id.is_some()`, correctly disabling the chat input for channel-bound sessions. This prevents the desktop from sending a message that would cause the gateway's `get_or_create` to create a new empty session, overwriting the channel session's history on disk.
+
 #### Session Event Processing
 
-The existing `poll_session_events` logic continues to work for real-time updates. The key change is that session events can now arrive for sessions that were restored from disk. The deduplication logic already handles this (checks for existing messages with the same role+content), so no changes should be needed there.
-
-#### Phase 1 Testing Findings
-
-Manual testing of Phase 1 identified two desktop issues that need to be addressed in Phase 3:
-
-1. **Session sidebar is empty after gateway restart** — After restarting the gateway, the desktop sidebar shows no sessions, even though persisted sessions exist on disk. The desktop only populates `session_order` from events observed during the current app session; it does not call any gateway method to discover existing sessions. Fix: on gateway connect, call `sessions.list` and populate the sidebar from the response.
-
-2. **Message history not displayed for persisted sessions** — When selecting a session in the desktop that was persisted from a previous gateway run, the chat area does not show the message history, even though the session JSON file on disk contains the full conversation. The desktop's `session_messages` map is empty for sessions not observed in the current app session, and there is no mechanism to load history from the gateway. Fix: call `sessions.history` when the user selects a session whose messages are not in the local `session_messages` map.
-
-**Phase 2 resolved:** The `sessions.list` and `sessions.history` protocol methods now exist (Phase 2). These issues are now desktop-side integration tasks for Phase 3.
+The `poll_session_events` handler now processes `session.deleted` and `sessions.cleared` broadcast events in addition to the existing real-time message events. `session.deleted` removes the session from `session_messages`, `session_order`, and `session_summaries`, switching to "New session" mode if it was the selected session. `sessions.cleared` clears all local session state and switches to "New session" mode. The RPC result handlers for delete/clear do not duplicate the event handler's work — the broadcast event is the authoritative cleanup path.
 
 ### CLI Changes
 
@@ -385,12 +383,12 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 - [x] **Binding persistence** — `SessionBindingStore` mappings are persisted to `bindings.json` and restored on gateway start.
 - [x] **Directory auto-creation** — The `sessions/` directory is created automatically on gateway start (empty if no persisted sessions exist). Session files are created within it on first session creation.
 - [x] **Manual cleanup** — Deleting the `sessions/` directory on disk is a valid way to clear all session history. The gateway handles missing files gracefully.
-- [ ] **Desktop session list** — On gateway connect, the desktop loads the session list from `sessions.list` and populates the sidebar.
-- [ ] **Desktop session labels** — Session sidebar entries display timestamps and/or first-message previews instead of raw UUIDs.
-- [ ] **Desktop "New session" button** — Always accessible, allowing the user to start a new session at any time.
-- [ ] **Desktop session loading** — Clicking a session in the sidebar loads its full history via `sessions.history` if not already in memory.
-- [ ] **Desktop session deletion** — Per-session delete action in the sidebar, calling `sessions.delete`.
-- [ ] **Desktop "Clear all" action** — A "Clear all sessions" button with confirmation, calling `sessions.delete_all`.
+- [x] **Desktop session list** — On gateway connect, the desktop loads the session list from `sessions.list` and populates the sidebar.
+- [x] **Desktop session labels** — Session sidebar entries display timestamps and/or first-message previews instead of raw UUIDs.
+- [x] **Desktop "New session" button** — Always accessible, allowing the user to start a new session at any time.
+- [x] **Desktop session loading** — Clicking a session in the sidebar loads its full history via `sessions.history` if not already in memory.
+- [x] **Desktop session deletion** — Per-session delete action in the sidebar, calling `sessions.delete`.
+- [x] **Desktop "Clear all" action** — A "Clear all sessions" button with confirmation, calling `sessions.delete_all`.
 - [ ] **CLI `chai sessions list`** — List sessions for the active profile.
 - [ ] **CLI `chai sessions delete <ID>`** — Delete a session by id.
 - [ ] **CLI `chai sessions clear`** — Delete all sessions.
@@ -408,15 +406,18 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 |-------|-------|--------|
 | 1. Core persistence | Add `Serialize`/`Deserialize` on `Session`, timestamps, `sessions/` directory layout, write-through `SessionStore`, binding persistence, gateway start restoration | Complete |
 | 2. Protocol methods | `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all` WebSocket methods | Complete |
-| 3. Desktop session management | Load session list on connect (sidebar is empty after restart), session history rendering (message history not displayed for persisted sessions), session labels, "New session" button, session loading on switch, delete and clear actions | Not started |
+| 3. Desktop session management | Load session list on connect (sidebar is empty after restart), session history rendering (message history not displayed for persisted sessions), session labels, "New session" button, session loading on switch, delete and clear actions | Complete |
 | 4. CLI session management | `chai sessions list`, `chai sessions delete`, `chai sessions clear` subcommands | Not started |
 | 5. Hardening | Atomic writes verification, startup performance with many sessions, error recovery for corrupt files, integration tests | Not started |
 
 ## Open Questions
 
-- **Session title generation** — Should the gateway auto-generate a session title (e.g. from the first user message or via an LLM call) and store it as metadata? This would improve the sidebar display but adds complexity. A simpler first step is to use the timestamp and first-user-message preview.
-- **Per-agent sessions for workers** — Workers currently do not maintain independent sessions. If a future design adds worker sessions, the directory structure supports it. Should this be explicitly designed for now, or deferred?
 - **Session file compaction** — Over time, session files may grow large. Should there be a mechanism to compact or truncate old messages in the on-disk file (separate from the in-memory session history model context limit)?
+
+### Resolved Open Questions
+
+- **Session title generation** — **Resolved (Phase 3):** Deferred to a future phase. Using `createdAt` timestamps as labels for now — timestamps are available from `sessions.list` metadata alone and require no additional data loading or server changes. Auto-generated titles remain a future consideration.
+- **Per-agent sessions for workers** — **Resolved (Phase 3):** Deferred. Only the orchestrator's sessions are shown in the desktop. The directory structure already supports per-agent sessions if needed later.
 
 ## Follow-ups
 

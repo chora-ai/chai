@@ -183,6 +183,51 @@ pub struct SessionEvent {
     pub(crate) pending_tool_calls: Option<Vec<serde_json::Value>>,
 }
 
+/// Channel binding info for a session, as returned by `sessions.list`.
+#[derive(Clone, Default)]
+pub struct ChannelBinding {
+    pub(crate) channel_id: String,
+    pub(crate) conversation_id: String,
+}
+
+/// Summary metadata for a session, as returned by `sessions.list`.
+/// Used to populate the session sidebar without loading full message history.
+#[derive(Clone, Default)]
+pub struct SessionSummary {
+    pub(crate) id: String,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+    #[allow(dead_code)]
+    pub(crate) message_count: usize,
+    pub(crate) channel_binding: Option<ChannelBinding>,
+}
+
+impl SessionSummary {
+    /// Extract the channel metadata as a `(channel_id, conversation_id)` pair,
+    /// for compatibility with code that previously read `session_meta`.
+    #[allow(dead_code)]
+    pub(crate) fn channel_meta(&self) -> (Option<String>, Option<String>) {
+        self.channel_binding.as_ref().map_or(
+            (None, None),
+            |b| {
+                let cid = if b.channel_id.is_empty() { None } else { Some(b.channel_id.clone()) };
+                let conv = if b.conversation_id.is_empty() { None } else { Some(b.conversation_id.clone()) };
+                (cid, conv)
+            },
+        )
+    }
+}
+
+/// Full session history as returned by `sessions.history`.
+/// Contains the session id, messages (as `ChatMessage` objects), and timestamps.
+#[derive(Clone, Default)]
+pub struct SessionHistory {
+    pub(crate) id: String,
+    pub(crate) messages: Vec<ChatMessage>,
+    pub(crate) created_at: String,
+    pub(crate) updated_at: String,
+}
+
 /// One worker row derived from gateway **`status`** `payload.agents` (**`role`** **`worker`**): effective defaults for delegation.
 #[derive(Clone, Default)]
 pub struct StatusWorkerRow {

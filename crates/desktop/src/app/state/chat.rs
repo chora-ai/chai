@@ -10,7 +10,7 @@ use lib::orchestration::{
     EVENT_DELEGATE_COMPLETE, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED, EVENT_DELEGATE_START,
 };
 
-use super::super::{ChaiApp, ChatMessage, SessionEvent};
+use super::super::{ChannelBinding, ChaiApp, ChatMessage, SessionEvent, SessionSummary};
 
 /// Last timeline row that is not an orchestration delegation line, tool event, or assistant thinking row
 /// (used so RPC + WebSocket do not duplicate the same assistant turn).
@@ -145,6 +145,35 @@ impl ChaiApp {
         self.session_order.insert(0, session_id.to_string());
     }
 
+    /// Update channel metadata for a session in `session_summaries`.
+    /// If the session has no summary yet, creates one with the current time
+    /// as `created_at`/`updated_at` so the sidebar shows a timestamp.
+    pub(crate) fn update_session_channel_meta(
+        &mut self,
+        session_id: &str,
+        channel_id: Option<String>,
+        conversation_id: Option<String>,
+    ) {
+        let summary = self
+            .session_summaries
+            .entry(session_id.to_string())
+            .or_insert_with(|| {
+                let now = super::super::now_iso8601();
+                SessionSummary {
+                    id: session_id.to_string(),
+                    created_at: now.clone(),
+                    updated_at: now,
+                    ..Default::default()
+                }
+            });
+        if channel_id.is_some() || conversation_id.is_some() {
+            summary.channel_binding = Some(ChannelBinding {
+                channel_id: channel_id.unwrap_or_default(),
+                conversation_id: conversation_id.unwrap_or_default(),
+            });
+        }
+    }
+
     /// Poll for session.message events from the gateway and update local session timelines.
     /// For all events we add them in gateway order (user → assistant); if the last message in the session has the same role and
     /// content (e.g. echo of our own turn from start_chat_turn + poll_chat_turn), we skip to avoid duplicate.
@@ -169,6 +198,31 @@ impl ChaiApp {
             // status refetch, then skip — these are not chat messages.
             if ev.role == "config_changed" {
                 self.request_status_refetch();
+                continue;
+            }
+            // Handle session deletion events — remove local state for the deleted session.
+            if ev.role == "session_deleted" {
+                let sid = ev.session_id.clone();
+                if !sid.is_empty() {
+                    self.session_messages.remove(&sid);
+                    self.session_summaries.remove(&sid);
+                    self.session_order.retain(|id| id != &sid);
+                    if self.selected_session_id.as_deref() == Some(sid.as_str()) {
+                        self.start_new_session();
+                    }
+                    if self.chat_session_id.as_deref() == Some(sid.as_str()) {
+                        self.chat_session_id = None;
+                    }
+                }
+                continue;
+            }
+            // Handle sessions-cleared events — remove all local session state.
+            if ev.role == "sessions_cleared" {
+                self.session_messages.clear();
+                self.session_summaries.clear();
+                self.session_order.clear();
+                self.start_new_session();
+                self.chat_session_id = None;
                 continue;
             }
             let session_id = ev.session_id.clone();
@@ -208,8 +262,7 @@ impl ChaiApp {
                     .iter()
                     .any(|m| m.role == "user" && m.content == ev.content)
             {
-                self.session_meta
-                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
@@ -245,8 +298,7 @@ impl ChaiApp {
                         pending_tool_calls: ev.pending_tool_calls.clone(),
                     });
                 }
-                self.session_meta
-                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
@@ -274,8 +326,7 @@ impl ChaiApp {
                             idx, tc.tool_name
                         );
                         tc.tool_result = ev.tool_result.clone();
-                        self.session_meta
-                            .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                        self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                         self.move_session_to_front(&session_id);
                         continue;
                     } else {
@@ -304,8 +355,7 @@ impl ChaiApp {
                     source: ev.source.clone(),
                     pending_tool_calls: ev.pending_tool_calls.clone(),
                 });
-                self.session_meta
-                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
@@ -317,8 +367,7 @@ impl ChaiApp {
                     pending,
                 );
                 entry.push(msg);
-                self.session_meta
-                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
@@ -335,16 +384,14 @@ impl ChaiApp {
                 // The agent has finished its current iteration — clear the
                 // stopping flag so the Stop button reverts to its idle state.
                 self.chat_stopping = false;
-                self.session_meta
-                    .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
             // Skip if this is a duplicate of the last message (e.g. echo of our own turn from start_chat_turn + poll_chat_turn).
             if let Some(last) = entry.last() {
                 if last.role == ev.role && last.content == ev.content {
-                    self.session_meta
-                        .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                    self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                     self.move_session_to_front(&session_id);
                     continue;
                 }
@@ -362,8 +409,7 @@ impl ChaiApp {
                         m.role == "assistant_progress" && m.content == ev.content
                     })
                 {
-                    self.session_meta
-                        .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                    self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                     self.move_session_to_front(&session_id);
                     continue;
                 }
@@ -396,8 +442,7 @@ impl ChaiApp {
                                 existing.tool_results = None;
                             }
                         }
-                        self.session_meta
-                            .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+                        self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                         self.move_session_to_front(&session_id);
                         continue;
                     }
@@ -423,8 +468,7 @@ impl ChaiApp {
                 ev_msg.tool_results = None;
             }
             entry.push(ev_msg);
-            self.session_meta
-                .insert(session_id.clone(), (ev.channel_id, ev.conversation_id));
+            self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
             self.move_session_to_front(&session_id);
         }
     }
@@ -870,6 +914,57 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             let _ = tx.send(ev);
                             ctx.request_repaint();
                         }
+                    } else if event_name == "session.deleted" {
+                        // Gateway reports a session was deleted. Forward the session id
+                        // so poll_session_events can clean up local state.
+                        if let Some(payload) = val.get("payload") {
+                            let data = payload.get("data").unwrap_or(payload);
+                            let session_id = data
+                                .get("sessionId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.trim())
+                                .filter(|s| !s.is_empty())
+                                .unwrap_or("")
+                                .to_string();
+                            let ev = SessionEvent {
+                                session_id,
+                                role: "session_deleted".to_string(),
+                                content: String::new(),
+                                channel_id: None,
+                                conversation_id: None,
+                                tool_calls: None,
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
+                                source: None,
+                                pending_tool_calls: None,
+                            };
+                            let _ = tx.send(ev);
+                            ctx.request_repaint();
+                        }
+                    } else if event_name == "sessions.cleared" {
+                        // Gateway reports all sessions were deleted.
+                        let ev = SessionEvent {
+                            session_id: String::new(),
+                            role: "sessions_cleared".to_string(),
+                            content: String::new(),
+                            channel_id: None,
+                            conversation_id: None,
+                            tool_calls: None,
+                            tool_results: None,
+                            delegation_event: None,
+                            tool_name: None,
+                            tool_args: None,
+                            tool_result: None,
+                            tool_index: None,
+                            source: None,
+                            pending_tool_calls: None,
+                        };
+                        let _ = tx.send(ev);
+                        ctx.request_repaint();
                     } else if event_name == "gateway.config.changed" {
                         // Gateway reports a config change (e.g. model discovery updated
                         // provider models). Send a lightweight signal so the desktop

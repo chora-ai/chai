@@ -9,9 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Desktop
+
+- Session sidebar loads persisted sessions on gateway connect via `sessions.list` — sidebar is populated with timestamps (e.g. "Jun 10, 12:34") and short session IDs instead of raw UUIDs
+- Session history loads on demand when selecting a persisted session via `sessions.history` — chat area shows "Loading session history…" while the fetch is in flight
+- Per-session "×" delete button in the session sidebar — calls `sessions.delete` on the gateway; right-aligned via RTL layout so labels cannot push the button off screen
+- "Clear all sessions" button with confirmation dialog at the bottom of the session sidebar — calls `sessions.delete_all`; confirmation dialog stacks the warning label above the buttons to fit the narrow 220px panel
+- "New session" button is always visible in the sessions panel, regardless of whether a session is active
+- Channel-bound sessions display a channel tag (e.g. `(telegram)`) in the sidebar and are read-only from the desktop — clicking a channel session loads its history for viewing but disables the chat input, preventing accidental session overwrites
+
 #### Runtime and Configuration
 
-- Persistent sessions: chat sessions and channel bindings survive gateway restarts — sessions are written to disk as JSON files under `<profile>/agents/<agentId>/sessions/` with write-through persistence, lazy loading on startup, and atomic writes. `chai chat --session <ID>` can resume a session from a previous gateway run. Users can delete the `sessions/` directory to clear all session history. Desktop integration (session sidebar, history display) is forthcoming
+- `sessions.list` WebSocket method: returns summary metadata (id, timestamps, message count, channel binding) for all sessions, sorted by most recently updated
+- `sessions.history` WebSocket method: returns full message history for a given session id, with optional `limit` and `offset` pagination
+- `sessions.delete` WebSocket method: deletes a session from memory and disk, removes associated bindings, broadcasts a `session.deleted` event
+- `sessions.delete_all` WebSocket method: deletes all sessions for the active profile from memory and disk, broadcasts a `sessions.cleared` event
 
 ## [0.2.0] - 2026-06-24
 

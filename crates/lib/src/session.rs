@@ -316,6 +316,22 @@ impl SessionStore {
                 }
             }
         }
+        // Disk index may be stale (e.g. try_write contention on create, or an
+        // externally placed file). Fall back to a direct filesystem check before
+        // creating a new session, to avoid silently overwriting an existing one.
+        if self.data_dir.is_some() {
+            if let Some(session) = self.load_from_disk(&id) {
+                log::warn!(
+                    "session {} found on disk but not in disk_index; loading and patching index",
+                    id
+                );
+                self.inner.write().await.insert(id.clone(), session);
+                if let Ok(mut index) = self.disk_index.try_write() {
+                    index.insert(id.clone());
+                }
+                return id;
+            }
+        }
         // Not on disk either — create new.
         let now = chrono_now_iso8601();
         let session = Session {

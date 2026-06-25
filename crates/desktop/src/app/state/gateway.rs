@@ -1219,3 +1219,378 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
         Err("no stop response".to_string())
     })
 }
+
+/// Fetch the session list from the gateway via `sessions.list` WebSocket method.
+/// Returns summary metadata for all sessions (id, timestamps, message count, channel binding).
+pub(crate) fn fetch_sessions_list(profile_override: Option<&str>) -> Result<Vec<crate::app::SessionSummary>, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
+        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
+                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.list", "params": {} });
+        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.list failed").to_string());
+                }
+                let payload = res.get("payload").ok_or("missing payload")?;
+                let sessions_arr = payload.get("sessions").and_then(|v| v.as_array()).ok_or("missing sessions array")?;
+                let mut summaries = Vec::new();
+                for entry in sessions_arr {
+                    let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let created_at = entry.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let updated_at = entry.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let message_count = entry.get("messageCount").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                    let channel_binding = entry.get("channelBinding").and_then(|b| {
+                        let cid = b.get("channelId").and_then(|v| v.as_str()).unwrap_or("");
+                        let conv = b.get("conversationId").and_then(|v| v.as_str()).unwrap_or("");
+                        if cid.is_empty() && conv.is_empty() { None } else {
+                            Some(crate::app::ChannelBinding { channel_id: cid.to_string(), conversation_id: conv.to_string() })
+                        }
+                    });
+                    summaries.push(crate::app::SessionSummary { id, created_at, updated_at, message_count, channel_binding });
+                }
+                return Ok(summaries);
+            }
+        }
+        Err("no sessions.list response".to_string())
+    })
+}
+
+/// Fetch session history from the gateway via `sessions.history` WebSocket method.
+pub(crate) fn fetch_sessions_history(profile_override: Option<&str>, session_id: &str) -> Result<crate::app::SessionHistory, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
+        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
+        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
+                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.history", "params": { "sessionId": session_id } });
+        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.history failed").to_string());
+                }
+                let payload = res.get("payload").ok_or("missing payload")?;
+                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or(session_id).to_string();
+                let created_at = payload.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let updated_at = payload.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                let messages_arr = payload.get("messages").and_then(|v| v.as_array()).ok_or("missing messages array")?;
+                let mut messages = Vec::new();
+                // The gateway stores tool calls and results differently from the live
+                // event stream. In the session file:
+                //   - assistant messages carry toolCalls[{function:{name, arguments, index}}]
+                //   - tool results are separate "tool" messages with toolName and content
+                // We need to reconstruct the desktop timeline: individual tool_call
+                // entries with matched tool_result fields, followed by the assistant text.
+                //
+                // First pass: collect "tool" messages in order so we can match them
+                // sequentially to their corresponding tool calls.
+                let mut tool_result_entries: Vec<(String, String)> = Vec::new();
+                for m in messages_arr {
+                    let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
+                    if role == "tool" {
+                        let tool_name = m.get("toolName").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        tool_result_entries.push((tool_name, content));
+                    }
+                }
+                // Second pass: build the chat timeline.
+                // Use a cursor into tool_result_entries to match results to tool calls
+                // in sequential order (the gateway stores them in the same order as the
+                // tool calls that triggered them).
+                let mut tool_result_cursor: usize = 0;
+                for m in messages_arr {
+                    let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    match role.as_str() {
+                        "user" => { messages.push(crate::app::ChatMessage::user(content)); }
+                        "system" => { messages.push(crate::app::ChatMessage::system(content)); }
+	                        "assistant" => {
+	                            let tool_calls = m.get("toolCalls").and_then(|v| v.as_array());
+
+	                            if let Some(calls) = tool_calls {
+	                                if !calls.is_empty() {
+	                                    // Emit the assistant progress text before tool_call
+	                                    // entries, matching the live event stream order where
+	                                    // session.assistant_progress arrives before
+	                                    // session.tool_call. Skip empty assistant messages —
+	                                    // the live event stream drops session.message events
+	                                    // with empty content, so including them in history
+	                                    // would cause extra spacing (the render function skips
+	                                    // them but the layout still adds inter-message spacing).
+	                                    if !content.trim().is_empty() {
+	                                        messages.push(crate::app::ChatMessage {
+	                                            role: "assistant_progress".to_string(),
+	                                            content: content.clone(),
+	                                            tool_calls: None,
+	                                            tool_results: None,
+	                                            delegation_event: None,
+	                                            tool_name: None,
+	                                            tool_args: None,
+	                                            tool_result: None,
+	                                            tool_index: None,
+	                                            source: None,
+	                                            pending_tool_calls: None,
+	                                        });
+	                                    }
+	                                    // Emit individual tool_call entries for each tool call,
+	                                    // matching the live event stream structure. Try to match
+	                                    // stored "tool" results to these tool_call entries by
+	                                    // advancing the cursor sequentially.
+	                                    for call in calls.iter() {
+	                                        let tool_name = call.get("function")
+	                                            .and_then(|f| f.get("name"))
+	                                            .and_then(|n| n.as_str())
+	                                            .unwrap_or("unknown")
+	                                            .to_string();
+	                                        let tool_args = call.get("function")
+	                                            .and_then(|f| f.get("arguments"))
+	                                            .cloned();
+	                                        let tool_index = call.get("function")
+	                                            .and_then(|f| f.get("index"))
+	                                            .and_then(|v| v.as_u64())
+	                                            .map(|v| v as usize);
+
+	                                        // Match the tool result by advancing the cursor.
+	                                        // The gateway stores tool results in the same order
+	                                        // as the tool calls that triggered them.
+	                                        let tool_result = if tool_result_cursor < tool_result_entries.len() {
+	                                            let (ref name, ref result) = tool_result_entries[tool_result_cursor];
+	                                            if name == &tool_name {
+	                                                tool_result_cursor += 1;
+	                                                Some(result.clone())
+	                                            } else {
+	                                                // Name mismatch — still try advancing in case
+	                                                // there are unmatched entries.
+	                                                None
+	                                            }
+	                                        } else {
+	                                            None
+	                                        };
+
+	                                        messages.push(crate::app::ChatMessage {
+	                                            role: "tool_call".to_string(),
+	                                            content: String::new(),
+	                                            tool_calls: None,
+	                                            tool_results: None,
+	                                            delegation_event: None,
+	                                            tool_name: Some(tool_name),
+	                                            tool_args,
+	                                            tool_result,
+	                                            tool_index,
+	                                            source: None,
+	                                            pending_tool_calls: None,
+	                                        });
+	                                    }
+	                                    continue;
+	                                }
+                            }
+                            // No tool calls — emit the assistant message as-is.
+                            let tool_calls_val = tool_calls.map(|arr| arr.clone());
+                            let tool_results = m.get("toolResults").and_then(|v| v.as_array()).map(|arr| {
+                                arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect::<Vec<_>>()
+                            });
+                            let tool_results = tool_results.filter(|v| !v.is_empty());
+                            messages.push(crate::app::ChatMessage::assistant(content, tool_calls_val, tool_results));
+                        }
+                        // "tool" messages are handled above by matching them to their
+                        // tool_call entries. Skip them here to avoid duplicate entries.
+                        "tool" => {}
+                        _ => {}
+                    }
+                }
+                return Ok(crate::app::SessionHistory { id, messages, created_at, updated_at });
+            }
+        }
+        Err("no sessions.history response".to_string())
+    })
+}
+
+/// Delete a session via the `sessions.delete` WebSocket method.
+pub(crate) fn fetch_sessions_delete(profile_override: Option<&str>, session_id: &str) -> Result<bool, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
+        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
+        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
+                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete", "params": { "sessionId": session_id } });
+        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.delete failed").to_string());
+                }
+                return Ok(true);
+            }
+        }
+        Err("no sessions.delete response".to_string())
+    })
+}
+
+/// Delete all sessions via the `sessions.delete_all` WebSocket method.
+pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>) -> Result<usize, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+    rt.block_on(async move {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
+        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
+        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
+        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
+        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("1") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
+                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    return Err(err.to_string());
+                }
+                if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
+                    if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
+                        let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
+                    }
+                }
+                break;
+            }
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete_all", "params": {} });
+        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+        while let Some(msg) = ws.next().await {
+            let msg = msg.map_err(|e| e.to_string())?;
+            let Message::Text(text) = msg else { continue };
+            let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("id").and_then(|v| v.as_str()) == Some("2") {
+                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.delete_all failed").to_string());
+                }
+                let count = res.get("payload").and_then(|p| p.get("deletedCount")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                return Ok(count);
+            }
+        }
+        Err("no sessions.delete_all response".to_string())
+    })
+}

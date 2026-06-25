@@ -12,7 +12,7 @@ mod state;
 mod types;
 mod ui;
 
-pub use types::{AgentReply, AgentSkillsRuntime, ChatMessage, GatewayStatusDetails, ProviderStatusInfo, SessionEvent};
+pub use types::{AgentReply, AgentSkillsRuntime, ChannelBinding, ChatMessage, GatewayStatusDetails, ProviderStatusInfo, SessionEvent, SessionHistory, SessionSummary};
 
 #[derive(Clone, Copy, PartialEq, Eq, Default)]
 enum Screen {
@@ -102,8 +102,9 @@ pub struct ChaiApp {
     /// Set in start_chat_turn when chat_session_id is None; read in poll_chat_turn.
     chat_turn_is_new_session: bool,
     session_messages: BTreeMap<String, Vec<ChatMessage>>,
-    /// Optional channel metadata for each session (channelId, conversationId).
-    session_meta: HashMap<String, (Option<String>, Option<String>)>,
+    /// Summary metadata for each session (id, timestamps, message count, channel binding).
+    /// Populated from `sessions.list` on gateway connect and updated via session events.
+    session_summaries: HashMap<String, SessionSummary>,
     /// When Some, a session events stream is in flight; we read gateway session.message events here.
     session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
     /// Currently selected provider override (None = use gateway default).
@@ -118,6 +119,21 @@ pub struct ChaiApp {
     selected_session_id: Option<String>,
     /// Session IDs in most-recently-active order (latest first) for the sidebar list.
     session_order: Vec<String>,
+    /// When Some, a `sessions.list` fetch is in flight.
+    sessions_list_receiver: Option<mpsc::Receiver<Result<Vec<SessionSummary>, String>>>,
+    /// True once the session list has been fetched after the gateway was detected.
+    /// Reset to false when the gateway stops so a fresh fetch occurs on reconnect.
+    sessions_list_fetched: bool,
+    /// When Some, a `sessions.history` fetch is in flight for the given session id.
+    sessions_history_receiver: Option<(String, mpsc::Receiver<Result<SessionHistory, String>>)>,
+    /// Session id whose history is currently loading (shown as a loading indicator in the chat area).
+    loading_session_id: Option<String>,
+    /// When Some, a `sessions.delete` fetch is in flight for the given session id.
+    sessions_delete_receiver: Option<(String, mpsc::Receiver<Result<bool, String>>)>,
+    /// When Some, a `sessions.delete_all` fetch is in flight.
+    sessions_delete_all_receiver: Option<mpsc::Receiver<Result<usize, String>>>,
+    /// Whether the "Clear all" confirmation dialog is showing.
+    show_clear_all_confirm: bool,
     /// Whether the gateway was running last frame (used to detect stop and clear messages).
     was_gateway_running: bool,
     /// Currently selected skill on the Skills screen (by name).
@@ -198,6 +214,52 @@ pub struct ChaiApp {
     /// user switches agents so a new fetch can be triggered.
     agent_detail_requested_id: Option<String>,
 }
+/// Return the current time as an ISO 8601 string (e.g. "2025-06-10T12:34:56Z").
+/// Used for session timestamps when a session is created locally (before the
+/// gateway provides authoritative timestamps via `sessions.list`).
+fn now_iso8601() -> String {
+    let dur = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = dur.as_secs();
+    // Compute date/time components from unix timestamp.
+    // Simplified algorithm — valid for 1970–2099.
+    let days = secs / 86400;
+    let time_of_day = secs % 86400;
+    let hour = time_of_day / 3600;
+    let minute = (time_of_day % 3600) / 60;
+    let second = time_of_day % 60;
+    // Year computation.
+    let mut remaining_days = days;
+    let mut year = 1970u64;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if remaining_days < days_in_year {
+            break;
+        }
+        remaining_days -= days_in_year;
+        year += 1;
+    }
+    // Month computation.
+    let month_days = [31, if is_leap_year(year) { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1u64;
+    for &md in &month_days {
+        if remaining_days < md {
+            break;
+        }
+        remaining_days -= md;
+        month += 1;
+    }
+    let day = remaining_days + 1;
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hour, minute, second
+    )
+}
+
+fn is_leap_year(year: u64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
 
 /// Standard screen layout: title, optional subtitle, then body with a footer
 /// gap at the bottom. Use for full-screen panels (Agent, Skills, Gateway, Config).
@@ -254,7 +316,7 @@ impl Default for ChaiApp {
             pending_user_message: None,
             chat_turn_is_new_session: false,
             session_messages: BTreeMap::new(),
-            session_meta: HashMap::new(),
+            session_summaries: HashMap::new(),
             session_events_receiver: None,
             current_provider: None,
             current_model: None,
@@ -262,6 +324,13 @@ impl Default for ChaiApp {
             current_screen: Screen::default(),
             selected_session_id: None,
             session_order: Vec::new(),
+            sessions_list_receiver: None,
+            sessions_list_fetched: false,
+            sessions_history_receiver: None,
+            loading_session_id: None,
+            sessions_delete_receiver: None,
+            sessions_delete_all_receiver: None,
+            show_clear_all_confirm: false,
             was_gateway_running: false,
             selected_skill_name: None,
             cached_enabled_providers: None,
@@ -562,10 +631,17 @@ impl ChaiApp {
         self.pending_user_message = None;
         self.chat_turn_is_new_session = false;
         self.session_messages.clear();
-        self.session_meta.clear();
+        self.session_summaries.clear();
         self.session_order.clear();
         self.selected_session_id = None;
         self.session_events_receiver = None;
+        self.sessions_list_fetched = false;
+        self.sessions_list_receiver = None;
+        self.sessions_history_receiver = None;
+        self.loading_session_id = None;
+        self.sessions_delete_receiver = None;
+        self.sessions_delete_all_receiver = None;
+        self.show_clear_all_confirm = false;
     }
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         state::logs::init_logging();
@@ -781,9 +857,17 @@ impl ChaiApp {
                                 .expect("entry exists");
                             entry.insert(0, err_msg);
                         }
-                        self.session_meta
+                        self.session_summaries
                             .entry(reply.session_id.clone())
-                            .or_insert((None, None));
+                            .or_insert_with(|| {
+                                let now = now_iso8601();
+                                SessionSummary {
+                                    id: reply.session_id.clone(),
+                                    created_at: now.clone(),
+                                    updated_at: now,
+                                    ..Default::default()
+                                }
+                            });
 
                         self.pending_user_message = None;
                         self.chat_messages = self
@@ -986,7 +1070,15 @@ impl ChaiApp {
                 .entry(sid.clone())
                 .or_insert_with(Vec::new);
             entry.push(ChatMessage::user(message.clone()));
-            self.session_meta.entry(sid.clone()).or_insert((None, None));
+            self.session_summaries.entry(sid.clone()).or_insert_with(|| {
+                let now = now_iso8601();
+                SessionSummary {
+                    id: sid.clone(),
+                    created_at: now.clone(),
+                    updated_at: now,
+                    ..Default::default()
+                }
+            });
             self.move_session_to_front(sid);
             // Switch view to the session we're sending to so the message is visible (ui_chat shows selected_session_id).
             self.selected_session_id = Some(sid.clone());
@@ -1038,6 +1130,114 @@ impl ChaiApp {
         if let Some(rx) = &self.stop_receiver {
             if let Ok(_result) = rx.try_recv() {
                 self.stop_receiver = None;
+            }
+        }
+    }
+
+    /// Poll for `sessions.list` fetch result and trigger a fetch on gateway connect.
+    /// Call each frame.
+    fn poll_sessions_list(&mut self) {
+        if let Some(rx) = &self.sessions_list_receiver {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(summaries) => {
+                        // Populate session_order from the response (already sorted by updatedAt desc).
+                        self.session_order = summaries.iter().map(|s| s.id.clone()).collect();
+                        self.session_summaries.clear();
+                        for s in summaries {
+                            self.session_summaries.insert(s.id.clone(), s);
+                        }
+                        // Ensure sessions already in session_messages are in session_order
+                        // (they may have been created during the current app session before
+                        // the list fetch completed).
+                        for sid in self.session_messages.keys() {
+                            if !self.session_order.contains(sid) {
+                                self.session_order.push(sid.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("sessions.list fetch failed: {}", e);
+                    }
+                }
+                self.sessions_list_fetched = true;
+                self.sessions_list_receiver = None;
+            }
+        }
+
+        // Trigger a fetch when the gateway is running and we haven't fetched yet.
+        if self.gateway_responds
+            && !self.sessions_list_fetched
+            && self.sessions_list_receiver.is_none()
+        {
+            let (tx, rx) = mpsc::channel();
+            let profile_override = self.cached_profile_override.clone();
+            std::thread::spawn(move || {
+                let result = state::gateway::fetch_sessions_list(profile_override.as_deref());
+                let _ = tx.send(result);
+            });
+            self.sessions_list_receiver = Some(rx);
+        }
+    }
+
+    /// Poll for `sessions.history` fetch result. Call each frame.
+    fn poll_sessions_history(&mut self) {
+        if let Some((ref sid, ref rx)) = self.sessions_history_receiver {
+            if let Ok(result) = rx.try_recv() {
+                match result {
+                    Ok(history) => {
+                        // Populate session_messages with the loaded history.
+                        self.session_messages.insert(history.id.clone(), history.messages);
+                        // Also update the summary with timestamps from the history response.
+                        if let Some(summary) = self.session_summaries.get_mut(&history.id) {
+                            if !history.created_at.is_empty() {
+                                summary.created_at = history.created_at;
+                            }
+                            if !history.updated_at.is_empty() {
+                                summary.updated_at = history.updated_at;
+                            }
+                        }
+                        // Sync chat_messages if this is the currently selected session.
+                        if self.selected_session_id.as_deref() == Some(history.id.as_str()) {
+                            if let Some(msgs) = self.session_messages.get(&history.id) {
+                                self.chat_messages = msgs.clone();
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::warn!("sessions.history fetch failed for {}: {}", sid, e);
+                    }
+                }
+                self.loading_session_id = None;
+                self.sessions_history_receiver = None;
+            }
+        }
+    }
+
+    /// Poll for `sessions.delete` fetch result. Call each frame.
+    /// Note: the authoritative cleanup happens via the `session.deleted` broadcast
+    /// event in poll_session_events; this poller just clears the receiver.
+    fn poll_sessions_delete(&mut self) {
+        if let Some((_, ref rx)) = self.sessions_delete_receiver {
+            if let Ok(result) = rx.try_recv() {
+                if let Err(e) = result {
+                    log::warn!("sessions.delete failed: {}", e);
+                }
+                self.sessions_delete_receiver = None;
+            }
+        }
+    }
+
+    /// Poll for `sessions.delete_all` fetch result. Call each frame.
+    /// Note: the authoritative cleanup happens via the `sessions.cleared` broadcast
+    /// event in poll_session_events; this poller just clears the receiver.
+    fn poll_sessions_delete_all(&mut self) {
+        if let Some(rx) = &self.sessions_delete_all_receiver {
+            if let Ok(result) = rx.try_recv() {
+                if let Err(e) = result {
+                    log::warn!("sessions.delete_all failed: {}", e);
+                }
+                self.sessions_delete_all_receiver = None;
             }
         }
     }
@@ -1144,6 +1344,10 @@ impl eframe::App for ChaiApp {
         }
         self.ensure_session_events_listener(running, ctx.clone());
         self.poll_session_events();
+        self.poll_sessions_list();
+        self.poll_sessions_history();
+        self.poll_sessions_delete();
+        self.poll_sessions_delete_all();
         self.poll_chat_turn();
         self.poll_stop();
 
