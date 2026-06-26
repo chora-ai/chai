@@ -25,6 +25,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `sessions.delete` WebSocket method: deletes a session from memory and disk, removes associated bindings, broadcasts a `session.deleted` event
 - `sessions.delete_all` WebSocket method: deletes all sessions for the active profile from memory and disk, broadcasts a `sessions.cleared` event
 
+#### CLI
+
+- `chai sessions list` — list sessions for the active profile (or a specified profile via `--profile`) directly from disk; displays session id, timestamps, message count, and channel binding; sorted by most recently updated; no gateway connection required
+- `chai sessions delete <ID>` — delete a session by id directly from disk; removes the session and its binding; no gateway connection required
+- `chai sessions clear` — delete all sessions directly from disk; reports the count of deleted sessions; no gateway connection required
+
 ## [0.2.0] - 2026-06-24
 
 ### Added

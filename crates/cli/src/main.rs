@@ -1,10 +1,12 @@
 mod chat;
 mod file;
 mod gateway;
+mod gateway_conn;
 mod git;
 mod init;
 mod logs;
 mod profile;
+mod sessions;
 mod skill;
 
 use clap::{Parser, Subcommand};
@@ -76,6 +78,12 @@ enum Commands {
         #[command(subcommand)]
         sub: logs::LogsCmd,
     },
+
+    /// Manage sessions (list, delete, clear)
+    Sessions {
+        #[command(subcommand)]
+        sub: sessions::SessionsCmd,
+    },
 }
 
 #[tokio::main]
@@ -87,6 +95,11 @@ async fn main() {
     let cli_profile = match &cli.command {
         Some(Commands::Gateway { profile, .. }) => profile.as_deref(),
         Some(Commands::Chat { profile, .. }) => profile.as_deref(),
+        Some(Commands::Sessions { sub }) => match sub {
+            sessions::SessionsCmd::List { profile } => profile.as_deref(),
+            sessions::SessionsCmd::Delete { profile, .. } => profile.as_deref(),
+            sessions::SessionsCmd::Clear { profile } => profile.as_deref(),
+        },
         _ => None,
     };
     lib::config::load_profile_env(cli_profile);
@@ -149,6 +162,12 @@ async fn main() {
         Some(Commands::Logs { sub }) => {
             if let Err(e) = logs::run_logs(sub) {
                 eprintln!("logs: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Sessions { sub }) => {
+            if let Err(e) = sessions::run_sessions(sub).await {
+                eprintln!("sessions: {}", e);
                 std::process::exit(1);
             }
         }

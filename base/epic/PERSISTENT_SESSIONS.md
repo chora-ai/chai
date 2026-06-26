@@ -1,12 +1,12 @@
 ---
-status: in-progress
+status: complete
 ---
 
 # Epic: Persistent Sessions
 
-**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol and desktop UI. Phases 1–3 are complete; sessions survive gateway restarts, four protocol methods enable session management, and the desktop sidebar loads sessions on connect, shows timestamp labels, loads history on switch, and supports delete/clear actions. CLI commands and hardening remain.
+**Summary** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts, and expose session management (listing, loading, deleting) through the gateway protocol, desktop UI, and CLI. Phases 1–4 are complete; sessions survive gateway restarts, four protocol methods enable session management, the desktop sidebar loads sessions on connect with full management, and CLI subcommands provide offline session management. Hardening remains.
 
-**Status** — **Phase 3 complete.** Sessions are persisted to disk, restored on gateway restart, manageable via four WebSocket protocol methods, and fully integrated into the desktop UI. CLI commands (Phase 4) and hardening (Phase 5) remain.
+**Status** — **Phase 4 complete.** Sessions are persisted to disk, restored on gateway restart, manageable via four WebSocket protocol methods, fully integrated into the desktop UI, and manageable from the CLI via `chai sessions list`, `chai sessions delete <ID>`, and `chai sessions clear`. Hardening (Phase 5) remains.
 
 ## Problem Statement
 
@@ -70,6 +70,11 @@ This creates several user-facing problems:
 ### CLI
 
 - **`chai chat --session <ID>`** — Can resume an existing session by id. **Phase 1:** Now works across gateway restarts since the session is persisted to disk and lazy-loaded by `get_or_create`.
+- **`chai sessions list`** — **Phase 4:** New CLI subcommand that reads sessions directly from disk via `SessionStore::scan()`, printing session id, timestamps, message count, and channel binding (if any). Sorted by most recently updated. No gateway connection required. Supports `--profile` to inspect a specific profile's sessions.
+- **`chai sessions delete <ID>`** — **Phase 4:** New CLI subcommand that removes a session from disk via `SessionStore::remove()` and its binding via `SessionBindingStore::remove_binding()`. Prints confirmation. No gateway connection required.
+- **`chai sessions clear`** — **Phase 4:** New CLI subcommand that removes all sessions and bindings from disk via `SessionStore::remove_all()` and `SessionBindingStore::remove_all()`. Prints count of deleted sessions. No gateway connection required.
+- **`GatewayConn`** (`crates/cli/src/gateway_conn.rs`) — **Phase 4:** Extracted the gateway WebSocket connect + auth handshake from `chat.rs` into a reusable struct. `GatewayConn::connect(profile)` establishes an authenticated connection. `GatewayConn::call(method, params)` sends a method request and waits for the matching response. Still used by `chat.rs`, which was refactored to use `GatewayConn` instead of hand-rolling the WebSocket handshake (~100 lines of boilerplate reduced to ~10).
+- **Design decision: direct disk access vs. gateway protocol** — **Phase 4:** The CLI session commands operate directly on the session store on disk rather than connecting to the gateway via WebSocket. This makes `--profile` genuinely useful (which profile's sessions to inspect) and removes the gateway dependency entirely — especially convenient for cleanup or inspection when the gateway is stopped. The gateway protocol methods remain for the desktop client.
 
 ## Scope
 
@@ -341,13 +346,24 @@ Clicking a channel-bound session in the sidebar sets `selected_session_id` (for 
 
 The `poll_session_events` handler now processes `session.deleted` and `sessions.cleared` broadcast events in addition to the existing real-time message events. `session.deleted` removes the session from `session_messages`, `session_order`, and `session_summaries`, switching to "New session" mode if it was the selected session. `sessions.cleared` clears all local session state and switches to "New session" mode. The RPC result handlers for delete/clear do not duplicate the event handler's work — the broadcast event is the authoritative cleanup path.
 
-### CLI Changes
+### CLI Session Commands
 
-- **`chai chat`** — On startup, optionally list recent sessions (from `sessions.list`) and allow the user to select one to resume.
-- **`chai chat --session <ID>`** — Works as today, but the session id can now refer to a persisted session from a previous run.
-- **`chai sessions list`** — New subcommand to list sessions for the active profile.
-- **`chai sessions delete <ID>`** — New subcommand to delete a session.
-- **`chai sessions clear`** — New subcommand to delete all sessions.
+**Phase 4** added `chai sessions list`, `chai sessions delete <ID>`, and `chai sessions clear` CLI subcommands that operate directly on the session store on disk — no gateway connection required.
+
+**Design decision: direct disk access vs. gateway protocol.** The initial implementation connected to the gateway via WebSocket and called the `sessions.list`, `sessions.delete`, and `sessions.delete_all` protocol methods. This was the simplest path since the methods already existed for the desktop client. However, it had two significant problems:
+
+1. **`--profile` flag was misleading** — The flag resolved the gateway's bind address and port from the config, but the CLI could only connect to a *running* gateway. Since only one gateway runs at a time (on a specific profile), `--profile` had to match the running gateway or you'd just get a connection error. The help text literally said "must match the running gateway's profile" — admitting the flag had no practical flexibility.
+
+2. **Required a running gateway unnecessarily** — Sessions are write-through persisted to disk as JSON files (`sess-<uuid>.json`) under `<profile_dir>/agents/<orchestrator_id>/sessions/`, with bindings in `bindings.json`. The data is always on disk and up-to-date. Requiring the gateway to be running just to list or delete sessions is an artificial constraint — especially inconvenient for cleanup or inspection when the gateway is stopped.
+
+The revised implementation opens the `SessionStore` and `SessionBindingStore` directly, using the same `sessions_dir()` resolution that the gateway uses. This makes `--profile` genuinely useful (which profile's sessions to inspect, same semantics as `chai gateway --profile`) and removes the gateway dependency entirely. The gateway protocol methods remain for the desktop client.
+
+**Implementation details:**
+
+- A `sessions` subcommand module was added under `crates/cli` alongside the existing `chat` command, with three clap subcommands (`List`, `Delete`, `Clear`), each carrying an optional `--profile` flag.
+- `lib::config::load_config(profile)` resolves the profile, then `lib::config::sessions_dir()` locates the session data directory — same resolution path as the gateway.
+- `lib::session::SessionStore::with_data_dir()` and `lib::routing::SessionBindingStore::with_data_dir()` open the stores directly.
+- The gateway WebSocket connect + auth handshake was extracted from `chat.rs` into a reusable `GatewayConn` struct (`crates/cli/src/gateway_conn.rs`). `chat.rs` was refactored to use `GatewayConn`, reducing ~100 lines of boilerplate to ~10. The three gateway protocol methods remain for the desktop client — this is CLI-only.
 
 ### Multi-Agent Session Ownership
 
@@ -389,9 +405,9 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 - [x] **Desktop session loading** — Clicking a session in the sidebar loads its full history via `sessions.history` if not already in memory.
 - [x] **Desktop session deletion** — Per-session delete action in the sidebar, calling `sessions.delete`.
 - [x] **Desktop "Clear all" action** — A "Clear all sessions" button with confirmation, calling `sessions.delete_all`.
-- [ ] **CLI `chai sessions list`** — List sessions for the active profile.
-- [ ] **CLI `chai sessions delete <ID>`** — Delete a session by id.
-- [ ] **CLI `chai sessions clear`** — Delete all sessions.
+- [x] **CLI `chai sessions list`** — List sessions for the active profile, directly from disk. No gateway required.
+- [x] **CLI `chai sessions delete <ID>`** — Delete a session by id, directly from disk. No gateway required.
+- [x] **CLI `chai sessions clear`** — Delete all sessions, directly from disk. No gateway required.
 
 ### Non-functional
 
@@ -407,7 +423,7 @@ Chai has not reached v0.1.0, so backward compatibility is not a concern per proj
 | 1. Core persistence | Add `Serialize`/`Deserialize` on `Session`, timestamps, `sessions/` directory layout, write-through `SessionStore`, binding persistence, gateway start restoration | Complete |
 | 2. Protocol methods | `sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all` WebSocket methods | Complete |
 | 3. Desktop session management | Load session list on connect (sidebar is empty after restart), session history rendering (message history not displayed for persisted sessions), session labels, "New session" button, session loading on switch, delete and clear actions | Complete |
-| 4. CLI session management | `chai sessions list`, `chai sessions delete`, `chai sessions clear` subcommands | Not started |
+| 4. CLI session management | `chai sessions list`, `chai sessions delete`, `chai sessions clear` subcommands, `GatewayConn` refactor | Complete |
 | 5. Hardening | Atomic writes verification, startup performance with many sessions, error recovery for corrupt files, integration tests | Not started |
 
 ## Open Questions
