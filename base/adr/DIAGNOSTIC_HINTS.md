@@ -39,7 +39,7 @@ This is the preferred mechanism because:
 - **Skill completeness** — the skill directory contains its full behavior surface: schema, instructions, and hints. An author can understand and modify a skill without touching the chai binary.
 - **Consistency** — the same pattern works across all skills, regardless of which binary the tool invokes.
 
-Critical implementation detail: `postProcess` only runs when the command exits with a code treated as success (0 or in `successExitCodes`). If the hint targets an error condition, the tool must declare `successExitCodes` for that exit code — otherwise the error propagates before `postProcess` runs. When `successExitCodes` admits a non-zero exit code, the executor includes stderr in the output so that hint scripts can match against error messages written to stderr.
+Critical implementation detail: `postProcess` only runs when the command exits with a code treated as success (0 or in `successExitCodes`). If the hint targets an error condition, the tool must declare `successExitCodes` for that exit code — otherwise the error propagates before `postProcess` runs. The executor always merges stderr into stdout (appended after stdout with a newline separator) before the post-process step, so hint scripts can match against diagnostics written to stderr (e.g., compiler warnings). This applies to all success-path exit codes (0 and any codes in `successExitCodes`).
 
 **2. Binary-level hints (only when internal state is required)**
 

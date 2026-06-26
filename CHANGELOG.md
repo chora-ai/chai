@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### CLI
+
+- `chai sessions list` — list sessions for the active profile (or a specified profile via `--profile`) directly from disk; displays session id, timestamps, message count, and channel binding; sorted by most recently updated; no gateway connection required
+- `chai sessions delete <ID>` — delete a session by id directly from disk; removes the session and its binding; no gateway connection required
+- `chai sessions clear` — delete all sessions directly from disk; reports the count of deleted sessions; no gateway connection required
+
 #### Desktop
 
 - Session sidebar loads persisted sessions on gateway connect via `sessions.list` — sidebar is populated with timestamps (e.g. "Jun 10, 12:34") and short session IDs instead of raw UUIDs
@@ -25,11 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `sessions.delete` WebSocket method: deletes a session from memory and disk, removes associated bindings, broadcasts a `session.deleted` event
 - `sessions.delete_all` WebSocket method: deletes all sessions for the active profile from memory and disk, broadcasts a `sessions.cleared` event
 
-#### CLI
+### Fixed
 
-- `chai sessions list` — list sessions for the active profile (or a specified profile via `--profile`) directly from disk; displays session id, timestamps, message count, and channel binding; sorted by most recently updated; no gateway connection required
-- `chai sessions delete <ID>` — delete a session by id directly from disk; removes the session and its binding; no gateway connection required
-- `chai sessions clear` — delete all sessions directly from disk; reports the count of deleted sessions; no gateway connection required
+#### Skills
+
+- `cargo_check` and `cargo_test` now show compiler warnings — previously, stderr was discarded on exit code 0, so warnings emitted to stderr (e.g., unused variable) were invisible to the agent and the tools reported "no warnings" even when warnings existed
+- `cargo_check` compilation errors and `cargo_test` test failures now produce filtered output — previously, exit code 101 bypassed the postProcess script, returning hundreds of lines of unfiltered output (progress lines, passing test lines) that consumed context window without providing actionable information; now only diagnostics (errors, warnings with multi-line context) and summaries (test result lines, crate-level summaries) are shown
 
 ## [0.2.0] - 2026-06-24
 

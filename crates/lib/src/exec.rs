@@ -260,6 +260,10 @@ impl Allowlist {
     /// scripts can inspect error messages that git and other tools write to stderr.
     /// Exit codes not in this list still surface as tool errors.
     ///
+    /// On exit code 0, stderr is also appended to stdout so that diagnostic
+    /// output (e.g. compiler warnings) is visible to the agent and post-process
+    /// scripts.
+    ///
     /// Returns `Ok((exit_code, output))` on success or `Err(...)` on failure.
     fn collect_output_with_codes(
         output: std::process::Output,
@@ -269,7 +273,14 @@ impl Allowlist {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
         if output.status.success() {
-            return Ok((0, stdout));
+            let mut result = stdout;
+            if !stderr.is_empty() {
+                if !result.is_empty() {
+                    result.push(10 as char); // newline
+                }
+                result.push_str(&stderr);
+            }
+            return Ok((0, result));
         }
         // Check if the exit code is in the explicit success list.
         if success_exit_codes.contains(&code) {
