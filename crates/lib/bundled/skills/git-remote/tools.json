@@ -14,10 +14,6 @@
           "path": {
             "type": "string",
             "description": "Directory name or path for the cloned repository (e.g. 'my-repo'). Relative names are resolved to the sandbox directory."
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -101,15 +97,6 @@
           "writePath": true,
           "resolveCommand": {
             "script": "resolve-clone-path",
-            "args": ["$param"]
-          }
-        },
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "script": "resolve-repo-path",
             "args": ["$param"]
           }
         }

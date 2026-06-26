@@ -201,7 +201,7 @@ pub(crate) fn validate_write_paths(
 
         has_sandboxed_path = true;
 
-        let resolved = transform_param_value(raw_value, arg, allowlist, skill_dir, args);
+        let resolved = transform_param_value(raw_value, arg, allowlist, skill_dir, args)?;
 
         if resolved.is_empty() {
             continue;

@@ -23,6 +23,11 @@
 date="$1"
 scope_rel="$2"
 
+# Reject scope values containing path traversal.
+case "$scope_rel" in
+    *..*) echo "error: scope must not contain path traversal (..)" >&2; exit 1 ;;
+esac
+
 # If the input is already an absolute path, return it as-is.
 case "$date" in
     /*) echo "$date"; exit 0 ;;

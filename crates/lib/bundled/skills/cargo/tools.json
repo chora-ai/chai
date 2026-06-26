@@ -38,7 +38,7 @@
     }
   ],
   "allowlist": {
-    "cargo": ["check", "test"]
+    "cargo": ["check", "test", "locate-project"]
   },
   "execution": [
     {
@@ -56,7 +56,11 @@
         {
           "param": "path",
           "kind": "workingdir",
-          "optional": true
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-cargo-path",
+            "args": ["$param"]
+          }
         }
       ],
       "successExitCodes": [101],
@@ -82,7 +86,11 @@
         {
           "param": "path",
           "kind": "workingdir",
-          "optional": true
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-cargo-path",
+            "args": ["$param"]
+          }
         }
       ],
       "successExitCodes": [101],
@@ -107,7 +115,11 @@
         {
           "param": "path",
           "kind": "workingdir",
-          "optional": true
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-cargo-path",
+            "args": ["$param"]
+          }
         }
       ],
       "successExitCodes": [101],
@@ -133,7 +145,11 @@
         {
           "param": "path",
           "kind": "workingdir",
-          "optional": true
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-cargo-path",
+            "args": ["$param"]
+          }
         }
       ],
       "successExitCodes": [101],

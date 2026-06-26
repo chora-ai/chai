@@ -47,44 +47,47 @@ fn substitute_resolve_args(
 /// value unchanged. `tool_args` provides parameter values for `$param_name`
 /// substitution in resolve command args (e.g. `$scope` is replaced with the
 /// `scope` parameter value from the tool call JSON).
+///
+/// Returns `Err` if the resolve command fails (non-zero exit), allowing
+/// callers to reject the tool call before the command runs. This is
+/// critical for resolve scripts that perform validation (e.g. verifying
+/// a git repository root is inside the sandbox).
 pub(crate) fn resolve_value(
     value: &str,
     arg: &crate::skills::ArgMapping,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
     tool_args: &serde_json::Value,
-) -> String {
+) -> Result<String, String> {
     let Some(ref cmd) = arg.resolve_command else {
-        return value.to_string();
+        return Ok(value.to_string());
     };
     let argv = substitute_resolve_args(&cmd.args, value, tool_args);
 
     if let (Some(dir), Some(ref script_name)) = (skill_dir, &cmd.script) {
-        if let Ok(out) = run_script(dir, script_name, &argv) {
-            let s = out.trim();
-            return if s.is_empty() {
-                value.to_string()
-            } else {
-                s.to_string()
-            };
-        }
-        return value.to_string();
+        let out = run_script(dir, script_name, &argv)?;
+        let s = out.trim();
+        return Ok(if s.is_empty() {
+            value.to_string()
+        } else {
+            s.to_string()
+        });
     }
 
     if let (Some(ref binary), Some(ref subcommand)) = (&cmd.binary, &cmd.subcommand) {
         match allowlist.run(binary, subcommand, &argv, None) {
             Ok(out) => {
                 let s = out.trim();
-                return if s.is_empty() {
+                return Ok(if s.is_empty() {
                     value.to_string()
                 } else {
                     s.to_string()
-                };
+                });
             }
-            Err(_) => {}
+            Err(e) => return Err(e),
         }
     }
-    value.to_string()
+    Ok(value.to_string())
 }
 
 /// Run a script from the skill's `scripts/` directory via `sh`.
@@ -120,13 +123,14 @@ pub(crate) fn run_script(skill_dir: &Path, script_name: &str, args: &[String]) -
 }
 
 /// Transform a raw parameter value by running its resolve command (if any).
+/// Returns `Err` if the resolve command fails.
 pub(crate) fn transform_param_value(
     s: String,
     arg: &crate::skills::ArgMapping,
     allowlist: &Allowlist,
     skill_dir: Option<&Path>,
     tool_args: &serde_json::Value,
-) -> String {
+) -> Result<String, String> {
     resolve_value(&s, arg, allowlist, skill_dir, tool_args)
 }
 
@@ -182,7 +186,7 @@ pub(crate) fn extract_stdin_content(
                 ));
             }
         };
-        return Ok(Some(transform_param_value(value, arg, allowlist, skill_dir, args)));
+        return Ok(Some(transform_param_value(value, arg, allowlist, skill_dir, args)?));
     }
     Ok(None)
 }
@@ -231,7 +235,7 @@ pub(crate) fn write_temp_files(
                 ));
             }
         };
-        let resolved = transform_param_value(value, arg, allowlist, skill_dir, args);
+        let resolved = transform_param_value(value, arg, allowlist, skill_dir, args)?;
 
         // Write the value to a temp file.
         let temp_dir = std::env::temp_dir();
@@ -314,7 +318,7 @@ pub(crate) fn build_argv(
                     argv.push("--".to_string());
                 }
                 skipped_optional_positional = false;
-                let resolved = transform_param_value(s, arg, allowlist, skill_dir, args);
+                let resolved = transform_param_value(s, arg, allowlist, skill_dir, args)?;
                 if arg.split == Some(true) {
                     for part in resolved.split_whitespace() {
                         argv.push(part.to_string());
@@ -334,7 +338,7 @@ pub(crate) fn build_argv(
                         })?;
                         let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
                         argv.push(format_flag(flag));
-                        argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
+                        argv.push(transform_param_value(s, arg, allowlist, skill_dir, args)?);
                     }
                     _ if arg.absent_default.is_some() => {
                         let default = arg.absent_default.as_ref().unwrap();
@@ -346,11 +350,11 @@ pub(crate) fn build_argv(
                         })?;
                         let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
                         argv.push(format_flag(flag));
-                        argv.push(transform_param_value(s, arg, allowlist, skill_dir, args));
+                        argv.push(transform_param_value(s, arg, allowlist, skill_dir, args)?);
                     }
                     _ if arg.optional == Some(true) && arg.resolve_command.is_some() => {
                         let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
-                        let resolved = transform_param_value(String::new(), arg, allowlist, skill_dir, args);
+                        let resolved = transform_param_value(String::new(), arg, allowlist, skill_dir, args)?;
                         if !resolved.is_empty() {
                             argv.push(format_flag(flag));
                             argv.push(resolved);

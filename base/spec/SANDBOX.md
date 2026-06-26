@@ -79,6 +79,43 @@ The `.git/` component check uses path-component matching (not prefix matching), 
 
 If a future use case requires `.git/` write access, an `unsafePath`-annotated parameter would be the explicit escape hatch. No bundled skill uses `unsafePath`, and any skill that does triggers a startup warning.
 
+## Upward Traversal Protection
+
+Some CLI commands traverse upward from the working directory to find project-root markers: `git` searches for `.git`, `cargo` searches for `Cargo.toml`, `hg` searches for `.hg`, etc. When a `workingDir` parameter points to a sandbox subdirectory that does not contain its own project root, the command may escape the sandbox boundary by finding a project root in a parent directory.
+
+This is a distinct attack surface from path traversal (`..`) — the working directory path itself is inside the sandbox, but the command's internal discovery mechanism resolves to a location outside it. The sandbox validator only checks that the `workingDir` value is inside the sandbox; it does not know which command will run or how that command discovers its project root.
+
+### Resolve-Script Validation
+
+The defense against upward traversal is implemented in the skill's resolve script (the `resolveCommand` configured on the `workingDir` parameter). After resolving the working directory, the resolve script:
+
+1. Runs the command's discovery mechanism from the resolved working directory (e.g., `git rev-parse --git-dir`, `cargo locate-project`).
+2. Verifies that the resolved project root is inside the sandbox.
+3. Exits with a non-zero code if the project root is outside the sandbox, which causes the executor to reject the tool call.
+
+This validation is skill-specific because the discovery mechanism differs per command. The resolve script is the correct layer because it has access to both the resolved path and the command's discovery tool.
+
+### Symlinked Directories
+
+The sandbox may contain symlinked entries whose physical targets are outside the sandbox root (e.g., `sandbox/my-repo → ~/Code/my-repo`). These entries are granted access because the user placed them in the sandbox. Resolve scripts that use physical/canonical paths for comparison (e.g., via `pwd -P`) must check against both the physical sandbox root AND the physical targets of symlinked entries at the top level of the sandbox directory. Without this, canonicalization causes false-positive rejections on valid symlinked entries.
+
+### Affected Skills
+
+| Skill | Parameter | Discovery Mechanism | Validation Script |
+|-------|-----------|---------------------|-------------------|
+| `git`, `git-read`, `git-remote` | `repo` (`workingDir`) | `git rev-parse --git-dir` | `resolve-repo-path.sh` |
+| `cargo` | `path` (`workingDir`) | `cargo locate-project` | `resolve-cargo-path.sh` |
+
+Skills that do not use `workingDir` with upward-traversing commands are not affected.
+
+### Resolve-Script Error Propagation
+
+When a resolve command exits with a non-zero code, the executor rejects the tool call instead of silently falling back to the unresolved parameter value. This is critical for validation — if resolve-script errors were swallowed, a validation check that detects an upward traversal escape would be silently bypassed. The error propagation ensures that resolve-script validation is effective: a rejected tool call prevents the command from running with an unvalidated working directory.
+
+### Clone-Path Validation
+
+The `git-remote` skill's `git_clone` tool uses a `path` parameter (annotated with `writePath`) that specifies the clone target directory. The `resolve-clone-path.sh` script validates that absolute clone paths are inside the sandbox before allowing the clone to proceed. Relative paths are prefixed with the sandbox root as before.
+
 ## CWD Restriction
 
 When no `workingDir` argument is present and no sandbox-validated path provides a working directory, the executor sets `Command::current_dir()` to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the sandbox, and ensures that relative paths in unannotated parameters resolve within the sandbox boundary even if they don't match the path-like value heuristic (e.g., `etc/passwd` without a leading `/`). When a sandbox-validated `workingDir` or path argument resolves to a specific directory, that directory takes precedence. When no sandbox exists (only possible when `sandbox.mode` is `"unsafe"` and the sandbox directory is missing), no CWD override is applied — the process inherits the gateway's working directory. When `sandbox.mode` is `"current"` and the sandbox directory is missing, the CWD is used as the sole writable root, so CWD restriction naturally confines writes to the current directory.

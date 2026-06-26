@@ -33,10 +33,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+#### Security and Sandboxing
+
+- Git, git-read, and git-remote skills now validate that git's resolved repository root (`.git` directory) is inside the sandbox before allowing commands to run — previously, when the `repo` parameter pointed to a sandbox subdirectory without its own `.git`, git traversed upward and could read or modify repository state outside the sandbox
+- Cargo skill now validates that the resolved workspace manifest (`Cargo.toml`) is inside the sandbox before allowing commands to run — previously, when the `path` parameter pointed to a sandbox subdirectory without its own `Cargo.toml`, cargo traversed upward and could compile or test a workspace outside the sandbox
+- `git_clone` now validates that absolute clone target paths are inside the sandbox — previously, absolute paths passed through unchanged, allowing clones outside the sandbox boundary
+- `notes_daily` `scope` parameter now rejects values containing `..` path traversal — previously, the scope was used to construct a path without validation, allowing access to directories outside the sandbox
+- Resolve-script errors are now propagated (tool call rejected) instead of silently falling back to the unresolved parameter value — previously, resolve-script validation failures were silently swallowed, allowing tool calls to proceed with unvalidated paths
+
 #### Skills
 
+- Diagnostic hints now follow consistent formatting conventions: `verify_original` hints start at column 0 (no leading indentation), multiple hints are separated by blank lines, and `hint-reset.sh` always produces a blank line before the hint even when git output is empty
+- Hint script pass-through calls now use `printf '%s\n'` instead of `printf '%s'` to restore the trailing newline stripped by command substitution, ensuring blank-line separators between tool output and hints render correctly
+- Truncation notices now frame continuation as optional (e.g., "To continue reading, use X; omit end_line to read the rest") instead of imperative ("Use X to read the remaining lines")
+- Git hint scripts use `printf '%s'` instead of `echo` for output pass-through, preventing POSIX `echo` from interpreting escape sequences
+- `notes_daily_append` hint now correctly acknowledges that the file was created by the append operation, instead of implying the operation failed
 - `cargo_check` and `cargo_test` now show compiler warnings — previously, stderr was discarded on exit code 0, so warnings emitted to stderr (e.g., unused variable) were invisible to the agent and the tools reported "no warnings" even when warnings existed
 - `cargo_check` compilation errors and `cargo_test` test failures now produce filtered output — previously, exit code 101 bypassed the postProcess script, returning hundreds of lines of unfiltered output (progress lines, passing test lines) that consumed context window without providing actionable information; now only diagnostics (errors, warnings with multi-line context) and summaries (test result lines, crate-level summaries) are shown
+
+#### Skill Authoring
+
+- Skills-design SKILL.md now documents upward traversal by external commands (git, cargo) and the requirement for resolve scripts to validate the resolved project root is inside the sandbox, including symlinked directories
+- Skills-design SKILL.md now documents the pre/post-resolution validation gap for parameters referenced via `$name` in `resolveCommand.args` (not in the execution `args` array and not validated by the sandbox)
+- Skills-design SKILL.md security audit checklist now includes two new checks: (5) resolve scripts constructing paths from parameters not in the `args` array must reject dangerous values, and (6) tools using `workingDir` with upward-traversing commands must validate the project root
 
 ## [0.2.0] - 2026-06-24
 
