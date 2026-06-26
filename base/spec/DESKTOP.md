@@ -259,5 +259,5 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | [spec/TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` validation reference |
 | [spec/GATEWAY_STATUS.md](GATEWAY_STATUS.md) | WebSocket `status` payload |
 | [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |
-| [epic `PERSISTENT_SESSIONS`](../epic/PERSISTENT_SESSIONS.md) | Session persistence and desktop session management |
+| [SESSIONS.md](SESSIONS.md) | Session persistence, storage layout, gateway protocol methods, and CLI session commands |
 | [spec/CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks |

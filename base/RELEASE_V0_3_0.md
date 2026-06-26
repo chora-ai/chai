@@ -8,7 +8,7 @@ This release implements the persistent sessions epic and reviews all documentati
 
 ### In Scope
 
-- **Epic: [PERSISTENT_SESSIONS.md](epic/PERSISTENT_SESSIONS.md)** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts. Expose session management (listing, loading, deleting) through the gateway protocol and desktop UI.
+- **Epic: `PERSISTENT_SESSIONS.md`** — Persist chat sessions to disk so they survive gateway restarts and desktop app restarts. Expose session management (listing, loading, deleting) through the gateway protocol and desktop UI.
 
 ### Out of Scope
 
@@ -18,7 +18,7 @@ This release implements the persistent sessions epic and reviews all documentati
 
 ### 1. Persistent Sessions Epic Implementation
 
-- [ ] Implement Phase 1: Core persistence (per `epic/PERSISTENT_SESSIONS.md`)
+- [ ] Implement Phase 1: Core persistence (per `PERSISTENT_SESSIONS.md`)
 - [ ] Implement Phase 2: Protocol methods (`sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all`)
 - [ ] Implement Phase 3: Desktop session management
 - [ ] Implement Phase 4: CLI session management (`chai sessions list`, `chai sessions delete`, `chai sessions clear`)

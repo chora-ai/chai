@@ -161,7 +161,7 @@ The **`read_skill`** tool (plus skill tools from **`tools.json`**) is included i
 
 ### Session Persistence
 
-Sessions are persisted to disk so they survive gateway restarts. See [PERSISTENT_SESSIONS.md](../epic/PERSISTENT_SESSIONS.md) for the full design and phased delivery plan.
+Sessions are persisted to disk so they survive gateway restarts. See [SESSIONS.md](SESSIONS.md) for the full session specification including storage layout, protocol methods, and CLI commands.
 
 - **Storage layout** — Each session is stored as a JSON file (`{session_id}.json`) under `<profileRoot>/agents/<agentId>/sessions/`. Only the orchestrator's `sessions/` directory is populated in the current architecture.
 - **`Session` struct** — Derives `Serialize, Deserialize` and includes `created_at: String` and `updated_at: String` (ISO 8601 timestamps, with `#[serde(default)]` for backward compatibility).

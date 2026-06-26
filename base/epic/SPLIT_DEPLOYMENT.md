@@ -250,6 +250,6 @@ When multiple desktop clients connect to a single remote gateway, there is no pe
 - [PROFILES.md](../spec/PROFILES.md) — Profile directory structure (device.json, device_token, paired.json)
 - [CHANNELS.md](../spec/CHANNELS.md) — Channel behavior (channels live inside the gateway process)
 - [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md) — Gateway status payload (server-side absolute paths)
-- [PERSISTENT_SESSIONS.md](PERSISTENT_SESSIONS.md) — Persistent sessions epic (session management is gateway-side)
+- [SESSIONS.md](../spec/SESSIONS.md) — Session persistence, storage layout, and management (session management is gateway-side)
 
 **Implementation touchpoints:** `crates/lib/src/config.rs`, `crates/lib/src/profile.rs`, `crates/lib/src/gateway/server.rs`, `crates/desktop/src/app/state/gateway.rs`, `crates/desktop/src/app/screens/config.rs`

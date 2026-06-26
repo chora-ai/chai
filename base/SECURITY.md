@@ -227,7 +227,7 @@ The following are explicitly outside Chai's current security model:
 - **Rate limiting** — The gateway does not limit concurrent WebSocket connections, message rates, or agent turn frequency. An authenticated client can trigger unlimited LLM API calls, creating a cost DoS vector against paid providers.
 - **TLS termination** — The gateway binds plain HTTP/WebSocket. TLS is the operator's responsibility (e.g., reverse proxy). Binding to non-loopback without TLS exposes the auth token and all data in cleartext.
 - **WebSocket origin validation** — The gateway does not check the `Origin` header on WebSocket upgrades. On loopback this is mitigated by same-origin policy; on non-loopback deployments, cross-site WebSocket hijacking is possible without additional network controls.
-- **Encryption at rest** — Session data is in-memory only (lost on restart). Configuration files, device keys, and pairing tokens are stored on disk without encryption. See "Secrets Stored in Plaintext" above.
+- **Encryption at rest** — Session files are persisted to disk as plain JSON (see [spec/SESSIONS.md](spec/SESSIONS.md)), making conversation history readable to any process with filesystem access. Configuration files, device keys, and pairing tokens are also stored on disk without encryption. See "Secrets Stored in Plaintext" above and "Encryption at rest for session data" in Future Directions.
 - **`CHAI_BIN` environment variable** — The `CHAI_BIN` env var overrides the `chai` binary path used by the executor. This is set by the user (or the launch environment), not the agent. If the gateway is launched with `CHAI_BIN` pointing to a compromised binary, all `chai` tool calls are subverted. This is a host-side concern, not an agent-facing vulnerability.
 - **Session isolation across channels** — Sessions are implicitly isolated by `(channel_id, conversation_id)` keys, but WebSocket clients with valid authentication can interact with any session regardless of channel. There is no per-client or per-channel session access control.
 
@@ -236,7 +236,7 @@ The following are explicitly outside Chai's current security model:
 These are potential security enhancements that are not yet implemented:
 
 - **Tool call approval** — Optional human-in-the-loop approval before tool execution. Tracked in [epic/TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md).
-- **Encryption at rest for session data** — Encrypt session files so conversation history is not readable without the gateway's credentials. Relevant for multi-user or shared-host deployments.
+- **Encryption at rest for session data** — Encrypt session files on disk so conversation history is not readable without the gateway's credentials. Session files are currently stored as plain JSON under the profile's `agents/<agentId>/sessions/` directory (see [spec/SESSIONS.md](spec/SESSIONS.md)). Relevant for multi-user or shared-host deployments.
 - **Per-agent sandbox isolation** — Separate sandbox boundaries for each agent within a profile.
 - **Enforced device scopes and roles** — Use the existing `role` and `scopes` fields from device pairing for authorization decisions.
 - **Rate limiting and connection throttling** — Limit WebSocket connections, message rates, and agent turn frequency.
@@ -251,4 +251,5 @@ These are potential security enhancements that are not yet implemented:
 | [adr/AGENT_ISOLATION.md](adr/AGENT_ISOLATION.md) | Architectural decision for agent isolation |
 | [spec/CONFIGURATION.md](spec/CONFIGURATION.md) | Gateway auth modes and secrets resolution |
 | [spec/PROFILES.md](spec/PROFILES.md) | Profile directory structure and trust-sensitive resources |
+| [spec/SESSIONS.md](spec/SESSIONS.md) | Session persistence, storage layout, and management |
 | [epic/TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md) | Draft: human-in-the-loop tool approval |
