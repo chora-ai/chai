@@ -76,8 +76,8 @@ Each session file contains the serialized `Session` struct:
 | `get_or_create()` | If the ID is in memory, return it. If not in memory but the file exists on disk, lazy-load it. If neither, create a new session and write to disk. Includes a `load_from_disk` fallback when the in-memory index is stale due to lock contention. |
 | `get()` | Return from memory if present. If not in memory but the file exists on disk, load it, insert into the HashMap, update `updated_at`, and return. Enables lazy loading. |
 | `append_message_full()` / `record_delegation()` | Update the in-memory session **and** write the updated session file to disk. `updated_at` is advanced on every write. |
-| `remove()` | Remove from memory **and** delete the file from disk. |
-| `remove_all()` | Clear all sessions from the in-memory map, delete all `sess-*.json` files from `data_dir`, clear the disk index, and return the count of removed sessions. |
+| `remove()` | Remove from memory **and** delete the file from disk. If the session is not in memory but exists in the disk index (lazy-loaded session), loads it from disk first so the caller receives `Some(_)`. Returns `None` only if the session is truly absent from both memory and disk. |
+| `remove_all()` | Clear all sessions from the in-memory map, delete all `sess-*.json` files from `data_dir`, clear the disk index, and return the count of removed sessions (including sessions that exist only on disk and haven't been lazily loaded). |
 | `scan()` | Scan the `sessions/` directory for `.json` files and read metadata only (id, timestamps, message count) without loading full message history. Populates a metadata index that enables lazy loading. Returns `SessionSummary` structs. |
 
 ### Session Summary
@@ -309,7 +309,7 @@ Delete all sessions for the active profile.
 | `session.deleted` | `{ "sessionId": "..." }` | After `sessions.delete` succeeds |
 | `sessions.cleared` | `{}` | After `sessions.delete_all` succeeds |
 
-Clients use these broadcast events as the authoritative cleanup path; RPC result handlers should not duplicate the event handler's work.
+RPC result handlers perform immediate local cleanup on success so the UI updates without delay. Broadcast events serve as a redundant fallback — if the broadcast arrives after the RPC handler has already cleaned up, the removal is a no-op (idempotent).
 
 ## Desktop Session Management
 
@@ -347,7 +347,7 @@ Clicking a channel-bound session sets `selected_session_id` (for viewing) but no
 | `session.deleted` | Removes the session from `session_messages`, `session_order`, and `session_summaries`. Switches to "New session" mode if it was the selected session. |
 | `sessions.cleared` | Clears all local session state and switches to "New session" mode. |
 
-The broadcast event is the authoritative cleanup path; RPC result handlers do not duplicate this work.
+RPC result handlers perform immediate local cleanup on success so the UI updates without delay. Broadcast events serve as a redundant fallback — if the broadcast arrives after the RPC handler has already cleaned up, the removal is a no-op (idempotent).
 
 ### Gateway Stop
 

@@ -55,7 +55,16 @@ In the chat input, use these commands:
 
 ### Sessions Panel
 
-The right-side sessions panel lists conversation history. Each session shows the first message as a preview. Click a session to resume it. The panel also displays the current session id.
+The right-side sessions panel lists all persisted sessions for the active profile. Each session shows its creation timestamp (e.g. "Jun 10, 12:34") as the primary label, with a short session ID below in dimmer text. Channel-bound sessions display a channel tag (e.g. `(telegram)`).
+
+| Action | How |
+|--------|-----|
+| **Resume a session** | Click the session in the sidebar. Its full history loads on demand. |
+| **Delete a session** | Click the "×" button on the right side of the session row. The session is removed from the sidebar immediately. |
+| **Clear all sessions** | Click **Clear all sessions** at the bottom of the sidebar, then confirm. |
+| **Start a new session** | Click **New session** at the top of the sidebar (always visible, regardless of whether a session is active). |
+
+Channel-bound sessions (e.g. from Telegram) are read-only from the desktop — you can view their history but cannot send messages from the desktop chat input, since that would create a new empty session and overwrite the channel session's history.
 
 ### Model and Provider Selection
 

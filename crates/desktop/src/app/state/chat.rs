@@ -204,15 +204,7 @@ impl ChaiApp {
             if ev.role == "session_deleted" {
                 let sid = ev.session_id.clone();
                 if !sid.is_empty() {
-                    self.session_messages.remove(&sid);
-                    self.session_summaries.remove(&sid);
-                    self.session_order.retain(|id| id != &sid);
-                    if self.selected_session_id.as_deref() == Some(sid.as_str()) {
-                        self.start_new_session();
-                    }
-                    if self.chat_session_id.as_deref() == Some(sid.as_str()) {
-                        self.chat_session_id = None;
-                    }
+                    self.remove_session_local(&sid);
                 }
                 continue;
             }

@@ -621,6 +621,21 @@ impl ChaiApp {
         ));
     }
 
+    /// Remove a session from all local state structures so the sidebar
+    /// updates immediately. Idempotent — safe to call even if the session
+    /// is already absent from one or more structures.
+    fn remove_session_local(&mut self, sid: &str) {
+        self.session_messages.remove(sid);
+        self.session_summaries.remove(sid);
+        self.session_order.retain(|id| id != sid);
+        if self.selected_session_id.as_deref() == Some(sid) {
+            self.start_new_session();
+        }
+        if self.chat_session_id.as_deref() == Some(sid) {
+            self.chat_session_id = None;
+        }
+    }
+
     /// Clear all session and message state when the gateway stops (it does not persist sessions).
     fn clear_session_and_messages(&mut self) {
         self.chat_session_id = None;
@@ -1215,29 +1230,70 @@ impl ChaiApp {
     }
 
     /// Poll for `sessions.delete` fetch result. Call each frame.
-    /// Note: the authoritative cleanup happens via the `session.deleted` broadcast
-    /// event in poll_session_events; this poller just clears the receiver.
+    /// On successful RPC result, removes the session from local state immediately
+    /// so the sidebar updates without waiting for the `session.deleted` broadcast.
+    /// The broadcast handler in `poll_session_events` is idempotent — if the
+    /// broadcast arrives after local cleanup, the redundant removal is a no-op.
     fn poll_sessions_delete(&mut self) {
-        if let Some((_, ref rx)) = self.sessions_delete_receiver {
-            if let Ok(result) = rx.try_recv() {
-                if let Err(e) = result {
-                    log::warn!("sessions.delete failed: {}", e);
+        let result = self
+            .sessions_delete_receiver
+            .as_ref()
+            .and_then(|(_, rx)| rx.try_recv().ok());
+        if let Some(result) = result {
+            let sid = self
+                .sessions_delete_receiver
+                .as_ref()
+                .map(|(id, _)| id.clone());
+            self.sessions_delete_receiver = None;
+            if let Some(sid) = sid {
+                match &result {
+                    Ok(true) => {
+                        // Immediately remove from local state so the sidebar
+                        // updates without waiting for the broadcast event.
+                        self.remove_session_local(&sid);
+                    }
+                    Ok(false) => {
+                        log::warn!("sessions.delete returned false for {}", sid);
+                    }
+                    Err(e) => {
+                        log::warn!("sessions.delete failed: {}", e);
+                        // If the gateway says the session doesn't exist, clean up
+                        // local state — the session is already gone server-side.
+                        if e.contains("session not found") {
+                            self.remove_session_local(&sid);
+                        }
+                    }
                 }
-                self.sessions_delete_receiver = None;
             }
         }
     }
 
     /// Poll for `sessions.delete_all` fetch result. Call each frame.
-    /// Note: the authoritative cleanup happens via the `sessions.cleared` broadcast
-    /// event in poll_session_events; this poller just clears the receiver.
+    /// On successful RPC result, clears all session state immediately
+    /// so the sidebar updates without waiting for the `sessions.cleared` broadcast.
+    /// The broadcast handler in `poll_session_events` is idempotent — if the
+    /// broadcast arrives after local cleanup, the redundant clear is a no-op.
     fn poll_sessions_delete_all(&mut self) {
-        if let Some(rx) = &self.sessions_delete_all_receiver {
-            if let Ok(result) = rx.try_recv() {
-                if let Err(e) = result {
+        let result = self
+            .sessions_delete_all_receiver
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok());
+        if let Some(result) = result {
+            self.sessions_delete_all_receiver = None;
+            match result {
+                Ok(count) => {
+                    // Immediately clear all session state so the sidebar
+                    // updates without waiting for the broadcast event.
+                    self.session_messages.clear();
+                    self.session_summaries.clear();
+                    self.session_order.clear();
+                    self.start_new_session();
+                    self.chat_session_id = None;
+                    log::debug!("sessions.delete_all removed {} session(s)", count);
+                }
+                Err(e) => {
                     log::warn!("sessions.delete_all failed: {}", e);
                 }
-                self.sessions_delete_all_receiver = None;
             }
         }
     }

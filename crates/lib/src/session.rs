@@ -372,13 +372,30 @@ impl SessionStore {
 
     /// Remove a session by id. Returns the removed session if it existed.
     /// Also deletes the file from disk if `data_dir` is set.
+    /// Handles sessions that exist on disk but have not been lazily loaded
+    /// into memory — loads the session first so the caller receives `Some(_)`
+    /// and the disk file is cleaned up correctly.
     pub async fn remove(&self, id: &str) -> Option<Session> {
-        let removed = self.inner.write().await.remove(id);
+        // Try in-memory first.
+        if let Some(session) = self.inner.write().await.remove(id) {
+            self.delete_from_disk(id);
+            if let Ok(mut index) = self.disk_index.try_write() {
+                index.remove(id);
+            }
+            return Some(session);
+        }
+        // Not in memory — check disk index for lazy-loaded sessions.
+        let in_disk_index = self.disk_index.read().await.contains(id);
+        let from_disk = if in_disk_index {
+            self.load_from_disk(id)
+        } else {
+            None
+        };
         self.delete_from_disk(id);
         if let Ok(mut index) = self.disk_index.try_write() {
             index.remove(id);
         }
-        removed
+        from_disk
     }
 
     /// Append a message to the session; returns error if session not found.
@@ -444,11 +461,22 @@ impl SessionStore {
 
     /// Remove all sessions from memory and disk. Returns the number of sessions removed.
     /// Deletes all `sess-*.json` files from `data_dir` and clears the disk index.
+    /// Counts both in-memory sessions and sessions that exist only on disk
+    /// (not yet lazily loaded).
     pub async fn remove_all(&self) -> usize {
         let mut g = self.inner.write().await;
-        let count = g.len();
+        let in_mem_count = g.len();
         g.clear();
         drop(g);
+        // Count disk-only sessions before clearing the disk index.
+        // In-memory sessions are always in the disk index too (added on
+        // create/scan), so disk_only = disk_index.len() - in_mem_count.
+        let disk_only_count = if self.data_dir.is_some() {
+            let index = self.disk_index.read().await;
+            index.len().saturating_sub(in_mem_count)
+        } else {
+            0
+        };
         // Delete all session files from disk.
         if let Some(ref dir) = self.data_dir {
             if let Ok(entries) = std::fs::read_dir(dir) {
@@ -467,7 +495,7 @@ impl SessionStore {
         if let Ok(mut index) = self.disk_index.try_write() {
             index.clear();
         }
-        count
+        in_mem_count + disk_only_count
     }
 }
 
@@ -756,5 +784,48 @@ mod tests {
 
         let count = store.remove_all().await;
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn session_store_remove_disk_only_session() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::with_data_dir(dir.path().to_path_buf());
+
+        // Create a session and populate the disk index via scan.
+        let id = store.create().await;
+        let file_path = dir.path().join(format!("{}.json", id));
+        assert!(file_path.exists());
+
+        // Remove from memory only — the session file and disk_index entry remain.
+        // This simulates a session that exists on disk but hasn't been lazily loaded.
+        store.inner.write().await.remove(&id);
+
+        // remove() should still find and delete the session (via disk index).
+        let removed = store.remove(&id).await;
+        assert!(removed.is_some(), "remove should return Some for disk-only session");
+        assert_eq!(removed.unwrap().id, id);
+        assert!(!file_path.exists(), "file should be deleted");
+        assert!(store.get(&id).await.is_none(), "session should be gone after remove");
+    }
+
+    #[tokio::test]
+    async fn session_store_remove_all_includes_disk_only_sessions() {
+        let dir = TempDir::new().unwrap();
+        let store = SessionStore::with_data_dir(dir.path().to_path_buf());
+
+        // Create two sessions.
+        let id1 = store.create().await;
+        let id2 = store.create().await;
+
+        // Evict one from memory to simulate a disk-only session.
+        store.inner.write().await.remove(&id1);
+
+        // remove_all should count both sessions.
+        let count = store.remove_all().await;
+        assert_eq!(count, 2, "remove_all should count disk-only sessions");
+
+        // Both files should be deleted.
+        assert!(!dir.path().join(format!("{}.json", id1)).exists());
+        assert!(!dir.path().join(format!("{}.json", id2)).exists());
     }
 }
