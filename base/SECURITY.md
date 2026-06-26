@@ -235,11 +235,9 @@ The following are explicitly outside Chai's current security model:
 
 These are potential security enhancements that are not yet implemented:
 
-- **Tool call approval** — Optional human-in-the-loop approval before tool execution. Tracked in [epic/TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md).
-- **Encryption at rest for session data** — Encrypt session files on disk so conversation history is not readable without the gateway's credentials. Session files are currently stored as plain JSON under the profile's `agents/<agentId>/sessions/` directory (see [spec/SESSIONS.md](spec/SESSIONS.md)). Relevant for multi-user or shared-host deployments.
-- **Per-agent sandbox isolation** — Separate sandbox boundaries for each agent within a profile.
-- **Enforced device scopes and roles** — Use the existing `role` and `scopes` fields from device pairing for authorization decisions.
 - **Rate limiting and connection throttling** — Limit WebSocket connections, message rates, and agent turn frequency.
+- **Enforced device scopes and roles** — Use the existing `role` and `scopes` fields from device pairing for authorization decisions.
+- **Encryption at rest for session data** — Encrypt session files on disk so conversation history is not readable without the gateway's credentials. Session files are currently stored as plain JSON under the profile's `agents/<agentId>/sessions/` directory (see [spec/SESSIONS.md](spec/SESSIONS.md)). Relevant for multi-user or shared-host deployments.
 
 ## Related Documents
 

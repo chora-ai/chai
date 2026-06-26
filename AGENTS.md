@@ -4,7 +4,7 @@ This is the `AGENTS.md` file in the root of the `chai` directory.
 
 ## Primary Resources
 
-This document and the `base` directory are the primary resources for agents. For knowledge base conventions (working notes lifecycle and graduation, structured docs), see `base/AGENTS.md`.
+This document and the `base` directory are the primary resources for agents. For knowledge base conventions (working notes lifecycle, adding and updating structured documentation), see `base/AGENTS.md`.
 
 ## Architecture Overview
 
@@ -21,11 +21,11 @@ This document and the `base` directory are the primary resources for agents. For
 
 ### Modularity
 
-- Maintain modularity and clear separation of concerns.
+- Maintain modularity and separation of concerns.
 
 ### Dependencies
 
-- Add dependencies only when clearly needed; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits.
+- Add dependencies only when necessary; avoid bloat. When adding logging or other cross-cutting concerns, use what is already in the dependency tree or the smallest option that fits.
 
 ## Code Style Guidelines
 
@@ -51,18 +51,14 @@ Create feature branches from `main` with name `<type>/<short-description>`. Bran
 
 Merges into `main` use squash merges. This keeps `main` history linear, readable, and semantically meaningful — each commit on `main` represents one complete, reviewable change. The squash-merge message follows conventional commits and is what matters; individual commits on feature branches are working commits.
 
-### Conventional Commit Types
+### Conventional Commits
 
 Documentation changes can be either `chore` or `docs` depending on the audience — use the following to decide:
 
 - `chore` for internal/project infrastructure changes (including `base/` directory updates, agent conventions, working notes management)
 - `docs` for user-facing documentation changes (`docs/`, `README.md`, `CHANGELOG.md`, `CONTRIBUTING.md`)
 
-When a branch touches multiple types, the prefix reflects the primary change — the substantive code change takes priority over incidental or supporting changes (e.g., `test` over `chore` when fixing tests also prompts a convention update, `docs` over `chore` when user documentation changes also involve internal updates).
-
-### Testing Checkpoint
-
-Changes that modify runtime behavior **must be manually tested with a rebuilt binary** before proceeding to squash-merge. Do not update structured documentation, user documentation, or squash-merge until the changes are verified.
+When a branch touches multiple types, the prefix reflects the primary change — the substantive code change takes priority over incidental or supporting changes (e.g., `test` over `chore` when fixing tests also prompts a convention update, `docs` over `chore` when user documentation changes also involve internal documentation updates).
 
 ## User Documentation
 

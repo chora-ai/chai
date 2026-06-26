@@ -31,7 +31,7 @@ When a working note matures (e.g. a bug fix is verified, or a feature grows into
 - A spec that needs updating → update existing spec (`spec/`)
 - A change to channels or providers → update existing ref (`ref/`)
 
-Other graduation destinations (user documentation, changelog) are covered in the repository root `AGENTS.md`.
+Always update root directory `CHANGELOG.md` and user documentation (`docs/`) when graduating working notes that include changes to user-facing features. Conventions for updating user documentation can be found in the root directory `AGENTS.md`, `docs/AGENTS.md`, and `AGENTS.md` files in each `docs/` subdirectory.
 
 ### Lifecycle
 

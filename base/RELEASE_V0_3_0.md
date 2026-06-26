@@ -4,7 +4,7 @@
 
 ## Scope
 
-This release implements the persistent sessions epic and reviews all documentation for currency.
+This release implements the persistent sessions epic.
 
 ### In Scope
 
@@ -18,45 +18,13 @@ This release implements the persistent sessions epic and reviews all documentati
 
 ### 1. Persistent Sessions Epic Implementation
 
-- [ ] Implement Phase 1: Core persistence (per `PERSISTENT_SESSIONS.md`)
-- [ ] Implement Phase 2: Protocol methods (`sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all`)
-- [ ] Implement Phase 3: Desktop session management
-- [ ] Implement Phase 4: CLI session management (`chai sessions list`, `chai sessions delete`, `chai sessions clear`)
-- [ ] Implement Phase 5: Hardening
+- [x] Implement Phase 1: Core persistence (per `PERSISTENT_SESSIONS.md`)
+- [x] Implement Phase 2: Protocol methods (`sessions.list`, `sessions.history`, `sessions.delete`, `sessions.delete_all`)
+- [x] Implement Phase 3: Desktop session management
+- [x] Implement Phase 4: CLI session management (`chai sessions list`, `chai sessions delete`, `chai sessions clear`)
 
-### 2. Structured Documentation Review
+### 2. Release Mechanics
 
-Ensure all specs, ADRs, and other structured docs in `base/` are current with the persistent sessions implementation.
-
-- [ ] `spec/CONTEXT.md` — Update for session persistence (new `created_at`, `updated_at` fields, `Serialize`/`Deserialize` on `Session`)
-- [ ] `spec/CHANNELS.md` — Update for session binding persistence (`bindings.json`)
-- [ ] `spec/PROFILES.md` — Update for `sessions/` directory under agent context directories
-- [ ] `spec/AGENTS.md` — Update if session storage affects agent context directories
-- [ ] `spec/CONFIGURATION.md` — Update if session persistence adds configuration options
-- [ ] `spec/DESKTOP.md` — Update for session sidebar enhancements, session loading, delete/clear actions
-- [ ] `spec/ORCHESTRATION.md` — Confirm no changes needed (sessions are orchestrator-scoped)
-- [ ] `spec/TOOLS_SCHEMA.md` — Confirm no changes needed
-- [ ] `spec/SANDBOX.md` — Confirm no changes needed
-- [ ] `spec/SKILL_FORMAT.md` — Confirm no changes needed
-- [ ] `adr/RUNTIME_PROFILES.md` — Confirm no changes needed (already notes session state is torn down on restart; this epic addresses that gap)
-- [ ] Review all other ADRs and specs for any needed updates
-
-### 3. User Documentation Review
-
-Ensure `docs/` and `README.md` are current with the persistent sessions implementation.
-
-- [ ] `docs/guides/09-desktop.md` — Update for session sidebar enhancements, session loading, delete/clear
-- [ ] `docs/guides/08-cli-reference.md` — Add `chai sessions list`, `chai sessions delete`, `chai sessions clear` subcommands
-- [ ] `docs/guides/02-getting-started.md` — Confirm no changes needed (or update if sessions are mentioned)
-- [ ] `docs/guides/06-skills.md` — Confirm no changes needed
-- [ ] `README.md` — Confirm no changes needed (or update if session subcommands are mentioned)
-- [ ] `CHANGELOG.md` — Add entries for all persistent sessions features
-
-### 4. Release Mechanics
-
-- [ ] Update structured documentation per requirement 2
-- [ ] Update user documentation per requirement 3
-- [ ] Update `base/README.md` to reflect the current state of all structured docs
 - [ ] Validate `scripts/build-release.sh 0.3.0` and experimental feature builds
 - [ ] Write tag file `base/tag/V0_3_0.md` following `base/meta/TAG.md` format
 - [ ] Update knowledge base index `base/README.md` — add new tag file entry using exact Summary text
