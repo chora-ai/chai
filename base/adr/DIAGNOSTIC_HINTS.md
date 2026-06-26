@@ -76,7 +76,43 @@ hint: <short, actionable message>
 
 This convention is not cosmetic. The `truncate_output()` function preserves lines starting with `hint:` when truncating tool output: non-hint lines are truncated to `maxOutputLines`, then hint lines are appended before the truncation notice. A hint that does not start with `hint:` at the beginning of its line (e.g., embedded inline within another line) cannot be detected and will be lost to truncation.
 
-Binary-level hints that previously embedded the hint inline (e.g., `0 replacements in path (hint: …)`) must emit the hint as a separate line to be preserved by truncation. The `postProcess` script pattern of `echo ""` followed by `echo "hint: …"` naturally produces this format.
+Binary-level hints that previously embedded the hint inline (e.g., `0 replacements in path (hint: …)`) must emit the hint as a separate line to be preserved by truncation.
+
+**Blank line before every hint**: Each hint must be preceded by a blank line, separating it from the preceding content or from another hint. This applies to all hint sources:
+
+| Source | Pattern |
+|--------|---------|
+| `postProcess` scripts | `printf '%s\n' "$var"` (to restore trailing newline stripped by command substitution), then `echo ""` then `echo "hint: …"` before each hint |
+| Binary `println!` | `println!("\nhint: …")` (the `\n` combines with `println!`'s trailing newline to produce a blank line) |
+| Binary `anyhow::bail!` | Separate each hint from the preceding text with `\n` (e.g., `…\n{}\n{}` for two hints, where each starts with `\nhint:`) |
+
+The `postProcess` pattern requires `printf '%s\n'` (not `printf '%s'`) because the standard idiom `output=$(cat)` uses command substitution, which strips trailing newlines. Without the `\n`, `echo ""` only replaces the stripped newline — it terminates the last line of output but does not produce a visible blank line before the hint. Using `printf '%s\n'` restores the trailing newline so the subsequent `echo ""` produces the intended blank separator.
+
+When multiple hints fire in the same output, each hint gets its own preceding blank line — hints must not appear as a dense block with no visual separation.
+
+### Truncation Notices
+
+When a tool's output exceeds `maxOutputLines`, the executor truncates the non-hint content and appends a truncation notice. Tools can customize this notice via the `truncationHint` field in their `tools.json` execution spec.
+
+**Template variables** available in `truncationHint`:
+
+| Variable | Meaning |
+|----------|---------|
+| `{kept}` | Number of lines retained after truncation |
+| `{total}` | Total lines before truncation |
+| `{omitted}` | Number of lines omitted (`{total}` − `{kept}`) |
+| `{next_start}` | The 1-indexed line number of the first omitted line (for tools with a continuation tool like `files_read_lines`) |
+
+**Philosophy**: The purpose of truncation is to provide a preview, not to make the agent follow up with another tool call to read the full content. The truncation notice should tell the agent there is more content and how to read it *if necessary*, not imply the agent must read the rest.
+
+**Convention**: Truncation notices must frame continuation as optional, not imperative.
+
+| Phrasing | Style | Example |
+|----------|-------|---------|
+| ✅ Informational + optional | `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}; omit end_line to read the rest."` | States fact neutrally; "to continue reading" is optional framing |
+| ❌ Imperative | `"Use X with start_line: {next_start} to read the remaining lines."` | Implies the agent should follow up, defeating the purpose of truncation |
+
+For tools without a continuation tool (e.g., search tools that return matching lines), the generic notice (`Narrow your query path, pattern, or range to reduce results.`) already uses suggestive phrasing.
 
 ### `CHAI_EXIT_CODE` Environment Variable
 
@@ -88,11 +124,11 @@ The canonical pattern for a `postProcess` script that inspects the exit code:
 input=$(cat)
 
 if [ "${CHAI_EXIT_CODE:-0}" != "0" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: <message for the error case>"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi
 ```
 

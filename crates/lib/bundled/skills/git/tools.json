@@ -398,7 +398,23 @@
     }
   ],
   "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch", "add", "commit -F -", "checkout -b", "checkout", "branch -d", "branch -D", "merge", "rebase", "cherry-pick", "reset"],
+    "git": [
+      "status",
+      "log",
+      "diff",
+      "show",
+      "branch",
+      "add",
+      "commit -F -",
+      "checkout -b",
+      "checkout",
+      "branch -d",
+      "branch -D",
+      "merge",
+      "rebase",
+      "cherry-pick",
+      "reset"
+    ],
     "chai": ["git diff-lines", "git show-lines"]
   },
   "execution": [
@@ -407,7 +423,15 @@
       "binary": "git",
       "subcommand": "status",
       "args": [
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "successExitCodes": [128],
       "postProcess": {
@@ -419,27 +443,67 @@
       "binary": "git",
       "subcommand": "log",
       "args": [
-        { "param": "count", "kind": "flag", "flag": "n", "optional": true, "absentDefault": "10" },
+        {
+          "param": "count",
+          "kind": "flag",
+          "flag": "n",
+          "optional": true,
+          "absentDefault": "10"
+        },
         { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
-        { "param": "oneline", "kind": "flagifboolean", "flagIfTrue": "--oneline" },
-        { "param": "path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "oneline",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--oneline"
+        },
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "disambiguateAfterSkippedPositionals": true
+        },
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use skip to paginate (e.g. skip: 10 with the same count to show the next page of commits) or oneline: true for compact output."
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To paginate, use skip with the same count; use oneline: true for compact output."
     },
     {
       "tool": "git_diff",
       "binary": "git",
       "subcommand": "diff",
       "args": [
-        { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--cached" },
+        {
+          "param": "staged",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--cached"
+        },
         { "param": "ref", "kind": "positional", "optional": true },
-        { "param": "path", "kind": "positional", "optional": true, "disambiguateAfterSkippedPositionals": true },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "path",
+          "kind": "positional",
+          "optional": true,
+          "disambiguateAfterSkippedPositionals": true
+        },
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_diff_lines with start_line: {next_start} to read the remaining lines.",
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
       "postProcess": {
         "script": "hint-diff-ref-main",
         "args": ["$ref"]
@@ -451,11 +515,26 @@
       "subcommand": "git diff-lines",
       "args": [
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
-        { "param": "staged", "kind": "flagifboolean", "flagIfTrue": "--staged" },
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        },
+        {
+          "param": "staged",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--staged"
+        },
         { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
         { "param": "path", "kind": "flag", "flag": "path", "optional": true },
-        { "param": "repo", "kind": "flag", "flag": "repo", "optional": true, "readPath": true }
+        {
+          "param": "repo",
+          "kind": "flag",
+          "flag": "repo",
+          "optional": true,
+          "readPath": true
+        }
       ]
     },
     {
@@ -464,10 +543,18 @@
       "subcommand": "show",
       "args": [
         { "param": "ref", "kind": "positional" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use git_show_lines with start_line: {next_start} to read the remaining lines."
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_show_lines with start_line: {next_start}; omit end_line to read the rest."
     },
     {
       "tool": "git_show_lines",
@@ -475,9 +562,20 @@
       "subcommand": "git show-lines",
       "args": [
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true },
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        },
         { "param": "ref", "kind": "flag", "flag": "ref" },
-        { "param": "repo", "kind": "flag", "flag": "repo", "optional": true, "readPath": true }
+        {
+          "param": "repo",
+          "kind": "flag",
+          "flag": "repo",
+          "optional": true,
+          "readPath": true
+        }
       ]
     },
     {
@@ -486,7 +584,15 @@
       "subcommand": "branch",
       "args": [
         { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 200
     },
@@ -496,7 +602,15 @@
       "subcommand": "add",
       "args": [
         { "param": "paths", "kind": "positional", "split": true },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     },
     {
@@ -509,10 +623,16 @@
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -526,7 +646,15 @@
       "subcommand": "checkout -b",
       "args": [
         { "param": "branch_name", "kind": "positional" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     },
     {
@@ -535,7 +663,15 @@
       "subcommand": "checkout",
       "args": [
         { "param": "branch_name", "kind": "positional" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     },
     {
@@ -543,9 +679,27 @@
       "binary": "git",
       "subcommand": "branch -d",
       "args": [
-        { "param": "force", "kind": "flagifboolean", "optional": true, "absentDefault": false, "subcommandOverride": "branch -D" },
-        { "param": "branch_name", "kind": "positional", "denyPattern": "^(main|release/.+)$" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "force",
+          "kind": "flagifboolean",
+          "optional": true,
+          "absentDefault": false,
+          "subcommandOverride": "branch -D"
+        },
+        {
+          "param": "branch_name",
+          "kind": "positional",
+          "denyPattern": "^(main|release/.+)$"
+        },
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     },
     {
@@ -553,16 +707,27 @@
       "binary": "git",
       "subcommand": "merge",
       "args": [
-        { "param": "squash", "kind": "flagifboolean", "flagIfTrue": "--squash", "optional": true },
+        {
+          "param": "squash",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--squash",
+          "optional": true
+        },
         { "param": "branch_name", "kind": "positional" },
         {
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -582,10 +747,16 @@
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -599,16 +770,27 @@
       "binary": "git",
       "subcommand": "cherry-pick",
       "args": [
-        { "param": "no_commit", "kind": "flagifboolean", "flagIfTrue": "--no-commit", "optional": true },
+        {
+          "param": "no_commit",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--no-commit",
+          "optional": true
+        },
         { "param": "commits", "kind": "positional", "split": true },
         {
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -628,10 +810,16 @@
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -643,7 +831,15 @@
       "subcommand": "rebase",
       "args": [
         { "kind": "literal", "value": "--abort" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 50
     },
@@ -657,10 +853,16 @@
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "successExitCodes": [1],
@@ -672,7 +874,15 @@
       "subcommand": "cherry-pick",
       "args": [
         { "kind": "literal", "value": "--abort" },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "maxOutputLines": 50
     },
@@ -681,15 +891,26 @@
       "binary": "git",
       "subcommand": "reset",
       "args": [
-        { "param": "ref", "kind": "positional", "optional": true, "absentDefault": "HEAD~1" },
+        {
+          "param": "ref",
+          "kind": "positional",
+          "optional": true,
+          "absentDefault": "HEAD~1"
+        },
         {
           "param": "repo",
           "kind": "workingdir",
           "optional": true,
-          "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] },
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         }
       ],
       "maxOutputLines": 50,

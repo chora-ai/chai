@@ -77,6 +77,7 @@ When in doubt, start with `postProcess`. Only escalate to binary-level when the 
 - Hints must be **non-blocking** — the tool still returns its result (or error). The hint augments, it doesn't replace.
 - Hints are **not a substitute for enforcement** — if the tool can enforce the correct behavior, enforce it. Only hint when enforcement would be wrong or impossible.
 - Hints must **start with `hint:` on their own line** — the truncation logic preserves lines beginning with `hint:` so hints survive `maxOutputLines` truncation.
+- Hints must be **preceded by a blank line** — each hint is separated from the preceding content (or from another hint) by a blank line. In `postProcess` scripts, use `printf '%s\n' "$var"` (not `printf '%s'`) to restore the trailing newline that command substitution strips, then `echo ""` before each `echo "hint: …"`. When multiple hints fire, each gets its own preceding blank line.
 
 ## Tool Surface Reduction
 
@@ -127,6 +128,25 @@ Never pass arbitrary text content as a CLI flag.
 Tools that can return arbitrarily large results must enforce a result cap and communicate truncation to the agent. Set `maxOutputLines` on the execution spec for any tool whose output can be unbounded (search tools, diff tools, log tools). Truncation applies after `postProcess` but before `sideRead` — side-read content is never truncated.
 
 Lines starting with `hint:` are preserved through truncation: the executor separates hint lines from non-hint lines, truncates only the non-hint content, then appends the preserved hints before the truncation notice.
+
+### Custom Truncation Notices
+
+When a tool has a continuation tool (e.g., `files_read` → `files_read_lines`), customize the truncation notice with the `truncationHint` field on the execution spec. The `truncationHint` string supports these template variables:
+
+| Variable | Meaning |
+|----------|---------|
+| `{kept}` | Number of lines retained after truncation |
+| `{total}` | Total lines before truncation |
+| `{omitted}` | Number of lines omitted (`{total}` − `{kept}`) |
+| `{next_start}` | The 1-indexed line number of the first omitted line |
+
+**Convention**: Truncation notices must frame continuation as optional, not imperative. The purpose of truncation is to provide a preview — the notice should tell the agent there is more content and how to read it *if necessary*, not imply the agent must follow up.
+
+✅ `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}; omit end_line to read the rest."`
+
+❌ `"Use X with start_line: {next_start} to read the remaining lines."`
+
+For tools without a continuation tool (e.g., search tools), the executor uses a generic notice that already uses suggestive phrasing — no `truncationHint` is needed.
 
 ## Sandbox Security
 

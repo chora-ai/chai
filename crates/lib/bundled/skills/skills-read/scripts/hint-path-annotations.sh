@@ -9,13 +9,13 @@ file_type="${1:-}"
 
 # Only check when reading tools_json
 if [ "$file_type" != "tools_json" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
 # Verify the input looks like tools.json content
 if ! echo "$input" | grep -q '"tools"\|"args"\|"execution"'; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
@@ -33,7 +33,7 @@ if echo "$input" | grep -q '"param".*\(path\|dir\|root\|file\)'; then
     fi
 fi
 
-printf '%s' "$input"
+printf '%s\n' "$input"
 
 if [ -n "$missing_path_hints" ]; then
     echo ""

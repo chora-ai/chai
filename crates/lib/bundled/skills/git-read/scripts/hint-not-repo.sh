@@ -6,9 +6,9 @@
 output=$(cat)
 
 if echo "$output" | grep -q "not a git repository"; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: not a git repository — specify a valid repo path"
 else
-    echo "$output"
+    printf '%s\n' "$output"
 fi

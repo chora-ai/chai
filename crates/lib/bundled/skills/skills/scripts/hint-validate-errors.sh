@@ -11,5 +11,5 @@ if echo "$input" | grep -q "^ERROR:"; then
     echo ""
     echo "hint: use skills_read with file: 'tools_json' to examine the content"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

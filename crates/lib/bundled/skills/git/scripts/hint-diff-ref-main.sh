@@ -9,9 +9,9 @@ output=$(cat)
 ref="$1"
 
 if [ "$ref" = "main" ]; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: showing changes since diverging from main"
 else
-    echo "$output"
+    printf '%s\n' "$output"
 fi

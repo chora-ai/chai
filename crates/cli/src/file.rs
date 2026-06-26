@@ -1495,13 +1495,13 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
             .find(|(_, (e, a))| e != a);
         match first_diff {
             Some((i, (exp_line, act_line))) => format!(
-                "\n  hint: first difference at line {} of the content — expected: {:?}, actual: {:?}",
+                "\nhint: first difference at line {} of the content — expected: {:?}, actual: {:?}",
                 i + 1,
                 exp_line,
                 act_line,
             ),
             None if expected_lines.len() != actual_lines.len() => format!(
-                "\n  hint: content lines match up to line {} but lengths differ — expected {} lines, actual {} lines",
+                "\nhint: content lines match up to line {} but lengths differ — expected {} lines, actual {} lines",
                 expected_lines.len().min(actual_lines.len()),
                 expected_lines.len(),
                 actual_lines.len(),
@@ -1517,7 +1517,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
             .position(|(a, e)| a != e);
         match first_diff {
             Some(pos) => format!(
-                "\n  hint: same length ({} bytes) but differ at byte offset {}; expected byte 0x{:02x}, actual byte 0x{:02x}",
+                "\nhint: same length ({} bytes) but differ at byte offset {}; expected byte 0x{:02x}, actual byte 0x{:02x}",
                 expected.len(),
                 pos,
                 expected.as_bytes().get(pos).copied().unwrap_or(0),
@@ -1527,14 +1527,14 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
         }
     } else {
         format!(
-            "\n  hint: different lengths - expected {} bytes, actual {} bytes",
+            "\nhint: different lengths - expected {} bytes, actual {} bytes",
             expected.len(),
             actual.len(),
         )
     };
 
     anyhow::bail!(
-        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}{}",
+        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
         start_line,
         effective_end,
         expected_fmt,

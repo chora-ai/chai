@@ -18,14 +18,14 @@ input=$(cat)
 
 # notes_daily_append: new file created
 if printf '%s' "$input" | grep -q "(created new file)" 2>/dev/null; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
-    echo "hint: no daily note found for this date — use notes_daily_write to create one"
+    echo "hint: no daily note existed for this date — appended content to a new file; use notes_daily_write to set the full content instead"
 # notes_daily_write: overwriting existing
 elif printf '%s' "$input" | grep -q "overwriting existing" 2>/dev/null; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: daily note already exists — consider notes_daily_append to add content instead"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

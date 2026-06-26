@@ -7,9 +7,9 @@
 input=$(cat)
 
 if printf '%s' "$input" | grep -q "overwriting existing" 2>/dev/null; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: overwrote existing file"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

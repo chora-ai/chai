@@ -8,9 +8,9 @@
 input=$(cat)
 
 if [ "${CHAI_EXIT_CODE:-0}" != "0" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: file not found — use files_list to browse available files"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

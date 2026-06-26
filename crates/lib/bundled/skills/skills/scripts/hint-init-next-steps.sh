@@ -10,5 +10,5 @@ if echo "$input" | grep -q "initialized skill"; then
     echo ""
     echo "hint: skill initialized — next: design tools, write tools.json, then validate"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

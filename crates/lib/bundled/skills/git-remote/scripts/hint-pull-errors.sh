@@ -8,13 +8,13 @@
 output=$(cat)
 
 if echo "$output" | grep -q "no tracking information\|no upstream branch\|There is no tracking information"; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: no tracking branch set — specify remote and branch explicitly"
 elif echo "$output" | grep -q "Could not resolve\|does not appear to be a git repository\|not found"; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: remote not found — use git_remote to list configured remotes"
 else
-    echo "$output"
+    printf '%s\n' "$output"
 fi

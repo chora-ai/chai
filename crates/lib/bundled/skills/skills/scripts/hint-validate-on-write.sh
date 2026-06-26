@@ -10,7 +10,7 @@ input=$(cat)
 skill_name=$(echo "$input" | sed -n "s/.*wrote tools.json for '\([^']*\)'.*/\1/p" | head -1)
 
 if [ -z "$skill_name" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
@@ -31,5 +31,5 @@ elif [ "$warnings" -gt 0 ]; then
     echo ""
     echo "hint: tools.json written — validation: PASS with $warnings WARNING(s)"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi

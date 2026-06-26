@@ -118,7 +118,7 @@
         "script": "hint-not-found"
       },
       "maxOutputLines": 500,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use notes_read_lines with start_line: {next_start} to read the remaining lines."
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
     {
       "tool": "notes_read_lines",

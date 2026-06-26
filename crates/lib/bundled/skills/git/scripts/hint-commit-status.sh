@@ -6,13 +6,13 @@
 output=$(cat)
 
 if echo "$output" | grep -q "nothing to commit"; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: nothing to commit — working tree clean"
 elif echo "$output" | grep -q "no changes added to commit\|untracked files present"; then
-    echo "$output"
+    printf '%s\n' "$output"
     echo ""
     echo "hint: unstaged changes present — use git_add to stage them"
 else
-    echo "$output"
+    printf '%s\n' "$output"
 fi

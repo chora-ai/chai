@@ -95,8 +95,24 @@
       "subcommand": "clone",
       "args": [
         { "param": "url", "kind": "positional" },
-        { "param": "path", "kind": "positional", "writePath": true, "resolveCommand": { "script": "resolve-clone-path", "args": ["$param"] } },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "path",
+          "kind": "positional",
+          "writePath": true,
+          "resolveCommand": {
+            "script": "resolve-clone-path",
+            "args": ["$param"]
+          }
+        },
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     },
     {
@@ -106,7 +122,15 @@
       "args": [
         { "param": "remote", "kind": "positional", "optional": true },
         { "param": "branch_name", "kind": "positional", "optional": true },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "successExitCodes": [1, 128],
       "postProcess": {
@@ -118,16 +142,31 @@
       "binary": "git",
       "subcommand": "push",
       "args": [
-        { "param": "set_upstream", "kind": "flagifboolean", "flagIfTrue": "--set-upstream" },
+        {
+          "param": "set_upstream",
+          "kind": "flagifboolean",
+          "flagIfTrue": "--set-upstream"
+        },
         { "param": "remote", "kind": "positional", "optional": true },
         {
           "param": "branch_name",
           "kind": "positional",
           "optional": true,
           "denyPattern": "^(main|release/.+)$",
-          "denyResolveCommand": { "script": "resolve-current-branch", "args": ["$workingDir"] }
+          "denyResolveCommand": {
+            "script": "resolve-current-branch",
+            "args": ["$workingDir"]
+          }
         },
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ],
       "successExitCodes": [1, 128],
       "postProcess": {
@@ -139,7 +178,15 @@
       "binary": "git",
       "subcommand": "remote -v",
       "args": [
-        { "param": "repo", "kind": "workingdir", "optional": true, "resolveCommand": { "script": "resolve-repo-path", "args": ["$param"] } }
+        {
+          "param": "repo",
+          "kind": "workingdir",
+          "optional": true,
+          "resolveCommand": {
+            "script": "resolve-repo-path",
+            "args": ["$param"]
+          }
+        }
       ]
     }
   ]

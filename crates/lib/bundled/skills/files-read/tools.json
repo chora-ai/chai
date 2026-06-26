@@ -112,7 +112,7 @@
         "script": "hint-not-found"
       },
       "maxOutputLines": 500,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use files_read_lines with start_line: {next_start} to read the remaining lines."
+      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
     {
       "tool": "files_read_lines",
@@ -121,7 +121,12 @@
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
         { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        { "param": "end_line", "kind": "flag", "flag": "end-line", "optional": true }
+        {
+          "param": "end_line",
+          "kind": "flag",
+          "flag": "end-line",
+          "optional": true
+        }
       ],
       "successExitCodes": [1],
       "postProcess": {

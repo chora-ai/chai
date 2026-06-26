@@ -7,7 +7,7 @@
 input=$(cat)
 
 if [ -n "$input" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: use files_read_lines with these line numbers for surrounding context"
 fi

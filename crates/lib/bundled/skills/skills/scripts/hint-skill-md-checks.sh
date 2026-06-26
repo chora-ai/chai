@@ -9,14 +9,14 @@ input=$(cat)
 skill_name="${1:-}"
 
 if [ -z "$skill_name" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
 # Find the skill directory and active version
 skill_dir="${HOME}/.chai/skills/${skill_name}"
 if [ ! -d "$skill_dir" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
@@ -36,7 +36,7 @@ else
 fi
 
 if [ -z "$content_dir" ] || [ ! -f "$content_dir/SKILL.md" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     exit 0
 fi
 
@@ -78,12 +78,15 @@ if echo "$skill_name" | grep -q "-"; then
 fi
 
 # Build output
-printf '%s' "$input"
+printf '%s\n' "$input"
 
 if [ -n "$missing" ] || [ -n "$variant_hint" ]; then
     echo ""
     if [ -n "$missing" ]; then
         echo "hint: SKILL.md written — missing recommended frontmatter: $missing"
+        if [ -n "$variant_hint" ]; then
+            echo ""
+        fi
     fi
     if [ -n "$variant_hint" ]; then
         echo "hint: $variant_hint"

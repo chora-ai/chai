@@ -9,9 +9,9 @@
 input=$(cat)
 
 if [ "${CHAI_EXIT_CODE:-0}" != "0" ]; then
-    printf '%s' "$input"
+    printf '%s\n' "$input"
     echo ""
     echo "hint: no daily note found for this date — use notes_daily_write to create one"
 else
-    printf '%s' "$input"
+    printf '%s\n' "$input"
 fi
