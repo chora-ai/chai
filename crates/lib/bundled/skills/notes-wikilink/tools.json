@@ -13,7 +13,7 @@
           },
           "scope": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
+            "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
           }
         }
       }
@@ -27,7 +27,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           },
           "scope": {
             "type": "string",
@@ -49,7 +49,7 @@
           },
           "scope": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root to narrow the search (use ./ prefix). Omit to search all notes."
+            "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
           }
         }
       }
@@ -63,7 +63,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           },
           "scope": {
             "type": "string",
@@ -81,11 +81,11 @@
         "properties": {
           "from": {
             "type": "string",
-            "description": "Current note path relative to the sandbox root (use ./ prefix)"
+            "description": "Current note path relative to the sandbox root"
           },
           "to": {
             "type": "string",
-            "description": "New note path relative to the sandbox root (use ./ prefix)"
+            "description": "New note path relative to the sandbox root"
           },
           "scope": {
             "type": "string",

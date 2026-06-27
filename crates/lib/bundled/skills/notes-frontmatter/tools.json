@@ -9,7 +9,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           }
         }
       }
@@ -23,7 +23,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           },
           "key": {
             "type": "string",
@@ -45,7 +45,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           },
           "key": {
             "type": "string",

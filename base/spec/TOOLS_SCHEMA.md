@@ -210,7 +210,7 @@ The exit code passed to `hintConditions` is the **main command's exit code** (sa
   "subcommand": "file read",
   "successExitCodes": [1],
   "hintConditions": [
-    { "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }
+    { "exitCode": "nonzero", "hint": "file not found — use files_list to list available files" }
   ],
   "args": [...]
 }
@@ -319,7 +319,7 @@ One tool, one positional argument:
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "start_line": {
             "type": "integer",

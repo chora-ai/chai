@@ -37,19 +37,11 @@ fn bundled_sandbox_templates(profile_name: &str) -> Result<Vec<(&'static str, &'
                 "AGENTS.md",
                 include_bytes!("../bundled/profiles/assistant/sandbox/AGENTS.md"),
             ),
-            (
-                "README.md",
-                include_bytes!("../bundled/profiles/assistant/sandbox/README.md"),
-            ),
         ]),
         "developer" => Ok(vec![
             (
                 "AGENTS.md",
                 include_bytes!("../bundled/profiles/developer/sandbox/AGENTS.md"),
-            ),
-            (
-                "README.md",
-                include_bytes!("../bundled/profiles/developer/sandbox/README.md"),
             ),
         ]),
         _ => anyhow::bail!(

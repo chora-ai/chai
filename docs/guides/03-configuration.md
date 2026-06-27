@@ -31,7 +31,6 @@ Each profile gets its own `config.json`, agent context directories, and local st
 | `profiles/<name>/config.json` | Created with `{}` if absent; existing configuration is preserved |
 | `profiles/<name>/agents/orchestrator/AGENT.md` | Seeded from bundled template if absent; existing instructions are preserved |
 | `profiles/<name>/sandbox/AGENTS.md` | Seeded from bundled template if absent; existing content is preserved |
-| `profiles/<name>/sandbox/README.md` | Seeded from bundled template if absent; existing content is preserved |
 
 **Sandbox recovery** — If a profile directory already exists but its `sandbox/` subdirectory has been deleted, `chai init` re-creates the sandbox directory and seeds template files. Other files within the profile are not modified.
 **Bundled skills** — Each bundled skill is extracted into `~/.chai/skills/<name>/` using content-addressed versioning:

@@ -9,21 +9,21 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           }
         }
       }
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a file with line numbers.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "start_line": {
             "type": "integer",
@@ -38,14 +38,14 @@
     },
     {
       "name": "files_list",
-      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
+      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root (use ./ prefix)"
+            "description": "Directory path relative to the sandbox root"
           },
           "long": {
             "type": "boolean",
@@ -71,7 +71,7 @@
           },
           "path": {
             "type": "string",
-            "description": "File or directory path relative to the sandbox root (use ./ prefix)"
+            "description": "File or directory path relative to the sandbox root"
           },
           "recursive": {
             "type": "boolean",
@@ -103,7 +103,7 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "content": {
             "type": "string",
@@ -114,14 +114,14 @@
     },
     {
       "name": "files_write_lines",
-      "description": "Replace a range of lines in a file without rewriting the entire file. Lines outside the range are preserved unchanged. Returns a diff showing removed lines (-prefix), added lines (+prefix), and surrounding context so you can verify the edit. Use this instead of files_write for targeted edits to large files.",
+      "description": "Replace a range of lines in a file without rewriting the entire file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line", "original_content", "content"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "start_line": {
             "type": "integer",
@@ -144,31 +144,31 @@
     },
     {
       "name": "files_replace",
-      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries). When the regex pattern matches 0 times, the tool automatically retries with a trailing-whitespace-tolerant literal search that ignores trailing whitespace differences between the pattern and the file content (auto-retry matches must align with line boundaries). When the regex pattern matches an unreasonable number of positions (likely due to unintentional regex metacharacters like | in markdown table), the tool automatically retries as literal mode. Use literal mode explicitly when you want to ensure the pattern is matched as-is without regex interpretation. Trailing whitespace on matched lines is preserved from the original when using literal mode; in regex mode, trailing whitespace within the match span is replaced, while trailing whitespace outside the match span is preserved.",
+      "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries).",
       "parameters": {
         "type": "object",
         "required": ["path", "pattern", "replacement"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "pattern": {
             "type": "string",
-            "description": "Search pattern. By default, interpreted as regex matched against the full file content with multiline mode (^ and $ match line boundaries). In literal mode, the pattern is treated as literal text — no regex interpretation. For multi-line patterns, include actual newlines in the string."
+            "description": "Search pattern (regex by default, literal when literal: true). Multiline mode: ^ and $ match line boundaries. For multi-line patterns, include actual newlines."
           },
           "replacement": {
             "type": "string",
-            "description": "Replacement string. Supports $1-$9 for capture group references (regex mode with capture groups only — when the pattern has no capture groups, $1-$9 are treated as literal text). Use $$ for a literal $ when the pattern has capture groups. Use an empty string to delete matches. For multi-line replacements, include actual newlines in the string. Note: if the regex pattern unintentionally contains capture groups (e.g., parentheses in code), $1-$9 in the replacement will expand those unintended groups — use literal: true or escape parentheses with \\(\\) to avoid this."
+            "description": "Replacement string. Supports $1-$9 for capture group references (regex mode with capture groups only). Use $$ for a literal $ when the pattern has capture groups. Use an empty string to delete matches. For multi-line replacements, include actual newlines."
           },
           "max_replacements": {
             "type": "integer",
-            "description": "Maximum number of replacements to apply. 0 (default) means unlimited. Use 1 to replace only the first match and avoid unintended changes when the same pattern appears in multiple locations.",
+            "description": "Maximum number of replacements to apply. 0 (default) means unlimited.",
             "default": 0
           },
           "literal": {
             "type": "boolean",
-            "description": "Treat the pattern as literal text instead of regex. In literal mode, the pattern can match as a substring within a line (standard find-and-replace semantics). The tool auto-detects degenerate regex matches (e.g., unintentional alternation from | in markdown tables) and retries as literal with line-boundary enforcement, but setting this explicitly ensures the pattern is never interpreted as regex and allows mid-line substring matches. Capture groups ($1-$9) are not supported in literal mode. Default: false."
+            "description": "Treat the pattern as literal text instead of regex. Default: false."
           },
           "line_number": {
             "type": "boolean",
@@ -180,28 +180,28 @@
     },
     {
       "name": "files_delete",
-      "description": "Delete a file. Refuses to delete directories.",
+      "description": "Delete a file.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           }
         }
       }
     },
     {
       "name": "files_delete_dir",
-      "description": "Delete an empty directory. Refuses to delete non-empty directories or files.",
+      "description": "Delete an empty directory. Refuses to delete non-empty directories.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root (use ./ prefix)"
+            "description": "Directory path relative to the sandbox root"
           }
         }
       }
@@ -227,7 +227,12 @@
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }],
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "file not found — use files_list to list available files"
+        }
+      ],
       "maxOutputLines": 500,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
@@ -246,7 +251,12 @@
         }
       ],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }]
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "file not found — use files_list to list available files"
+        }
+      ]
     },
     {
       "tool": "files_list",
@@ -298,7 +308,12 @@
         { "param": "path", "kind": "positional", "readPath": true }
       ],
       "successExitCodes": [0, 1],
-      "hintConditions": [{ "notEmpty": true, "hint": "use files_read_lines with these line numbers for surrounding context" }],
+      "hintConditions": [
+        {
+          "notEmpty": true,
+          "hint": "use files_read_lines for surrounding context"
+        }
+      ],
       "maxOutputLines": 200
     },
     {
@@ -312,7 +327,9 @@
           "kind": "stdin"
         }
       ],
-      "hintConditions": [{ "match": "overwriting existing", "hint": "overwrote existing file" }]
+      "hintConditions": [
+        { "match": "overwriting existing", "hint": "overwrote existing file" }
+      ]
     },
     {
       "tool": "files_write_lines",
@@ -373,6 +390,10 @@
       "subcommand": "file delete",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
+      ],
+      "successExitCodes": [0],
+      "hintConditions": [
+        { "exitCode": 0, "hint": "file deleted — verify this was intended" }
       ]
     },
     {
@@ -381,6 +402,13 @@
       "subcommand": "file delete-dir",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
+      ],
+      "successExitCodes": [0],
+      "hintConditions": [
+        {
+          "exitCode": 0,
+          "hint": "directory deleted — verify this was intended"
+        }
       ]
     }
   ]

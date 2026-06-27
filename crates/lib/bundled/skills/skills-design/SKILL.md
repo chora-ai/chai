@@ -24,6 +24,8 @@ Prefer tool enforcement over instruction-based guidance. When a tool can enforce
 
 Concretely: before adding a directive, check whether a tool could enforce it instead. When a tool gains new behavior (validation, feedback, diff output), check whether existing directives are now redundant.
 
+**Tools over inference means enforcement over directives, not descriptions over guidelines.** Tool enforcement — where the tool *does* something (validates, rejects, hints) — is genuinely better than a directive because it costs zero per-turn context and cannot be ignored. Tool *descriptions* are still inference: text the model reads every turn. Moving content from SKILL.md to a tool description moves inference from one channel to another; it does not reduce inference.
+
 ## Verification Over Instruction
 
 When correctness depends on state (e.g., editing a line range that shifts after each edit), prefer a tool-side verification check over an agent-side instruction. The agent provides a snapshot of the state it expects (like `original_content`), and the tool rejects the operation if the actual state has diverged. This is more reliable than instructing the agent to "always re-read before editing" because the tool enforces it.
@@ -125,6 +127,16 @@ SKILL.md uses a consistent section hierarchy so the agent can distinguish hard r
 - **`## <Named Workflow>`** (optional, for meta-skills) — composed multi-step procedures (e.g., generation workflow, security audit). Only use when the skill's purpose is to guide the agent through a structured process.
 
 Do not add prose paragraphs after the directives list. Any additional content that survives the sizing filter belongs in a distinct section with a clear heading so the agent understands the difference between must-follow directives and helpful guidelines.
+
+## Tool Description Sizing
+
+Tool descriptions are loaded into context every turn alongside SKILL.md — the same sizing discipline applies. Every word in a description costs tokens on every turn, whether the agent calls that tool or not.
+
+- **Tool descriptions are functional specs, not usage guides.** A description should tell the agent what the tool does and how to parameterize it — nothing more. Tool-selection guidance ("use this instead of that when...") belongs in SKILL.md guidelines, not in tool descriptions.
+- **Output formats are discoverable.** Describing the output format preemptively (e.g., "Returns lines in the format {line_number}\\t{content}") is over-documentation. The agent discovers output format on first use. Output format descriptions should only be included when the format is ambiguous or could be misinterpreted — which is rare.
+- **Tool descriptions should be lean.** The agent does not need to be told everything about a tool before calling it — it needs enough to select the right tool and provide the right parameters. Behavioral details (auto-retry, fallback modes, trailing whitespace handling) belong in SKILL.md guidelines or are discovered through tool output.
+- **Tool-selection guidance belongs in SKILL.md guidelines.** When one tool is preferred over another for a specific scenario, that is advisory content. It belongs in `## Skill Guidelines` where it's clearly marked as soft guidance, not in the tool description where it inflates the schema.
+- **Behavioral warnings that apply across calls belong in SKILL.md.** Content like "work from bottom to top when making multiple edits" applies across multiple tool calls, not at selection time. It belongs in SKILL.md (directive or guideline depending on severity), not in the tool description.
 
 ## Content-Passing Channel Selection
 

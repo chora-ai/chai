@@ -199,13 +199,25 @@ pub(crate) fn validate_write_paths(
             }
         };
 
-        has_sandboxed_path = true;
-
         let resolved = transform_param_value(raw_value, arg, allowlist, skill_dir, args)?;
 
-        if resolved.is_empty() {
-            continue;
-        }
+        // An empty resolved value means different things depending on context:
+        // - For readPath args, an empty path is semantically "the current
+        //   directory" — normalize to "." so it resolves to the sandbox root.
+        // - For writePath args, an empty path has no valid meaning (you can't
+        //   write to "no path") — skip it. This also handles optional
+        //   resolveCommand args where empty means "nothing resolved".
+        let resolved = if resolved.is_empty() {
+            if is_read {
+                ".".to_string()
+            } else {
+                continue;
+            }
+        } else {
+            resolved
+        };
+
+        has_sandboxed_path = true;
 
         let canonical = sandbox.validate(&resolved).map_err(|e| {
             if is_read {
@@ -671,10 +683,98 @@ mod tests {
         let result = validate_write_paths(&spec, &args, &allowlist, None, &sandbox);
         assert!(result.is_ok(), "flagIfBoolean should not be checked");
 
+
         let _ = fs::remove_dir_all(&base);
     }
 
-    // --- substitute_canonical_paths tests ---
+    // --- empty readPath tests ---
+
+    #[test]
+    fn validate_write_paths_empty_read_path_resolves_to_sandbox_root() {
+        let base = test_dir("vwp-empty-readpath");
+        let _ = fs::remove_dir_all(&base);
+        let sandbox_dir = base.join("sandbox");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox");
+
+        let sb = WriteSandbox::new(&sandbox_dir);
+        let sandbox = Some(sb);
+
+        let spec = ExecutionSpec {
+            tool: "files_list".to_string(),
+            binary: "ls".to_string(),
+            subcommand: "".to_string(),
+            args: vec![ArgMapping {
+                param: Some("path".to_string()),
+                kind: ArgKind::Positional,
+                read_path: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        // Empty string for a readPath positional arg should resolve to sandbox root
+        let args = serde_json::json!({ "path": "" });
+        let allowlist = Allowlist::new();
+
+        let (working_dir, canonical_paths) =
+            validate_write_paths(&spec, &args, &allowlist, None, &sandbox)
+                .expect("empty readPath should resolve to sandbox root");
+
+        let sandbox_canonical = fs::canonicalize(&sandbox_dir).expect("canonicalize sandbox");
+        assert_eq!(
+            working_dir.as_deref(),
+            Some(sandbox_canonical.as_path()),
+            "working_dir should be the sandbox root"
+        );
+
+        let resolved = canonical_paths.get("path").expect("path should be in canonical map");
+        assert_eq!(
+            std::path::Path::new(resolved),
+            sandbox_canonical.as_path(),
+            "empty readPath canonical path should resolve to sandbox root"
+        );
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn validate_write_paths_empty_write_path_is_skipped() {
+        let base = test_dir("vwp-empty-writepath");
+        let _ = fs::remove_dir_all(&base);
+        let sandbox_dir = base.join("sandbox");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox");
+
+        let sb = WriteSandbox::new(&sandbox_dir);
+        let sandbox = Some(sb);
+
+        let spec = ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "chai".to_string(),
+            subcommand: "file write".to_string(),
+            args: vec![ArgMapping {
+                param: Some("path".to_string()),
+                kind: ArgKind::Flag,
+                flag: Some("path".to_string()),
+                write_path: Some(true),
+                optional: Some(true),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        // Empty string for a writePath flag arg should be skipped
+        let args = serde_json::json!({ "path": "" });
+        let allowlist = Allowlist::new();
+
+        let (working_dir, canonical_paths) =
+            validate_write_paths(&spec, &args, &allowlist, None, &sandbox)
+                .expect("empty writePath should be skipped, not error");
+
+        assert!(working_dir.is_none(), "empty writePath should not set working_dir");
+        assert!(canonical_paths.is_empty(), "empty writePath should not add canonical path");
+
+        let _ = fs::remove_dir_all(&base);
+    }
 
     #[test]
     fn substitute_canonical_paths_replaces_named_params() {

@@ -2,18 +2,18 @@
   "tools": [
     {
       "name": "cargo_check",
-      "description": "Run `cargo check` on the workspace or a specific package. Returns compilation errors and warnings. Use after making code changes to verify they compile.",
+      "description": "Run `cargo check` on the workspace or a specific package. Returns compilation errors and warnings.",
       "parameters": {
         "type": "object",
         "required": [],
         "properties": {
           "package": {
             "type": "string",
-            "description": "Limit to a specific package (e.g. \"lib\", \"cli\", \"desktop\"). When omitted, checks the entire workspace."
+            "description": "Limit to a specific package. When omitted, checks the entire workspace."
           },
           "path": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -27,18 +27,18 @@
         "properties": {
           "package": {
             "type": "string",
-            "description": "Limit to a specific package (e.g. \"lib\", \"cli\", \"desktop\"). When omitted, tests the entire workspace."
+            "description": "Limit to a specific package. When omitted, tests the entire workspace."
           },
           "path": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
     }
   ],
   "allowlist": {
-    "cargo": ["check", "test", "locate-project"],
+    "cargo": ["check", "test"],
     "chai": ["resolve cargo-path"]
   },
   "execution": [

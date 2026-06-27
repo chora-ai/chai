@@ -7,10 +7,6 @@ metadata:
     bins: ["chai"]
 ---
 
-## Skill Directives
-
-- always validate tools.json before reporting a skill as conformant
-
 ## Audit Workflow
 
 1. Call `skills_validate` with `skill_name` and review the output: **ERROR** lines are structural failures, **WARNING** lines are potential issues, **PASS** indicates conformance.

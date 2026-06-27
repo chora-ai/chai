@@ -8,9 +8,11 @@ metadata:
 
 ## Skill Directives
 
-- never delete notes without confirming the action is intended
-- never assume a note exists — use `notes_list` to verify first
-- always read a note with `notes_read` before overwriting it with `notes_write` to avoid data loss — `notes_write` is a complete overwrite, not a patch
-- when making multiple non-adjacent `notes_write_lines` edits in the same note, work from bottom to top (highest line numbers first)
-- after using `notes_search` with `line_number: true` to find relevant lines, use `notes_read_lines` to read context around those lines
-- use `notes_write_lines` for targeted edits; use `notes_replace` for bulk find-and-replace across a note
+- Never assume a note exists — use `notes_list` to verify first
+
+## Skill Guidelines
+
+- When making targeted reads to large notes, use `notes_read_lines` instead of `notes_read`
+- When making targeted edits to large notes, use `notes_write_lines` instead of `notes_write`
+- When making multiple `notes_write_lines` edits in the same note, work from bottom to top
+- When using `notes_replace`, use `max_replacements: 1` to replace only the first match

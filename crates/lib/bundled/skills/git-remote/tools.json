@@ -35,7 +35,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -61,7 +61,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -75,7 +75,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -124,8 +124,14 @@
       ],
       "successExitCodes": [1, 128],
       "hintConditions": [
-        { "match": "no tracking information", "hint": "no tracking branch set — specify remote and branch explicitly" },
-        { "match": "Could not resolve", "hint": "remote not found — use git_remote to list configured remotes" }
+        {
+          "match": "no tracking information",
+          "hint": "no tracking branch set — specify remote and branch explicitly"
+        },
+        {
+          "match": "Could not resolve",
+          "hint": "remote not found — use git_remote to list configured remotes"
+        }
       ]
     },
     {
@@ -162,9 +168,18 @@
       ],
       "successExitCodes": [1, 128],
       "hintConditions": [
-        { "match": "non-fast-forward", "hint": "pull first to integrate remote changes, then retry" },
-        { "match": "no upstream branch", "hint": "no upstream set — use set_upstream: true on first push" },
-        { "match": "No remote", "hint": "no remote configured — use git_remote to list configured remotes" }
+        {
+          "match": "non-fast-forward",
+          "hint": "pull first to integrate remote changes, then retry"
+        },
+        {
+          "match": "no upstream branch",
+          "hint": "no upstream set — use set_upstream: true on first push"
+        },
+        {
+          "match": "No remote",
+          "hint": "no remote configured — use git_remote to list configured remotes"
+        }
       ]
     },
     {

@@ -9,7 +9,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -35,7 +35,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -61,7 +61,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -95,7 +95,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -117,7 +117,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -143,7 +143,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -161,7 +161,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -189,7 +189,12 @@
         }
       ],
       "successExitCodes": [128],
-      "hintConditions": [{ "match": "not a git repository", "hint": "not a git repository — specify a valid repo path" }]
+      "hintConditions": [
+        {
+          "match": "not a git repository",
+          "hint": "not a git repository — specify a valid repo path"
+        }
+      ]
     },
     {
       "tool": "git_log",
@@ -260,7 +265,10 @@
       "maxOutputLines": 200,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
       "hintConditions": [
-        { "whenArg": { "ref": "main" }, "hint": "showing changes since diverging from main" }
+        {
+          "whenArg": { "ref": "main" },
+          "hint": "showing changes since diverging from main"
+        }
       ]
     },
     {

@@ -1,5 +1,5 @@
 ---
-description: Read files, list directories, search file contents, write files, replace patterns, and delete files and directories.
+description: Read, write, replace, delete, list, and search files.
 capability_tier: full
 metadata:
   requires:
@@ -8,11 +8,12 @@ metadata:
 
 ## Skill Directives
 
-- never delete files without confirming the action is intended
-- never assume a file exists — use `files_list` to verify first
-- never read binary files — check file type with `files_list` before reading
-- always read a file with `files_read` before overwriting it with `files_write`
-- when making multiple non-adjacent `files_write_lines` edits in the same file, work from bottom to top (highest line numbers first)
-- after using `files_search` with `line_number: true` to find relevant lines, use `files_read_lines` to read context around those lines
-- use `files_write_lines` for targeted edits; use `files_replace` for bulk find-and-replace across a file
-- never write to `.git/` directories — git state must only be modified through the `git` skill's constrained tools
+- Never assume a file exists — use `files_list` to verify first
+- Never read binary files — check file type with `files_list` before reading
+
+## Skill Guidelines
+
+- When making targeted reads to large files, use `files_read_lines` instead of `files_read`
+- When making targeted edits to large files, use `files_write_lines` instead of `files_write`
+- When making multiple `files_write_lines` edits in the same file, work from bottom to top
+- When using `files_replace`, use `max_replacements: 1` to replace only the first match

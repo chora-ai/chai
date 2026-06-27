@@ -52,7 +52,7 @@ The executor passes arguments directly to `Command::new()` + `.args()`, which in
 The `denyPattern` field on execution-spec arguments enforces semantic constraints that the JSON Schema cannot express. Before command execution, the resolved parameter value is checked against the pattern; if it matches, the tool call is rejected — the command is never spawned.
 
 Bundled skills use deny patterns for:
-- **Branch protection** — `git_push` and `git_branch_delete` reject operations on `main` and `release/*` branches. The `denyResolveCommand` mechanism resolves the current branch even when the agent omits the branch parameter, and `denyAlwaysResolve` ensures the check always runs.
+- **Branch protection** — `git_push`, `git_branch_delete`, and `git_reset` reject operations on `main` and `release/*` branches. The `denyResolveCommand` mechanism resolves the current branch even when the agent omits the branch parameter, and `denyAlwaysResolve` ensures the check always runs.
 - **Bundled skill protection** — `skills_delete` rejects deletion of bundled skill names.
 
 ### Skill Lock File Integrity

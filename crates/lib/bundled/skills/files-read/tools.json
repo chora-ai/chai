@@ -9,21 +9,21 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           }
         }
       }
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a file with line numbers.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "File path relative to the sandbox root (use ./ prefix)"
+            "description": "File path relative to the sandbox root"
           },
           "start_line": {
             "type": "integer",
@@ -38,14 +38,14 @@
     },
     {
       "name": "files_list",
-      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
+      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root (use ./ prefix)"
+            "description": "Directory path relative to the sandbox root"
           },
           "long": {
             "type": "boolean",
@@ -71,7 +71,7 @@
           },
           "path": {
             "type": "string",
-            "description": "File or directory path relative to the sandbox root (use ./ prefix)"
+            "description": "File or directory path relative to the sandbox root"
           },
           "recursive": {
             "type": "boolean",
@@ -108,7 +108,12 @@
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }],
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "file not found — use files_list to list available files"
+        }
+      ],
       "maxOutputLines": 500,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
@@ -127,7 +132,12 @@
         }
       ],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }]
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "file not found — use files_list to list available files"
+        }
+      ]
     },
     {
       "tool": "files_list",
@@ -179,7 +189,12 @@
         { "param": "path", "kind": "positional", "readPath": true }
       ],
       "successExitCodes": [0, 1],
-      "hintConditions": [{ "notEmpty": true, "hint": "use files_read_lines with these line numbers for surrounding context" }],
+      "hintConditions": [
+        {
+          "notEmpty": true,
+          "hint": "use files_read_lines for surrounding context"
+        }
+      ],
       "maxOutputLines": 200
     }
   ]

@@ -9,7 +9,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -35,7 +35,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -61,7 +61,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -95,7 +95,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           },
           "path": {
             "type": "string",
@@ -117,7 +117,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -143,7 +143,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -161,7 +161,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -179,7 +179,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -197,7 +197,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -215,7 +215,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -233,7 +233,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -255,7 +255,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -277,7 +277,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -295,7 +295,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -317,7 +317,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -331,7 +331,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -345,7 +345,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -359,7 +359,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -373,7 +373,7 @@
         "properties": {
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -391,7 +391,7 @@
           },
           "repo": {
             "type": "string",
-            "description": "Repository path relative to the sandbox root (use ./ prefix). Defaults to the sandbox root if omitted."
+            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
           }
         }
       }
@@ -435,7 +435,12 @@
         }
       ],
       "successExitCodes": [128],
-      "hintConditions": [{ "match": "not a git repository", "hint": "not a git repository — specify a valid repo path" }]
+      "hintConditions": [
+        {
+          "match": "not a git repository",
+          "hint": "not a git repository — specify a valid repo path"
+        }
+      ]
     },
     {
       "tool": "git_log",
@@ -506,7 +511,10 @@
       "maxOutputLines": 200,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
       "hintConditions": [
-        { "whenArg": { "ref": "main" }, "hint": "showing changes since diverging from main" }
+        {
+          "whenArg": { "ref": "main" },
+          "hint": "showing changes since diverging from main"
+        }
       ]
     },
     {
@@ -641,9 +649,18 @@
       ],
       "successExitCodes": [1],
       "hintConditions": [
-        { "match": "nothing to commit", "hint": "nothing to commit — working tree clean" },
-        { "match": "no changes added", "hint": "unstaged changes present — use git_add to stage them" },
-        { "match": "untracked files", "hint": "untracked files present — use git_status to see them" }
+        {
+          "match": "nothing to commit",
+          "hint": "nothing to commit — working tree clean"
+        },
+        {
+          "match": "no changes added",
+          "hint": "unstaged changes present — use git_add to stage them"
+        },
+        {
+          "match": "untracked files",
+          "hint": "untracked files present — use git_status to see them"
+        }
       ]
     },
     {
@@ -709,6 +726,13 @@
             "args": ["--path", "$param"]
           }
         }
+      ],
+      "successExitCodes": [1],
+      "hintConditions": [
+        {
+          "match": "not fully merged",
+          "hint": "branch not fully merged — if this branch was squash-merged, retry with force: true"
+        }
       ]
     },
     {
@@ -743,8 +767,14 @@
       "successExitCodes": [1],
       "maxOutputLines": 50,
       "hintConditions": [
-        { "match": "Merge conflict", "hint": "merge conflicts detected — resolve conflicts, then git_add and git_commit" },
-        { "match": "Squash commit", "hint": "squash merge staged — use git_commit to finalize with a conventional commit message" }
+        {
+          "match": "Merge conflict",
+          "hint": "merge conflicts detected — resolve conflicts, then git_add and git_commit"
+        },
+        {
+          "match": "Squash commit",
+          "hint": "squash merge staged — use git_commit to finalize with a conventional commit message"
+        }
       ]
     },
     {
@@ -773,8 +803,14 @@
       "successExitCodes": [1],
       "maxOutputLines": 50,
       "hintConditions": [
-        { "match": "CONFLICT", "hint": "rebase conflicts detected — resolve conflicts, stage them with git_add, then use git_rebase_continue to proceed (or git_rebase_abort to cancel)" },
-        { "match": "is up to date", "hint": "current branch is already up to date with the target" }
+        {
+          "match": "CONFLICT",
+          "hint": "rebase conflicts detected — resolve conflicts, stage them with git_add, then use git_rebase_continue to proceed (or git_rebase_abort to cancel)"
+        },
+        {
+          "match": "is up to date",
+          "hint": "current branch is already up to date with the target"
+        }
       ]
     },
     {
@@ -809,8 +845,14 @@
       "successExitCodes": [1],
       "maxOutputLines": 50,
       "hintConditions": [
-        { "match": "CONFLICT", "hint": "cherry-pick conflicts detected — resolve conflicts, stage them with git_add, then use git_cherry_pick_continue to proceed (or git_cherry_pick_abort to cancel)" },
-        { "whenArg": { "no_commit": true }, "hint": "cherry-pick staged — use git_commit to finalize with a conventional commit message" }
+        {
+          "match": "CONFLICT",
+          "hint": "cherry-pick conflicts detected — resolve conflicts, stage them with git_add, then use git_cherry_pick_continue to proceed (or git_cherry_pick_abort to cancel)"
+        },
+        {
+          "whenArg": { "no_commit": true },
+          "hint": "cherry-pick staged — use git_commit to finalize with a conventional commit message"
+        }
       ]
     },
     {
@@ -923,7 +965,7 @@
             "subcommand": "resolve repo-path",
             "args": ["--path", "$param"]
           },
-          "denyPattern": "^release/.+$",
+          "denyPattern": "^(main|release/.+)$",
           "denyAlwaysResolve": true,
           "denyResolveCommand": {
             "script": "resolve-current-branch",
@@ -933,7 +975,10 @@
       ],
       "maxOutputLines": 50,
       "hintConditions": [
-        { "exitCode": 0, "hint": "reset to {ref} — use git_status to inspect the current state, or git_commit to re-commit staged changes" }
+        {
+          "exitCode": 0,
+          "hint": "reset to {ref} — use git_status to inspect the current state, or git_commit to re-commit staged changes"
+        }
       ]
     }
   ]

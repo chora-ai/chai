@@ -102,7 +102,7 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 - **`skills_write_tools_json` reports JSON parse error** — The content is not valid JSON. This can happen when the model's output is malformed. Re-send the request with the correct JSON structure.
 - **Custom skill not loaded after restart** — The skill was created but not added to `enabledSkills` in `config.json`. Add it to the array and restart the gateway.
 - **`skills_delete` fails** — The skill name may be wrong. Use `skills_list` first to confirm the exact directory name.
-- **Agent deletes a bundled skill** — The `skills` skill directive says "never delete bundled skills unless explicitly instructed." If this happens, re-running `chai init` will restore the bundled skill snapshots.
+- **Agent deletes a bundled skill** — The `skills_delete` tool rejects bundled skill names via `denyPattern`. If a bundled skill is somehow removed, re-running `chai init` will restore the bundled skill snapshots.
 
 ## Summary
 

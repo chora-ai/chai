@@ -40,6 +40,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 25 hint scripts across 8 skills migrated from `postProcess` to inline `hintConditions` in `tools.json`: files (`hint-not-found`, `hint-overwrite`, `hint-search-results`), files-read (`hint-not-found`, `hint-search-results`), git (`hint-not-repo`, `hint-commit-status`, `hint-merge`, `hint-rebase`, `hint-cherry-pick`, `hint-diff-ref-main`, `hint-reset`), git-read (`hint-not-repo`, `hint-diff-ref-main`), git-remote (`hint-pull-errors`, `hint-push-errors`), notes (`hint-not-found`, `hint-overwrite`, `hint-search-results`), notes-read (`hint-not-found`, `hint-search-results`), notes-daily (`hint-not-found`, `hint-daily-overwrite`), skills (`hint-init-next-steps`, `hint-validate-errors`), skills-read (`hint-validate-errors`). Simple exit-code and substring-match hints are now declarative; `postProcess` is reserved for complex hints requiring output transformation or external commands
 - Diagnostic hints ADR updated: three-tier hint architecture (1. `hintConditions` for simple conditions, 2. `postProcess` scripts for complex logic, 3. binary-level for internal state)
 - `TOOLS_SCHEMA.md` spec updated with `hintConditions` field documentation
+- Skill directives audit: 14 directives deleted (already enforced by tools/sandbox or redundant with hints/workflow docs), 11 moved from hard directives to soft `## Skill Guidelines` sections, 3 converted to tool enforcement (delete-confirmation hintConditions, expanded `git_reset` denyPattern to block `main`, `git_branch_delete` hintCondition for "not fully merged"). Hard rules reduced from 39 to 14 (64% reduction). New `## Skill Guidelines` sections added to 8 skills (cargo, files, git, git-read, git-remote, notes, notes-wikilink, skills)
+- `git_reset` denyPattern expanded from `"^release/.+$"` to `"^(main|release/.+)$"` — resets on `main` are now blocked in addition to `release/*`
+- Delete-confirmation hintConditions added to `files_delete`, `files_delete_dir`, `notes_delete`, and `notes_delete_dir` — every deletion now produces a verification hint
+- `git_branch_delete` hintCondition added for "not fully merged" error — suggests `force: true` when a branch was squash-merged
+- Tool descriptions trimmed to functional-spec-only content across all skills: removed output format descriptions, usage guidance, behavioral warnings, and `(use ./ prefix)` path hints from tool and parameter descriptions
+- `files_replace` and `notes_replace` descriptions and parameter descriptions trimmed from ~250 words each to functional specifications only; `max_replacements: 1` guidance moved to SKILL.md guidelines
+- Sandbox README files removed from bundled profile templates — `chai init` no longer creates `sandbox/README.md`
+- `cargo locate-project` removed from cargo skill allowlist (no longer needed)
+
+#### Skill Authoring
+
+- Skills-design SKILL.md now distinguishes tool enforcement from tool descriptions: "tools over inference means enforcement over directives, not descriptions over guidelines" — tool enforcement costs zero per-turn context; tool descriptions are still inference
+- Skills-design SKILL.md now includes "Tool Description Sizing" section: tool descriptions should contain only functional specifications (what the tool does, how to parameterize it), not usage guidance, output format descriptions, or behavioral warnings
+- Diagnostic hints ADR updated: Consequences section now documents directive-to-enforcement conversion results and tool description sizing insight
 
 ### Removed
 

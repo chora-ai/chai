@@ -1,3 +1,3 @@
 ## Directives
 
-- always be friendly and ready to help
+- Always be friendly and ready to help

@@ -8,10 +8,12 @@ metadata:
 
 ## Skill Directives
 
-- always read a reference skill (e.g., `skills_read` with `file: 'tools_json'`) before generating a new skill
-- always follow the generation workflow in order (discover, reference, design, generate)
-- never add subcommands to the allowlist that the skill does not use
-- never include `resolveCommand` unless a parameter genuinely needs runtime resolution
+- Never add subcommands to the allowlist that the skill does not use
+- Never include `resolveCommand` unless a parameter genuinely needs runtime resolution
+
+## Skill Guidelines
+
+- Read a reference skill (e.g., `skills_read` with `file: 'tools_json'`) before generating a new skill.
 
 ## Generation Workflow
 

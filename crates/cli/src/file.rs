@@ -103,7 +103,7 @@ pub(crate) enum FileCmd {
         #[arg(long)]
         path: String,
     },
-    /// Delete an empty directory. Refuses to delete non-empty directories or files.
+    /// Delete an empty directory. Refuses to delete non-empty directories.
     DeleteDir {
         /// Absolute directory path to delete
         #[arg(long)]

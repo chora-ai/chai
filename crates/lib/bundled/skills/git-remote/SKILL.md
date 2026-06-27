@@ -8,6 +8,9 @@ metadata:
 
 ## Skill Directives
 
-- always verify the remote with `git_remote` before pushing
-- always pull before pushing to avoid conflicts
-- always specify `remote` and `set_upstream` when pushing a new branch for the first time
+- Always verify the remote with `git_remote` before pushing
+- Always specify `remote` and `set_upstream` when pushing a new branch for the first time
+
+## Skill Guidelines
+
+- When pushing to a shared remote, pull first to integrate remote changes

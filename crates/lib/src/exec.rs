@@ -804,6 +804,23 @@ mod sandbox_tests {
         cleanup(&base);
     }
 
+
+    #[test]
+    fn empty_string_resolves_to_sandbox_root() {
+        let (base, sandbox) = setup_sandbox("empty-string");
+        let sb = WriteSandbox::new(&sandbox);
+
+        // An empty string is a relative path; joining with the sandbox root
+        // yields the sandbox root itself, which canonicalizes correctly.
+        let result = sb.validate("");
+        assert!(result.is_ok(), "empty string should resolve to sandbox root: {:?}", result);
+        let canonical = result.unwrap();
+        let sandbox_canonical = fs::canonicalize(&sandbox).expect("canonicalize sandbox");
+        assert_eq!(canonical, sandbox_canonical, "empty string should canonicalize to sandbox root");
+
+        cleanup(&base);
+    }
+
     // --- .git/ directory exclusion tests ---
 
     #[test]

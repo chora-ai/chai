@@ -6,12 +6,10 @@ metadata:
     bins: ["curl", "cat"]
 ---
 
-## Skill Directives
-
-- always call `rss_list_feeds` first to see what feeds are configured
-- always use feed names from the configured list when available
-
 ## Skill Guidelines
+
+- Call `rss_list_feeds` first to see what feeds are configured.
+- Use feed names from the configured list when available — they are more robust than direct URLs.
 
 Feeds are configured in `rss-feeds.txt` in the active profile's sandbox directory with one entry per line in `name|url` format:
 

@@ -9,21 +9,21 @@
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           }
         }
       }
     },
     {
       "name": "notes_read_lines",
-      "description": "Read a range of lines from a note with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of notes_read when you only need a specific portion of a note to reduce context usage, or when notes_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a note with line numbers.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Note path relative to the sandbox root (use ./ prefix)"
+            "description": "Note path relative to the sandbox root"
           },
           "start_line": {
             "type": "integer",
@@ -38,14 +38,14 @@
     },
     {
       "name": "notes_list",
-      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing as a context section — this is not part of the ls output but an automatic context-loading feature.",
+      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing.",
       "parameters": {
         "type": "object",
         "required": ["path"],
         "properties": {
           "path": {
             "type": "string",
-            "description": "Directory path relative to the sandbox root (use ./ prefix)"
+            "description": "Directory path relative to the sandbox root"
           },
           "long": {
             "type": "boolean",
@@ -71,7 +71,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Note or directory path relative to the sandbox root (use ./ prefix)"
+            "description": "Note or directory path relative to the sandbox root"
           },
           "recursive": {
             "type": "boolean",
@@ -114,7 +114,12 @@
         }
       ],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "note not found — use notes_list to browse available notes" }],
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "note not found — use notes_list to list available notes"
+        }
+      ],
       "maxOutputLines": 500,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
@@ -142,7 +147,12 @@
         }
       ],
       "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "note not found — use notes_list to browse available notes" }]
+      "hintConditions": [
+        {
+          "exitCode": "nonzero",
+          "hint": "note not found — use notes_list to list available notes"
+        }
+      ]
     },
     {
       "tool": "notes_list",
@@ -213,7 +223,12 @@
         }
       ],
       "successExitCodes": [0, 1],
-      "hintConditions": [{ "notEmpty": true, "hint": "use notes_read_lines with these line numbers for surrounding context" }],
+      "hintConditions": [
+        {
+          "notEmpty": true,
+          "hint": "use notes_read_lines for surrounding context"
+        }
+      ],
       "maxOutputLines": 200
     }
   ]

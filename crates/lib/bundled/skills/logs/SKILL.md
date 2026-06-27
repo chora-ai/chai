@@ -6,7 +6,7 @@ metadata:
     bins: ["chai"]
 ---
 
-## Skill Directives
+## Skill Guidelines
 
-- use `logs_search` to check for specific conditions like `"finish_reason"` values, `"truncated"`, or `"error"` — it returns context lines around matches
-- log lines may contain token counts and finish reasons but not full message content; use them for self-diagnosis, not for reading conversation history
+- Use `logs_search` to check for specific conditions like `"finish_reason"` values, `"truncated"`, or `"error"` — it returns context lines around matches.
+- Log lines may contain token counts and finish reasons but not full message content; use them for self-diagnosis, not for reading conversation history.

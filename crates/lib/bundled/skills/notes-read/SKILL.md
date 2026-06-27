@@ -9,5 +9,4 @@ metadata:
 
 ## Skill Directives
 
-- never assume a note exists — use `notes_list` to verify first
-- after using `notes_search` with `line_number: true` to find relevant lines, use `notes_read_lines` to read context around those lines
+- Never assume a note exists — use `notes_list` to verify first

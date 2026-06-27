@@ -6,11 +6,8 @@ metadata:
     bins: ["chai"]
 ---
 
-## Skill Directives
-
-- always use `notes_frontmatter_edit` for single-key updates instead of rewriting the entire note
-- never modify note body content through this skill
-
 ## Skill Guidelines
+
+- Prefer `notes_frontmatter_edit` for single-key updates instead of rewriting the entire note.
 
 If the note has no frontmatter, `notes_frontmatter_read` returns an error. `notes_frontmatter_edit` creates a frontmatter block if the file has none.
