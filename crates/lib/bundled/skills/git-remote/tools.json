@@ -123,9 +123,10 @@
         }
       ],
       "successExitCodes": [1, 128],
-      "postProcess": {
-        "script": "hint-pull-errors"
-      }
+      "hintConditions": [
+        { "match": "no tracking information", "hint": "no tracking branch set — specify remote and branch explicitly" },
+        { "match": "Could not resolve", "hint": "remote not found — use git_remote to list configured remotes" }
+      ]
     },
     {
       "tool": "git_push",
@@ -160,9 +161,11 @@
         }
       ],
       "successExitCodes": [1, 128],
-      "postProcess": {
-        "script": "hint-push-errors"
-      }
+      "hintConditions": [
+        { "match": "non-fast-forward", "hint": "pull first to integrate remote changes, then retry" },
+        { "match": "no upstream branch", "hint": "no upstream set — use set_upstream: true on first push" },
+        { "match": "No remote", "hint": "no remote configured — use git_remote to list configured remotes" }
+      ]
     },
     {
       "tool": "git_remote",

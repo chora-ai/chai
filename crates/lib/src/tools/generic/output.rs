@@ -1,10 +1,10 @@
-//! Output post-processing for the generic tool executor: side-read
-//! augmentation and output truncation.
+//! Output post-processing for the generic tool executor: hint conditions,
+//! side-read augmentation, and output truncation.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use crate::skills::SideReadSpec;
+use crate::skills::{HintCondition, SideReadSpec};
 
 /// Append a nearby file's contents to the tool result when the file exists.
 ///
@@ -78,12 +78,50 @@ pub(crate) fn apply_side_read(
     )
 }
 
+/// Evaluate hint conditions against the post-processed output and exit code.
+/// Returns the output with any matching hints appended (each preceded by a
+/// blank line separator, each starting with `hint:`).
+///
+/// This function is called after `postProcess` and before `truncate_output`
+/// so that inline hints are present in the output for truncation to preserve.
+/// Truncation moves `hint:` lines to the end of the output (after the
+/// truncation notice), so they are never lost and always appear last.
+pub(crate) fn apply_hint_conditions(
+    conditions: &[HintCondition],
+    exit_code: i32,
+    output: &str,
+    tool_args: &serde_json::Value,
+) -> String {
+    let mut hints = Vec::new();
+    for condition in conditions {
+        if condition.matches(exit_code, output, tool_args) {
+            let hint_text = condition.expand_hint(tool_args);
+            hints.push(hint_text);
+        }
+    }
+    if hints.is_empty() {
+        return output.to_string();
+    }
+    let mut result = output.to_string();
+    // Ensure output ends with a newline before appending hints.
+    if !result.is_empty() && !result.ends_with('\n') {
+        result.push('\n');
+    }
+    for hint in hints {
+        result.push('\n'); // blank line separator
+        result.push_str("hint: ");
+        result.push_str(&hint);
+        result.push('\n');
+    }
+    result
+}
+
 /// Truncate tool output to `max_lines` lines, appending a notice when
 /// the output exceeds the limit. The notice includes the total line count
 /// and a hint for narrowing the query. Lines starting with `hint:` are
-/// preserved (moved after the truncated body, before the truncation notice)
-/// so that diagnostic hints appended by postProcess scripts or the binary
-/// are never lost to truncation.
+/// preserved (moved after the truncation notice) so that diagnostic hints
+/// appended by postProcess scripts or hintConditions are never lost to
+/// truncation and always appear at the end of the output.
 ///
 /// When `truncation_hint` is provided, it replaces the generic "Narrow your
 /// query path, pattern, or range to reduce results." notice with a
@@ -116,14 +154,6 @@ pub(crate) fn truncate_output(output: &str, max_lines: usize, truncation_hint: O
 
     let mut result = non_hint_lines[..kept].join("\n");
 
-    if !hint_lines.is_empty() {
-        result.push('\n');
-        for hint in &hint_lines {
-            result.push('\n');
-            result.push_str(hint);
-        }
-    }
-
     let notice = if let Some(template) = truncation_hint {
         let next_start = kept + 1;
         template
@@ -140,6 +170,16 @@ pub(crate) fn truncate_output(output: &str, max_lines: usize, truncation_hint: O
     };
 
     result.push_str(&format!("\n\n[{}]", notice));
+
+    // Append hint lines after the truncation notice so hints are always at
+    // the end of the output, even when truncation fires.
+    if !hint_lines.is_empty() {
+        for hint in &hint_lines {
+            result.push('\n');
+            result.push('\n');
+            result.push_str(hint);
+        }
+    }
 
     result
 }
@@ -333,6 +373,191 @@ mod tests {
         assert_eq!(result, "output");
     }
 
+    // --- apply_hint_conditions tests ---
+
+    fn make_hint_condition(
+        match_: Option<&str>,
+        exit_code: Option<crate::skills::HintExitCode>,
+        not_empty: Option<bool>,
+        when_arg: Option<std::collections::HashMap<String, serde_json::Value>>,
+        hint: &str,
+    ) -> crate::skills::HintCondition {
+        crate::skills::HintCondition {
+            match_: match_.map(|s| s.to_string()),
+            exit_code,
+            not_empty,
+            when_arg,
+            hint: hint.to_string(),
+        }
+    }
+
+    #[test]
+    fn apply_hint_conditions_no_matches_returns_original() {
+        let conditions = vec![make_hint_condition(
+            Some("error"),
+            None,
+            None,
+            None,
+            "an error occurred",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "success output", &args);
+        assert_eq!(result, "success output");
+    }
+
+    #[test]
+    fn apply_hint_conditions_single_match() {
+        let conditions = vec![make_hint_condition(
+            Some("not found"),
+            None,
+            None,
+            None,
+            "file not found — use files_list",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "error: not found", &args);
+        assert!(result.contains("error: not found"), "original output preserved");
+        assert!(result.contains("hint: file not found — use files_list"), "hint appended");
+    }
+
+    #[test]
+    fn apply_hint_conditions_multiple_matches() {
+        let conditions = vec![
+            make_hint_condition(Some("CONFLICT"), None, None, None, "resolve conflicts"),
+            make_hint_condition(Some("is up to date"), None, None, None, "already up to date"),
+        ];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "CONFLICT: file.txt", &args);
+        assert!(result.contains("hint: resolve conflicts"), "first hint appended");
+        assert!(!result.contains("hint: already up to date"), "second condition not met");
+    }
+
+    #[test]
+    fn apply_hint_conditions_all_match() {
+        let conditions = vec![
+            make_hint_condition(Some("nothing to commit"), None, None, None, "working tree clean"),
+            make_hint_condition(Some("untracked files"), None, None, None, "untracked files present"),
+        ];
+        let args = serde_json::json!({});
+        // Git can output both "nothing to commit" and "untracked files" in the same message
+        let result = apply_hint_conditions(
+            &conditions,
+            0,
+            "nothing to commit, untracked files present",
+            &args,
+        );
+        assert!(result.contains("hint: working tree clean"), "first hint");
+        assert!(result.contains("hint: untracked files present"), "second hint");
+    }
+
+    #[test]
+    fn apply_hint_conditions_empty_conditions_returns_original() {
+        let conditions: Vec<crate::skills::HintCondition> = vec![];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "output", &args);
+        assert_eq!(result, "output");
+    }
+
+    #[test]
+    fn apply_hint_conditions_exit_code_nonzero() {
+        let conditions = vec![make_hint_condition(
+            None,
+            Some(crate::skills::HintExitCode::Nonzero("nonzero".to_string())),
+            None,
+            None,
+            "command failed",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 1, "error output", &args);
+        assert!(result.contains("hint: command failed"));
+    }
+
+    #[test]
+    fn apply_hint_conditions_exit_code_nonzero_with_zero_code() {
+        let conditions = vec![make_hint_condition(
+            None,
+            Some(crate::skills::HintExitCode::Nonzero("nonzero".to_string())),
+            None,
+            None,
+            "command failed",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "success", &args);
+        assert!(!result.contains("hint:"));
+    }
+
+    #[test]
+    fn apply_hint_conditions_not_empty_true() {
+        let conditions = vec![make_hint_condition(
+            None,
+            None,
+            Some(true),
+            None,
+            "use files_read_lines",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "search results", &args);
+        assert!(result.contains("hint: use files_read_lines"));
+    }
+
+    #[test]
+    fn apply_hint_conditions_not_empty_true_with_empty_output() {
+        let conditions = vec![make_hint_condition(
+            None,
+            None,
+            Some(true),
+            None,
+            "use files_read_lines",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "", &args);
+        assert!(!result.contains("hint:"));
+    }
+
+    #[test]
+    fn apply_hint_conditions_template_variable() {
+        let conditions = vec![make_hint_condition(
+            None,
+            Some(crate::skills::HintExitCode::Specific(0)),
+            None,
+            None,
+            "reset to {ref} — use git_status",
+        )];
+        let args = serde_json::json!({ "ref": "HEAD~1" });
+        let result = apply_hint_conditions(&conditions, 0, "output", &args);
+        assert!(result.contains("hint: reset to HEAD~1 — use git_status"));
+    }
+
+    #[test]
+    fn apply_hint_conditions_hint_format_has_blank_line_separator() {
+        let conditions = vec![make_hint_condition(
+            Some("error"),
+            None,
+            None,
+            None,
+            "check input",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "error occurred", &args);
+        // Output should be: "error occurred\n\nhint: check input\n"
+        assert!(result.contains("\n\nhint: check input\n"), "blank line separator before hint");
+    }
+
+    #[test]
+    fn apply_hint_conditions_preserves_trailing_newline() {
+        let conditions = vec![make_hint_condition(
+            Some("error"),
+            None,
+            None,
+            None,
+            "check input",
+        )];
+        let args = serde_json::json!({});
+        let result = apply_hint_conditions(&conditions, 0, "error occurred\n", &args);
+        // Output already ends with newline, so just one \n before hint
+        assert!(result.contains("error occurred\n\nhint: check input\n"));
+    }
+
     // --- truncate_output tests ---
 
     #[test]
@@ -423,12 +648,12 @@ mod tests {
     }
 
     #[test]
-    fn truncate_output_hint_appears_before_notice() {
+    fn truncate_output_hint_appears_after_notice() {
         let output = "line1\nline2\nline3\nline4\nhint: check this";
         let result = truncate_output(output, 2, None);
         let hint_pos = result.find("hint: check this").expect("hint present");
         let notice_pos = result.find("[output truncated").expect("notice present");
-        assert!(hint_pos < notice_pos, "hint appears before truncation notice");
+        assert!(hint_pos > notice_pos, "hint appears after truncation notice");
     }
 
     #[test]
@@ -460,5 +685,34 @@ mod tests {
         let template = "should not appear: {kept}";
         let result = truncate_output(output, 5, Some(template));
         assert_eq!(result, output, "template not applied when no truncation");
+    }
+
+    // --- apply_hint_conditions + truncate_output interaction ---
+
+    #[test]
+    fn hint_conditions_then_truncation_preserves_hints() {
+        // Simulate the full pipeline: apply_hint_conditions then truncate_output
+        let conditions = vec![make_hint_condition(
+            Some("error"),
+            None,
+            None,
+            None,
+            "check input",
+        )];
+        let args = serde_json::json!({});
+
+        // Build output that exceeds the truncation limit
+        let mut lines = String::new();
+        for i in 1..=10 {
+            if i > 1 { lines.push('\n'); }
+            lines.push_str(&format!("line{} with error content", i));
+        }
+
+        let with_hints = apply_hint_conditions(&conditions, 0, &lines, &args);
+        assert!(with_hints.contains("hint: check input"), "hint appended");
+
+        let truncated = truncate_output(&with_hints, 5, None);
+        assert!(truncated.contains("hint: check input"), "hint preserved through truncation");
+        assert!(truncated.contains("output truncated"), "truncation notice present");
     }
 }

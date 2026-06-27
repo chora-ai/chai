@@ -254,6 +254,13 @@ impl ToolExecutor for GenericToolExecutor {
             output
         };
 
+        let hc_args = augment_with_absent_defaults(spec, effective_args);
+        let result = if let Some(ref conditions) = spec.hint_conditions {
+            output::apply_hint_conditions(conditions, exit_code, &result, &hc_args)
+        } else {
+            result
+        };
+
         let result = if let Some(max_lines) = spec.max_output_lines {
             output::truncate_output(&result, max_lines, spec.truncation_hint.as_deref())
         } else {

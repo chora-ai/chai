@@ -83,6 +83,7 @@ Each element:
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
 | `successExitCodes` | array of integers (optional) | Exit codes to treat as success (in addition to 0). Use when a non-zero exit is a normal result, not an error (e.g. `[0, 1]` for `grep` where exit 1 means no matches). The executor always merges stderr into stdout (appended after stdout with a newline separator) so that `postProcess` hint scripts can inspect diagnostics written to stderr (e.g., compiler warnings). Exit codes not in this list (and not 0) surface as tool errors and bypass `postProcess`. Default: only exit 0 is success. |
 | `postProcess` | object (optional) | Post-process the command's merged output (stdout + stderr) through a script before returning the result to the model. See below. Default: not set. |
+| `hintConditions` | array (optional) | Inline hint conditions evaluated after `postProcess` and before truncation. Each matching condition appends a `hint:` line to the output. See below. Default: not set. |
 | `sideRead` | object (optional) | After the command (and any `postProcess`) completes, look for a file relative to a path parameter and append its contents to the tool result. Silently skipped when the file is absent. See below. Default: not set. |
 | `maxOutputLines` | integer (optional) | Maximum number of output lines to return to the model. When set, output exceeding this limit is truncated and a notice is appended indicating how many lines were omitted. This prevents unbounded tool output (e.g. from `grep` or `git diff`) from exceeding the model's context window. Applies after `postProcess` but before `sideRead` (side-read content is not counted against the limit and is always appended in full). Default: not set (no limit). |
 | `truncationHint` | string (optional) | Per-tool truncation notice template. When set, replaces the generic "Narrow your query path, pattern, or range to reduce results." notice with a tool-specific message. Template variables: `{kept}` = non-hint lines shown, `{total}` = total lines (including hints), `{omitted}` = non-hint lines omitted, `{next_start}` = `kept + 1` (first omitted line). Use `{next_start}` to tell the agent the exact `start_line` to use for pagination via a line-range companion tool. JSON key: `truncationHint`. Default: not set (generic notice). |
@@ -177,6 +178,65 @@ Use either **script** (no allowlist entry) or **binary** + **subcommand** (allow
 - `postProcess` is set on the **execution spec** (per-tool), not on individual args. It transforms the final merged output (stdout + stderr), not a parameter value.
 - Stdin piping (not command-line args) is used because tool output can be large (RSS feeds, HTML pages, search results).
 - The symmetry with `resolveCommand` is intentional: `resolveCommand` mediates input (parameter → resolved value), `postProcess` mediates output (merged output → structured result).
+
+#### `hintConditions` (array of hint condition)
+
+Declares inline hint conditions that the executor evaluates after `postProcess` and before truncation. Each matching condition appends a `hint:` line to the output with the standard blank-line separator. Hints from `hintConditions` and `postProcess` follow the same format and are preserved identically by `truncate_output()`.
+
+`hintConditions` replaces simple `postProcess` hint scripts (those that only inspect output and append a static hint) with a declarative inline format. Reserve `postProcess` for hints that require output transformation, external commands, or multi-step logic. See [adr/DIAGNOSTIC_HINTS.md](../adr/DIAGNOSTIC_HINTS.md) for the full hint mechanism comparison.
+
+Each element:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `match` | string (optional) | Substring to search for in the post-processed output (stdout + stderr). Case-sensitive. When present, the hint fires if the string appears anywhere in the output. |
+| `exitCode` | string or integer (optional) | Exit code condition. `"nonzero"` matches any non-zero exit code. An integer (e.g., `1`, `128`) matches that specific exit code. When present, the hint fires if the exit code matches. |
+| `notEmpty` | boolean (optional) | When `true`, the hint fires only if the post-processed output is non-empty. When `false` or absent, output emptiness is not checked. |
+| `whenArg` | object (optional) | Parameter-value conditions. Keys are parameter names; values are expected values (string, boolean, or number). All specified parameters must match their expected values for the condition to fire. Evaluated against the effective args (after `absentDefault` augmentation). |
+| `hint` | string (required) | The hint message. The executor prepends `hint: ` and a blank-line separator before each hint. Supports `{param_name}` template variables that are replaced with the corresponding parameter value from the effective args. |
+
+At least one of `match`, `exitCode`, `notEmpty`, or `whenArg` must be present. If multiple condition fields are present on the same entry, **all** must be true (AND logic). This prevents false-positive hints from matching output content that coincidentally contains the substring on success. Multiple `hintConditions` entries are all evaluated; all matching entries produce hints (not first-match-wins).
+
+The exit code passed to `hintConditions` is the **main command's exit code** (same value passed to `CHAI_EXIT_CODE` for `postProcess` scripts), not the postProcess script's exit code.
+
+**Critical**: When using `exitCode: "nonzero"` (or a specific non-zero code), the tool must also declare `successExitCodes` for that exit code. Without `successExitCodes`, the executor's error propagation short-circuits before `hintConditions` is evaluated. The correct pattern is: `successExitCodes` controls pipeline flow (whether the output reaches hintConditions), and `hintConditions` inspects the output to generate hints.
+
+**Example:** Exit-code-based hint for a tool that returns file-not-found errors:
+
+```json
+{
+  "tool": "files_read",
+  "binary": "chai",
+  "subcommand": "file read",
+  "successExitCodes": [1],
+  "hintConditions": [
+    { "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }
+  ],
+  "args": [...]
+}
+```
+
+**Example:** Compound condition (match + whenArg) for cherry-pick staging:
+
+```json
+"hintConditions": [
+  { "match": "CONFLICT", "hint": "cherry-pick conflicts detected — resolve and stage them, then use git_cherry_pick_continue" },
+  { "whenArg": { "no_commit": true }, "hint": "cherry-pick staged — use git_commit to finalize" }
+]
+```
+
+**Example:** Template variable for dynamic hint text:
+
+```json
+"hintConditions": [
+  { "exitCode": 0, "hint": "reset to {ref} — use git_status to inspect the current state" }
+]
+```
+
+**Design notes:**
+- `hintConditions` and `postProcess` are independent and can coexist on the same execution spec. When both are present, `postProcess` runs first (transforming the output), then `hintConditions` matches against the transformed output using the original command's exit code.
+- `hintConditions` only appends hints — it never filters, reorders, or modifies the existing output. This is the key distinction from `postProcess`: `hintConditions` is a pure hint-injection mechanism.
+- Substring match (not regex) covers the majority of hint conditions. Every hint script that matches on output content uses `grep "literal string"`, not regex patterns. If regex is needed in the future, a `matchRegex` field can be added.
 
 #### `sideRead` (object)
 
@@ -305,8 +365,9 @@ One tool, one positional argument:
 - **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
 - **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill's `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
 - **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's merged output (stdout + stderr) to the post-processor's stdin and returns the post-processor's stdout instead. The executor always merges stderr into stdout (appended after stdout with a newline separator) before the post-process step, so hint scripts can inspect diagnostics written to stderr (e.g., compiler warnings). On failure or empty output, the original merged output is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).
+- **Hint conditions**: When `hintConditions` is set on an execution spec, the executor evaluates each condition against the post-processed output and the main command's exit code. Matching conditions append `hint:` lines with blank-line separators. This runs after `postProcess` and before `truncate_output`, so inline hints are present in the output for truncation to preserve. The effective args (augmented with `absentDefault` values) are passed for `whenArg` matching and `{param_name}` template expansion. When `exitCode: "nonzero"` is used, `successExitCodes` must also be declared — otherwise the executor's error propagation short-circuits before `hintConditions` is evaluated.
 - **Side reads**: When `sideRead` is set on an execution spec, the executor appends the named file's contents (relative to the resolved path parameter) to the tool result after `postProcess`. The file is read from disk without going through the allowlist. When `oncePerSession` is `true`, the executor maintains a per-session seen set (keyed by session id and resolved path) and skips re-appending the same file. Silently skipped when the file is absent, empty, or the filename fails the traversal check. The `pathParam` value used for both file lookup and `oncePerSession` deduplication is the canonical (absolute, symlink-resolved) path, ensuring correct behavior regardless of whether the caller provides a relative or absolute path.
-- **Output truncation**: When `maxOutputLines` is set on an execution spec, the executor truncates the tool's output to the specified number of lines if the output exceeds that limit. Truncation applies after `postProcess` but before `sideRead` — side-read content is not counted against the line limit and is always appended in full. Lines prefixed with `hint:` are preserved through truncation: non-hint lines are truncated to `maxOutputLines`, then hint lines are appended before the truncation notice. This ensures diagnostic hints (see [adr/DIAGNOSTIC_HINTS.md](../adr/DIAGNOSTIC_HINTS.md)) are never lost to truncation. When truncation occurs, the output ends with a notice indicating how many lines were shown, the total line count, how many lines were omitted, and — when `truncationHint` is set — a tool-specific message (e.g., `Use git_diff_lines with start_line: 201 to read the remaining lines.`); otherwise a generic "Narrow your query path, pattern, or range to reduce results." suggestion is used. The `truncationHint` template supports variables `{kept}`, `{total}`, `{omitted}`, and `{next_start}` that the executor expands at truncation time. This prevents unbounded tool output (e.g. from `grep`, `git diff`, or `git log`) from exceeding the model's context window and terminating the session, and — when a companion line-range tool exists — gives the agent a direct pagination path to recover the omitted content.
+- **Output truncation**: When `maxOutputLines` is set on an execution spec, the executor truncates the tool's output to the specified number of lines if the output exceeds that limit. Truncation applies after `postProcess` and `hintConditions` but before `sideRead` — side-read content is not counted against the line limit and is always appended in full. Lines prefixed with `hint:` are preserved through truncation: non-hint lines are truncated to `maxOutputLines`, then hint lines are appended before the truncation notice. This ensures diagnostic hints (see [adr/DIAGNOSTIC_HINTS.md](../adr/DIAGNOSTIC_HINTS.md)) are never lost to truncation. When truncation occurs, the output ends with a notice indicating how many lines were shown, the total line count, how many lines were omitted, and — when `truncationHint` is set — a tool-specific message (e.g., `Use git_diff_lines with start_line: 201 to read the remaining lines.`); otherwise a generic "Narrow your query path, pattern, or range to reduce results." suggestion is used. The `truncationHint` template supports variables `{kept}`, `{total}`, `{omitted}`, and `{next_start}` that the executor expands at truncation time. This prevents unbounded tool output (e.g. from `grep`, `git diff`, or `git log`) from exceeding the model's context window and terminating the session, and — when a companion line-range tool exists — gives the agent a direct pagination path to recover the omitted content.
 - **Stdin validation**: When a `kind: "stdin"` parameter is required (no `optional: true`), `extract_stdin_content` validates that the parameter is present and non-null in the tool call arguments. Missing required stdin params produce an error ("missing required parameter: {param}") instead of silently falling through to the no-stdin code path.
 - **Stdin pipe scoping**: All sites that write to a child process's stdin pipe use `child.stdin.take().ok_or_else(...)` with a block scope that drops the pipe before calling `wait_with_output()`. This guarantees (1) the child sees EOF on stdin before the parent waits, and (2) pipe unavailability surfaces as an error rather than being silently skipped.
 - **Resolve script idempotency**: `resolveCommand` scripts are invoked twice for `writePath`/`readPath` parameters — first in `validate_write_paths()` (result canonicalized and substituted into args), then again in `build_argv()` on the already-resolved value. Scripts that prepend a root path must check whether the input is already absolute and return it unchanged. The idempotent pattern is: `case "$path" in /*) echo "$path"; exit 0 ;; esac`.

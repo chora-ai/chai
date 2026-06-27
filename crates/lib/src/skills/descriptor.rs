@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 use std::collections::HashMap;
+use std::fmt;
 
 /// Root structure of a skill's tools.json file.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -99,6 +100,11 @@ pub struct ExecutionSpec {
     /// the agent the exact `start_line` to use for pagination.
     #[serde(default, rename = "truncationHint")]
     pub truncation_hint: Option<String>,
+    /// Optional: inline hint conditions evaluated after postProcess and before
+    /// truncation. Each matching condition appends a `hint:` line to the output
+    /// with the standard blank-line separator. When absent, no hints are injected.
+    #[serde(default, rename = "hintConditions")]
+    pub hint_conditions: Option<Vec<HintCondition>>,
 }
 
 impl Default for ExecutionSpec {
@@ -115,6 +121,7 @@ impl Default for ExecutionSpec {
             success_exit_codes: None,
             max_output_lines: None,
             truncation_hint: None,
+            hint_conditions: None,
         }
     }
 }
@@ -386,6 +393,258 @@ pub enum ArgKind {
     Literal,
 }
 
+/// A declarative hint condition that the executor evaluates after postProcess
+/// and before truncation. When all specified conditions are met, the hint
+/// message is appended to the output with the standard `hint:` prefix and
+/// blank-line separator.
+///
+/// At least one of `match_`, `exit_code`, `not_empty`, or `when_arg` must be
+/// present. If multiple are present, all must be true (AND logic). Multiple
+/// `hintConditions` entries are all evaluated; all matching entries produce
+/// hints.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HintCondition {
+    /// Substring to search for in the post-processed output. Case-sensitive.
+    /// When present, the hint fires if the string appears anywhere in the output.
+    #[serde(default, rename = "match")]
+    pub match_: Option<String>,
+
+    /// Exit code condition: `"nonzero"` matches any non-zero code, or an integer
+    /// matches that specific code.
+    #[serde(default, rename = "exitCode")]
+    pub exit_code: Option<HintExitCode>,
+
+    /// When `true`, the hint fires only if the post-processed output is non-empty.
+    /// When `false` or absent, output emptiness is not checked.
+    #[serde(default)]
+    pub not_empty: Option<bool>,
+
+    /// Parameter-value conditions. Keys are parameter names; values are expected
+    /// values (string, boolean, or number). All specified parameters must match
+    /// their expected values for the condition to fire. Evaluated against the
+    /// effective args (after `absentDefault` augmentation).
+    #[serde(default)]
+    pub when_arg: Option<HashMap<String, serde_json::Value>>,
+
+    /// The hint message. Supports `{param_name}` template variables that are
+    /// replaced with the corresponding parameter value from the effective args.
+    /// The executor prepends `hint: ` and a blank-line separator.
+    pub hint: String,
+}
+
+/// Exit code condition for hint evaluation.
+///
+/// Deserialized from either the string `"nonzero"` (matching any non-zero
+/// exit code) or an integer (matching that specific exit code).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum HintExitCode {
+    /// Match any non-zero exit code. Only valid value: `"nonzero"`.
+    Nonzero(String),
+    /// Match a specific exit code.
+    Specific(i32),
+}
+
+impl HintExitCode {
+    /// Returns true if the given exit code satisfies this condition.
+    pub fn matches(&self, code: i32) -> bool {
+        match self {
+            HintExitCode::Nonzero(s) if s == "nonzero" => code != 0,
+            HintExitCode::Nonzero(invalid) => {
+                // Reject invalid string values at match time (should be
+                // caught by validation, but fail safe).
+                log::warn!("hintConditions: invalid exitCode string (expected \"nonzero\"): {:?}", invalid);
+                false
+            }
+            HintExitCode::Specific(expected) => code == *expected,
+        }
+    }
+}
+
+impl HintCondition {
+    /// Evaluate all conditions against the given exit code, output, and tool
+    /// args. Returns true when all specified conditions are met (AND logic).
+    /// A condition with no condition fields is treated as not matching
+    /// (at least one condition must be specified).
+    pub fn matches(&self, exit_code: i32, output: &str, tool_args: &serde_json::Value) -> bool {
+        let has_condition = self.match_.is_some()
+            || self.exit_code.is_some()
+            || self.not_empty.is_some()
+            || self.when_arg.is_some();
+
+        if !has_condition {
+            return false;
+        }
+
+        // match: substring must appear in the output
+        if let Some(ref pattern) = self.match_ {
+            if !output.contains(pattern.as_str()) {
+                return false;
+            }
+        }
+
+        // exitCode: must match the command's exit code
+        if let Some(ref ec) = self.exit_code {
+            if !ec.matches(exit_code) {
+                return false;
+            }
+        }
+
+        // notEmpty: when true, output must be non-empty
+        if self.not_empty == Some(true) && output.is_empty() {
+            return false;
+        }
+
+        // whenArg: all specified parameter values must match
+        if let Some(ref expected) = self.when_arg {
+            let obj = match tool_args.as_object() {
+                Some(o) => o,
+                None => return false,
+            };
+            for (key, expected_val) in expected {
+                let actual = match obj.get(key) {
+                    Some(v) if !v.is_null() => v,
+                    _ => return false, // absent or null parameter fails
+                };
+                if !values_match(expected_val, actual) {
+                    return false;
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Expand `{param_name}` template variables in the hint message using
+    /// values from the tool call args. Unknown or absent parameters are
+    /// replaced with an empty string.
+    pub fn expand_hint(&self, tool_args: &serde_json::Value) -> String {
+        let obj = tool_args.as_object();
+        expand_template(&self.hint, obj)
+    }
+}
+
+/// Expand `{param_name}` template variables in a hint string.
+///
+/// Variables use the format `{name}`. If the parameter is absent or null in
+/// the args object, the placeholder is replaced with an empty string.
+/// Literal braces can be produced by double-brace escaping: `{{` → `{`,
+/// `}}` → `}`.
+fn expand_template(template: &str, args: Option<&serde_json::Map<String, serde_json::Value>>) -> String {
+    let mut result = String::with_capacity(template.len());
+    let mut chars = template.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '{' {
+            // Check for escaped brace `{{`
+            if chars.peek() == Some(&'{') {
+                chars.next();
+                result.push('{');
+                continue;
+            }
+            // Read until closing `}`
+            let mut name = String::new();
+            let mut found_close = false;
+            while let Some(c) = chars.next() {
+                if c == '}' {
+                    // Check for escaped brace `}}`
+                    if chars.peek() == Some(&'}') {
+                        chars.next();
+                        name.push('}');
+                        continue;
+                    }
+                    found_close = true;
+                    break;
+                }
+                name.push(c);
+            }
+            if found_close && !name.is_empty() {
+                let value = args
+                    .and_then(|o| o.get(&name))
+                    .and_then(|v| if v.is_null() { None } else { Some(v) });
+                match value {
+                    Some(serde_json::Value::String(s)) => result.push_str(s),
+                    Some(v) => result.push_str(&v.to_string()),
+                    None => { /* absent param → empty string */ }
+                }
+            } else if found_close {
+                // Empty name `{}` — leave as-is
+                result.push_str("{}");
+            } else {
+                // Unclosed brace — push what we consumed
+                result.push('{');
+                result.push_str(&name);
+            }
+        } else if ch == '}' {
+            // Check for escaped brace `}}`
+            if chars.peek() == Some(&'}') {
+                chars.next();
+                result.push('}');
+                continue;
+            }
+            result.push('}');
+        } else {
+            result.push(ch);
+        }
+    }
+
+    result
+}
+
+/// Compare an expected JSON value from `whenArg` against the actual parameter
+/// value from the tool call. Supports string, boolean, and number comparisons.
+fn values_match(expected: &serde_json::Value, actual: &serde_json::Value) -> bool {
+    match (expected, actual) {
+        // Both strings: exact match
+        (serde_json::Value::String(a), serde_json::Value::String(b)) => a == b,
+        // Both booleans: exact match
+        (serde_json::Value::Bool(a), serde_json::Value::Bool(b)) => a == b,
+        // Both numbers: compare as i64 if possible, then f64
+        (serde_json::Value::Number(a), serde_json::Value::Number(b)) => {
+            if let (Some(ai), Some(bi)) = (a.as_i64(), b.as_i64()) {
+                ai == bi
+            } else if let (Some(af), Some(bf)) = (a.as_f64(), b.as_f64()) {
+                (af - bf).abs() < f64::EPSILON
+            } else {
+                false
+            }
+        }
+        // Cross-type: string expected, actual is non-string — convert actual to string
+        (serde_json::Value::String(exp), actual_other) => {
+            match actual_other {
+                serde_json::Value::Bool(b) => exp == &b.to_string(),
+                serde_json::Value::Number(n) => exp == &n.to_string(),
+                _ => false,
+            }
+        }
+        // Cross-type: number expected, actual is string — try parsing
+        (serde_json::Value::Number(exp), serde_json::Value::String(act)) => {
+            if let (Some(ei), Ok(ai)) = (exp.as_i64(), act.parse::<i64>()) {
+                ei == ai
+            } else if let (Some(ef), Ok(af)) = (exp.as_f64(), act.parse::<f64>()) {
+                (ef - af).abs() < f64::EPSILON
+            } else {
+                false
+            }
+        }
+        // Cross-type: boolean expected, actual is string — parse "true"/"false"
+        (serde_json::Value::Bool(exp), serde_json::Value::String(act)) => {
+            act.eq_ignore_ascii_case(&exp.to_string())
+        }
+        _ => false,
+    }
+}
+
+impl fmt::Display for HintExitCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            HintExitCode::Nonzero(s) => write!(f, "{}", s),
+            HintExitCode::Specific(n) => write!(f, "{}", n),
+        }
+    }
+}
+
 impl ToolDescriptor {
     /// Convert descriptor tools to Ollama tool definitions for the chat API.
     pub fn to_tool_definitions(&self) -> Vec<crate::providers::ToolDefinition> {
@@ -409,5 +668,425 @@ impl ToolDescriptor {
             a.allow_subcommands(binary.clone(), subcommands.clone());
         }
         a
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- HintExitCode tests ---
+
+    #[test]
+    fn hint_exit_code_nonzero_matches_non_zero() {
+        let ec: HintExitCode = serde_json::from_value(serde_json::json!("nonzero")).unwrap();
+        assert!(ec.matches(1));
+        assert!(ec.matches(128));
+        assert!(!ec.matches(0));
+    }
+
+    #[test]
+    fn hint_exit_code_specific_matches_exact_code() {
+        let ec: HintExitCode = serde_json::from_value(serde_json::json!(1)).unwrap();
+        assert!(ec.matches(1));
+        assert!(!ec.matches(0));
+        assert!(!ec.matches(2));
+    }
+
+    #[test]
+    fn hint_exit_code_specific_zero() {
+        let ec: HintExitCode = serde_json::from_value(serde_json::json!(0)).unwrap();
+        assert!(ec.matches(0));
+        assert!(!ec.matches(1));
+    }
+
+    #[test]
+    fn hint_exit_code_invalid_string_returns_false() {
+        // "error" is not a valid exitCode string — should be caught at
+        // match time and return false.
+        let ec = HintExitCode::Nonzero("error".to_string());
+        assert!(!ec.matches(1));
+        assert!(!ec.matches(0));
+    }
+
+    // --- HintCondition::matches tests ---
+
+    fn make_condition(
+        match_: Option<&str>,
+        exit_code: Option<HintExitCode>,
+        not_empty: Option<bool>,
+        when_arg: Option<HashMap<String, serde_json::Value>>,
+        hint: &str,
+    ) -> HintCondition {
+        HintCondition {
+            match_: match_.map(|s| s.to_string()),
+            exit_code,
+            not_empty,
+            when_arg,
+            hint: hint.to_string(),
+        }
+    }
+
+    #[test]
+    fn hint_condition_match_substring_found() {
+        let c = make_condition(Some("not found"), None, None, None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(c.matches(0, "error: file not found", &args));
+    }
+
+    #[test]
+    fn hint_condition_match_substring_not_found() {
+        let c = make_condition(Some("not found"), None, None, None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(!c.matches(0, "success", &args));
+    }
+
+    #[test]
+    fn hint_condition_exit_code_nonzero() {
+        let c = make_condition(None, Some(HintExitCode::Nonzero("nonzero".to_string())), None, None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(c.matches(1, "output", &args));
+        assert!(!c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_exit_code_specific() {
+        let c = make_condition(None, Some(HintExitCode::Specific(1)), None, None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(c.matches(1, "output", &args));
+        assert!(!c.matches(0, "output", &args));
+        assert!(!c.matches(2, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_not_empty_true() {
+        let c = make_condition(None, None, Some(true), None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(c.matches(0, "some output", &args));
+        assert!(!c.matches(0, "", &args));
+    }
+
+    #[test]
+    fn hint_condition_not_empty_false_does_not_check() {
+        let c = make_condition(None, None, Some(false), None, "hint msg");
+        let args = serde_json::json!({});
+        // not_empty: false means emptiness is not checked — condition is
+        // trivially true (no other conditions present). But a condition
+        // with only not_empty: false has no real condition — wait, the
+        // has_condition check will pass because not_empty is Some(false).
+        // However, not_empty == Some(true) is the only check that can fail.
+        // not_empty == Some(false) does not reject empty output.
+        assert!(c.matches(0, "some output", &args));
+        assert!(c.matches(0, "", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_string_match() {
+        let mut when = HashMap::new();
+        when.insert("ref".to_string(), serde_json::json!("main"));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({ "ref": "main" });
+        assert!(c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_string_mismatch() {
+        let mut when = HashMap::new();
+        when.insert("ref".to_string(), serde_json::json!("main"));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({ "ref": "dev" });
+        assert!(!c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_absent_param() {
+        let mut when = HashMap::new();
+        when.insert("ref".to_string(), serde_json::json!("main"));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({});
+        assert!(!c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_null_param() {
+        let mut when = HashMap::new();
+        when.insert("ref".to_string(), serde_json::json!("main"));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({ "ref": null });
+        assert!(!c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_boolean_match() {
+        let mut when = HashMap::new();
+        when.insert("no_commit".to_string(), serde_json::json!(true));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({ "no_commit": true });
+        assert!(c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_number_match() {
+        let mut when = HashMap::new();
+        when.insert("count".to_string(), serde_json::json!(3));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args = serde_json::json!({ "count": 3 });
+        assert!(c.matches(0, "output", &args));
+    }
+
+    #[test]
+    fn hint_condition_when_arg_multiple_all_must_match() {
+        let mut when = HashMap::new();
+        when.insert("ref".to_string(), serde_json::json!("main"));
+        when.insert("squash".to_string(), serde_json::json!(true));
+        let c = make_condition(None, None, None, Some(when), "hint msg");
+        let args_both = serde_json::json!({ "ref": "main", "squash": true });
+        let args_one = serde_json::json!({ "ref": "main", "squash": false });
+        assert!(c.matches(0, "output", &args_both));
+        assert!(!c.matches(0, "output", &args_one));
+    }
+
+    #[test]
+    fn hint_condition_and_logic_match_and_exit_code() {
+        let c = make_condition(
+            Some("permission denied"),
+            Some(HintExitCode::Nonzero("nonzero".to_string())),
+            None,
+            None,
+            "hint msg",
+        );
+        let args = serde_json::json!({});
+        // Both conditions met
+        assert!(c.matches(1, "error: permission denied", &args));
+        // Exit code is 0 (not nonzero)
+        assert!(!c.matches(0, "error: permission denied", &args));
+        // String not found
+        assert!(!c.matches(1, "success", &args));
+    }
+
+    #[test]
+    fn hint_condition_and_logic_match_and_not_empty() {
+        let c = make_condition(Some("results"), None, Some(true), None, "hint msg");
+        let args = serde_json::json!({});
+        assert!(c.matches(0, "3 results found", &args));
+        assert!(!c.matches(0, "", &args)); // empty output, notEmpty fails
+    }
+
+    #[test]
+    fn hint_condition_no_condition_fields_returns_false() {
+        let c = HintCondition {
+            match_: None,
+            exit_code: None,
+            not_empty: None,
+            when_arg: None,
+            hint: "always hint".to_string(),
+        };
+        let args = serde_json::json!({});
+        assert!(!c.matches(0, "output", &args));
+    }
+
+    // --- HintCondition::expand_hint tests ---
+
+    #[test]
+    fn expand_hint_no_template() {
+        let c = make_condition(None, None, None, None, "simple hint message");
+        let args = serde_json::json!({});
+        assert_eq!(c.expand_hint(&args), "simple hint message");
+    }
+
+    #[test]
+    fn expand_hint_with_template_variable() {
+        let c = make_condition(None, None, None, None, "reset to {ref} — use git_status");
+        let args = serde_json::json!({ "ref": "HEAD~1" });
+        assert_eq!(c.expand_hint(&args), "reset to HEAD~1 — use git_status");
+    }
+
+    #[test]
+    fn expand_hint_multiple_template_variables() {
+        let c = make_condition(None, None, None, None, "{action} {target}");
+        let args = serde_json::json!({ "action": "read", "target": "file.txt" });
+        assert_eq!(c.expand_hint(&args), "read file.txt");
+    }
+
+    #[test]
+    fn expand_hint_absent_param_replaced_with_empty() {
+        let c = make_condition(None, None, None, None, "reset to {ref}");
+        let args = serde_json::json!({});
+        assert_eq!(c.expand_hint(&args), "reset to ");
+    }
+
+    #[test]
+    fn expand_hint_null_param_replaced_with_empty() {
+        let c = make_condition(None, None, None, None, "reset to {ref}");
+        let args = serde_json::json!({ "ref": null });
+        assert_eq!(c.expand_hint(&args), "reset to ");
+    }
+
+    #[test]
+    fn expand_hint_non_string_param() {
+        let c = make_condition(None, None, None, None, "count is {n}");
+        let args = serde_json::json!({ "n": 42 });
+        assert_eq!(c.expand_hint(&args), "count is 42");
+    }
+
+    #[test]
+    fn expand_hint_boolean_param() {
+        let c = make_condition(None, None, None, None, "flag is {flag}");
+        let args = serde_json::json!({ "flag": true });
+        assert_eq!(c.expand_hint(&args), "flag is true");
+    }
+
+    // --- expand_template tests ---
+
+    #[test]
+    fn expand_template_escaped_braces() {
+        let args = serde_json::json!({ "name": "test" });
+        let obj = args.as_object();
+        assert_eq!(expand_template("{{name}} = {name}", obj), "{name} = test");
+    }
+
+    #[test]
+    fn expand_template_no_args() {
+        assert_eq!(expand_template("no vars", None), "no vars");
+    }
+
+    #[test]
+    fn expand_template_unclosed_brace() {
+        let args = serde_json::json!({});
+        let obj = args.as_object();
+        assert_eq!(expand_template("{unclosed", obj), "{unclosed");
+    }
+
+    #[test]
+    fn expand_template_empty_name() {
+        let args = serde_json::json!({});
+        let obj = args.as_object();
+        assert_eq!(expand_template("value: {}", obj), "value: {}");
+    }
+
+    // --- values_match tests ---
+
+    #[test]
+    fn values_match_string_to_string() {
+        assert!(values_match(&serde_json::json!("main"), &serde_json::json!("main")));
+        assert!(!values_match(&serde_json::json!("main"), &serde_json::json!("dev")));
+    }
+
+    #[test]
+    fn values_match_bool_to_bool() {
+        assert!(values_match(&serde_json::json!(true), &serde_json::json!(true)));
+        assert!(!values_match(&serde_json::json!(true), &serde_json::json!(false)));
+    }
+
+    #[test]
+    fn values_match_number_to_number() {
+        assert!(values_match(&serde_json::json!(3), &serde_json::json!(3)));
+        assert!(!values_match(&serde_json::json!(3), &serde_json::json!(4)));
+    }
+
+    #[test]
+    fn values_match_cross_type_string_to_bool() {
+        assert!(values_match(&serde_json::json!("true"), &serde_json::json!(true)));
+        assert!(!values_match(&serde_json::json!("false"), &serde_json::json!(true)));
+    }
+
+    #[test]
+    fn values_match_cross_type_number_to_string() {
+        assert!(values_match(&serde_json::json!(3), &serde_json::json!("3")));
+        assert!(!values_match(&serde_json::json!(3), &serde_json::json!("4")));
+    }
+
+    #[test]
+    fn values_match_cross_type_bool_to_string() {
+        assert!(values_match(&serde_json::json!(true), &serde_json::json!("true")));
+        assert!(!values_match(&serde_json::json!(true), &serde_json::json!("false")));
+    }
+
+    // --- Deserialization tests ---
+
+    #[test]
+    fn deserialize_hint_condition_with_match() {
+        let json = serde_json::json!({
+            "match": "not a git repository",
+            "hint": "not a git repository — specify a valid repo path"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        assert_eq!(c.match_.as_deref(), Some("not a git repository"));
+        assert!(c.exit_code.is_none());
+        assert!(c.not_empty.is_none());
+        assert!(c.when_arg.is_none());
+        assert_eq!(c.hint, "not a git repository — specify a valid repo path");
+    }
+
+    #[test]
+    fn deserialize_hint_condition_with_exit_code_nonzero() {
+        let json = serde_json::json!({
+            "exitCode": "nonzero",
+            "hint": "file not found"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        assert!(c.match_.is_none());
+        assert!(matches!(c.exit_code, Some(HintExitCode::Nonzero(ref s)) if s == "nonzero"));
+        assert_eq!(c.hint, "file not found");
+    }
+
+    #[test]
+    fn deserialize_hint_condition_with_exit_code_integer() {
+        let json = serde_json::json!({
+            "exitCode": 1,
+            "hint": "no matches"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        assert!(matches!(c.exit_code, Some(HintExitCode::Specific(1))));
+    }
+
+    #[test]
+    fn deserialize_hint_condition_with_not_empty() {
+        let json = serde_json::json!({
+            "notEmpty": true,
+            "hint": "results found"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        assert_eq!(c.not_empty, Some(true));
+    }
+
+    #[test]
+    fn deserialize_hint_condition_with_when_arg() {
+        let json = serde_json::json!({
+            "whenArg": { "no_commit": true },
+            "hint": "staged changes"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        let when = c.when_arg.unwrap();
+        assert_eq!(when.get("no_commit"), Some(&serde_json::json!(true)));
+    }
+
+    #[test]
+    fn deserialize_hint_condition_with_compound_conditions() {
+        let json = serde_json::json!({
+            "match": "permission denied",
+            "exitCode": "nonzero",
+            "hint": "permission error"
+        });
+        let c: HintCondition = serde_json::from_value(json).unwrap();
+        assert_eq!(c.match_.as_deref(), Some("permission denied"));
+        assert!(c.exit_code.is_some());
+    }
+
+    #[test]
+    fn deserialize_execution_spec_with_hint_conditions() {
+        let json = serde_json::json!({
+            "tool": "files_read",
+            "binary": "cat",
+            "subcommand": "",
+            "hintConditions": [
+                { "exitCode": "nonzero", "hint": "file not found" }
+            ]
+        });
+        let spec: ExecutionSpec = serde_json::from_value(json).unwrap();
+        assert_eq!(spec.tool, "files_read");
+        let conditions = spec.hint_conditions.unwrap();
+        assert_eq!(conditions.len(), 1);
+        assert_eq!(conditions[0].hint, "file not found");
     }
 }

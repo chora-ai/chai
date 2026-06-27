@@ -196,10 +196,7 @@
       "subcommand": "skill validate",
       "args": [{ "param": "skill_name", "kind": "positional" }],
       "successExitCodes": [1],
-      "postProcess": {
-        "script": "hint-validate-errors",
-        "args": ["$skill_name"]
-      }
+      "hintConditions": [{ "match": "ERROR:", "hint": "use skills_read with file: 'tools_json' to examine the content" }]
     },
     {
       "tool": "skills_init",
@@ -209,9 +206,7 @@
         { "param": "skill_name", "kind": "positional" },
         { "param": "description", "kind": "flag", "flag": "description" }
       ],
-      "postProcess": {
-        "script": "hint-init-next-steps"
-      }
+      "hintConditions": [{ "match": "initialized skill", "hint": "skill initialized — next: design tools, write tools.json, then validate" }]
     },
     {
       "tool": "skills_write_skill_md",

@@ -114,9 +114,7 @@
         }
       ],
       "successExitCodes": [1],
-      "postProcess": {
-        "script": "hint-not-found"
-      },
+      "hintConditions": [{ "exitCode": "nonzero", "hint": "note not found — use notes_list to browse available notes" }],
       "maxOutputLines": 500,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
@@ -144,9 +142,7 @@
         }
       ],
       "successExitCodes": [1],
-      "postProcess": {
-        "script": "hint-not-found"
-      }
+      "hintConditions": [{ "exitCode": "nonzero", "hint": "note not found — use notes_list to browse available notes" }]
     },
     {
       "tool": "notes_list",
@@ -217,9 +213,7 @@
         }
       ],
       "successExitCodes": [0, 1],
-      "postProcess": {
-        "script": "hint-search-results"
-      },
+      "hintConditions": [{ "notEmpty": true, "hint": "use notes_read_lines with these line numbers for surrounding context" }],
       "maxOutputLines": 200
     }
   ]

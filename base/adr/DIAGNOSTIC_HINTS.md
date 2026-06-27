@@ -26,22 +26,36 @@ Adopt diagnostic hints as a first-class design pattern for chai skill tools, for
 
 Hints are short, actionable messages appended to tool output when the tool detects a condition the agent could handle better. They are non-blocking (the tool still returns its result or error) and are not a substitute for enforcement (if the tool can enforce the correct behavior, it should).
 
-### Two Hint Mechanisms
+### Three Hint Mechanisms
 
-Hints are implemented via one of two mechanisms, chosen based on what the hint needs to inspect:
+Hints are implemented via one of three mechanisms, chosen based on what the hint needs to inspect:
 
-**1. `postProcess` scripts (preferred for output-inspection hints)**
+**1. `hintConditions` (preferred for simple output-inspection and exit-code hints)**
 
-When a hint can be determined by inspecting the command's output (stdout/stderr), implement it as a `postProcess` shell script in the skill's `scripts/` directory. The script receives the tool's combined output on stdin, greps for a condition, and appends a one-line hint when detected. Non-matching output passes through unchanged.
+When a hint can be determined by a simple condition — substring match in the output, exit-code check, non-empty output, or parameter-value check — declare it inline in `tools.json` using the `hintConditions` field. Each condition is a declarative entry that the executor evaluates after `postProcess` and before truncation. No separate script file is needed.
 
-This is the preferred mechanism because:
-- **Hints are part of the skill package** — visible, editable, and versioned alongside tools.json and SKILL.md. No Rust code changes or binary rebuilds needed to add or modify a hint.
-- **Skill completeness** — the skill directory contains its full behavior surface: schema, instructions, and hints. An author can understand and modify a skill without touching the chai binary.
-- **Consistency** — the same pattern works across all skills, regardless of which binary the tool invokes.
+This is the preferred mechanism for simple hints because:
+- **Single source of truth** — hint logic lives in `tools.json` alongside the execution spec, not in a separate file.
+- **No shell boilerplate** — the 6-line stdin-buffer/grep/echo pattern is eliminated; hints are one-liner declarations.
+- **Lower maintenance surface** — no need to keep hint scripts in sync across skill variants.
+- **Testable in Rust** — hint condition matching is Rust code with unit tests, not untested shell scripts.
+
+Condition types: `match` (substring), `exitCode` (integer or `"nonzero"`), `notEmpty` (boolean), `whenArg` (parameter-value). Multiple conditions on the same entry use AND logic. Multiple entries are all evaluated; all matching entries produce hints. The `hint` field supports `{param_name}` template variables for dynamic hint text.
+
+Critical implementation detail: When using `exitCode: "nonzero"` (or a specific non-zero code), the tool must also declare `successExitCodes` for that exit code. Without `successExitCodes`, the executor's error propagation short-circuits before `hintConditions` is evaluated. The correct pattern is: `successExitCodes` controls pipeline flow (whether the output reaches `hintConditions`), and `hintConditions` inspects the output to generate hints.
+
+**2. `postProcess` scripts (for complex output-inspection hints)**
+
+When a hint requires output transformation, multi-step logic, external commands, or structured data parsing that cannot be expressed as a simple condition, implement it as a `postProcess` shell script in the skill's `scripts/` directory. The script receives the tool's combined output on stdin, inspects it, and appends one-line hints when conditions are detected. Non-matching output passes through unchanged.
+
+Use `postProcess` scripts when:
+- The hint requires filtering or transforming the output (e.g., collapsing progress lines, classifying errors).
+- The hint runs an external command (e.g., `chai skill validate`) or reads a file from disk.
+- The hint uses structured data parsing (e.g., counting annotated parameters, arithmetic comparison).
 
 Critical implementation detail: `postProcess` only runs when the command exits with a code treated as success (0 or in `successExitCodes`). If the hint targets an error condition, the tool must declare `successExitCodes` for that exit code — otherwise the error propagates before `postProcess` runs. The executor always merges stderr into stdout (appended after stdout with a newline separator) before the post-process step, so hint scripts can match against diagnostics written to stderr (e.g., compiler warnings). This applies to all success-path exit codes (0 and any codes in `successExitCodes`).
 
-**2. Binary-level hints (only when internal state is required)**
+**3. Binary-level hints (only when internal state is required)**
 
 When a hint requires computation or state that the command's output does not expose, the hint must be generated by the binary itself (e.g., `chai file replace` appending the leading-whitespace hint after comparing pattern indentation against file content). This is the exception, not the rule.
 
@@ -50,25 +64,29 @@ Binary-level hints are acceptable when:
 - The hint is tightly coupled to the binary's internal error-handling path and replicating it externally would be fragile.
 
 Binary-level hints are not acceptable when:
-- The condition is detectable from the command's output alone. Use `postProcess` instead.
+- The condition is detectable from the command's output alone. Use `hintConditions` or `postProcess` instead.
 - The hint could be added by a skill author without modifying the chai binary.
 
 ### Choosing the Mechanism
 
 | Condition | Mechanism | Example |
 |-----------|-----------|---------|
-| Output contains a known error string | `postProcess` script | git's "not a git repository" → hint about specifying a valid repo path |
-| Output contains a known warning pattern | `postProcess` script | git's "nothing to commit" → hint about clean tree |
-| Command exits with a specific code | `postProcess` + `successExitCodes` | git push exit 128 (no upstream) → hint about set_upstream |
+| Output contains a known error string | `hintConditions` `match` | git's "not a git repository" → hint about specifying a valid repo path |
+| Command exits with a specific code | `hintConditions` `exitCode` + `successExitCodes` | grep exit 1 (no matches) → hint about broader pattern |
+| Output is non-empty (search results) | `hintConditions` `notEmpty` | `files_search` has matches → hint about using `files_read_lines` |
+| Hint depends on a parameter value | `hintConditions` `whenArg` | `git_diff` with `ref: "main"` → hint about changes since diverging |
+| Hint text includes a parameter value | `hintConditions` `{param}` template | `git_reset` → "reset to {ref} — use git_status" |
+| Hint requires output transformation | `postProcess` script | cargo check filtering progress lines, classifying errors |
+| Hint runs an external command | `postProcess` script | `skills_validate` running `chai skill validate` |
 | Hint requires comparing data not in output | Binary-level | `files_replace` leading-whitespace normalization check |
 | Hint is embedded in the binary's error message | Binary-level | `files_replace` regex error suggesting `literal: true` |
 | Hint requires comparing expected vs actual content line-by-line | Binary-level | `files_write_lines` line-diff hint in `verify_original` error |
 
-When in doubt, start with `postProcess`. Only escalate to binary-level when the script cannot access the information it needs.
+When in doubt, start with `hintConditions`. Only escalate to `postProcess` when the condition cannot be expressed as a simple declarative entry, and to binary-level when the script cannot access the information it needs.
 
 ### Hint Format Convention
 
-All diagnostic hints — whether emitted by `postProcess` scripts or by the binary — must follow the same format: a standalone line starting with `hint:`.
+All diagnostic hints — whether emitted by `hintConditions`, `postProcess` scripts, or the binary — must follow the same format: a standalone line starting with `hint:`.
 
 ```
 hint: <short, actionable message>
@@ -82,6 +100,7 @@ Binary-level hints that previously embedded the hint inline (e.g., `0 replacemen
 
 | Source | Pattern |
 |--------|---------|
+| `hintConditions` | The executor automatically prepends a blank line and `hint: ` prefix before each matching condition's hint text |
 | `postProcess` scripts | `printf '%s\n' "$var"` (to restore trailing newline stripped by command substitution), then `echo ""` then `echo "hint: …"` before each hint |
 | Binary `println!` | `println!("\nhint: …")` (the `\n` combines with `println!`'s trailing newline to produce a blank line) |
 | Binary `anyhow::bail!` | Separate each hint from the preceding text with `\n` (e.g., `…\n{}\n{}` for two hints, where each starts with `\nhint:`) |
@@ -146,11 +165,12 @@ Two implementation rules demonstrated by the `hint-not-found.sh` bug fix:
 | Silent auto-correction | Removes agent agency and can produce incorrect results when the tool's assumption is wrong (e.g., silently accepting mismatched indentation produces misindented output) |
 | Tool-level enforcement for everything | Some conditions are genuinely ambiguous — the tool can detect the issue but shouldn't impose a single resolution |
 | Binary-level hints only (original decision) | Hints are hidden inside the binary, not visible in the skill package. Adding or modifying hints requires Rust changes and a binary rebuild. Skill authors cannot modify hints without touching the chai codebase. The `successExitCodes` + `postProcess` pattern demonstrated that most hints only need output inspection, not internal state. |
+| `postProcess` scripts only (revised decision) | Most hint scripts are trivial boilerplate (buffer stdin, grep, echo). The 6-line boilerplate pattern discourages adding hints where they would be valuable because the simplest possible hint requires a separate file. `hintConditions` eliminates the boilerplate for the common case, reserving `postProcess` for hints that need output transformation or external commands. |
 
 ## Consequences
 
 - **Smaller SKILL.md files**: Directives that can be replaced by hints reduce per-turn context cost.
 - **Better agent experience**: Agents receive guidance at the point of failure, which is more effective than preemptive instruction.
 - **Skill authoring discipline**: Each proposed directive now has a clear checklist — can the tool enforce it? Can the tool hint at it? Only if neither works should the directive remain in SKILL.md.
-- **Hints live in skills, not binaries**: Most hints are `postProcess` scripts in the skill directory. Skill authors can add, modify, and review hints without changing the chai binary. Only hints requiring internal computation remain in the binary.
-- **`successExitCodes` awareness required**: Skill authors implementing error-condition hints must declare `successExitCodes` on the execution spec. Forgetting this is the most common mistake — the hint script exists but never fires because the error propagates first. The skills-design SKILL.md documents this requirement.
+- **Three-tier hint architecture**: Simple hints use `hintConditions` (declarative, in `tools.json`); complex hints use `postProcess` scripts (in the skill's `scripts/` dir); hints requiring internal state use the binary. Skill authors can add and modify `hintConditions` without touching shell scripts or the chai binary.
+- **`successExitCodes` awareness required**: Skill authors implementing error-condition hints (via `hintConditions` `exitCode` or `postProcess`) must declare `successExitCodes` on the execution spec. Forgetting this is the most common mistake — the hint exists but never fires because the error propagates first. The skills-design SKILL.md documents this requirement.

@@ -111,7 +111,7 @@ A minimal example with one tool:
 }
 ```
 
-The `args` array maps each JSON parameter to a command-line argument kind: `positional`, `flag`, `flagifboolean`, or `stdin`. For full field details including `resolveCommand`, `postProcess`, `sideRead`, `writePath`, and `readPath`, see the tools schema spec.
+The `args` array maps each JSON parameter to a command-line argument kind: `positional`, `flag`, `flagifboolean`, or `stdin`. For full field details including `resolveCommand`, `postProcess`, `hintConditions`, `sideRead`, `writePath`, and `readPath`, see the tools schema spec.
 
 ## Enabling Skills on an Agent
 

@@ -37,12 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skills
 
 - Git, git-read, git-remote, and cargo skills now use `chai resolve` subcommands (`repo-path`, `cargo-path`, `clone-path`) via `resolveCommand.binary`/`resolveCommand.subcommand` instead of shell scripts for sandbox boundary validation — the same `is_inside_sandbox` logic is now type-safe, testable Rust code instead of copy-pasted shell
+- 25 hint scripts across 8 skills migrated from `postProcess` to inline `hintConditions` in `tools.json`: files (`hint-not-found`, `hint-overwrite`, `hint-search-results`), files-read (`hint-not-found`, `hint-search-results`), git (`hint-not-repo`, `hint-commit-status`, `hint-merge`, `hint-rebase`, `hint-cherry-pick`, `hint-diff-ref-main`, `hint-reset`), git-read (`hint-not-repo`, `hint-diff-ref-main`), git-remote (`hint-pull-errors`, `hint-push-errors`), notes (`hint-not-found`, `hint-overwrite`, `hint-search-results`), notes-read (`hint-not-found`, `hint-search-results`), notes-daily (`hint-not-found`, `hint-daily-overwrite`), skills (`hint-init-next-steps`, `hint-validate-errors`), skills-read (`hint-validate-errors`). Simple exit-code and substring-match hints are now declarative; `postProcess` is reserved for complex hints requiring output transformation or external commands
+- Diagnostic hints ADR updated: three-tier hint architecture (1. `hintConditions` for simple conditions, 2. `postProcess` scripts for complex logic, 3. binary-level for internal state)
+- `TOOLS_SCHEMA.md` spec updated with `hintConditions` field documentation
 
 ### Removed
 
 #### Skills
 
 - Sandbox resolve shell scripts removed (replaced by `chai resolve` subcommand): `resolve-repo-path.sh` (git, git-read, git-remote), `resolve-clone-path.sh` (git-remote), `resolve-cargo-path.sh` (cargo)
+- Hint scripts removed (replaced by inline `hintConditions`): `hint-not-found.sh` (files, files-read, notes, notes-read, notes-daily), `hint-overwrite.sh` (files, notes), `hint-search-results.sh` (files, files-read, notes, notes-read), `hint-not-repo.sh` (git, git-read), `hint-commit-status.sh` (git), `hint-merge.sh` (git), `hint-rebase.sh` (git), `hint-cherry-pick.sh` (git), `hint-diff-ref-main.sh` (git, git-read), `hint-reset.sh` (git), `hint-pull-errors.sh` (git-remote), `hint-push-errors.sh` (git-remote), `hint-daily-overwrite.sh` (notes-daily), `hint-init-next-steps.sh` (skills), `hint-validate-errors.sh` (skills, skills-read)
+- Empty `git-read/scripts/` directory removed
 
 ### Fixed
 
@@ -66,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Skill Authoring
 
+- `hintConditions` field on execution specs: declarative inline hint conditions that the executor evaluates after `postProcess` and before truncation. Four condition types: `match` (substring in output), `exitCode` (integer or `"nonzero"`), `notEmpty` (non-empty output), `whenArg` (parameter-value match). Multiple conditions on the same entry use AND logic. Multiple entries all produce hints when matched. The `hint` field supports `{param_name}` template variables for dynamic text. Replaces simple `postProcess` hint scripts (those that only inspect output and append a static hint) with one-liner declarations in `tools.json`, reserving `postProcess` for hints that require output transformation, external commands, or multi-step logic
 - Skills-design SKILL.md now documents upward traversal by external commands (git, cargo) and the requirement for resolve scripts to validate the resolved project root is inside the sandbox, including symlinked directories
 - Skills-design SKILL.md now documents the pre/post-resolution validation gap for parameters referenced via `$name` in `resolveCommand.args` (not in the execution `args` array and not validated by the sandbox)
 - Skills-design SKILL.md security audit checklist now includes two new checks: (5) resolve scripts constructing paths from parameters not in the `args` array must reject dangerous values, and (6) tools using `workingDir` with upward-traversing commands must validate the project root

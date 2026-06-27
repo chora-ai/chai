@@ -227,9 +227,7 @@
       "subcommand": "",
       "args": [{ "param": "path", "kind": "positional", "readPath": true }],
       "successExitCodes": [1],
-      "postProcess": {
-        "script": "hint-not-found"
-      },
+      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }],
       "maxOutputLines": 500,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
     },
@@ -248,9 +246,7 @@
         }
       ],
       "successExitCodes": [1],
-      "postProcess": {
-        "script": "hint-not-found"
-      }
+      "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }]
     },
     {
       "tool": "files_list",
@@ -302,9 +298,7 @@
         { "param": "path", "kind": "positional", "readPath": true }
       ],
       "successExitCodes": [0, 1],
-      "postProcess": {
-        "script": "hint-search-results"
-      },
+      "hintConditions": [{ "notEmpty": true, "hint": "use files_read_lines with these line numbers for surrounding context" }],
       "maxOutputLines": 200
     },
     {
@@ -318,9 +312,7 @@
           "kind": "stdin"
         }
       ],
-      "postProcess": {
-        "script": "hint-overwrite"
-      }
+      "hintConditions": [{ "match": "overwriting existing", "hint": "overwrote existing file" }]
     },
     {
       "tool": "files_write_lines",

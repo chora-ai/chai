@@ -189,9 +189,7 @@
         }
       ],
       "successExitCodes": [128],
-      "postProcess": {
-        "script": "hint-not-repo"
-      }
+      "hintConditions": [{ "match": "not a git repository", "hint": "not a git repository — specify a valid repo path" }]
     },
     {
       "tool": "git_log",
@@ -261,10 +259,9 @@
       ],
       "maxOutputLines": 200,
       "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
-      "postProcess": {
-        "script": "hint-diff-ref-main",
-        "args": ["$ref"]
-      }
+      "hintConditions": [
+        { "whenArg": { "ref": "main" }, "hint": "showing changes since diverging from main" }
+      ]
     },
     {
       "tool": "git_diff_lines",
