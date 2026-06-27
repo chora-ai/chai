@@ -415,7 +415,7 @@
       "cherry-pick",
       "reset"
     ],
-    "chai": ["git diff-lines", "git show-lines"]
+    "chai": ["git diff-lines", "git show-lines", "resolve repo-path"]
   },
   "execution": [
     {
@@ -428,8 +428,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -467,8 +468,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -497,8 +499,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -548,8 +551,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -589,8 +593,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -607,8 +612,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
@@ -624,8 +630,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -651,8 +658,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
@@ -668,8 +676,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
@@ -696,8 +705,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
@@ -719,8 +729,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -748,8 +759,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -782,8 +794,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -811,8 +824,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -836,8 +850,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -854,8 +869,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,
@@ -879,8 +895,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -902,8 +919,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           },
           "denyPattern": "^release/.+$",
           "denyAlwaysResolve": true,

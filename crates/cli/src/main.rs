@@ -6,6 +6,7 @@ mod git;
 mod init;
 mod logs;
 mod profile;
+mod resolve;
 mod sessions;
 mod skill;
 
@@ -83,6 +84,12 @@ enum Commands {
     Sessions {
         #[command(subcommand)]
         sub: sessions::SessionsCmd,
+    },
+
+    /// Sandbox-aware path resolution for tool resolve commands
+    Resolve {
+        #[command(subcommand)]
+        sub: resolve::ResolveCmd,
     },
 }
 
@@ -168,6 +175,12 @@ async fn main() {
         Some(Commands::Sessions { sub }) => {
             if let Err(e) = sessions::run_sessions(sub).await {
                 eprintln!("sessions: {}", e);
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Resolve { sub }) => {
+            if let Err(e) = resolve::run_resolve(sub) {
+                eprintln!("resolve: {}", e);
                 std::process::exit(1);
             }
         }

@@ -264,3 +264,25 @@ chai logs search --pattern <PATTERN> [--context N]
 ```
 
 Search log lines for a substring pattern. Matching lines are prefixed with `>` and surrounded by context lines (default: 2). Useful for finding specific events like `finish_reason`, token counts, or error messages.
+
+## `chai resolve`
+
+Sandbox-aware path resolution for tool parameter validation. This subcommand is primarily used by bundled skill `resolveCommand` entries — it validates that resolved paths are inside the sandbox before allowing tool calls to proceed. Each variant resolves the sandbox root from `$HOME/.chai/active/sandbox` and outputs the validated path on stdout (exit 0) or an error on stderr (exit 1).
+
+```bash
+chai resolve repo-path [--path <PATH>]       # Validate git repo path (.git inside sandbox)
+chai resolve cargo-path [--path <PATH>]      # Validate cargo workspace path (Cargo.toml inside sandbox)
+chai resolve clone-path [--path <PATH>]      # Validate clone target path (inside sandbox)
+chai resolve file-path [--path <PATH>]       # Validate file path (inside sandbox)
+chai resolve sandbox [--path <PATH>]         # Validate generic path is inside sandbox
+```
+
+| Variant | What It Validates | Use Case |
+|---------|-------------------|----------|
+| `repo-path` | Runs `git rev-parse --git-dir` and checks the `.git` directory is inside the sandbox | Git skill `workingDir` resolution |
+| `cargo-path` | Runs `cargo locate-project` and checks the `Cargo.toml` directory is inside the sandbox | Cargo skill `workingDir` resolution |
+| `clone-path` | Validates absolute clone targets are inside the sandbox; prefixes relative paths with the sandbox root | Git-remote `git_clone` path resolution |
+| `file-path` | Validates a file path is inside the sandbox (handles non-existent paths via ancestor-walk canonicalization) | Generic file path validation |
+| `sandbox` | Validates a generic path is inside the sandbox (no project-root discovery) | Generic sandbox boundary check |
+
+When `--path` is omitted or empty, the working directory defaults to the sandbox root. The subcommand handles symlinked directories by checking against both the canonical sandbox root and the physical targets of symlinked entries at the top level of the sandbox directory.

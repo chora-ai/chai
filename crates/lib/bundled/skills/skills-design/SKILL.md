@@ -165,21 +165,23 @@ For each `positional` and `flag` parameter, choose the correct annotation:
 
 `workingDir` parameters are implicitly validated as read paths — no explicit `readPath` annotation needed.
 
-### Resolve Scripts and Path Parameters
+### Resolve Commands and Path Parameters
 
-When a parameter uses `resolveCommand`, the resolve script may transform a short value into a filesystem path (e.g., `my-note` → an absolute path). The default security check only inspects the agent-provided value before resolution — it does not see the resolved result. If the final resolved value is a filesystem path, the parameter still needs `readPath` or `writePath` so the sandbox validates the resolved path.
+When a parameter uses `resolveCommand`, the resolve command may transform a short value into a filesystem path (e.g., `my-note` → an absolute path). The default security check only inspects the agent-provided value before resolution — it does not see the resolved result. If the final resolved value is a filesystem path, the parameter still needs `readPath` or `writePath` so the sandbox validates the resolved path.
 
-**Warning:** This means `resolveCommand` scripts can produce paths that bypass validation if the output parameter isn't also annotated with `readPath` or `writePath`. When a resolve script constructs a path from multiple parameters, ALL parameters that contribute to the path must be validated — otherwise a traversal in an unvalidated contributor (e.g., `scope` containing `../`) can escape the sandbox. Parameters only referenced via `$name` in `resolveCommand.args` are not in the execution `args` array and are not validated by the sandbox. The resolve script itself must reject dangerous values (e.g., `..` in path components).
+**Warning:** This means `resolveCommand` commands can produce paths that bypass validation if the output parameter isn't also annotated with `readPath` or `writePath`. When a resolve command constructs a path from multiple parameters, ALL parameters that contribute to the path must be validated — otherwise a traversal in an unvalidated contributor (e.g., `scope` containing `../`) can escape the sandbox. Parameters only referenced via `$name` in `resolveCommand.args` are not in the execution `args` array and are not validated by the sandbox. The resolve command itself must reject dangerous values (e.g., `..` in path components).
 
 ### Upward Traversal by External Commands
 
 Some CLI commands traverse upward from the working directory to find project-root markers: `git` searches for `.git`, `cargo` searches for `Cargo.toml`, `hg` searches for `.hg`, etc. When a `workingDir` parameter points to a sandbox subdirectory that doesn't contain its own project root, the command may escape the sandbox boundary by finding a project root in a parent directory.
 
-**If a skill uses `workingDir` with a command that traverses upward, the resolve script must verify that the command's resolved project root is inside the sandbox.** Run the command's discovery mechanism (e.g., `git rev-parse --git-dir`, `cargo locate-project`) from the resolved working directory and validate the result is within the sandbox before allowing the command to proceed.
+**If a skill uses `workingDir` with a command that traverses upward, the resolve command must verify that the command's resolved project root is inside the sandbox.** Run the command's discovery mechanism (e.g., `git rev-parse --git-dir`, `cargo locate-project`) from the resolved working directory and validate the result is within the sandbox before allowing the command to proceed.
 
-**Example: Git Upward Traversal** — When the git skill's `repo` parameter points to a sandbox subdirectory that doesn't contain a `.git` directory, `git` traverses upward to find the nearest `.git`. If the sandbox root doesn't have its own `.git`, git discovers and operates on a repository outside the sandbox — leaking commit history, branch names, and file contents, and potentially allowing writes to commits and branches outside the sandbox. The fix: `resolve-repo-path.sh` runs `git rev-parse --git-dir` and validates the result is inside the sandbox before allowing the command.
+Bundled skills use `chai resolve` subcommands for this validation (e.g., `chai resolve repo-path`, `chai resolve cargo-path`). Custom skills may use shell scripts via the `resolveCommand.script` mechanism, following the same validation pattern.
 
-**Symlinked directories in the sandbox** must be handled carefully. The sandbox may contain symlinked entries whose physical targets are outside the sandbox root. These entries are granted access because the user placed them in the sandbox. When comparing physical/canonical paths (e.g., from `pwd -P` or `cargo locate-project`), the resolve script must check the path against both the physical sandbox root AND the physical targets of symlinked entries at the top level of the sandbox directory. Without this, `pwd -P` canonicalization causes false positive rejections on valid symlinked entries.
+**Example: Git Upward Traversal** — When the git skill's `repo` parameter points to a sandbox subdirectory that doesn't contain a `.git` directory, `git` traverses upward to find the nearest `.git`. If the sandbox root doesn't have its own `.git`, git discovers and operates on a repository outside the sandbox — leaking commit history, branch names, and file contents, and potentially allowing writes to commits and branches outside the sandbox. The fix: `chai resolve repo-path` runs `git rev-parse --git-dir` and validates the result is inside the sandbox before allowing the command.
+
+**Symlinked directories in the sandbox** must be handled carefully. The sandbox may contain symlinked entries whose physical targets are outside the sandbox root. These entries are granted access because the user placed them in the sandbox. When comparing physical/canonical paths (e.g., from `pwd -P` or `cargo locate-project`), the resolve command must check the path against both the physical sandbox root AND the physical targets of symlinked entries at the top level of the sandbox directory. Without this, `pwd -P` canonicalization causes false positive rejections on valid symlinked entries. `chai resolve` handles this automatically.
 
 ### Design Checklist
 
@@ -189,8 +191,8 @@ For every parameter in a skill's `args` array:
 2. Is it a write target? If yes, use `writePath` (auto-creates parent dirs).
 3. Does it need unrestricted path access outside the sandbox? If yes, use `unsafePath` and document why. Expect a startup warning.
 4. Otherwise, no annotation needed — the default is safe.
-5. Does the resolve script construct paths from parameters not in the `args` array (e.g., `$scope` in `resolveCommand.args`)? If yes, the resolve script must reject dangerous values (`..`, absolute paths) since the sandbox cannot validate them.
-6. Does any tool use a `workingDir` parameter with a command that traverses upward to find project-root markers (`.git`, `Cargo.toml`, `.hg`, etc.)? If yes, the resolve script must verify the resolved project root is inside the sandbox. If the resolve script uses physical/canonical path comparison (`pwd -P`), it must also check symlinked entries at the top level of the sandbox directory — otherwise valid symlinked directories will be incorrectly rejected.
+5. Does the resolve command construct paths from parameters not in the `args` array (e.g., `$scope` in `resolveCommand.args`)? If yes, the resolve command must reject dangerous values (`..`, absolute paths) since the sandbox cannot validate them.
+6. Does any tool use a `workingDir` parameter with a command that traverses upward to find project-root markers (`.git`, `Cargo.toml`, `.hg`, etc.)? If yes, the resolve command must verify the resolved project root is inside the sandbox. For symlinked directories, the resolve command must also check symlinked entries at the top level of the sandbox directory — otherwise valid symlinked directories will be incorrectly rejected. Bundled skills use `chai resolve` for this validation.
 
 ## Disallowed Values
 

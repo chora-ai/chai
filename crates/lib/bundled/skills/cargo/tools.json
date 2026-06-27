@@ -38,7 +38,8 @@
     }
   ],
   "allowlist": {
-    "cargo": ["check", "test", "locate-project"]
+    "cargo": ["check", "test", "locate-project"],
+    "chai": ["resolve cargo-path"]
   },
   "execution": [
     {
@@ -58,8 +59,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-cargo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve cargo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -88,8 +90,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-cargo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve cargo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -117,8 +120,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-cargo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve cargo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -147,8 +151,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-cargo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve cargo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],

@@ -85,36 +85,45 @@ Some CLI commands traverse upward from the working directory to find project-roo
 
 This is a distinct attack surface from path traversal (`..`) — the working directory path itself is inside the sandbox, but the command's internal discovery mechanism resolves to a location outside it. The sandbox validator only checks that the `workingDir` value is inside the sandbox; it does not know which command will run or how that command discovers its project root.
 
-### Resolve-Script Validation
+### Resolve-Command Validation
 
-The defense against upward traversal is implemented in the skill's resolve script (the `resolveCommand` configured on the `workingDir` parameter). After resolving the working directory, the resolve script:
+The defense against upward traversal is implemented in the skill's resolve command (the `resolveCommand` configured on the `workingDir` parameter). Bundled skills use the `chai resolve` subcommand for sandbox-aware path resolution. After resolving the working directory, the resolve command:
 
 1. Runs the command's discovery mechanism from the resolved working directory (e.g., `git rev-parse --git-dir`, `cargo locate-project`).
 2. Verifies that the resolved project root is inside the sandbox.
 3. Exits with a non-zero code if the project root is outside the sandbox, which causes the executor to reject the tool call.
 
-This validation is skill-specific because the discovery mechanism differs per command. The resolve script is the correct layer because it has access to both the resolved path and the command's discovery tool.
+This validation is skill-specific because the discovery mechanism differs per command. The resolve command is the correct layer because it has access to both the resolved path and the command's discovery tool.
+
+Custom skills may use shell scripts for resolve commands (the `resolveCommand.script` mechanism), but bundled skills use `chai resolve` for type-safe, testable, and auditable validation in Rust.
 
 ### Symlinked Directories
 
-The sandbox may contain symlinked entries whose physical targets are outside the sandbox root (e.g., `sandbox/my-repo → ~/Code/my-repo`). These entries are granted access because the user placed them in the sandbox. Resolve scripts that use physical/canonical paths for comparison (e.g., via `pwd -P`) must check against both the physical sandbox root AND the physical targets of symlinked entries at the top level of the sandbox directory. Without this, canonicalization causes false-positive rejections on valid symlinked entries.
+The sandbox may contain symlinked entries whose physical targets are outside the sandbox root (e.g., `sandbox/my-repo → ~/Code/my-repo`). These entries are granted access because the user placed them in the sandbox. Resolve commands that use physical/canonical paths for comparison must check against both the physical sandbox root AND the physical targets of symlinked entries at the top level of the sandbox directory. Without this, canonicalization causes false-positive rejections on valid symlinked entries. The `chai resolve` subcommand handles this automatically by scanning symlinked entries in the sandbox directory.
 
 ### Affected Skills
 
-| Skill | Parameter | Discovery Mechanism | Validation Script |
-|-------|-----------|---------------------|-------------------|
-| `git`, `git-read`, `git-remote` | `repo` (`workingDir`) | `git rev-parse --git-dir` | `resolve-repo-path.sh` |
-| `cargo` | `path` (`workingDir`) | `cargo locate-project` | `resolve-cargo-path.sh` |
+| Skill | Parameter | Discovery Mechanism | Resolve Command |
+|-------|-----------|---------------------|-----------------|
+| `git`, `git-read`, `git-remote` | `repo` (`workingDir`) | `git rev-parse --git-dir` | `chai resolve repo-path` |
+| `cargo` | `path` (`workingDir`) | `cargo locate-project` | `chai resolve cargo-path` |
 
 Skills that do not use `workingDir` with upward-traversing commands are not affected.
 
-### Resolve-Script Error Propagation
+### Resolve-Command Error Propagation
 
-When a resolve command exits with a non-zero code, the executor rejects the tool call instead of silently falling back to the unresolved parameter value. This is critical for validation — if resolve-script errors were swallowed, a validation check that detects an upward traversal escape would be silently bypassed. The error propagation ensures that resolve-script validation is effective: a rejected tool call prevents the command from running with an unvalidated working directory.
+When a resolve command exits with a non-zero code, the executor rejects the tool call instead of silently falling back to the unresolved parameter value. This is critical for validation — if resolve-command errors were swallowed, a validation check that detects an upward traversal escape would be silently bypassed. The error propagation ensures that resolve-command validation is effective: a rejected tool call prevents the command from running with an unvalidated working directory.
 
 ### Clone-Path Validation
 
-The `git-remote` skill's `git_clone` tool uses a `path` parameter (annotated with `writePath`) that specifies the clone target directory. The `resolve-clone-path.sh` script validates that absolute clone paths are inside the sandbox before allowing the clone to proceed. Relative paths are prefixed with the sandbox root as before.
+The `git-remote` skill's `git_clone` tool uses a `path` parameter (annotated with `writePath`) that specifies the clone target directory. The `chai resolve clone-path` subcommand validates that absolute clone paths are inside the sandbox before allowing the clone to proceed. Relative paths are prefixed with the sandbox root as before.
+
+### File-Path and Sandbox Validation
+
+The `chai resolve` subcommand also provides `file-path` and `sandbox` variants for generic sandbox boundary validation. These are available for custom skills that need to validate paths without project-root discovery:
+
+- `chai resolve file-path` — Resolve and validate a file path inside the sandbox (handles non-existent paths by walking up to the nearest existing ancestor).
+- `chai resolve sandbox` — Validate a generic path is inside the sandbox (no project-root validation).
 
 ## CWD Restriction
 

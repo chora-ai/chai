@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### CLI
 
+- `chai resolve` subcommand — sandbox-aware path resolution for tool `resolveCommand` entries, replacing shell scripts with type-safe, testable Rust validation. Five variants: `repo-path` (validates git repository root), `cargo-path` (validates cargo workspace manifest), `clone-path` (validates clone target paths), `file-path` (validates generic file paths), and `sandbox` (generic sandbox boundary check). Handles symlinked directories and non-existent paths via ancestor-walk canonicalization
 - `chai sessions list` — list sessions for the active profile (or a specified profile via `--profile`) directly from disk; displays session id, timestamps, message count, and channel binding; sorted by most recently updated; no gateway connection required
 - `chai sessions delete <ID>` — delete a session by id directly from disk; removes the session and its binding; no gateway connection required
 - `chai sessions clear` — delete all sessions directly from disk; reports the count of deleted sessions; no gateway connection required
@@ -31,6 +32,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `sessions.delete` WebSocket method: deletes a session from memory and disk, removes associated bindings, broadcasts a `session.deleted` event
 - `sessions.delete_all` WebSocket method: deletes all sessions for the active profile from memory and disk, broadcasts a `sessions.cleared` event
 
+### Changed
+
+#### Skills
+
+- Git, git-read, git-remote, and cargo skills now use `chai resolve` subcommands (`repo-path`, `cargo-path`, `clone-path`) via `resolveCommand.binary`/`resolveCommand.subcommand` instead of shell scripts for sandbox boundary validation — the same `is_inside_sandbox` logic is now type-safe, testable Rust code instead of copy-pasted shell
+
+### Removed
+
+#### Skills
+
+- Sandbox resolve shell scripts removed (replaced by `chai resolve` subcommand): `resolve-repo-path.sh` (git, git-read, git-remote), `resolve-clone-path.sh` (git-remote), `resolve-cargo-path.sh` (cargo)
+
 ### Fixed
 
 #### Security and Sandboxing
@@ -39,7 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Cargo skill now validates that the resolved workspace manifest (`Cargo.toml`) is inside the sandbox before allowing commands to run — previously, when the `path` parameter pointed to a sandbox subdirectory without its own `Cargo.toml`, cargo traversed upward and could compile or test a workspace outside the sandbox
 - `git_clone` now validates that absolute clone target paths are inside the sandbox — previously, absolute paths passed through unchanged, allowing clones outside the sandbox boundary
 - `notes_daily` `scope` parameter now rejects values containing `..` path traversal — previously, the scope was used to construct a path without validation, allowing access to directories outside the sandbox
-- Resolve-script errors are now propagated (tool call rejected) instead of silently falling back to the unresolved parameter value — previously, resolve-script validation failures were silently swallowed, allowing tool calls to proceed with unvalidated paths
+- Resolve-command errors are now propagated (tool call rejected) instead of silently falling back to the unresolved parameter value — previously, resolve-command validation failures were silently swallowed, allowing tool calls to proceed with unvalidated paths
 
 #### Skills
 

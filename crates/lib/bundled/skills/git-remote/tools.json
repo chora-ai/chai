@@ -82,7 +82,8 @@
     }
   ],
   "allowlist": {
-    "git": ["clone", "pull", "push", "remote -v"]
+    "git": ["clone", "pull", "push", "remote -v"],
+    "chai": ["resolve repo-path", "resolve clone-path"]
   },
   "execution": [
     {
@@ -96,8 +97,9 @@
           "kind": "positional",
           "writePath": true,
           "resolveCommand": {
-            "script": "resolve-clone-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve clone-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
@@ -114,8 +116,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -150,8 +153,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ],
@@ -170,8 +174,9 @@
           "kind": "workingdir",
           "optional": true,
           "resolveCommand": {
-            "script": "resolve-repo-path",
-            "args": ["$param"]
+            "binary": "chai",
+            "subcommand": "resolve repo-path",
+            "args": ["--path", "$param"]
           }
         }
       ]
