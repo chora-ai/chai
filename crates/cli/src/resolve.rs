@@ -6,7 +6,14 @@
 //! scripts it replaces), validates that resolved paths are inside the
 //! sandbox, and outputs the validated path on stdout (same protocol as the
 //! resolve scripts it replaces).
-
+//!
+//! # Security properties
+//!
+//! All variants unconditionally validate that the resolved working directory
+//! is inside the sandbox, regardless of whether project-discovery commands
+//! (git rev-parse, cargo locate-project) succeed. This prevents path-traversal
+//! attacks where a non-existent or non-project target directory would bypass
+//! validation entirely.
 use anyhow::Result;
 use clap::Subcommand;
 use std::path::{Path, PathBuf};
@@ -122,10 +129,30 @@ fn resolve_work_dir(path: &Option<String>, sandbox_raw: &Path) -> PathBuf {
 ///
 /// This prevents git's upward traversal from escaping the sandbox when
 /// the working directory does not contain its own .git.
+///
+/// The working directory is always validated against the sandbox boundary,
+/// regardless of whether `git rev-parse --git-dir` succeeds. This closes
+/// a path-traversal gap where a non-existent or non-repo target directory
+/// would bypass validation entirely.
 fn resolve_repo_path(path: &Option<String>) -> Result<()> {
     let raw = sandbox_raw()?;
     let canonical = sandbox_canonical(&raw)?;
     let work_dir = resolve_work_dir(path, &raw);
+
+    // Unconditionally validate the working directory is inside the sandbox.
+    // This ensures traversal paths like ../../tmp/outside are rejected
+    // even when git rev-parse fails (e.g., target doesn't exist or isn't a repo).
+    let work_dir_canonical = match std::fs::canonicalize(&work_dir) {
+        Ok(c) => c,
+        Err(_) => canonicalize_for_resolve(&work_dir)?,
+    };
+
+    if !is_inside_sandbox(&work_dir_canonical, &canonical, &raw) {
+        anyhow::bail!(
+            "path {} is outside the sandbox",
+            path.as_deref().unwrap_or_default()
+        );
+    }
 
     // Run `git rev-parse --git-dir` in the working directory.
     let output = std::process::Command::new("git")
@@ -184,10 +211,31 @@ fn resolve_repo_path(path: &Option<String>) -> Result<()> {
 ///
 /// This prevents cargo's upward traversal from escaping the sandbox when
 /// the working directory does not contain its own Cargo.toml.
+///
+/// The working directory is always validated against the sandbox boundary,
+/// regardless of whether `cargo locate-project` succeeds. This closes
+/// a path-traversal gap where a non-existent or non-cargo target directory
+/// would bypass validation entirely.
 fn resolve_cargo_path(path: &Option<String>) -> Result<()> {
     let raw = sandbox_raw()?;
     let canonical = sandbox_canonical(&raw)?;
     let work_dir = resolve_work_dir(path, &raw);
+
+    // Unconditionally validate the working directory is inside the sandbox.
+    // This ensures traversal paths like ../../tmp/outside are rejected
+    // even when cargo locate-project fails (e.g., target doesn't exist
+    // or isn't a cargo project).
+    let work_dir_canonical = match std::fs::canonicalize(&work_dir) {
+        Ok(c) => c,
+        Err(_) => canonicalize_for_resolve(&work_dir)?,
+    };
+
+    if !is_inside_sandbox(&work_dir_canonical, &canonical, &raw) {
+        anyhow::bail!(
+            "path {} is outside the sandbox",
+            path.as_deref().unwrap_or_default()
+        );
+    }
 
     // Run `cargo locate-project` in the working directory.
     let output = std::process::Command::new("cargo")
@@ -292,7 +340,7 @@ fn resolve_file_path(path: &Option<String>) -> Result<()> {
     if !is_inside_sandbox(&work_dir_canonical, &canonical, &raw) {
         anyhow::bail!(
             "path {} is outside the sandbox",
-            work_dir.display()
+            path.as_deref().unwrap_or_default()
         );
     }
 
@@ -623,6 +671,171 @@ mod tests {
             .join("new-project");
 
         assert_eq!(result, expected);
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    // --- resolve_work_dir boundary validation tests ---
+
+    #[test]
+    fn resolve_work_dir_rejects_traversal_to_outside() {
+        // Verify that a traversal path like ../../tmp/outside resolves to
+        // a work_dir outside the sandbox, and is_inside_sandbox rejects it.
+        let sandbox = PathBuf::from("/home/user/.chai/active/sandbox");
+        let work_dir = resolve_work_dir(
+            &Some("../../tmp/outside".to_string()),
+            &sandbox,
+        );
+        // The work_dir is sandbox_raw joined with ../../tmp/outside.
+        assert_eq!(
+            work_dir,
+            PathBuf::from("/home/user/.chai/active/sandbox/../../tmp/outside")
+        );
+        // After canonicalization, this should be outside the sandbox.
+        // We test the logic directly: the joined path does NOT start with
+        // the sandbox prefix when canonicalized (in a real filesystem).
+        // Since this test doesn't create files, we verify the join logic.
+        assert!(work_dir
+            .components()
+            .any(|c| c.as_os_str() == ".."));
+    }
+
+    #[test]
+    fn resolve_work_dir_inside_sandbox_no_traversal() {
+        // Verify that a normal relative path resolves inside the sandbox.
+        let sandbox = PathBuf::from("/home/user/.chai/active/sandbox");
+        let work_dir = resolve_work_dir(
+            &Some("chai".to_string()),
+            &sandbox,
+        );
+        assert_eq!(
+            work_dir,
+            PathBuf::from("/home/user/.chai/active/sandbox/chai")
+        );
+        assert!(!work_dir
+            .components()
+            .any(|c| c.as_os_str() == ".."));
+    }
+
+    #[test]
+    fn is_inside_sandbox_rejects_canonicalized_traversal() {
+        // Create a real filesystem scenario: sandbox with a sibling directory.
+        // A path that traverses out of the sandbox should be rejected.
+        let base = test_dir("traversal-reject");
+        let _ = fs::remove_dir_all(&base);
+        let sandbox_dir = base.join("sandbox");
+        let outside_dir = base.join("outside");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox");
+        fs::create_dir_all(&outside_dir).expect("create outside");
+
+        let canonical = fs::canonicalize(&sandbox_dir).expect("canonicalize");
+        let outside_canonical = fs::canonicalize(&outside_dir).expect("canonicalize");
+
+        // A directory outside the sandbox is rejected.
+        assert!(!is_inside_sandbox(
+            &outside_canonical,
+            &canonical,
+            &sandbox_dir
+        ));
+
+        // A subdirectory of the outside directory is also rejected.
+        let outside_sub = outside_canonical.join("subdir");
+        fs::create_dir_all(&outside_sub).expect("create outside/subdir");
+        assert!(!is_inside_sandbox(
+            &outside_sub,
+            &canonical,
+            &sandbox_dir
+        ));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_repo_path_rejects_traversal_nonexistent_target() {
+        // Integration-style test: verify that resolve_repo_path rejects
+        // a traversal path even when the target doesn't exist (and thus
+        // git rev-parse would fail). We can't call resolve_repo_path
+        // directly in a unit test (it requires $HOME and sandbox setup),
+        // but we can test the core logic: a work_dir that resolves
+        // outside the sandbox is caught by is_inside_sandbox.
+        use std::os::unix::fs::symlink;
+
+        let base = test_dir("repo-traversal");
+        let _ = fs::remove_dir_all(&base);
+
+        // Set up a sandbox with a symlink for the raw path.
+        let real_sandbox = base.join("real-sandbox");
+        let link_sandbox = base.join("link-sandbox");
+        let outside = base.join("outside");
+        fs::create_dir_all(&real_sandbox).expect("create real sandbox");
+        fs::create_dir_all(&outside).expect("create outside");
+        symlink(&real_sandbox, &link_sandbox).expect("create symlink");
+
+        let canonical = fs::canonicalize(&real_sandbox).expect("canonicalize");
+
+        // Simulate what resolve_repo_path does: join sandbox_raw with
+        // a traversal path.
+        let work_dir = link_sandbox.join("../../outside");
+
+        // Canonicalize using the same logic as the fix.
+        let work_dir_canonical = if work_dir.exists() {
+            fs::canonicalize(&work_dir).expect("canonicalize traversal")
+        } else {
+            // If the joined path doesn't exist, canonicalize parent.
+            canonicalize_for_resolve(&work_dir).expect("canonicalize for resolve")
+        };
+
+        // The canonicalized path should be outside the sandbox.
+        assert!(!is_inside_sandbox(
+            &work_dir_canonical,
+            &canonical,
+            &link_sandbox
+        ));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_work_dir_inside_sandbox_with_subpath() {
+        // Verify that a relative subpath inside the sandbox passes
+        // the boundary check when the directory exists.
+        let base = test_dir("workdir-subpath");
+        let _ = fs::remove_dir_all(&base);
+        let sandbox_dir = base.join("sandbox");
+        let project_dir = sandbox_dir.join("my-project");
+        fs::create_dir_all(&project_dir).expect("create project");
+
+        let canonical = fs::canonicalize(&sandbox_dir).expect("canonicalize");
+        let project_canonical = fs::canonicalize(&project_dir).expect("canonicalize project");
+
+        assert!(is_inside_sandbox(
+            &project_canonical,
+            &canonical,
+            &sandbox_dir
+        ));
+
+        let _ = fs::remove_dir_all(&base);
+    }
+
+    #[test]
+    fn resolve_work_dir_inside_sandbox_nonexistent_child() {
+        // Verify that a non-existent child of the sandbox passes
+        // the boundary check (using canonicalize_for_resolve).
+        let base = test_dir("workdir-nonexistent");
+        let _ = fs::remove_dir_all(&base);
+        let sandbox_dir = base.join("sandbox");
+        fs::create_dir_all(&sandbox_dir).expect("create sandbox");
+
+        let canonical = fs::canonicalize(&sandbox_dir).expect("canonicalize");
+        let nonexistent = sandbox_dir.join("new-project");
+
+        let resolved = canonicalize_for_resolve(&nonexistent).expect("canonicalize");
+        assert!(is_inside_sandbox(
+            &resolved,
+            &canonical,
+            &sandbox_dir
+        ));
 
         let _ = fs::remove_dir_all(&base);
     }

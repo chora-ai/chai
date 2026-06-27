@@ -89,12 +89,14 @@ This is a distinct attack surface from path traversal (`..`) — the working dir
 
 The defense against upward traversal is implemented in the skill's resolve command (the `resolveCommand` configured on the `workingDir` parameter). Bundled skills use the `chai resolve` subcommand for sandbox-aware path resolution. After resolving the working directory, the resolve command:
 
-1. Runs the command's discovery mechanism from the resolved working directory (e.g., `git rev-parse --git-dir`, `cargo locate-project`).
-2. Verifies that the resolved project root is inside the sandbox.
-3. Exits with a non-zero code if the project root is outside the sandbox, which causes the executor to reject the tool call.
+1. **Unconditionally validates the working directory** is inside the sandbox, regardless of whether project discovery succeeds. This prevents path-traversal attacks where a non-existent or non-project target directory (e.g., `../../tmp/outside`) would bypass validation entirely when the discovery command fails.
+2. Runs the command's discovery mechanism from the resolved working directory (e.g., `git rev-parse --git-dir`, `cargo locate-project`).
+3. Verifies that the resolved project root is inside the sandbox (when discovery succeeds).
+4. Exits with a non-zero code if either check fails, which causes the executor to reject the tool call.
+
+The unconditional working-directory check (step 1) is critical: without it, a traversal path that targets a non-existent directory or a non-project directory would pass through unvalidated when the discovery command fails. The project-root check (step 3) provides additional defense against upward traversal when the working directory is inside the sandbox but the command discovers a project root outside it.
 
 This validation is skill-specific because the discovery mechanism differs per command. The resolve command is the correct layer because it has access to both the resolved path and the command's discovery tool.
-
 Custom skills may use shell scripts for resolve commands (the `resolveCommand.script` mechanism), but bundled skills use `chai resolve` for type-safe, testable, and auditable validation in Rust.
 
 ### Symlinked Directories
