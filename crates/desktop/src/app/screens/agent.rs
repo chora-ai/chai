@@ -98,23 +98,30 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     if is_read_on_demand {
                         dashboard::dashboard_two_columns(ui, |ui_left, ui_right| {
                             if let Some(text) = context_text {
-                                let mut buf = text.to_string();
-                                let scroll_height = ui_left.available_height();
-                                let scroll_id = if is_orchestrator_view {
-                                    "context_system_scroll"
+                                if text.trim().is_empty() {
+                                    ui_left.label(
+                                        egui::RichText::new("No system context for this agent.")
+                                            .weak(),
+                                    );
                                 } else {
-                                    "context_worker_system_scroll"
-                                };
-                                egui::ScrollArea::vertical()
-                                    .id_source(scroll_id)
-                                    .max_height(scroll_height)
-                                    .show(ui_left, |ui| {
-                                        egui::TextEdit::multiline(&mut buf)
-                                            .code_editor()
-                                            .desired_width(ui.available_width())
-                                            .interactive(false)
-                                            .show(ui);
-                                    });
+                                    let mut buf = text.to_string();
+                                    let scroll_height = ui_left.available_height();
+                                    let scroll_id = if is_orchestrator_view {
+                                        "context_system_scroll"
+                                    } else {
+                                        "context_worker_system_scroll"
+                                    };
+                                    egui::ScrollArea::vertical()
+                                        .id_source(scroll_id)
+                                        .max_height(scroll_height)
+                                        .show(ui_left, |ui| {
+                                            egui::TextEdit::multiline(&mut buf)
+                                                .code_editor()
+                                                .desired_width(ui.available_width())
+                                                .interactive(false)
+                                                .show(ui);
+                                        });
+                                }
                             } else {
                                 ui_left.label("No context loaded.");
                             }
@@ -192,23 +199,30 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                         });
                     } else {
                         if let Some(text) = context_text {
-                            let mut buf = text.to_string();
-                            let scroll_height = ui.available_height();
-                            let id = if is_orchestrator_view {
-                                "context_system_scroll_full"
+                            if text.trim().is_empty() {
+                                ui.label(
+                                    egui::RichText::new("No system context for this agent.")
+                                        .weak(),
+                                );
                             } else {
-                                "context_worker_scroll"
-                            };
-                            egui::ScrollArea::vertical()
-                                .id_source(id)
-                                .max_height(scroll_height)
-                                .show(ui, |ui| {
-                                    egui::TextEdit::multiline(&mut buf)
-                                        .code_editor()
-                                        .desired_width(ui.available_width())
-                                        .interactive(false)
-                                        .show(ui);
-                                });
+                                let mut buf = text.to_string();
+                                let scroll_height = ui.available_height();
+                                let id = if is_orchestrator_view {
+                                    "context_system_scroll_full"
+                                } else {
+                                    "context_worker_scroll"
+                                };
+                                egui::ScrollArea::vertical()
+                                    .id_source(id)
+                                    .max_height(scroll_height)
+                                    .show(ui, |ui| {
+                                        egui::TextEdit::multiline(&mut buf)
+                                            .code_editor()
+                                            .desired_width(ui.available_width())
+                                            .interactive(false)
+                                            .show(ui);
+                                    });
+                            }
                         } else {
                             ui.label("No context loaded.");
                         }
