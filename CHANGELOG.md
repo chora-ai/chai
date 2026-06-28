@@ -44,6 +44,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `--agent <id>` flag on `chai sessions list` — scopes session listing to a specific orchestrator's session store
 - `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
 
+### Fixed
+
+#### Desktop
+
+- "Clear all sessions" button and per-session "×" delete button for the active session are disabled while the agent is running — previously, these could be clicked during an active turn, deleting the session out from under the running agent
+
 ## [0.3.0] - 2026-06-27
 
 ### Added

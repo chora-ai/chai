@@ -200,9 +200,13 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                 }
 
                                 // Delete button (right-aligned via RTL layout).
+                                // Disable for the active session while the agent is running.
+                                let is_active = app.chat_session_id.as_deref() == Some(session_id.as_str());
+                                let turn_in_progress = app.chat_turn_receiver.is_some() || app.chat_stopping;
+                                let can_delete = !(is_active && turn_in_progress);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     if !is_deleting {
-                                        let delete_button = ui.small_button("×");
+                                        let delete_button = ui.add_enabled(can_delete, egui::Button::new("×").small());
                                         if delete_button.clicked() {
                                             let profile_override = app.cached_profile_override.clone();
                                             let sid = session_id.clone();
@@ -238,9 +242,11 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                         }
 
                         // "Clear all" button at the bottom.
+                        // Disable while the agent is running (a turn is in progress).
+                        let turn_in_progress = app.chat_turn_receiver.is_some() || app.chat_stopping;
                         if !app.session_order.is_empty() {
                             ui.add_space(8.0);
-                            if ui.button("Clear all sessions").clicked() {
+                            if ui.add_enabled(!turn_in_progress, egui::Button::new("Clear all sessions")).clicked() {
                                 app.show_clear_all_confirm = true;
                             }
                         }
