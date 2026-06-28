@@ -56,9 +56,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 let orchestrator_id = app
                     .gateway_status
                     .as_ref()
-                    .and_then(|s| s.orchestrator_id.as_deref())
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
+                    .and_then(|s| s.orchestrator_id())
                     .unwrap_or("orchestrator");
                 for (idx, m) in messages_to_show.iter().enumerate() {
                     render_chat_message(ui, idx, m, &user_display, orchestrator_id);
@@ -108,7 +106,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .or_else(|| {
                         app.gateway_status
                             .as_ref()
-                            .and_then(|s| s.default_provider.as_deref())
+                            .and_then(|s| s.default_provider())
                     })
                     .or_else(|| {
                         app.gateway_status
@@ -127,7 +125,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 let effective_default_model = app
                     .gateway_status
                     .as_ref()
-                    .and_then(|s| s.default_model.clone())
+                    .and_then(|s| s.default_model().map(String::from))
                     .or_else(|| app.default_model.clone());
 
                 // Determine if this provider is a hosted API (remote endpoint that may not support

@@ -511,7 +511,7 @@ async fn execute_turn_main(
     let mut truncated = false;
     let max_delegations_per_turn = delegate
         .as_ref()
-        .and_then(|d| d.agents.max_delegations_per_turn);
+        .and_then(|d| d.agents.default_orchestrator().max_delegations_per_turn);
     let mut delegate_calls_this_turn: usize = 0;
     let mut loop_limit_reached = false;
     let mut pending_tool_calls: Vec<ToolCall> = Vec::new();

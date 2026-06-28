@@ -61,7 +61,7 @@ impl ChaiApp {
         let provider = self
             .current_provider
             .as_deref()
-            .or(details.default_provider.as_deref())
+            .or(details.default_provider())
             .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
             .or_else(|| enabled.first().map(|s| s.as_str()))
             .unwrap_or("ollama");
@@ -76,15 +76,15 @@ impl ChaiApp {
         let effective = self
             .current_model
             .as_deref()
-            .or(details.default_model.as_deref())
+            .or(details.default_model())
             .or(self.default_model.as_deref());
         let in_list = effective
             .map(|m| models.iter().any(|x| x == m))
             .unwrap_or(false);
         if !in_list {
             self.current_model = details
-                .default_model
-                .clone()
+                .default_model()
+                .map(String::from)
                 .filter(|m| models.contains(m))
                 .or_else(|| models.first().cloned());
         }
@@ -255,7 +255,7 @@ impl ChaiApp {
 
         // Determine the selected agent id from the dashboard picker.
         let selected_id = self.dashboard_agent_id.clone().or_else(|| {
-            self.gateway_status.as_ref().and_then(|gs| gs.orchestrator_id.clone())
+            self.gateway_status.as_ref().and_then(|gs| gs.orchestrator_id().map(String::from))
         });
 
         let Some(ref target_id) = selected_id else {
@@ -521,16 +521,7 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
 
                         match role {
                             "orchestrator" => {
-                                details.orchestrator_id = Some(id.clone());
-                                details.default_provider = entry
-                                    .get("defaultProvider")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                details.default_model = entry
-                                    .get("defaultModel")
-                                    .and_then(|v| v.as_str())
-                                    .map(String::from);
-                                details.enabled_providers = entry
+                                let orch_enabled_providers = entry
                                     .get("enabledProviders")
                                     .and_then(|v| v.as_array())
                                     .map(|arr| {
@@ -540,25 +531,34 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                                             })
                                             .filter(|s| !s.is_empty())
                                             .collect()
+                                    })
+                                    .unwrap_or_default();
+                                let orch_enabled_skills = details
+                                    .agent_skills
+                                    .get(&id)
+                                    .map(|rt| rt.enabled_skills.clone())
+                                    .unwrap_or_default();
+                                let orch_enabled_workers = entry
+                                    .get("enabledWorkers")
+                                    .and_then(|v| v.as_array())
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(String::from))
+                                            .collect()
                                     });
-                                // Top-level orchestrator shortcuts (lightweight only).
-                                if let Some(rt) = details.agent_skills.get(&id) {
-                                    details.orchestrator_enabled_skills = rt.enabled_skills.clone();
-                                }
-                                // Orchestrator limit fields.
-                                details.max_tool_loops_per_turn = entry
+                                let orch_max_tool_loops = entry
                                     .get("maxToolLoopsPerTurn")
                                     .and_then(|v| v.as_u64())
                                     .map(|n| n as u32);
-                                details.max_delegations_per_turn = entry
+                                let orch_max_del_per_turn = entry
                                     .get("maxDelegationsPerTurn")
                                     .and_then(|v| v.as_u64())
                                     .map(|n| n as usize);
-                                details.max_delegations_per_session = entry
+                                let orch_max_del_per_session = entry
                                     .get("maxDelegationsPerSession")
                                     .and_then(|v| v.as_u64())
                                     .map(|n| n as usize);
-                                details.max_delegations_per_worker = entry
+                                let orch_max_del_per_worker = entry
                                     .get("maxDelegationsPerWorker")
                                     .and_then(|v| v.as_object())
                                     .map(|obj| {
@@ -568,6 +568,26 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                                             })
                                             .collect()
                                     });
+                                details.orchestrators.push(crate::app::types::StatusOrchestratorRow {
+                                    id: id.clone(),
+                                    default_provider: entry
+                                        .get("defaultProvider")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    default_model: entry
+                                        .get("defaultModel")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    enabled_providers: orch_enabled_providers,
+                                    enabled_skills: orch_enabled_skills,
+                                    enabled_workers: orch_enabled_workers,
+                                    max_tool_loops_per_turn: orch_max_tool_loops,
+                                    max_delegations_per_turn: orch_max_del_per_turn,
+                                    max_delegations_per_session: orch_max_del_per_session,
+                                    max_delegations_per_worker: orch_max_del_per_worker,
+                                });
                             }
                             "worker" => {
                                 let w_skills = entry

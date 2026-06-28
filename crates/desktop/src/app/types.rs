@@ -228,6 +228,30 @@ pub struct SessionHistory {
     pub(crate) updated_at: String,
 }
 
+/// One orchestrator row derived from gateway **`status`** `payload.agents` (**`role`** **`orchestrator`**).
+#[derive(Clone, Default)]
+pub struct StatusOrchestratorRow {
+    pub(crate) id: String,
+    /// **`payload.agents[].defaultProvider`** for this orchestrator.
+    pub(crate) default_provider: String,
+    /// **`payload.agents[].defaultModel`** for this orchestrator.
+    pub(crate) default_model: String,
+    /// **`payload.agents[].enabledProviders`** for this orchestrator.
+    pub(crate) enabled_providers: Vec<String>,
+    /// **`payload.agents[].enabledSkills`** for this orchestrator.
+    pub(crate) enabled_skills: Vec<String>,
+    /// **`payload.agents[].enabledWorkers`** for this orchestrator.
+    pub(crate) enabled_workers: Option<Vec<String>>,
+    /// **`payload.agents[].maxToolLoopsPerTurn`** for this orchestrator.
+    pub(crate) max_tool_loops_per_turn: Option<u32>,
+    /// **`payload.agents[].maxDelegationsPerTurn`** for this orchestrator.
+    pub(crate) max_delegations_per_turn: Option<usize>,
+    /// **`payload.agents[].maxDelegationsPerSession`** for this orchestrator.
+    pub(crate) max_delegations_per_session: Option<usize>,
+    /// **`payload.agents[].maxDelegationsPerWorker`** for this orchestrator — worker id → limit.
+    pub(crate) max_delegations_per_worker: Option<BTreeMap<String, usize>>,
+}
+
 /// One worker row derived from gateway **`status`** `payload.agents` (**`role`** **`worker`**): effective defaults for delegation.
 #[derive(Clone, Default)]
 pub struct StatusWorkerRow {
@@ -264,14 +288,8 @@ pub struct GatewayStatusDetails {
     pub(crate) sandbox_mode: String,
     /// **`payload.sandbox.roots`** — number of writable roots in the sandbox.
     pub(crate) sandbox_roots: u64,
-    /// Resolved orchestrator agent id from config (same id used for the main agent turn).
-    pub(crate) orchestrator_id: Option<String>,
-    /// Resolved default provider id (from config).
-    pub(crate) default_provider: Option<String>,
-    /// Resolved default model id (from config or provider fallback).
-    pub(crate) default_model: Option<String>,
-    /// Provider ids with discovery enabled (`payload.agents.enabledProviders`). `None` if the gateway omitted the field.
-    pub(crate) enabled_providers: Option<Vec<String>>,
+    /// Orchestrator rows from **`payload.agents`** (**`role`** **`orchestrator`**). First entry is the default.
+    pub(crate) orchestrators: Vec<StatusOrchestratorRow>,
     /// Per-provider info (endpoint type, discovery, models) keyed by provider id, parsed from `payload.providers`.
     pub(crate) provider_info: HashMap<String, ProviderStatusInfo>,
     /// **`payload.skills.packagesDiscovered`**.
@@ -288,20 +306,26 @@ pub struct GatewayStatusDetails {
     pub(crate) workers: Vec<StatusWorkerRow>,
     /// Per-agent skill runtime data from **`payload.agents[]`**, keyed by agent id.
     pub(crate) agent_skills: BTreeMap<String, AgentSkillsRuntime>,
-    /// Orchestrator **`payload.agents[].maxToolLoopsPerTurn`**.
-    pub(crate) max_tool_loops_per_turn: Option<u32>,
-    /// Orchestrator **`payload.agents[].maxDelegationsPerTurn`**.
-    pub(crate) max_delegations_per_turn: Option<usize>,
-    /// Orchestrator **`payload.agents[].maxDelegationsPerSession`**.
-    pub(crate) max_delegations_per_session: Option<usize>,
-    /// Orchestrator **`payload.agents[].maxDelegationsPerWorker`** — worker id → limit.
-    pub(crate) max_delegations_per_worker: Option<BTreeMap<String, usize>>,
-    /// Orchestrator **`payload.agents[].enabledSkills`**.
-    pub(crate) orchestrator_enabled_skills: Vec<String>,
     /// Pretty-printed JSON for the full WebSocket **`res`** to the `status` request (type, id, ok, payload).
     pub(crate) status_response_json: Option<String>,
     /// Full **`payload.channels`** (active, configured, transport, errors, Matrix verification summary, …).
     pub(crate) channels_block: Option<serde_json::Value>,
+}
+
+// Accessors that delegate to the default (first) orchestrator row.
+impl GatewayStatusDetails {
+    /// Orchestrator id of the default (first) orchestrator.
+    pub(crate) fn orchestrator_id(&self) -> Option<&str> {
+        self.orchestrators.first().map(|o| o.id.as_str())
+    }
+    /// Default provider of the default (first) orchestrator.
+    pub(crate) fn default_provider(&self) -> Option<&str> {
+        self.orchestrators.first().map(|o| o.default_provider.as_str()).filter(|s| !s.is_empty())
+    }
+    /// Default model of the default (first) orchestrator.
+    pub(crate) fn default_model(&self) -> Option<&str> {
+        self.orchestrators.first().map(|o| o.default_model.as_str()).filter(|s| !s.is_empty())
+    }
 }
 
 /// Per-agent skill runtime data parsed from **`payload.agents[]`**.

@@ -1,12 +1,12 @@
 ---
-status: draft
+status: in-progress
 ---
 
 # Epic: Multiple Orchestrator Configuration
 
 **Summary** — Allow users to configure multiple orchestrator agents in a single profile and switch between them from the desktop chat screen, enabling different orchestrator roles (e.g., developer, reviewer) that share the same workers and sandbox while maintaining separate agent context.
 
-**Status** — **Draft.** Idea captured and investigated; no implementation commitment yet.
+**Status** — **In progress.** Phase 1 (config layer) delivered. Phases 2–4 remain.
 
 ## Problem Statement
 
@@ -34,10 +34,13 @@ The initial implementation supports **sequential use** — the user selects an o
 
 ### Configuration Enforcement
 
-The `agents` array in `config.json` is parsed by `agents_from_array()` in `crates/lib/src/config.rs` (lines 587–697). The function enforces:
+The `agents` array in `config.json` is parsed by `agents_from_array()` in `crates/lib/src/config.rs`. After Phase 1, the function enforces:
 
-- **Exactly one orchestrator**: A second entry with `role: "orchestrator"` produces the error `"agents array must include exactly one orchestrator"`. No orchestrator at all produces `"agents array must include exactly one entry with role \"orchestrator\""`.
-- **AgentsConfig flattening**: After parsing, the orchestrator's fields are promoted to top-level fields on `AgentsConfig` (`orchestrator_id`, `default_provider`, `default_model`, `enabled_providers`, `enabled_skills`, `context_mode`, `max_tool_loops_per_turn`, delegation caps). Workers go into `workers: Vec<WorkerConfig>`.
+- **At least one orchestrator**: Multiple entries with `role: "orchestrator"` are accepted. No orchestrator at all produces the error `"agents array must include at least one entry with role \"orchestrator\""`.
+- **OrchestratorConfig struct**: After parsing, each orchestrator's fields are stored in an `OrchestratorConfig` struct within `AgentsConfig.orchestrators: Vec<OrchestratorConfig>`. Workers go into `workers: Option<Vec<WorkerConfig>>`. Accessor methods (`default_orchestrator()`, `orchestrator(id)`, `orchestrator_ids()`) provide ergonomic access.
+- **`enabledWorkers`**: Optional `Vec<String>` on `OrchestratorConfig`. Rejected on worker entries (orchestrator-only). Unknown worker IDs produce a validation error.
+
+**Before Phase 1**: The function enforced exactly one orchestrator and flattened the orchestrator's fields into top-level `AgentsConfig` fields.
 
 ### Gateway Runtime
 
@@ -170,14 +173,60 @@ Key observations:
 
 ### AgentsConfig Refactoring
 
-The current `AgentsConfig` struct flattens the single orchestrator into top-level fields. With multiple orchestrators, this must change.
+The current `AgentsConfig` struct flattens the single orchestrator into top-level fields. With multiple orchestrators, this must change. The refactoring has two dimensions: the on-disk format and the internal representation.
 
-#### Option A: Orchestrator List + Active Selection
+#### On-Disk Format: Unified Array (Decision Confirmed)
+
+**Decision: Keep the unified `agents` array.** This is consistent with the ORCHESTRATION ADR's Option A choice. The on-disk format is a flat array with `role` discriminator — no separate `orchestrators` key. Only the internal representation and validation rules change.
+
+#### Internal Representation: `Vec<OrchestratorConfig>` with Accessor Methods
+
+Three approaches were evaluated:
+
+| Approach | Structure | Assessment |
+|----------|-----------|------------|
+| Direct field access | `Vec<OrchestratorConfig>`, consumers index directly | Right data model, poor ergonomics (`agents.orchestrators[0]` is verbose and fragile) |
+| **Accessor methods** | `Vec<OrchestratorConfig>` + `default_orchestrator()` / `orchestrator(id)` | ✅ **Chosen** — normalized data + ergonomic access |
+| Denormalized | Keep flat fields + add `Vec<OrchestratorConfig>` | Rejected — two sources of truth, consistency risk |
+
+**Decision: `Vec<OrchestratorConfig>` with accessor methods.**
+
+Principles that drove the decision:
+
+1. **Normalized data model** — Each piece of data stored exactly once. Denormalization creates consistency risks and maintenance burden.
+2. **Symmetric types** — `OrchestratorConfig` and `WorkerConfig` are parallel types. The current asymmetry (orchestrator fields promoted to the parent, worker fields nested) exists only because there was exactly one orchestrator.
+3. **Ergonomic access for the common case** — Most code paths operate on a specific orchestrator (the active one). The API should make it easy to get "the orchestrator for this turn" without unwrapping a Vec.
+4. **Explicit over implicit** — Which orchestrator is being used should be explicit at every call site, not inherited from flat top-level fields. The current pattern of reading `agents.default_provider` and getting "the orchestrator's default provider" is implicit — it works because there's only one.
+5. **On-disk format stability** — The `agents` array with `role` discriminator is clean. The refactoring changes internal representation, not the on-disk format.
+
+The accessor methods provide the ergonomics of flat-field access for the common case (`agents.default_orchestrator().default_provider`) while making the "which orchestrator?" question explicit. The denormalized approach (keeping flat fields + adding the Vec) was rejected because the active orchestrator's data would be stored in two places, and every future consumer would need to decide which source to read — a consistent bug surface.
+
+**Why not prioritize internal API backward compatibility**: `AgentsConfig` is a library-internal type, not a public API. The on-disk format is unchanged, so user configs are unaffected. The breaking change is confined to internal consumers that must be updated regardless of which approach is chosen.
 
 ```rust
 pub struct AgentsConfig {
     pub orchestrators: Vec<OrchestratorConfig>,  // at least one
     pub workers: Option<Vec<WorkerConfig>>,
+}
+
+impl AgentsConfig {
+    /// The default (first) orchestrator. Always present (validation ensures ≥1).
+    pub fn default_orchestrator(&self) -> &OrchestratorConfig {
+        &self.orchestrators[0]
+    }
+
+    /// Look up an orchestrator by ID. Returns the default if `id` is None.
+    pub fn orchestrator(&self, id: Option<&str>) -> Result<&OrchestratorConfig, String> {
+        match id {
+            None => Ok(self.default_orchestrator()),
+            Some(id) => self.orchestrators.iter().find(|o| o.id == id)
+                .ok_or_else(|| format!("unknown orchestrator id: {id}")),
+        }
+    }
+
+    pub fn orchestrator_ids(&self) -> impl Iterator<Item = &str> {
+        self.orchestrators.iter().map(|o| o.id.as_str())
+    }
 }
 
 pub struct OrchestratorConfig {
@@ -194,18 +243,6 @@ pub struct OrchestratorConfig {
     pub max_delegations_per_worker: Option<HashMap<String, usize>>,
 }
 ```
-
-**Pros**: Clean separation of orchestrator vs. worker data. Natural extension to multiple orchestrators.
-**Cons**: Breaking change to `AgentsConfig` API. Every consumer (gateway, desktop, CLI) must be updated.
-
-#### Option B: Keep Unified Array, Relax Validation
-
-Keep the `agents` array as-is, but allow multiple entries with `role: "orchestrator"`. The `AgentsConfig` gains an `orchestrators: Vec<OrchestratorConfig>` instead of flat fields, but the on-disk format is unchanged — it's still a flat array with `role` discriminator.
-
-**Pros**: Backward-compatible on-disk format. Minimal change to `config.json` schema.
-**Cons**: Internal `AgentsConfig` structure changes significantly. The flat top-level fields must be replaced.
-
-**Decision: Option B.** Keep the unified `agents` array (consistent with the ADR's Option A choice) and refactor `AgentsConfig` to hold a `Vec<OrchestratorConfig>` internally. The on-disk format doesn't change; only the internal representation and validation rules do.
 
 ### Gateway State Changes
 
@@ -343,11 +380,11 @@ Orchestrator switching is a **lighter-weight alternative** to profile switching 
 
 ## Requirements
 
-- [ ] **Multiple orchestrator entries** — The `agents` array accepts multiple entries with `role: "orchestrator"`. Validation requires at least one (not exactly one).
-- [ ] **Backward-compatible defaults** — When `agents` is omitted, the default remains a single orchestrator with id `"orchestrator"`.
-- [ ] **`AgentsConfig` refactored** — Replace flat top-level orchestrator fields with `Vec<OrchestratorConfig>`. On-disk format unchanged.
-- [ ] **`enabledWorkers` on `OrchestratorConfig`** — Optional `Vec<String>`; when absent, all profile workers are available; when present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`.
-- [ ] **`enabledWorkers` validation** — Referenced worker IDs must exist in the profile's `agents` array. Unknown IDs produce a validation error.
+- [x] **Multiple orchestrator entries** — The `agents` array accepts multiple entries with `role: "orchestrator"`. Validation requires at least one (not exactly one).
+- [x] **Backward-compatible defaults** — When `agents` is omitted, the default remains a single orchestrator with id `"orchestrator"`.
+- [x] **`AgentsConfig` refactored** — Replace flat top-level orchestrator fields with `Vec<OrchestratorConfig>`. On-disk format unchanged.
+- [x] **`enabledWorkers` on `OrchestratorConfig`** — Optional `Vec<String>`; when absent, all profile workers are available; when present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`.
+- [x] **`enabledWorkers` validation** — Referenced worker IDs must exist in the profile's `agents` array. Unknown IDs produce a validation error.
 - [ ] **`enabledWorkers` system prompt filtering** — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster.
 - [ ] **`enabledWorkers` delegation enforcement** — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers` (when set), mirroring the `enabledProviders` check.
 - [ ] **Per-orchestrator runtime** — Gateway builds `OrchestratorRuntime` (system context, tools, executor) for each orchestrator at startup.
@@ -365,7 +402,7 @@ Orchestrator switching is a **lighter-weight alternative** to profile switching 
 
 | Phase | Focus | Status |
 |-------|-------|--------|
-| 1 | Config layer: relax validation, refactor `AgentsConfig`, add `OrchestratorConfig` type (including `enabledWorkers`) | Not started |
+| 1 | Config layer: relax validation, refactor `AgentsConfig`, add `OrchestratorConfig` type (including `enabledWorkers`) | **Complete** |
 | 2 | Gateway runtime: per-orchestrator `OrchestratorRuntime`, `agent` RPC `agentId` parameter, `enabledWorkers` system prompt filtering and delegation enforcement, `enabledProviders` enforcement for shared workers | Not started |
 | 3 | Desktop UI + CLI: orchestrator ComboBox on chat screen, `--agent` CLI flag, active/inactive labeling, provider/model cascade | Not started |
 | 4 | Spec and ADR updates: document new behavior in all affected specs | Not started |

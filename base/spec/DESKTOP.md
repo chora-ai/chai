@@ -103,7 +103,7 @@ Gateway `status` only — no `config.json` fallback when the gateway is down or 
 
 | Section | Content |
 |---------|---------|
-| **Agents** | Orchestrator (id, date, default provider/model) and workers (id, effective provider/model) from `status.agents`. |
+| **Agents** | Orchestrator entries (id, default provider/model, enabled workers) and workers (id, effective provider/model) from `status.agents`. When multiple orchestrators are configured, each is displayed separately. |
 | **Models** | Discovery lists for all backends from `status.providers`. Orchestration catalog shows all rows. |
 
 ### Logging

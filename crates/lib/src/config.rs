@@ -450,62 +450,122 @@ pub enum SkillContextMode {
     ReadOnDemand,
 }
 
-/// Resolved agents configuration: one orchestrator (flattened fields) plus optional worker presets for `delegate_task`.
+/// Orchestrator configuration: one entry per orchestrator in the `agents` array.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OrchestratorConfig {
+    /// Stable orchestrator id (unique within the `agents` array).
+    pub id: String,
+    /// Which default provider to use (a provider `id` from the `providers` array). When absent, defaults to "ollama" (if configured) or the first configured provider.
+    #[serde(default)]
+    pub default_provider: Option<String>,
+    /// Model id for the selected provider.
+    #[serde(default)]
+    pub default_model: Option<String>,
+    /// Providers to fetch models from at startup. Opt-in: when absent or empty, only the default provider is discovered; when set, only listed providers are polled.
+    #[serde(default)]
+    pub enabled_providers: Option<Vec<String>>,
+    /// Skill package names enabled for this orchestrator. Omitted or empty ⇒ no skills.
+    #[serde(default)]
+    pub enabled_skills: Option<Vec<String>>,
+    /// Worker ids this orchestrator can delegate to. Omitted or empty ⇒ all profile workers are available.
+    #[serde(default)]
+    pub enabled_workers: Option<Vec<String>>,
+    /// How this orchestrator's skill docs are inlined vs `read_skill`.
+    #[serde(default)]
+    pub context_mode: Option<SkillContextMode>,
+    /// Optional cap on the number of `delegate_task` tool calls allowed per turn.
+    #[serde(default)]
+    pub max_delegations_per_turn: Option<usize>,
+    /// Max successful `delegate_task` calls per session. Omitted = no limit.
+    #[serde(default)]
+    pub max_delegations_per_session: Option<usize>,
+    /// Optional per-worker caps on successful delegations per session. Worker ids as keys.
+    #[serde(default)]
+    pub max_delegations_per_worker: Option<HashMap<String, usize>>,
+    /// Maximum number of tool loops per turn. Omitted = no limit.
+    #[serde(default)]
+    pub max_tool_loops_per_turn: Option<u32>,
+}
+
+impl Default for OrchestratorConfig {
+    fn default() -> Self {
+        Self {
+            id: "orchestrator".to_string(),
+            default_provider: None,
+            default_model: None,
+            enabled_providers: None,
+            enabled_skills: None,
+            enabled_workers: None,
+            context_mode: None,
+            max_delegations_per_turn: None,
+            max_delegations_per_session: None,
+            max_delegations_per_worker: None,
+            max_tool_loops_per_turn: None,
+        }
+    }
+}
+
+impl OrchestratorConfig {
+    /// This orchestrator's skill context mode (default full).
+    pub fn context_mode(&self) -> SkillContextMode {
+        self.context_mode.unwrap_or_default()
+    }
+
+    /// This orchestrator's enabled skill names (may be empty).
+    pub fn enabled_skills_list(&self) -> &[String] {
+        self.enabled_skills.as_deref().unwrap_or(&[])
+    }
+
+    /// This orchestrator's enabled worker ids (may be empty). When `None`, all workers are available.
+    pub fn enabled_workers_list(&self) -> &[String] {
+        self.enabled_workers.as_deref().unwrap_or(&[])
+    }
+}
+
+/// Resolved agents configuration: orchestrator entries plus optional worker presets for `delegate_task`.
 ///
 /// In `config.json`, **`agents`** is a JSON **array** of entries with `id`, `role` (`orchestrator` \| `worker`),
-/// and per-entry fields. Exactly one orchestrator and unique ids are required. Omit **`agents`** entirely
+/// and per-entry fields. At least one orchestrator and unique ids are required. Omit **`agents`** entirely
 /// for built-in defaults (single orchestrator id `orchestrator`).
 #[derive(Debug, Clone)]
 pub struct AgentsConfig {
-    /// Orchestrator entry's `id` from config (defaults to `orchestrator` when `agents` is omitted).
-    pub orchestrator_id: Option<String>,
-    /// Which default provider to use (a provider `id` from the `providers` array). When absent, defaults to "ollama" (if configured) or the first configured provider.
-    pub default_provider: Option<String>,
-    /// Model id for the selected provider. Use the id format the provider expects (e.g. for Ollama `llama3.2:3b`; for LM Studio `llama-3.2-3B-instruct`; for NIM `meta/llama-3.2-3b-instruct`). Not used for routing—provider is chosen by defaultProvider.
-    pub default_model: Option<String>,
-    /// Providers to fetch models from at startup (e.g. `["ollama", "lms"]`). Opt-in: when absent or empty, only the default provider (from defaultProvider) is discovered; when set, only listed providers are polled.
-    pub enabled_providers: Option<Vec<String>>,
-    /// Skill package names enabled for the orchestrator (subset of packages under `~/.chai/skills`). Omitted or empty ⇒ no skills for the orchestrator.
-    pub enabled_skills: Option<Vec<String>>,
-    /// How orchestrator skill docs are inlined vs `read_skill`.
-    pub context_mode: Option<SkillContextMode>,
-
-    /// Optional cap on the number of `delegate_task` tool calls allowed per turn.
-    /// When unset, delegation is limited only by the tool loop iteration cap.
-    pub max_delegations_per_turn: Option<usize>,
-
+    /// Orchestrator entries (at least one required; first is default).
+    pub orchestrators: Vec<OrchestratorConfig>,
     /// Worker presets for `delegate_task` `workerId` (from array entries with `role: worker`).
-    ///
-    /// Worker presets provide per-worker `defaultProvider` / `defaultModel` selections.
     pub workers: Option<Vec<WorkerConfig>>,
-
-    /// Max successful **`delegate_task`** calls per session (orchestrator only). Omitted = no limit.
-    pub max_delegations_per_session: Option<usize>,
-
-    /// Optional per-worker caps on successful delegations per session (`search` → 5). Worker ids as keys.
-    pub max_delegations_per_worker: Option<HashMap<String, usize>>,
-
-    /// Maximum number of tool loops per turn. Each tool loop is one call to the provider
-    /// followed by tool call execution. The loop exits naturally when the model returns no
-    /// tool calls; this limit is a safety net against runaway loops. Omitted = no limit.
-    pub max_tool_loops_per_turn: Option<u32>,
 }
 
 impl Default for AgentsConfig {
     fn default() -> Self {
         Self {
-            orchestrator_id: Some("orchestrator".to_string()),
-            default_provider: None,
-            default_model: None,
-            enabled_providers: None,
-            enabled_skills: None,
-            context_mode: None,
-            max_delegations_per_turn: None,
+            orchestrators: vec![OrchestratorConfig::default()],
             workers: None,
-            max_delegations_per_session: None,
-            max_delegations_per_worker: None,
-            max_tool_loops_per_turn: None,
         }
+    }
+}
+
+impl AgentsConfig {
+    /// The default (first) orchestrator. Always present (validation ensures ≥1).
+    pub fn default_orchestrator(&self) -> &OrchestratorConfig {
+        &self.orchestrators[0]
+    }
+
+    /// Look up an orchestrator by ID. Returns the default if `id` is None.
+    pub fn orchestrator(&self, id: Option<&str>) -> Result<&OrchestratorConfig, String> {
+        match id {
+            None => Ok(self.default_orchestrator()),
+            Some(id) => self
+                .orchestrators
+                .iter()
+                .find(|o| o.id == id)
+                .ok_or_else(|| format!("unknown orchestrator id: {id}")),
+        }
+    }
+
+    /// All orchestrator ids.
+    pub fn orchestrator_ids(&self) -> impl Iterator<Item = &str> {
+        self.orchestrators.iter().map(|o| o.id.as_str())
     }
 }
 
@@ -527,6 +587,8 @@ struct AgentDefinition {
     #[serde(default)]
     enabled_skills: Option<Vec<String>>,
     #[serde(default)]
+    enabled_workers: Option<Vec<String>>,
+    #[serde(default)]
     context_mode: Option<SkillContextMode>,
     #[serde(default)]
     max_delegations_per_turn: Option<usize>,
@@ -546,24 +608,24 @@ enum AgentRole {
 }
 
 fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
-    let oid = agents
-        .orchestrator_id
-        .as_deref()
-        .unwrap_or("orchestrator")
-        .to_string();
-    let mut out = vec![AgentDefinition {
-        id: oid,
-        role: AgentRole::Orchestrator,
-        default_provider: agents.default_provider.clone(),
-        default_model: agents.default_model.clone(),
-        enabled_providers: agents.enabled_providers.clone(),
-        enabled_skills: agents.enabled_skills.clone(),
-        context_mode: agents.context_mode,
-        max_delegations_per_turn: agents.max_delegations_per_turn,
-        max_delegations_per_session: agents.max_delegations_per_session,
-        max_delegations_per_worker: agents.max_delegations_per_worker.clone(),
-        max_tool_loops_per_turn: agents.max_tool_loops_per_turn,
-    }];
+    let mut out: Vec<AgentDefinition> = agents
+        .orchestrators
+        .iter()
+        .map(|o| AgentDefinition {
+            id: o.id.clone(),
+            role: AgentRole::Orchestrator,
+            default_provider: o.default_provider.clone(),
+            default_model: o.default_model.clone(),
+            enabled_providers: o.enabled_providers.clone(),
+            enabled_skills: o.enabled_skills.clone(),
+            enabled_workers: o.enabled_workers.clone(),
+            context_mode: o.context_mode,
+            max_delegations_per_turn: o.max_delegations_per_turn,
+            max_delegations_per_session: o.max_delegations_per_session,
+            max_delegations_per_worker: o.max_delegations_per_worker.clone(),
+            max_tool_loops_per_turn: o.max_tool_loops_per_turn,
+        })
+        .collect();
     if let Some(ws) = &agents.workers {
         for w in ws {
             out.push(AgentDefinition {
@@ -573,6 +635,7 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
                 default_model: w.default_model.clone(),
                 enabled_providers: None,
                 enabled_skills: w.enabled_skills.clone(),
+                enabled_workers: None,
                 context_mode: w.context_mode,
                 max_delegations_per_turn: None,
                 max_delegations_per_session: None,
@@ -585,20 +648,7 @@ fn agents_to_definitions(agents: &AgentsConfig) -> Vec<AgentDefinition> {
 }
 
 fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, String> {
-    struct OrchestratorFields {
-        id: String,
-        default_provider: Option<String>,
-        default_model: Option<String>,
-        enabled_providers: Option<Vec<String>>,
-        enabled_skills: Option<Vec<String>>,
-        context_mode: Option<SkillContextMode>,
-        max_delegations_per_turn: Option<usize>,
-        max_delegations_per_session: Option<usize>,
-        max_delegations_per_worker: Option<HashMap<String, usize>>,
-        max_tool_loops_per_turn: Option<u32>,
-    }
-
-    let mut orchestrator: Option<OrchestratorFields> = None;
+    let mut orchestrator_rows: Vec<OrchestratorConfig> = Vec::new();
     let mut worker_rows: Vec<WorkerConfig> = Vec::new();
     let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
 
@@ -613,15 +663,13 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
 
         match e.role {
             AgentRole::Orchestrator => {
-                if orchestrator.is_some() {
-                    return Err("agents array must include exactly one orchestrator".to_string());
-                }
-                orchestrator = Some(OrchestratorFields {
+                orchestrator_rows.push(OrchestratorConfig {
                     id,
                     default_provider: e.default_provider,
                     default_model: e.default_model,
                     enabled_providers: e.enabled_providers,
                     enabled_skills: e.enabled_skills,
+                    enabled_workers: e.enabled_workers,
                     context_mode: e.context_mode,
                     max_delegations_per_turn: e.max_delegations_per_turn,
                     max_delegations_per_session: e.max_delegations_per_session,
@@ -637,6 +685,13 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
                     if !v.is_empty() {
                         return Err(format!(
                             "worker \"{id}\" has \"enabledProviders\" — this field is orchestrator-only"
+                        ));
+                    }
+                }
+                if let Some(ref v) = e.enabled_workers {
+                    if !v.is_empty() {
+                        return Err(format!(
+                            "worker \"{id}\" has \"enabledWorkers\" — this field is orchestrator-only"
                         ));
                     }
                 }
@@ -673,26 +728,34 @@ fn agents_from_array(entries: Vec<AgentDefinition>) -> Result<AgentsConfig, Stri
         }
     }
 
-    let o = orchestrator.ok_or_else(|| {
-        "agents array must include exactly one entry with role \"orchestrator\"".to_string()
-    })?;
+    if orchestrator_rows.is_empty() {
+        return Err(
+            "agents array must include at least one entry with role \"orchestrator\"".to_string(),
+        );
+    }
+
+    // Validate enabled_workers references: each listed ID must exist as a worker entry.
+    let worker_ids: std::collections::HashSet<&str> = worker_rows.iter().map(|w| w.id.as_str()).collect();
+    for o in &orchestrator_rows {
+        if let Some(ref ew) = o.enabled_workers {
+            for wid in ew {
+                if !worker_ids.contains(wid.as_str()) {
+                    return Err(format!(
+                        "orchestrator \"{}\" references unknown worker id \"{}\" in enabledWorkers",
+                        o.id, wid
+                    ));
+                }
+            }
+        }
+    }
 
     Ok(AgentsConfig {
-        orchestrator_id: Some(o.id),
-        default_provider: o.default_provider,
-        default_model: o.default_model,
-        enabled_providers: o.enabled_providers,
-        enabled_skills: o.enabled_skills,
-        context_mode: o.context_mode,
-        max_delegations_per_turn: o.max_delegations_per_turn,
+        orchestrators: orchestrator_rows,
         workers: if worker_rows.is_empty() {
             None
         } else {
             Some(worker_rows)
         },
-        max_delegations_per_session: o.max_delegations_per_session,
-        max_delegations_per_worker: o.max_delegations_per_worker,
-        max_tool_loops_per_turn: o.max_tool_loops_per_turn,
     })
 }
 
@@ -1008,41 +1071,65 @@ pub fn canonical_provider_id(providers: &ProvidersConfig, s: &str) -> Option<Str
     }
 }
 
-/// True if model discovery should run for the given provider. Opt-in: when agents.enabled_providers
-/// is absent or empty, only the default provider is discovered; when set, only providers in the
-/// list are discovered.
+/// True if model discovery should run for the given provider. Uses the **union** of all
+/// orchestrators' `enabled_providers`: if any orchestrator might use a provider, discovery
+/// runs for it so that switching orchestrators doesn't require a gateway restart.
 pub fn provider_discovery_enabled(providers: &ProvidersConfig, agents: &AgentsConfig, provider_id: &str) -> bool {
     let id = match canonical_provider_id(providers, provider_id) {
         Some(id) => id,
         None => return false,
     };
-    let use_default_only = match &agents.enabled_providers {
-        None => true,
-        Some(v) => v.is_empty(),
-    };
-    if use_default_only {
-        let default_id = agents
-            .default_provider
-            .as_deref()
-            .and_then(|s| canonical_provider_id(providers, s))
-            .unwrap_or_else(|| {
-                // If the default provider string doesn't match any configured provider,
-                // fall back to "ollama" if it exists.
-                if providers.has("ollama") { "ollama".to_string() } else { String::new() }
-            });
-        return id == default_id;
+    // Union approach: collect enabled_providers across all orchestrators.
+    // If any orchestrator has an empty/absent enabled_providers, fall back to
+    // default-only for that orchestrator and compute the union.
+    let mut union_enabled: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut any_uses_default_only = false;
+    for o in &agents.orchestrators {
+        match &o.enabled_providers {
+            None => any_uses_default_only = true,
+            Some(v) if v.is_empty() => any_uses_default_only = true,
+            Some(v) => {
+                for s in v {
+                    if let Some(canonical) = canonical_provider_id(providers, s) {
+                        union_enabled.insert(canonical);
+                    }
+                }
+            }
+        }
     }
-    agents
-        .enabled_providers
-        .as_ref()
-        .unwrap()
-        .iter()
-        .filter_map(|s| canonical_provider_id(providers, s))
-        .any(|p| p == id)
+    if any_uses_default_only {
+        // At least one orchestrator uses default-only discovery.
+        // Collect each such orchestrator's default provider.
+        for o in &agents.orchestrators {
+            let use_default_only = match &o.enabled_providers {
+                None => true,
+                Some(v) => v.is_empty(),
+            };
+            if use_default_only {
+                let default_id = o
+                    .default_provider
+                    .as_deref()
+                    .and_then(|s| canonical_provider_id(providers, s))
+                    .unwrap_or_else(|| {
+                        if providers.has("ollama") { "ollama".to_string() } else { String::new() }
+                    });
+                if !default_id.is_empty() {
+                    union_enabled.insert(default_id);
+                }
+            }
+        }
+    }
+    if union_enabled.is_empty() {
+        // No orchestrator specified any enabled_providers and none had a default provider.
+        // Fall back to "ollama" if it exists.
+        return id == "ollama" || providers.has("ollama") && id == providers.entries[0].id.trim();
+    }
+    union_enabled.contains(&id)
 }
 
 /// Provider ids for which [`provider_discovery_enabled`] is true.
 /// Matches which backends run model discovery at gateway startup and which **`status`** includes `*Models` for.
+/// Uses the **union** of all orchestrators' `enabled_providers`.
 pub fn discovery_enabled_provider_ids(providers: &ProvidersConfig, agents: &AgentsConfig) -> Vec<String> {
     providers
         .ids()
@@ -1051,11 +1138,45 @@ pub fn discovery_enabled_provider_ids(providers: &ProvidersConfig, agents: &Agen
         .collect()
 }
 
+/// Provider ids that a single orchestrator's `enabledProviders` resolves to.
+/// When `enabledProviders` is absent or empty, returns only the orchestrator's default provider.
+pub fn orchestrator_discovery_provider_ids(
+    providers: &ProvidersConfig,
+    orch: &OrchestratorConfig,
+) -> Vec<String> {
+    match &orch.enabled_providers {
+        Some(v) if !v.is_empty() => v
+            .iter()
+            .filter_map(|s| canonical_provider_id(providers, s))
+            .collect(),
+        _ => {
+            // Default-only: the orchestrator's default provider.
+            let default_id = orch
+                .default_provider
+                .as_deref()
+                .and_then(|s| canonical_provider_id(providers, s))
+                .or_else(|| {
+                    if providers.has("ollama") {
+                        Some("ollama".to_string())
+                    } else {
+                        None
+                    }
+                });
+            match default_id {
+                Some(id) => vec![id],
+                None => vec![],
+            }
+        }
+    }
+}
+
 /// Resolve effective default provider and model for display (e.g. in desktop when gateway status is not yet available).
-/// Returns (provider_id, model_id). Invalid provider values fall back to the first configured provider
+/// Returns (provider_id, model_id). Uses the default (first) orchestrator's settings.
+/// Invalid provider values fall back to the first configured provider
 /// or "ollama" defaults if no providers are configured.
 pub fn resolve_effective_provider_and_model(providers: &ProvidersConfig, agents: &AgentsConfig) -> (String, String) {
-    let provider = agents
+    let orch = agents.default_orchestrator();
+    let provider = orch
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))
@@ -1064,7 +1185,7 @@ pub fn resolve_effective_provider_and_model(providers: &ProvidersConfig, agents:
             providers.entries.first().map(|p| p.id.trim().to_string())
         })
         .unwrap_or_else(|| "ollama".to_string());
-    let model = agents
+    let model = orch
         .default_model
         .as_deref()
         .map(|s| s.trim().to_string())
@@ -1074,13 +1195,9 @@ pub fn resolve_effective_provider_and_model(providers: &ProvidersConfig, agents:
 }
 
 /// Orchestrator **agent context directory** (on-disk home for **`AGENT.md`**): `<profile_dir>/agents/<orchestratorId>/`.
+/// Uses the default (first) orchestrator's id.
 pub fn orchestrator_context_dir(config: &Config, profile_dir: &Path) -> PathBuf {
-    let oid = config
-        .agents
-        .orchestrator_id
-        .as_deref()
-        .unwrap_or("orchestrator")
-        .trim();
+    let oid = config.agents.default_orchestrator().id.trim();
     let oid = if oid.is_empty() { "orchestrator" } else { oid };
     agent_context_dir(profile_dir, oid)
 }
@@ -1104,9 +1221,9 @@ pub fn sessions_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
     agent_context_dir(profile_dir, agent_id).join("sessions")
 }
 
-/// Orchestrator skill context mode (default full).
+/// Orchestrator skill context mode (default full). Uses the default (first) orchestrator.
 pub fn orchestrator_context_mode(agents: &AgentsConfig) -> SkillContextMode {
-    agents.context_mode.unwrap_or_default()
+    agents.default_orchestrator().context_mode()
 }
 
 /// Worker skill context mode (default full).
@@ -1114,9 +1231,9 @@ pub fn worker_context_mode(worker: &WorkerConfig) -> SkillContextMode {
     worker.context_mode.unwrap_or_default()
 }
 
-/// Orchestrator enabled skill names (may be empty).
+/// Orchestrator enabled skill names (may be empty). Uses the default (first) orchestrator.
 pub fn orchestrator_enabled_skills_list(agents: &AgentsConfig) -> &[String] {
-    agents.enabled_skills.as_deref().unwrap_or(&[])
+    agents.default_orchestrator().enabled_skills_list()
 }
 
 /// Worker enabled skill names (may be empty).
@@ -1356,7 +1473,7 @@ mod tests {
     #[test]
     fn agent_context_dirs_under_profile() {
         let mut c = Config::default();
-        c.agents.orchestrator_id = Some("orch-id".to_string());
+        c.agents.orchestrators[0].id = "orch-id".to_string();
         let prof = Path::new("/home/u/.chai/profiles/p1");
         assert_eq!(
             orchestrator_context_dir(&c, prof),
@@ -1419,7 +1536,8 @@ mod tests {
     #[test]
     fn agents_missing_key_uses_default_orchestrator() {
         let c: Config = serde_json::from_str("{}").expect("parse");
-        assert_eq!(c.agents.orchestrator_id.as_deref(), Some("orchestrator"));
+        assert_eq!(c.agents.orchestrators.len(), 1);
+        assert_eq!(c.agents.default_orchestrator().id, "orchestrator");
         assert!(c.agents.workers.is_none());
     }
 
@@ -1430,8 +1548,9 @@ mod tests {
             {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"w"}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        assert_eq!(c.agents.orchestrator_id.as_deref(), Some("main"));
-        assert_eq!(c.agents.default_provider.as_deref(), Some("ollama"));
+        assert_eq!(c.agents.orchestrators.len(), 1);
+        assert_eq!(c.agents.default_orchestrator().id, "main");
+        assert_eq!(c.agents.default_orchestrator().default_provider.as_deref(), Some("ollama"));
         let w = c.agents.workers.as_ref().expect("workers");
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "fast");
@@ -1439,17 +1558,15 @@ mod tests {
     }
 
     #[test]
-    fn agents_array_rejects_two_orchestrators() {
+    fn agents_array_allows_two_orchestrators() {
         let j = r#"{"agents":[
             {"id":"a","role":"orchestrator"},
             {"id":"b","role":"orchestrator"}
         ]}"#;
-        let err = serde_json::from_str::<Config>(j).unwrap_err();
-        assert!(
-            err.to_string().contains("orchestrator"),
-            "unexpected: {}",
-            err
-        );
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.agents.orchestrators.len(), 2);
+        assert_eq!(c.agents.default_orchestrator().id, "a");
+        assert_eq!(c.agents.orchestrator(Some("b")).unwrap().id, "b");
     }
 
     #[test]
@@ -1487,7 +1604,6 @@ mod tests {
             err
         );
     }
-
 
     #[test]
     fn agents_worker_rejects_max_delegations_per_turn() {
@@ -1557,6 +1673,78 @@ mod tests {
         assert_eq!(w[0].id, "fast");
         assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
         assert_eq!(w[0].default_model.as_deref(), Some("qwen3:8b"));
+    }
+
+    #[test]
+    fn agents_worker_rejects_enabled_workers() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker","enabledWorkers":["other"]}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("enabledWorkers") && err.to_string().contains("orchestrator-only"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_enabled_workers_validation_unknown_id() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator","enabledWorkers":["fast","missing"]},
+            {"id":"fast","role":"worker"}
+        ]}"#;
+        let err = serde_json::from_str::<Config>(j).unwrap_err();
+        assert!(
+            err.to_string().contains("unknown worker id") && err.to_string().contains("missing"),
+            "unexpected: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn agents_enabled_workers_valid() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator","enabledWorkers":["fast"]},
+            {"id":"fast","role":"worker"},
+            {"id":"slow","role":"worker"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.agents.default_orchestrator().enabled_workers.as_deref().unwrap().len(), 1);
+        assert_eq!(c.agents.default_orchestrator().enabled_workers.as_deref().unwrap()[0], "fast");
+    }
+
+    #[test]
+    fn agents_enabled_workers_absent_means_all() {
+        let j = r#"{"agents":[
+            {"id":"main","role":"orchestrator"},
+            {"id":"fast","role":"worker"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert!(c.agents.default_orchestrator().enabled_workers.is_none());
+    }
+
+    #[test]
+    fn agents_multi_orchestrator_round_trip() {
+        let j = r#"{"agents":[
+            {"id":"dev","role":"orchestrator","defaultProvider":"ollama","enabledWorkers":["engineer"]},
+            {"id":"rev","role":"orchestrator","defaultProvider":"lms","enabledWorkers":["reader"]},
+            {"id":"engineer","role":"worker"},
+            {"id":"reader","role":"worker"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.agents.orchestrators.len(), 2);
+        assert_eq!(c.agents.orchestrators[0].id, "dev");
+        assert_eq!(c.agents.orchestrators[1].id, "rev");
+        assert_eq!(c.agents.orchestrators[0].enabled_workers.as_deref().unwrap().len(), 1);
+        assert_eq!(c.agents.orchestrators[1].enabled_workers.as_deref().unwrap()[0], "reader");
+        // Round-trip through serde
+        let json = serde_json::to_string(&c).expect("serialize");
+        let c2: Config = serde_json::from_str(&json).expect("re-parse");
+        assert_eq!(c2.agents.orchestrators.len(), 2);
+        assert_eq!(c2.agents.orchestrators[0].id, "dev");
+        assert_eq!(c2.agents.orchestrators[1].id, "rev");
     }
 
     #[test]
@@ -1692,7 +1880,6 @@ mod tests {
         let j = r#"{"providers":[{"id":"x","endpointType":"lms"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
     }
-
 
     #[test]
     fn providers_missing_key_uses_default_ollama() {

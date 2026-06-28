@@ -16,7 +16,7 @@ mod model;
 mod policy;
 mod workers_context;
 
-pub use choice::{resolve_provider_choice, ProviderChoice};
+pub use choice::{resolve_orchestrator_provider_choice, resolve_provider_choice, ProviderChoice};
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
     worker_tool_list, DelegateContext, DelegateObservability, DelegateTaskResult,

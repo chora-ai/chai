@@ -473,9 +473,9 @@ The `providers` array contains provider definitions. Each provider has a unique 
 | `nim` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | Set `staticModels` with your model list |
 ### Agents
 
-The `agents` array contains exactly one `"role": "orchestrator"` and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
+The `agents` array contains at least one `"role": "orchestrator"` entry (multiple orchestrators are supported) and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
 
-**Orchestrator-only fields** (rejected on worker entries at parse time): `maxToolLoopsPerTurn`, `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker`.
+**Orchestrator-only fields** (rejected on worker entries at parse time): `enabledProviders`, `enabledWorkers`, `maxToolLoopsPerTurn`, `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker`.
 
 | Field | Default (When Field Omitted) | Default (When `agents` Omitted) | Note |
 |-------|------------------------------|----------------------------------|------|
@@ -485,6 +485,7 @@ The `agents` array contains exactly one `"role": "orchestrator"` and any number 
 | `defaultModel` | Orchestrator: provider fallback. Worker: worker string, else orchestrator string, then fallback | `llama3.2:3b` (built-in `defaultProvider` is `ollama`) | Fallbacks come from the endpoint type's `defaultModel`: `"ollama"` → `llama3.2:3b`; `"openai-compat"` → `llama-3.2-3B-instruct`. A provider's `defaultModel` field overrides the endpoint-type default. |
 | `enabledProviders` | Only `defaultProvider` polled | same | Orchestrator-only. Provider ids must match entries in the `providers` array. `null` or `[]` → poll `defaultProvider` only; non-empty → only those. Workers do not have `enabledProviders`; a worker's provider must already be enabled at the orchestrator level. |
 | `enabledSkills` | No skill packages | same | Omitted or `[]`: nothing loaded from `~/.chai/skills`. |
+| `enabledWorkers` | All workers available | same | Orchestrator-only. Array of worker ids this orchestrator can delegate to. Absent or `null` → all profile workers are visible and delegatable; present → only listed workers. Unknown worker ids produce a validation error at config load time. Rejected on worker entries at parse time. |
 | `contextMode` | `full` | same | `full` or `readOnDemand`. |
 | `maxToolLoopsPerTurn` | No limit | same | Orchestrator-only configuration field that acts as a global cap for both orchestrator and worker tool loops. Maximum tool loops per turn. The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Workers cannot override this with their own value. When the limit is reached during an orchestrator turn, the turn is interrupted: the last tool call is not executed, a `session.tool_loop_limit` event is emitted (with the pending tool calls), and the desktop displays a banner explaining what happened. The user must send another message to continue. |
 | `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |

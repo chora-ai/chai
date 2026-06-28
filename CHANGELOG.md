@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+#### Runtime and Configuration
+
+- Multiple orchestrator entries in the `agents` array — validation relaxes from "exactly one orchestrator" to "at least one"; each orchestrator has its own provider, model, skills, and delegation policy
+- `enabledWorkers` field on orchestrator entries — optional array of worker ids this orchestrator can delegate to; absent or `null` means all workers; present means only listed workers are visible and delegatable; unknown worker ids produce a validation error; rejected on worker entries at parse time
+- `OrchestratorConfig` type with accessor methods — `AgentsConfig` now holds `Vec<OrchestratorConfig>` with `default_orchestrator()`, `orchestrator(id)`, and `orchestrator_ids()` instead of flat top-level fields; on-disk `config.json` format is unchanged
+
 ## [0.3.0] - 2026-06-27
 
 ### Added

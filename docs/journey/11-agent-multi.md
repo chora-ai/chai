@@ -4,7 +4,7 @@
 
 **Background:** [Agents](../guides/05-agents.md) · [Configuration → Agents](../guides/03-configuration.md#configuring-agents)
 
-By default, chai runs a single orchestrator agent. This journey adds a worker that handles delegated subtasks with its own provider, model, and skills. Delegation is the orchestrator's built-in `delegate_task` tool — the orchestrator decides when and what to delegate.
+By default, chai runs a single orchestrator agent. The `agents` array supports multiple orchestrators — each with its own provider, model, skills, and worker visibility (`enabledWorkers`). This journey adds a worker that handles delegated subtasks with its own provider, model, and skills. Delegation is the orchestrator's built-in `delegate_task` tool — the orchestrator decides when and what to delegate.
 
 ## Prerequisites
 

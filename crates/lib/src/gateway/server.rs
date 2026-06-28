@@ -27,7 +27,7 @@ use crate::init;
 use crate::orchestration::{
     build_workers_context, effective_worker_defaults,
     merge_delegate_task, resolve_model,
-    resolve_provider_choice, worker_tool_list, DelegateContext,
+    resolve_orchestrator_provider_choice, resolve_provider_choice, worker_tool_list, DelegateContext,
     DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
 };
 use crate::profile::{self, ChaiPaths};
@@ -656,7 +656,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     let provider_choice = resolve_provider_choice(&state.config.providers, &state.config.agents);
     let model_name = resolve_model(
         &state.config.providers,
-        state.config.agents.default_model.as_deref(),
+        state.config.agents.default_orchestrator().default_model.as_deref(),
         None,
         &provider_choice,
     );
@@ -707,7 +707,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         provider_dyn,
         &model_name,
         Some(system_context),
-        state.config.agents.max_tool_loops_per_turn,
+        state.config.agents.default_orchestrator().max_tool_loops_per_turn,
         tools,
         tool_executor,
         delegate,
@@ -863,7 +863,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     validate_skill_composition(
         "orchestrator",
         &orchestrator_entries,
-        config.agents.default_model.as_deref(),
+        config.agents.default_orchestrator().default_model.as_deref(),
     );
     let orch_ctx_mode = orchestrator_context_mode(&config.agents);
     if orch_ctx_mode == SkillContextMode::ReadOnDemand {
@@ -976,12 +976,7 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     let worker_delegate_runtimes = Arc::new(worker_map);
 
     // Build persistent session and binding stores.
-    let orch_id = config
-        .agents
-        .orchestrator_id
-        .as_deref()
-        .unwrap_or("orchestrator")
-        .trim();
+    let orch_id = config.agents.default_orchestrator().id.trim();
     let orch_id = if orch_id.is_empty() {
         "orchestrator"
     } else {
@@ -1637,23 +1632,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 } else {
                     "none"
                 };
-                let provider_choice = resolve_provider_choice(&state.config.providers, &state.config.agents);
-                let default_model = resolve_model(
-                    &state.config.providers,
-                    state.config.agents.default_model.as_deref(),
-                    None,
-                    &provider_choice,
-                );
 
-                let orch_mode = orchestrator_context_mode(&state.config.agents);
-                let orchestrator_id = state
-                    .config
-                    .agents
-                    .orchestrator_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("orchestrator");
                 let worker_defaults: HashMap<String, (String, String)> = state
                     .config
                     .agents
@@ -1672,7 +1651,6 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             .collect()
                     })
                     .unwrap_or_default();
-                let discovery_ids = config::discovery_enabled_provider_ids(&state.config.providers, &state.config.agents);
                 let reg_ids = state.channel_registry.ids().await;
                 let active: HashSet<&str> = reg_ids.iter().map(|s| s.as_str()).collect();
                 let cfg_ref = state.config.as_ref();
@@ -1735,26 +1713,40 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     state.worker_delegate_runtimes.keys().cloned().collect();
                 worker_ids.sort();
 
-                let orch_enabled_skills: Vec<String> = state.skills.iter().map(|s| s.name.clone()).collect();
-                let orch_context_mode_wire = match orch_mode {
-                    SkillContextMode::Full => "full",
-                    SkillContextMode::ReadOnDemand => "readOnDemand",
-                };
-                let orch_entry = json!({
-                    "id": orchestrator_id,
-                    "role": "orchestrator",
-                    "defaultProvider": provider_choice.as_str(),
-                    "defaultModel": default_model,
-                    "enabledProviders": serde_json::to_value(&discovery_ids).unwrap_or_else(|_| json!([])),
-                    "enabledSkills": orch_enabled_skills,
-                    "contextMode": orch_context_mode_wire,
-                    "maxToolLoopsPerTurn": state.config.agents.max_tool_loops_per_turn,
-                    "maxDelegationsPerTurn": state.config.agents.max_delegations_per_turn,
-                    "maxDelegationsPerSession": state.config.agents.max_delegations_per_session,
-                    "maxDelegationsPerWorker": serde_json::to_value(&state.config.agents.max_delegations_per_worker).unwrap_or_else(|_| serde_json::Value::Null),
-                });
+                // Build one entry per orchestrator.
+                let mut entries: Vec<serde_json::Value> = Vec::new();
+                for orch in &state.config.agents.orchestrators {
+                    let orch_provider_choice = resolve_orchestrator_provider_choice(&state.config.providers, orch);
+                    let orch_model = resolve_model(
+                        &state.config.providers,
+                        orch.default_model.as_deref(),
+                        None,
+                        &orch_provider_choice,
+                    );
+                    let orch_discovery_ids = config::orchestrator_discovery_provider_ids(&state.config.providers, orch);
+                    let orch_enabled_skills: Vec<String> = orch.enabled_skills_list().to_vec();
+                    let orch_context_mode_wire = match orch.context_mode() {
+                        SkillContextMode::Full => "full",
+                        SkillContextMode::ReadOnDemand => "readOnDemand",
+                    };
+                    let orch_id = orch.id.trim();
+                    let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
+                    entries.push(json!({
+                        "id": orch_id,
+                        "role": "orchestrator",
+                        "defaultProvider": orch_provider_choice.as_str(),
+                        "defaultModel": orch_model,
+                        "enabledProviders": serde_json::to_value(&orch_discovery_ids).unwrap_or_else(|_| json!([])),
+                        "enabledSkills": orch_enabled_skills,
+                        "contextMode": orch_context_mode_wire,
+                        "enabledWorkers": serde_json::to_value(&orch.enabled_workers).unwrap_or_else(|_| serde_json::Value::Null),
+                        "maxToolLoopsPerTurn": orch.max_tool_loops_per_turn,
+                        "maxDelegationsPerTurn": orch.max_delegations_per_turn,
+                        "maxDelegationsPerSession": orch.max_delegations_per_session,
+                        "maxDelegationsPerWorker": serde_json::to_value(&orch.max_delegations_per_worker).unwrap_or_else(|_| serde_json::Value::Null),
+                    }));
+                }
 
-                let mut entries: Vec<serde_json::Value> = vec![orch_entry];
                 for wid in &worker_ids {
                     if let Some(rt) = state.worker_delegate_runtimes.get(wid) {
                         let (w_prov, w_model) = worker_defaults
@@ -1774,6 +1766,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             "enabledProviders": serde_json::Value::Null,
                             "enabledSkills": w_enabled_skills,
                             "contextMode": w_context_mode_wire,
+                            "enabledWorkers": serde_json::Value::Null,
                             "maxToolLoopsPerTurn": serde_json::Value::Null,
                             "maxDelegationsPerTurn": serde_json::Value::Null,
                             "maxDelegationsPerSession": serde_json::Value::Null,
@@ -1834,14 +1827,8 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     continue;
                 }
-                let orchestrator_id = state
-                    .config
-                    .agents
-                    .orchestrator_id
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .unwrap_or("orchestrator");
+                let orchestrator_id = state.config.agents.default_orchestrator().id.trim();
+                let orchestrator_id = if orchestrator_id.is_empty() { "orchestrator" } else { orchestrator_id };
                 if agent_id == orchestrator_id {
                     let system_context = &state.system_context;
                     let tools_string = state
@@ -1957,7 +1944,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     .unwrap_or_else(|| resolve_provider_choice(&state.config.providers, &state.config.agents));
                 let model_name = resolve_model(
                     &state.config.providers,
-                    state.config.agents.default_model.as_deref(),
+                    state.config.agents.default_orchestrator().default_model.as_deref(),
                     params.model.as_deref(),
                     &provider_choice,
                 );
@@ -2015,7 +2002,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     provider_dyn,
                     &model_name,
                     system_context_opt,
-                    state.config.agents.max_tool_loops_per_turn,
+                    state.config.agents.default_orchestrator().max_tool_loops_per_turn,
                     tools,
                     tool_executor,
                     delegate,

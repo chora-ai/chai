@@ -16,7 +16,7 @@ Agents are defined in `config.json` as an `agents` array. Each entry is an objec
 
 ### Orchestrator
 
-Exactly one entry with `"role": "orchestrator"`. The orchestrator runs the main session turn.
+At least one entry with `"role": "orchestrator"`. Multiple orchestrators are supported. The first orchestrator is the default. The orchestrator runs the main session turn.
 
 | Field | Purpose |
 |-------|---------|
@@ -25,6 +25,7 @@ Exactly one entry with `"role": "orchestrator"`. The orchestrator runs the main 
 | `defaultProvider`, `defaultModel` | Main session defaults |
 | `enabledProviders` | Which provider stacks this agent may use (discovery and routing scope) |
 | `enabledSkills` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
+| `enabledWorkers` | Optional array of worker ids this orchestrator can delegate to. When absent or `null`, all profile workers are available. When present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`. Orchestrator-only — rejected on worker entries at parse time. |
 | `contextMode` | `full` \| `readOnDemand` — how this agent's skill text appears in system context |
 | `maxToolLoopsPerTurn` | Maximum tool loops per turn (omitted = no limit). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
 | `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker` | Delegation caps |
@@ -121,13 +122,14 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for delegation semantics, policy, limit
 
 ## Status API
 
-`status.agents` provides an array of per-agent runtime rows. Each entry includes:
+`status.agents` provides an array of per-agent runtime rows. Orchestrator entries first (one per orchestrator in `config.json` order), then workers sorted by `id`. Each entry includes:
 
 | Field | Meaning |
 |-------|---------|
 | `id`, `role` | Agent identity |
 | `defaultProvider`, `defaultModel` | Effective routing defaults |
 | `enabledSkills` | Skill package names loaded for this agent |
+| `enabledWorkers` | Orchestrator: worker ids this orchestrator can delegate to (array or `null`; absent/`null` means all workers). Workers: `null`. |
 | `contextMode` | Skill context mode for this agent |
 
 Heavy per-agent data (`systemContext`, `tools`, `skillsContext`) is available via the on-demand `agentDetail` WebSocket method, not the polling `status` response.

@@ -358,7 +358,8 @@ fn resolve_delegate_target(
         .filter(|s| !s.is_empty());
 
     // Default to the first configured provider or "ollama".
-    let global_default_provider = agents
+    let orch = agents.default_orchestrator();
+    let global_default_provider = orch
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))
@@ -389,7 +390,7 @@ fn resolve_delegate_target(
         let config_model = worker
             .default_model
             .as_deref()
-            .or(agents.default_model.as_deref());
+            .or(orch.default_model.as_deref());
         let model = resolve_model(providers, config_model, None, &provider_choice);
         (provider_id, model)
     } else {
@@ -405,7 +406,7 @@ fn resolve_delegate_target(
         let provider_choice = ProviderChoice::new(&provider_id);
         let model = resolve_model(
             providers,
-            agents.default_model.as_deref(),
+            orch.default_model.as_deref(),
             None,
             &provider_choice,
         );
@@ -563,7 +564,7 @@ pub async fn execute_delegate_task(
     let provider = ctx.clients.get(choice).ok_or_else(|| {
         format!("no client registered for provider '{}'", choice.as_str())
     })?;
-    let max_iterations = ctx.agents.max_tool_loops_per_turn;
+    let max_iterations = ctx.agents.default_orchestrator().max_tool_loops_per_turn;
     let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
@@ -651,7 +652,7 @@ pub async fn execute_delegate_task(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ProviderDefinition, WorkerConfig, EndpointType};
+    use crate::config::{OrchestratorConfig, ProviderDefinition, WorkerConfig, EndpointType};
     use crate::providers::ToolFunctionDefinition;
     use serde_json::json;
 
@@ -741,10 +742,13 @@ mod tests {
     fn resolve_delegate_target_uses_worker_defaults() {
         let providers = test_providers(&["ollama", "lms"]);
         let agents = AgentsConfig {
-            orchestrator_id: None,
-            default_provider: Some("ollama".to_string()),
-            default_model: Some("global-default".to_string()),
-            enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
+            orchestrators: vec![OrchestratorConfig {
+                id: "orchestrator".to_string(),
+                default_provider: Some("ollama".to_string()),
+                default_model: Some("global-default".to_string()),
+                enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
+                ..Default::default()
+            }],
             workers: Some(vec![WorkerConfig {
                 id: "fast".to_string(),
                 default_provider: Some("lms".to_string()),
@@ -752,7 +756,6 @@ mod tests {
                 enabled_skills: None,
                 context_mode: None,
             }]),
-            ..AgentsConfig::default()
         };
 
         let args = json!({

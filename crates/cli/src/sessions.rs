@@ -38,12 +38,7 @@ pub(crate) async fn run_sessions(cmd: SessionsCmd) -> Result<()> {
 /// Load the session store and binding store for the given profile.
 fn open_stores(profile: Option<&str>) -> Result<(lib::session::SessionStore, lib::routing::SessionBindingStore)> {
     let (config, paths) = lib::config::load_config(profile)?;
-    let orch_id = config
-        .agents
-        .orchestrator_id
-        .as_deref()
-        .unwrap_or("orchestrator")
-        .trim();
+    let orch_id = config.agents.default_orchestrator().id.trim();
     let orch_id = if orch_id.is_empty() {
         "orchestrator"
     } else {

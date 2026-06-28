@@ -147,13 +147,12 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 }
 
 fn orchestrator_id_from_config(agents: &lib::config::AgentsConfig) -> String {
-    agents
-        .orchestrator_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("orchestrator")
-        .to_string()
+    let id = agents.default_orchestrator().id.trim();
+    if id.is_empty() {
+        "orchestrator".to_string()
+    } else {
+        id.to_string()
+    }
 }
 
 fn enabled_skills_for_agent<'a>(
@@ -190,8 +189,7 @@ fn build_skill_agent_map(
         // which skills each has enabled — even if the config on disk has
         // been edited but the gateway has not been restarted.
         let orch_id = gs
-            .orchestrator_id
-            .as_deref()
+            .orchestrator_id()
             .unwrap_or("orchestrator");
         for (agent_id, rt) in &gs.agent_skills {
             let is_orchestrator = agent_id == orch_id;

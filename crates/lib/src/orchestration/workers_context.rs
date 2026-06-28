@@ -11,14 +11,15 @@ use super::choice::ProviderChoice;
 use super::model::resolve_model;
 
 /// Effective `(provider, model)` for this worker — resolves `defaultProvider` / `defaultModel`,
-/// falling back to the orchestrator's defaults when omitted (mirrors runtime resolution in
+/// falling back to the default orchestrator's defaults when omitted (mirrors runtime resolution in
 /// `orchestration/delegate.rs`).
 pub fn effective_worker_defaults(
     providers: &ProvidersConfig,
     agents: &AgentsConfig,
     w: &WorkerConfig,
 ) -> (String, String) {
-    let global_default_provider = agents
+    let orch = agents.default_orchestrator();
+    let global_default_provider = orch
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))
@@ -35,7 +36,7 @@ pub fn effective_worker_defaults(
     let config_model = w
         .default_model
         .as_deref()
-        .or(agents.default_model.as_deref());
+        .or(orch.default_model.as_deref());
     let model = resolve_model(providers, config_model, None, &provider_choice);
     (provider_id, model)
 }
@@ -123,19 +124,22 @@ fn lines_for_worker(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WorkerConfig;
+    use crate::config::{OrchestratorConfig, WorkerConfig};
 
     fn sample_agents() -> AgentsConfig {
-        let mut a = AgentsConfig::default();
-        a.orchestrator_id = Some("alice".to_string());
-        a.workers = Some(vec![WorkerConfig {
-            id: "bob".to_string(),
-            default_provider: Some("ollama".to_string()),
-            default_model: Some("llama3.2:3b".to_string()),
-            enabled_skills: None,
-            context_mode: None,
-        }]);
-        a
+        AgentsConfig {
+            orchestrators: vec![OrchestratorConfig {
+                id: "alice".to_string(),
+                ..Default::default()
+            }],
+            workers: Some(vec![WorkerConfig {
+                id: "bob".to_string(),
+                default_provider: Some("ollama".to_string()),
+                default_model: Some("llama3.2:3b".to_string()),
+                enabled_skills: None,
+                context_mode: None,
+            }]),
+        }
     }
 
     #[test]
@@ -146,8 +150,10 @@ mod tests {
 
     #[test]
     fn empty_worker_list_yields_empty() {
-        let mut a = AgentsConfig::default();
-        a.workers = Some(vec![]);
+        let a = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
+            workers: Some(vec![]),
+        };
         assert!(build_workers_context(&a, &[]).is_empty());
     }
 
@@ -163,17 +169,21 @@ mod tests {
 
     #[test]
     fn worker_without_defaults_still_rendered() {
-        let mut a = AgentsConfig::default();
-        a.orchestrator_id = Some("alice".to_string());
-        a.default_provider = Some("ollama".to_string());
-        a.default_model = Some("llama3.2:3b".to_string());
-        a.workers = Some(vec![WorkerConfig {
-            id: "bob".to_string(),
-            default_provider: None,
-            default_model: None,
-            enabled_skills: None,
-            context_mode: None,
-        }]);
+        let a = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig {
+                id: "alice".to_string(),
+                default_provider: Some("ollama".to_string()),
+                default_model: Some("llama3.2:3b".to_string()),
+                ..Default::default()
+            }],
+            workers: Some(vec![WorkerConfig {
+                id: "bob".to_string(),
+                default_provider: None,
+                default_model: None,
+                enabled_skills: None,
+                context_mode: None,
+            }]),
+        };
         let s = build_workers_context(&a, &[]);
         assert!(s.contains("bob"));
         assert!(s.contains("### bob"));
@@ -184,18 +194,22 @@ mod tests {
     fn worker_skill_lists_description_from_catalog() {
         use std::path::PathBuf;
 
-        let mut a = AgentsConfig::default();
-        a.orchestrator_id = Some("orch".to_string());
-        a.default_provider = Some("ollama".to_string());
-        a.default_model = Some("llama3.2:3b".to_string());
-        a.workers = Some(vec![WorkerConfig {
-            id: "w1".to_string(),
-            default_provider: None,
-            default_model: None,
-            enabled_skills: Some(vec!["my-skill".to_string()]),
-            context_mode: None,
-        }]);
-        a.enabled_providers = Some(vec!["ollama".to_string()]);
+        let a = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig {
+                id: "orch".to_string(),
+                default_provider: Some("ollama".to_string()),
+                default_model: Some("llama3.2:3b".to_string()),
+                enabled_providers: Some(vec!["ollama".to_string()]),
+                ..Default::default()
+            }],
+            workers: Some(vec![WorkerConfig {
+                id: "w1".to_string(),
+                default_provider: None,
+                default_model: None,
+                enabled_skills: Some(vec!["my-skill".to_string()]),
+                context_mode: None,
+            }]),
+        };
 
         let catalog = vec![SkillEntry {
             name: "my-skill".to_string(),

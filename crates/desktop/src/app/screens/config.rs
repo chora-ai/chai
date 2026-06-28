@@ -254,13 +254,9 @@ fn config_summary_right_column(
     let (default_provider, default_model) =
         lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
 
-    let orch_id = config
-        .agents
-        .orchestrator_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .unwrap_or("orchestrator");
+    let orch = config.agents.default_orchestrator();
+    let orch_id = orch.id.trim();
+    let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
 
     dashboard::section_group(ui, "Sandbox", |ui| {
         dashboard::kv(ui, "Mode", config.sandbox.mode.as_str());
@@ -275,7 +271,7 @@ fn config_summary_right_column(
         dashboard::kv(ui, "Role", "orchestrator");
         dashboard::kv(ui, "Default provider", default_provider.as_str());
         dashboard::kv(ui, "Default model", default_model.as_str());
-        let orch_ep = enabled_providers_display(&config.agents.enabled_providers);
+        let orch_ep = enabled_providers_display(&orch.enabled_providers);
         dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
         let orch_skills = lib::config::orchestrator_enabled_skills_list(&config.agents);
         let orch_skills_csv = orch_skills.join(", ");
@@ -300,19 +296,19 @@ fn config_summary_right_column(
 
         // Orchestrator limit fields (same order as gateway screen).
         let mut any_limit = false;
-        if let Some(n) = config.agents.max_tool_loops_per_turn {
+        if let Some(n) = orch.max_tool_loops_per_turn {
             dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
             any_limit = true;
         }
-        if let Some(n) = config.agents.max_delegations_per_turn {
+        if let Some(n) = orch.max_delegations_per_turn {
             dashboard::kv(ui, "Max delegations per turn", &n.to_string());
             any_limit = true;
         }
-        if let Some(n) = config.agents.max_delegations_per_session {
+        if let Some(n) = orch.max_delegations_per_session {
             dashboard::kv(ui, "Max delegations per session", &n.to_string());
             any_limit = true;
         }
-        if let Some(ref m) = config.agents.max_delegations_per_worker {
+        if let Some(ref m) = orch.max_delegations_per_worker {
             if !m.is_empty() {
                 let display: Vec<String> = m
                     .iter()

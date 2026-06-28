@@ -65,6 +65,7 @@ pub fn apply_delegation_bracket_match(agents: &AgentsConfig, args: &serde_json::
 }
 
 /// Enforces **`maxDelegationsPerSession`** and **`maxDelegationsPerWorker`** before a delegation runs.
+/// Uses the default (first) orchestrator's delegation policy.
 pub async fn assert_session_delegation_limits(
     store: &SessionStore,
     session_id: &str,
@@ -76,7 +77,9 @@ pub async fn assert_session_delegation_limits(
         .await
         .ok_or_else(|| "session not found".to_string())?;
 
-    if let Some(max) = agents.max_delegations_per_session {
+    let orch = agents.default_orchestrator();
+
+    if let Some(max) = orch.max_delegations_per_session {
         if session.delegation_count >= max {
             return Err(format!(
                 "max delegations per session reached (maxDelegationsPerSession={})",
@@ -85,7 +88,7 @@ pub async fn assert_session_delegation_limits(
         }
     }
 
-    if let Some(ref map) = agents.max_delegations_per_worker {
+    if let Some(ref map) = orch.max_delegations_per_worker {
         if let Some(&limit) = map.get(worker_id) {
             let n = session
                 .delegation_by_worker
@@ -107,12 +110,13 @@ pub async fn assert_session_delegation_limits(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::WorkerConfig;
+    use crate::config::{OrchestratorConfig, WorkerConfig};
     use serde_json::json;
 
     #[test]
     fn bracket_match_injects_worker_id() {
         let agents = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
             workers: Some(vec![WorkerConfig {
                 id: "read-only".to_string(),
                 default_provider: None,
@@ -120,7 +124,6 @@ mod tests {
                 enabled_skills: None,
                 context_mode: None,
             }]),
-            ..AgentsConfig::default()
         };
         let args = json!({ "instruction": "[read-only] search the files" });
         let merged = apply_delegation_bracket_match(&agents, &args);
@@ -132,6 +135,7 @@ mod tests {
     #[test]
     fn bracket_match_no_match_returns_args_unchanged() {
         let agents = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
             workers: Some(vec![WorkerConfig {
                 id: "read-only".to_string(),
                 default_provider: None,
@@ -139,7 +143,6 @@ mod tests {
                 enabled_skills: None,
                 context_mode: None,
             }]),
-            ..AgentsConfig::default()
         };
         let args = json!({ "instruction": "search the files" });
         let merged = apply_delegation_bracket_match(&agents, &args);
@@ -151,6 +154,7 @@ mod tests {
     fn bracket_match_no_subsumption() {
         // `[code]` should not match when instruction starts with `[code-review]`.
         let agents = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
             workers: Some(vec![
                 WorkerConfig {
                     id: "code".to_string(),
@@ -167,7 +171,6 @@ mod tests {
                     context_mode: None,
                 },
             ]),
-            ..AgentsConfig::default()
         };
         let args = json!({ "instruction": "[code-review] check this" });
         let merged = apply_delegation_bracket_match(&agents, &args);
@@ -179,6 +182,7 @@ mod tests {
     #[test]
     fn bracket_match_strips_prefix_and_trims() {
         let agents = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
             workers: Some(vec![WorkerConfig {
                 id: "w".to_string(),
                 default_provider: None,
@@ -186,7 +190,6 @@ mod tests {
                 enabled_skills: None,
                 context_mode: None,
             }]),
-            ..AgentsConfig::default()
         };
         let args = json!({ "instruction": "[w]   do thing  " });
         let merged = apply_delegation_bracket_match(&agents, &args);

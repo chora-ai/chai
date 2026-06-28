@@ -323,27 +323,20 @@ fn status_sandbox_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetail
 fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
     dashboard::section_group(ui, "Agents", |ui| {
         if let Some(s) = status {
-            let oid = s
-                .orchestrator_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-                .unwrap_or("orchestrator");
-
-            // Orchestrator subsection — title is just the lowercase agent id.
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            ui.label(egui::RichText::new(oid).strong());
-            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-            dashboard::kv(ui, "Role", "orchestrator");
-            let dp = s.default_provider.as_deref().unwrap_or("—");
-            let dm = s.default_model.as_deref().unwrap_or("—");
-            dashboard::kv(ui, "Default provider", dp);
-            dashboard::kv(ui, "Default model", dm);
-            let orch_ep = s
-                .enabled_providers
-                .as_ref()
-                .map(|list| {
-                    let v: Vec<String> = list
+            // Orchestrator subsections — each title is just the lowercase agent id.
+            for orch in &s.orchestrators {
+                let oid = orch.id.trim();
+                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                ui.label(egui::RichText::new(oid).strong());
+                ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+                dashboard::kv(ui, "Role", "orchestrator");
+                let dp = orch.default_provider.trim();
+                let dm = orch.default_model.trim();
+                dashboard::kv(ui, "Default provider", if dp.is_empty() { "—" } else { dp });
+                dashboard::kv(ui, "Default model", if dm.is_empty() { "—" } else { dm });
+                let orch_ep = {
+                    let v: Vec<String> = orch
+                        .enabled_providers
                         .iter()
                         .map(|s| s.trim())
                         .filter(|s| !s.is_empty())
@@ -354,47 +347,57 @@ fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails
                     } else {
                         v.join(", ")
                     }
-                })
-                .unwrap_or_else(|| "(none)".to_string());
-            dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
-            let orch_skills_csv = s.orchestrator_enabled_skills.join(", ");
-            dashboard::kv(
-                ui,
-                "Enabled skills",
-                if s.orchestrator_enabled_skills.is_empty() {
-                    "(none)"
-                } else {
-                    orch_skills_csv.as_str()
-                },
-            );
-            dashboard::kv(ui, "Context mode", context_mode_for_agent(s, oid).as_str());
+                };
+                dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
+                let orch_skills_csv = orch.enabled_skills.join(", ");
+                dashboard::kv(
+                    ui,
+                    "Enabled skills",
+                    if orch.enabled_skills.is_empty() {
+                        "(none)"
+                    } else {
+                        orch_skills_csv.as_str()
+                    },
+                );
+                dashboard::kv(ui, "Context mode", context_mode_for_agent(s, oid).as_str());
 
-            // Orchestrator limit fields (same order as config screen).
-            let mut any_limit = false;
-            if let Some(n) = s.max_tool_loops_per_turn {
-                dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
-                any_limit = true;
-            }
-            if let Some(n) = s.max_delegations_per_turn {
-                dashboard::kv(ui, "Max delegations per turn", &n.to_string());
-                any_limit = true;
-            }
-            if let Some(n) = s.max_delegations_per_session {
-                dashboard::kv(ui, "Max delegations per session", &n.to_string());
-                any_limit = true;
-            }
-            if let Some(ref m) = s.max_delegations_per_worker {
-                if !m.is_empty() {
-                    let display: Vec<String> = m
-                        .iter()
-                        .map(|(k, v)| format!("{} ({})", k, v))
-                        .collect();
-                    dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
+                // Enabled workers.
+                if let Some(ref ew) = orch.enabled_workers {
+                    let ew_display = if ew.is_empty() {
+                        "(none)".to_string()
+                    } else {
+                        ew.join(", ")
+                    };
+                    dashboard::kv(ui, "Enabled workers", ew_display.as_str());
+                }
+
+                // Orchestrator limit fields (same order as config screen).
+                let mut any_limit = false;
+                if let Some(n) = orch.max_tool_loops_per_turn {
+                    dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
                     any_limit = true;
                 }
-            }
-            if any_limit {
-                ui.add_space(spacing::LINE);
+                if let Some(n) = orch.max_delegations_per_turn {
+                    dashboard::kv(ui, "Max delegations per turn", &n.to_string());
+                    any_limit = true;
+                }
+                if let Some(n) = orch.max_delegations_per_session {
+                    dashboard::kv(ui, "Max delegations per session", &n.to_string());
+                    any_limit = true;
+                }
+                if let Some(ref m) = orch.max_delegations_per_worker {
+                    if !m.is_empty() {
+                        let display: Vec<String> = m
+                            .iter()
+                            .map(|(k, v)| format!("{} ({})", k, v))
+                            .collect();
+                        dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
+                        any_limit = true;
+                    }
+                }
+                if any_limit {
+                    ui.add_space(spacing::LINE);
+                }
             }
 
             // Worker subsections — each title is just the lowercase worker id.

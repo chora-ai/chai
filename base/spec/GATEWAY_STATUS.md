@@ -87,7 +87,7 @@ Shared skill store on disk and lockfile state (not per-agent):
 
 ### `agents`
 
-Array of per-agent runtime rows. Orchestrator first (**`role`**: **`orchestrator`**), then workers sorted by **`id`**. Each object corresponds to one **`config.json`** agent row (orchestrator or worker):
+Array of per-agent runtime rows. Orchestrator entries first (one per orchestrator in **`config.json`** order), then workers sorted by **`id`**. Each object corresponds to one **`config.json`** agent row (orchestrator or worker):
 
 | Field | Meaning |
 |-------|---------|
@@ -96,6 +96,7 @@ Array of per-agent runtime rows. Orchestrator first (**`role`**: **`orchestrator
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
 | **`enabledSkills`** | Skill package names loaded for that agent. Mirrors **`config.json`** **`agents[].enabledSkills`**. |
 | **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
+| **`enabledWorkers`** | Orchestrator: worker ids this orchestrator can delegate to (array or **`null`**; absent/`null` means all workers). Workers: **`null`**. |
 | **`maxToolLoopsPerTurn`** | Orchestrator: maximum tool loops per turn (integer or **`null`**; omitted = no limit; applies globally to both orchestrator and worker turns). Workers: **`null`**. |
 | **`maxDelegationsPerTurn`** | Orchestrator: optional cap on **`delegate_task`** calls per turn (integer or **`null`**). Workers: **`null`**. |
 | **`maxDelegationsPerSession`** | Orchestrator: optional cap on **`delegate_task`** calls per session (integer or **`null`**). Workers: **`null`**. |

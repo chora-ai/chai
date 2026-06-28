@@ -24,7 +24,7 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             }
 
             let gs = app.gateway_status.as_ref().unwrap();
-            let orch_id = gs.orchestrator_id.as_deref().unwrap_or("orchestrator");
+            let orch_id = gs.orchestrator_id().unwrap_or("orchestrator");
             let orch_owned = orch_id.to_string();
             let selected_id = app
                 .dashboard_agent_id

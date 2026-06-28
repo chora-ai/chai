@@ -10,7 +10,7 @@ This document describes how **orchestrator** and **worker** entries in **`config
 
 ## Roles
 
-- **Orchestrator** — Exactly one entry with **`"role": "orchestrator"`**. It runs the main session turn (default **`defaultProvider`** / **`defaultModel`** unless overridden per request).
+- **Orchestrator** — At least one entry with **`"role": "orchestrator"`**. Multiple orchestrators are supported; the first is the default. It runs the main session turn (default **`defaultProvider`** / **`defaultModel`** unless overridden per request).
 - **Workers** — Zero or more entries with **`"role": "worker"`**. Each has an **`id`** used as **`workerId`** when delegating.
 
 ## Configuration Quick Reference
@@ -21,10 +21,11 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 
 | Key | Purpose |
 |-----|---------|
-| **`id`**, **`role`** | Identity; must include exactly one **`orchestrator`**. |
+| **`id`**, **`role`** | Identity; must include at least one **`orchestrator`**. |
 | **`defaultProvider`**, **`defaultModel`** | Main session defaults. |
 | **`enabledProviders`** | Which provider stacks this agent may use (discovery and routing). |
 | **`enabledSkills`** | Skill package names to load for **this** agent from shared discovery roots; missing or empty ⇒ no skills for the orchestrator. |
+| **`enabledWorkers`** | Optional array of worker ids this orchestrator can delegate to. Absent or `null` ⇒ all workers; present ⇒ only listed workers. Orchestrator-only — rejected on worker entries at parse time. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** — how orchestrator skill text appears in system context (and whether **`read_skill`** is offered). |
 | **`maxToolLoopsPerTurn`** | Maximum tool loops per turn (omitted = no limit). The loop exits naturally when the model returns no tool calls; this is a safety net against runaway loops. Applies to both orchestrator and worker (delegate) turns. When the limit is reached on the orchestrator turn, the gateway emits a **`session.tool_loop_limit`** event with the pending tool calls and includes **`loopLimitReached`** + **`pendingToolCalls`** in the `agent` RPC response, so clients can show the interrupted state. When the turn is stopped by the user, the `agent` RPC response includes **`stopped`**: **`true`** and the gateway emits a **`session.turn_stopped`** event. |
 | **`maxDelegationsPerTurn`** | Cap on **`delegate_task`** calls in a single orchestrator turn. |
@@ -40,7 +41,7 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`enabledSkills`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker's skill presentation and tools. |
 
-Orchestrator-only fields (**`enabledProviders`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**, **`maxToolLoopsPerTurn`**) are rejected at parse time when set on a worker entry. A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**.
+Orchestrator-only fields (**`enabledProviders`**, **`enabledWorkers`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**, **`maxToolLoopsPerTurn`**) are rejected at parse time when set on a worker entry. A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**.
 
 ## Delegation Tool (`delegate_task`)
 

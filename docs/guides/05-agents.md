@@ -6,7 +6,7 @@ In Chai, **agents** are configuration entries — not separate services or binar
 
 Each entry in the `agents` array has a unique `id`, a `role` (`orchestrator` or `worker`), and optional fields that set the default provider, model, and skills. The gateway uses this to route turns, pass model ids to each provider, decide which APIs to poll for model discovery, and load `AGENT.md` from `<active-profile>/agents/<id>/`.
 
-There is always exactly one **orchestrator** (owns the conversation, handles incoming messages). Workers are optional — they handle subtasks delegated by the orchestrator. With no `agents` key in `config.json`, the gateway runs a single orchestrator with built-in defaults (Ollama, `llama3.2:3b`).
+There is always at least one **orchestrator** (owns the conversation, handles incoming messages). Multiple orchestrators are supported — each can have its own provider, model, skills, and worker visibility. Workers are optional — they handle subtasks delegated by the orchestrator. With no `agents` key in `config.json`, the gateway runs a single orchestrator with built-in defaults (Ollama, `llama3.2:3b`).
 
 When workers are configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Delegation caps are policy on top of agent configuration — see the [Configuration → Agents](03-configuration.md#agents) reference for the full delegation fields.
 

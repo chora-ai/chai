@@ -27,10 +27,20 @@ impl std::fmt::Display for ProviderChoice {
 }
 
 /// Resolve default provider from [`AgentsConfig`] + [`ProvidersConfig`].
+/// Uses the default (first) orchestrator's `default_provider`.
 /// Returns the first configured provider if the agent's `defaultProvider` doesn't match any
 /// configured provider, or "ollama" as a last resort.
 pub fn resolve_provider_choice(providers: &ProvidersConfig, agents: &AgentsConfig) -> ProviderChoice {
-    let id = agents
+    resolve_orchestrator_provider_choice(providers, agents.default_orchestrator())
+}
+
+/// Resolve default provider for a specific [`OrchestratorConfig`].
+/// Same fallback logic as [`resolve_provider_choice`] but scoped to one orchestrator.
+pub fn resolve_orchestrator_provider_choice(
+    providers: &ProvidersConfig,
+    orch: &crate::config::OrchestratorConfig,
+) -> ProviderChoice {
+    let id = orch
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))

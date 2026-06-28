@@ -495,6 +495,7 @@ impl ChaiApp {
         // Start from enabledProviders when set; otherwise fall back to the effective default provider.
         let mut list: Vec<String> = if config
             .agents
+            .default_orchestrator()
             .enabled_providers
             .as_ref()
             .map(|v| v.is_empty())
@@ -512,6 +513,7 @@ impl ChaiApp {
                 .collect();
             config
                 .agents
+                .default_orchestrator()
                 .enabled_providers
                 .as_ref()
                 .unwrap()
@@ -548,7 +550,7 @@ impl ChaiApp {
             self.dashboard_agent_id = None;
             return;
         }
-        let orch = details.orchestrator_id.as_deref().unwrap_or("orchestrator");
+        let orch = details.orchestrator_id().unwrap_or("orchestrator");
         let valid = self
             .dashboard_agent_id
             .as_ref()
@@ -1107,7 +1109,7 @@ impl ChaiApp {
         let provider = self.current_provider.clone().or_else(|| {
             self.gateway_status
                 .as_ref()
-                .and_then(|s| s.default_provider.clone())
+                .and_then(|s| s.default_provider().map(String::from))
         });
         let model = self.current_model.clone();
         let profile_override = self.cached_profile_override.clone();
