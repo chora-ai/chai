@@ -3,7 +3,8 @@
 use std::collections::HashMap;
 
 use crate::config::{
-    canonical_provider_id, worker_enabled_skills_list, AgentsConfig, ProvidersConfig, WorkerConfig,
+    canonical_provider_id, worker_enabled_skills_list, AgentsConfig, OrchestratorConfig,
+    ProvidersConfig, WorkerConfig,
 };
 use crate::skills::SkillEntry;
 
@@ -11,15 +12,14 @@ use super::choice::ProviderChoice;
 use super::model::resolve_model;
 
 /// Effective `(provider, model)` for this worker — resolves `defaultProvider` / `defaultModel`,
-/// falling back to the default orchestrator's defaults when omitted (mirrors runtime resolution in
+/// falling back to the given orchestrator's defaults when omitted (mirrors runtime resolution in
 /// `orchestration/delegate.rs`).
 pub fn effective_worker_defaults(
     providers: &ProvidersConfig,
-    agents: &AgentsConfig,
+    orchestrator: &OrchestratorConfig,
     w: &WorkerConfig,
 ) -> (String, String) {
-    let orch = agents.default_orchestrator();
-    let global_default_provider = orch
+    let global_default_provider = orchestrator
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))
@@ -36,7 +36,7 @@ pub fn effective_worker_defaults(
     let config_model = w
         .default_model
         .as_deref()
-        .or(orch.default_model.as_deref());
+        .or(orchestrator.default_model.as_deref());
     let model = resolve_model(providers, config_model, None, &provider_choice);
     (provider_id, model)
 }
@@ -46,9 +46,13 @@ pub fn effective_worker_defaults(
 /// not included — the orchestrator cannot act on that information (there is no
 /// override mechanism on `delegate_task`), and omitting it keeps worker context
 /// minimal for smaller model support.
+///
+/// When `enabled_workers` is `Some(list)`, only workers whose id appears in the
+/// list are included. When `None` or empty, all workers are included (current behavior).
 pub fn build_workers_context(
     agents: &AgentsConfig,
     skill_catalog: &[SkillEntry],
+    enabled_workers: Option<&[String]>,
 ) -> String {
     let Some(workers) = agents.workers.as_ref() else {
         return String::new();
@@ -68,6 +72,12 @@ pub fn build_workers_context(
     out.push_str("`delegate_task` calls execute sequentially — each worker turn completes before the next begins.\n\n");
     out.push_str("Only delegate a task to a worker if the worker has the relevant skills.\n\n");
     for w in workers {
+        // Filter by enabled_workers when set.
+        if let Some(allowed) = enabled_workers {
+            if !allowed.is_empty() && !allowed.iter().any(|id| id == w.id.as_str()) {
+                continue;
+            }
+        }
         lines_for_worker(&mut out, w, &skill_by_name);
     }
     out
@@ -145,7 +155,7 @@ mod tests {
     #[test]
     fn no_workers_yields_empty() {
         let a = AgentsConfig::default();
-        assert!(build_workers_context(&a, &[]).is_empty());
+        assert!(build_workers_context(&a, &[], None).is_empty());
     }
 
     #[test]
@@ -154,12 +164,12 @@ mod tests {
             orchestrators: vec![OrchestratorConfig::default()],
             workers: Some(vec![]),
         };
-        assert!(build_workers_context(&a, &[]).is_empty());
+        assert!(build_workers_context(&a, &[], None).is_empty());
     }
 
     #[test]
     fn includes_orchestrator_and_worker() {
-        let s = build_workers_context(&sample_agents(), &[]);
+        let s = build_workers_context(&sample_agents(), &[], None);
         assert!(s.contains("You are the orchestrator agent"));
         assert!(s.contains("sequentially"));
         assert!(s.contains("bob"));
@@ -184,7 +194,7 @@ mod tests {
                 context_mode: None,
             }]),
         };
-        let s = build_workers_context(&a, &[]);
+        let s = build_workers_context(&a, &[], None);
         assert!(s.contains("bob"));
         assert!(s.contains("### bob"));
         assert!(s.contains("Start your instruction with `[bob]`"));
@@ -221,21 +231,74 @@ mod tests {
             variant_of: None,
             matched_bin_group: None,
         }];
-        let s = build_workers_context(&a, &catalog);
+        let s = build_workers_context(&a, &catalog, None);
         assert!(!s.contains("provider"));
         assert!(s.contains("- does a thing"));
     }
 
     #[test]
     fn bracket_prefix_rendered_per_worker() {
-        let s = build_workers_context(&sample_agents(), &[]);
+        let s = build_workers_context(&sample_agents(), &[], None);
         assert!(s.contains("Start your instruction with `[bob]`"));
     }
 
     #[test]
     fn no_provider_model_in_context() {
-        let s = build_workers_context(&sample_agents(), &[]);
+        let s = build_workers_context(&sample_agents(), &[], None);
         assert!(!s.contains("provider"));
         assert!(!s.contains("model"));
+    }
+
+    #[test]
+    fn enabled_workers_filters_roster() {
+        let a = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig {
+                id: "orch".to_string(),
+                ..Default::default()
+            }],
+            workers: Some(vec![
+                WorkerConfig {
+                    id: "reader".to_string(),
+                    default_provider: None,
+                    default_model: None,
+                    enabled_skills: None,
+                    context_mode: None,
+                },
+                WorkerConfig {
+                    id: "engineer".to_string(),
+                    default_provider: None,
+                    default_model: None,
+                    enabled_skills: None,
+                    context_mode: None,
+                },
+            ]),
+        };
+        let allowed = vec!["reader".to_string()];
+        let s = build_workers_context(&a, &[], Some(&allowed));
+        assert!(s.contains("### reader"));
+        assert!(!s.contains("### engineer"));
+    }
+
+    #[test]
+    fn enabled_workers_none_includes_all() {
+        let s = build_workers_context(&sample_agents(), &[], None);
+        assert!(s.contains("### bob"));
+    }
+
+    #[test]
+    fn enabled_workers_empty_includes_all() {
+        let a = AgentsConfig {
+            orchestrators: vec![OrchestratorConfig::default()],
+            workers: Some(vec![WorkerConfig {
+                id: "bob".to_string(),
+                default_provider: None,
+                default_model: None,
+                enabled_skills: None,
+                context_mode: None,
+            }]),
+        };
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&a, &[], Some(&empty));
+        assert!(s.contains("### bob"));
     }
 }

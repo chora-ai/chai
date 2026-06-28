@@ -41,7 +41,7 @@ Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`
 | **`enabledSkills`** | Skill names for **this** worker only; missing or empty ⇒ no skills on worker turns. |
 | **`contextMode`** | **`full`** \| **`readOnDemand`** for this worker's skill presentation and tools. |
 
-Orchestrator-only fields (**`enabledProviders`**, **`enabledWorkers`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**, **`maxToolLoopsPerTurn`**) are rejected at parse time when set on a worker entry. A worker's `defaultProvider` must be enabled at the orchestrator level via **`enabledProviders`**.
+Orchestrator-only fields (**`enabledProviders`**, **`enabledWorkers`**, **`maxDelegationsPerTurn`**, **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**, **`maxToolLoopsPerTurn`**) are rejected at parse time when set on a worker entry. A worker's `defaultProvider` must be enabled in the **calling orchestrator's** `enabledProviders` — delegation is rejected when the worker's provider is not in the requesting orchestrator's list.
 
 ## Delegation Tool (`delegate_task`)
 
@@ -64,7 +64,8 @@ The orchestrator may call **`delegate_task`** to run a **subtask** on a worker's
 - The worker receives **its own** static system string: **that worker's** **`AGENT.md`**, **that worker's** **`enabledSkills`** / **`contextMode`** skill block (no **`## Workers`** roster, no orchestrator identity copy). **`execute_delegate_task`** selects the matching **`WorkerDelegateRuntime`** by **`workerId`** (see **`gateway/server.rs`**).
 - **Tool list** — Skill tools (and optional **`read_skill`**) match the worker's enabled set only. **`delegate_task`** is **not** offered (nested delegation disabled).
 - **Messages** — The worker turn is **not** the main session transcript: **`execute_delegate_task`** builds **`[system?, user(instruction)]`** only (see **`delegate.rs`**). Delegation limits may still use the parent **`sessionId`** for caps.
-- Implementation: **`DelegateContext.worker_runtimes`** and **`crates/lib/src/orchestration/delegate.rs`**.
+- **Delegation context** — **`DelegateContext`** carries `orchestrator_id: Option<&'a str>` so the delegation path knows which orchestrator initiated it. **`resolve_delegate_target()`** takes `&OrchestratorConfig` (the calling orchestrator's config) and enforces both `enabledWorkers` and `enabledProviders` per-orchestrator. Delegation caps (`assert_session_delegation_limits()`) are also checked against the calling orchestrator's config.
+- Implementation: **`DelegateContext.worker_runtimes`**, **`DelegateContext.orchestrator_id`**, and **`crates/lib/src/orchestration/delegate.rs`**.
 
 ### Response Flow
 

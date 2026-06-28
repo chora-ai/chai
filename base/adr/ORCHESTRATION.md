@@ -14,7 +14,7 @@ Before orchestration, the gateway ran a single default model for the entire agen
 
 Chai uses an **orchestrator–worker** model:
 
-- The **orchestrator** holds the conversation and context, plans work, and can **delegate** specific subtasks to workers via the built-in `delegate_task` tool. The orchestrator uses its own `defaultProvider` and `defaultModel` for planning.
+- The **orchestrator** holds the conversation and context, plans work, and can **delegate** specific subtasks to workers via the built-in `delegate_task` tool. The orchestrator uses its own `defaultProvider` and `defaultModel` for planning. Multiple orchestrators are supported — each gets its own `OrchestratorRuntime` (system context, skills, tools, executor) and `SessionStore` at startup, and the `agent` RPC accepts an `orchestratorId` parameter to select the target.
 - **Workers** handle narrow, well-defined subtasks. Each worker has a single `defaultProvider` / `defaultModel` pair and its own skill configuration. Workers do not see the orchestrator's identity, the worker roster, or the `delegate_task` tool (nested delegation is disabled).
 - Agent definitions live in a single **`agents` array** in `config.json`. Each entry has an `id`, a `role` (`"orchestrator"` or `"worker"`), and fields for provider/model defaults and skill enablement. At least one orchestrator is required (multiple supported); zero or more workers may be defined. Each orchestrator can optionally restrict which workers it delegates to via `enabledWorkers`.
 - **`providers`** (connection plumbing: base URLs, API keys) and **`agents`** (routing: which provider/model per role, which skills) are separate top-level config concerns. `providers` describes how to reach each backend; `agents` describes which backend each role uses.
@@ -30,7 +30,7 @@ This design keeps the delegation path simple: the orchestrator picks a worker by
 
 ### Provider Access Is Controlled by `enabledProviders` Only
 
-Which providers are available at all — for discovery, for the orchestrator, and for workers — is determined by `agents.enabledProviders` on the orchestrator entry. Workers do not have their own `enabledProviders` field; a worker's provider is its `defaultProvider`, which must already be an enabled provider at the orchestrator level. This avoids contradictory configurations where a provider is enabled globally but blocked or restricted for delegation.
+Which providers are available at all — for discovery, for the orchestrator, and for workers — is determined by `agents.enabledProviders` on the orchestrator entry. `enabledProviders` is **per-orchestrator** — each orchestrator has its own scope. Workers do not have their own `enabledProviders` field; a worker's provider is its `defaultProvider`, which must already be an enabled provider in the **calling orchestrator's** `enabledProviders`. `resolve_delegate_target()` enforces this at delegation time — when a worker's provider is not in the requesting orchestrator's `enabledProviders`, the delegation is rejected. This avoids contradictory configurations where a provider is enabled globally but blocked or restricted for delegation.
 
 ## Alternatives Considered
 
@@ -52,7 +52,8 @@ Which providers are available at all — for discovery, for the orchestrator, an
 - **Single array shape.** The `agents` array is the sole config representation for agent definitions. There is no alternate object form. This keeps validation and parsing simple.
 - **Workers are isolated.** Each worker receives its own system context and tool list. No orchestrator identity or `delegate_task` leaks into worker turns.
 - **Single routing mechanism.** The bracket prefix `[workerId]` is the only way to target a worker. There are no `provider`/`model` override parameters on `delegate_task`, no allowlists to maintain, and no `(default)` markings in context. The worker's pair is always its `defaultProvider`/`defaultModel`.
-- **No contradictory config.** A worker's provider must be enabled at the orchestrator level via `enabledProviders`. There is no separate blocklist or allowlist that could conflict with the enablement decision.
+- **Per-orchestrator runtime isolation.** Each orchestrator has its own `OrchestratorRuntime` (system context, skills, tools, executor) and `SessionStore` at startup. The `agent` RPC and `sessions.list` RPC accept an `orchestratorId` parameter to select the target. Channel-bound messages always use the default orchestrator. Delegation policy (`enabledWorkers`, `enabledProviders`, caps) is enforced per-orchestrator.
+- **No contradictory config.** A worker's provider must be enabled in the calling orchestrator's `enabledProviders`. There is no separate blocklist or allowlist that could conflict with the enablement decision.
 
 ## References
 

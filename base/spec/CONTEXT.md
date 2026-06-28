@@ -14,9 +14,9 @@ This document describes the **context** the model receives for a turn, as implem
 ## When It Is Built
 
 - **Skill discovery** — At gateway startup, packages are loaded from **`~/.chai/skills`** only (see **`config::default_skills_dir`** / **`skills::load_skills`**). **Enablement** is **not** global: each agent entry's **`enabledSkills`** list selects which discovered packages apply to **that** agent. Missing or empty **`enabledSkills`** ⇒ **no** skill tools and **no** skill-derived inlined context for that agent.
-- **Orchestrator static context** — Composed once in **`run_gateway`**: **`AGENT.md`** from the orchestrator **agent context directory** (**`orchestrator_context_dir`** → **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**), then optional **`## Workers`** roster from **`build_workers_context`**, then orchestrator skills via **`build_skill_context_full`** or **`build_skill_context_compact`** according to the **orchestrator** entry's **`contextMode`**. Stored in **`GatewayState.system_context`**.
-- **Worker static context** — For each **`role: worker`** entry, a **`WorkerDelegateRuntime`** is built: **`AGENT.md`** from **`worker_context_dir`** (**`<profileRoot>/agents/<workerId>/`**), worker-filtered skills, and **no** **`## Workers`** block (**`build_worker_system_context`**). Cached per worker id until restart.
-- **Tools** — **Per agent** at startup: skill tools from **`tools.json`** for that agent's enabled packages; optional **`read_skill`** when that agent's **`contextMode`** is **`readOnDemand`** and at least one skill is enabled. The **orchestrator** list is merged with **`delegate_task`** via **`merge_delegate_task`** when workers exist. **Worker** lists omit **`delegate_task`**. The same prebuilt list is sent on every turn for that role.
+- **Orchestrator static context** — For each orchestrator in `config.agents.orchestrators`, an **`OrchestratorRuntime`** is built at startup: **`AGENT.md`** from the orchestrator **agent context directory** (**`<profileRoot>/agents/<orchestratorId>/AGENT.md`**), then optional **`## Workers`** roster from **`build_workers_context`** (filtered by that orchestrator's **`enabledWorkers`**), then orchestrator skills via **`build_skill_context_full`** or **`build_skill_context_compact`** according to the orchestrator entry's **`contextMode`**. Orchestrator runtimes are stored in **`GatewayState.orchestrator_runtimes: Arc<HashMap<String, OrchestratorRuntime>>`**.
+- **Worker static context** — For each **`role: worker`** entry, a **`WorkerDelegateRuntime`** is built: **`AGENT.md`** from **`<profileRoot>/agents/<workerId>/`**, worker-filtered skills, and **no** **`## Workers`** block (**`build_worker_system_context`**). Cached per worker id until restart.
+- **Tools** — **Per agent** at startup: skill tools from **`tools.json`** for that agent's enabled packages; optional **`read_skill`** when that agent's **`contextMode`** is **`readOnDemand`** and at least one skill is enabled. Each orchestrator's list is merged with **`delegate_task`** via **`merge_delegate_task`** when that orchestrator has effective workers. **Worker** lists omit **`delegate_task`**. The same prebuilt list is sent on every turn for that agent.
 
 After skill loading and config resolution, the gateway runs startup validation (lockfile verification and capability-tier checks) before accepting the configuration. See [SKILL_PACKAGES.md](SKILL_PACKAGES.md).
 
@@ -29,13 +29,13 @@ For a **new session**, when the user sends a message, the gateway sends the prov
 
 ## 1. System Message Content
 
-**Orchestrator** — Static string from **`build_system_context(agent_ctx, skills, context_mode, agents, skill_catalog)`**. **Worker** — Static string from **`build_worker_system_context(agent_ctx, skills, context_mode)`** (same skill builders, **no** workers roster). The static string is built once at gateway startup and injected as a `system`-role message at position 0 of the messages array on every turn. It is **not** persisted in the session store — it is reconstructed each turn from the cached startup string, so it never accumulates in the history.
+**Orchestrator** — Static string from **`build_system_context(agent_ctx, skills, context_mode, agents, skill_catalog, enabled_workers)`**, built **per orchestrator** and cached in `OrchestratorRuntime.system_context`. **Worker** — Static string from **`build_worker_system_context(agent_ctx, skills, context_mode)`** (same skill builders, **no** workers roster). The static string is built once at gateway startup and injected as a `system`-role message at position 0 of the messages array on every turn. It is **not** persisted in the session store — it is reconstructed each turn from the cached startup string, so it never accumulates in the history.
 
 ### Build Order (Orchestrator)
 
 1. **Agent context** — Contents of **`AGENT.md`** at **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**. Trimmed. Omitted if missing or empty.
 2. **`"\n\n"`** — Only if agent context was non-empty.
-3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog)`** appends a **`## Workers`** section (see [Workers Section](#workers-section-build_workers_context) below). Omitted entirely when there are no workers.
+3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog, enabled_workers)`** appends a **`## Workers`** section (see [Workers Section](#workers-section-build_workers_context) below). `enabled_workers` is derived from the orchestrator's `OrchestratorConfig.enabled_workers` — when `Some(ids)`, only those workers are included; when `None`, all workers are included (backward compatible). Omitted entirely when there are no workers.
 4. **`"\n\n"`** — Only if the workers section was non-empty.
 5. **Skills** — From **`build_skill_context_full`** (**`full`**) or **`build_skill_context_compact`** (**`readOnDemand`**) using **only** packages whose names are in the **orchestrator** **`enabledSkills`** list, or empty if that list is missing/empty or none match disk.
 
@@ -62,6 +62,7 @@ For a **new session**, when the user sends a message, the gateway sends the prov
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
+- When `enabled_workers` is `Some(ids)`, only workers whose IDs are in `ids` are included in the roster. When `None`, all workers are included (backward compatible).
 - Otherwise:
 ```
 ## Workers
@@ -76,7 +77,7 @@ The worker does not share session history — each worker turn begins with no hi
 
 Only delegate a task to a worker if the worker has the relevant skills.
 ```
-Then per worker (via **`lines_for_worker`**):
+Then per included worker (via **`lines_for_worker`**):
   - **`### <id>`** heading.
   - Skill descriptions from **`skill_catalog`** (**`This worker has the following skills:`** + one **`- <description>`** per enabled skill; omitted if no enabled skills).
   - Bracket prefix line (**`Start your instruction with \`[<id>]\` to delegate to this worker.`**).
@@ -163,7 +164,7 @@ The **`read_skill`** tool (plus skill tools from **`tools.json`**) is included i
 
 Sessions are persisted to disk so they survive gateway restarts. See [SESSIONS.md](SESSIONS.md) for the full session specification including storage layout, protocol methods, and CLI commands.
 
-- **Storage layout** — Each session is stored as a JSON file (`{session_id}.json`) under `<profileRoot>/agents/<agentId>/sessions/`. Only the orchestrator's `sessions/` directory is populated in the current architecture.
+- **Storage layout** — Each session is stored as a JSON file (`{session_id}.json`) under `<profileRoot>/agents/<agentId>/sessions/`. Each orchestrator has its own `sessions/` directory with its own `SessionStore`, held in `GatewayState.session_stores`.
 - **`Session` struct** — Derives `Serialize, Deserialize` and includes `created_at: String` and `updated_at: String` (ISO 8601 timestamps, with `#[serde(default)]` for backward compatibility).
 - **Write-through** — Every mutation (`create`, `append_message_full`, `record_delegation`, `remove`) writes to disk immediately via atomic writes (`.tmp` then rename). The `updated_at` timestamp advances on every write.
 - **Lazy loading** — On gateway start, `session_store.scan()` reads metadata only (id, timestamps, message count) without loading full message history. Full history is loaded on the first `get()` call for that session, keeping startup fast.
@@ -185,15 +186,15 @@ See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) for **`tools.json`** execution shape.
 
 | Source | Where defined | When loaded | What the model sees |
 |--------|----------------|------------|---------------------|
-| Agent context (orchestrator) | **`<profileRoot>/agents/<orchestratorId>/AGENT.md`** | Gateway startup | Trimmed file text, then optional **`## Workers`**, then orchestrator skills block. Injected as `messages[0]` (`system` role) every turn; not persisted in session store. |
-| Agent context (worker) | **`<profileRoot>/agents/<workerId>/AGENT.md`** | Gateway startup | Trimmed file text + worker skills only (no workers roster). Injected as `messages[0]` (`system` role) every turn; not persisted in session store. |
-| Workers roster | `config.json` **`agents`** (`role: worker` entries) | Composed at startup **into orchestrator static context only** | **`## Workers`** with intro text, per-worker skill descriptions, bracket prefix guidance, and example. |
+| Agent context (orchestrator) | **`<profileRoot>/agents/<orchestratorId>/AGENT.md`** | Gateway startup (per orchestrator, cached in `OrchestratorRuntime`) | Trimmed file text, then optional **`## Workers`** (filtered by `enabledWorkers`), then orchestrator skills block. Injected as `messages[0]` (`system` role) every turn; not persisted in session store. |
+| Agent context (worker) | **`<profileRoot>/agents/<workerId>/AGENT.md`** | Gateway startup (per worker, cached in `WorkerDelegateRuntime`) | Trimmed file text + worker skills only (no workers roster). Injected as `messages[0]` (`system` role) every turn; not persisted in session store. |
+| Workers roster | `config.json` **`agents`** (`role: worker` entries, filtered by orchestrator's `enabledWorkers`) | Composed at startup **into each orchestrator's static context only** | **`## Workers`** with intro text, per-worker skill descriptions, bracket prefix guidance, and example. |
 | Skill content | **`~/.chai/skills`**; **`SKILL.md`** per package | Discovery at startup; **subset** per agent | Per agent **`enabledSkills`**: **full** ⇒ **`## Skills`** + **`###`** bodies; **readOnDemand** ⇒ compact list + **`read_skill`**. |
-| Session messages | Session store | Every turn | History for **`session_id`** (user, assistant with tool_calls, tool results). |
-| Tools | Per-agent skill descriptors + optional **`read_skill`** + orchestrator-only **`delegate_task`** | Startup | Sent as a separate top-level `tools` field on each provider request — never part of the messages array. |
+| Session messages | Per-orchestrator session store | Every turn | History for **`session_id`** (user, assistant with tool_calls, tool results). |
+| Tools | Per-agent skill descriptors + optional **`read_skill`** + per-orchestrator **`delegate_task`** (when that orchestrator has effective workers) | Startup | Sent as a separate top-level `tools` field on each provider request — never part of the messages array. |
 
 ## Efficiency
 
-- **Static context** — Orchestrator and each worker cache their own **`AGENT.md`** slice, orchestrator-only workers roster, and skill text.
+- **Static context** — Each orchestrator caches its own `OrchestratorRuntime` (system context, workers roster filtered by `enabledWorkers`, skills, tools, executor), and each worker caches its own `WorkerDelegateRuntime` (system context, skills, tools, executor).
 
 **Inspecting the exact string:** The gateway **`agentDetail`** method returns per-agent heavy data (**`systemContext`**, **`tools`**, **`skillsContext`**) on demand, given an **`agentId`**. The polling **`status`** response includes lightweight agent metadata (**`id`**, **`role`**, **`enabledSkills`**, **`contextMode`**, routing defaults, delegation limits) but omits the large fields to reduce payload size (see [GATEWAY_STATUS.md](GATEWAY_STATUS.md)). Chai Desktop fetches **`agentDetail`** when the Agent or Tools screen is active, builds a per-agent cache, and shows skill bodies in a second column when available; otherwise the desktop shows a loading placeholder or error message (no on-disk fallback).

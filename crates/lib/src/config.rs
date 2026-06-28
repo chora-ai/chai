@@ -1212,7 +1212,7 @@ pub fn worker_context_dir(worker: &WorkerConfig, profile_dir: &Path) -> Option<P
 }
 
 /// `<profile_dir>/agents/<agent_id>/` — directory for that agent's on-disk context (**`AGENT.md`**).
-fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
+pub fn agent_context_dir(profile_dir: &Path, agent_id: &str) -> PathBuf {
     profile_dir.join("agents").join(agent_id)
 }
 

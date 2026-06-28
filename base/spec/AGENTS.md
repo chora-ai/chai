@@ -8,7 +8,7 @@ This document specifies how **logical agents** (orchestrator and workers) are co
 
 ## Purpose
 
-Each logical agent has its own identity, context directory, and skill configuration. The gateway builds separate system context strings and separate tool lists for each agent at startup. This spec describes the per-agent model: how agents are defined, how their resources are organized on disk, and how the gateway uses that configuration.
+Each logical agent has its own identity, context directory, and skill configuration. The gateway builds an `OrchestratorRuntime` per orchestrator and a `WorkerDelegateRuntime` per worker at startup — each with its own system context string, skill set, tool list, and tool executor. This spec describes the per-agent model: how agents are defined, how their resources are organized on disk, and how the gateway uses that configuration.
 
 ## Agent Entries
 
@@ -42,7 +42,7 @@ Zero or more entries with `"role": "worker"`. Each has an `id` used as `workerId
 | `enabledSkills` | Skill package names for this worker only. Missing or empty ⇒ no skills. |
 | `contextMode` | `full` \| `readOnDemand` for this worker's skill presentation |
 
-A worker's `defaultProvider` must be enabled at the orchestrator level via `enabledProviders`. Workers do not have their own `enabledProviders` field; the worker's single provider is its `defaultProvider`, which must already be an enabled provider at the orchestrator level.
+A worker's `defaultProvider` must be enabled in the **calling orchestrator's** `enabledProviders`. Workers do not have their own `enabledProviders` field; the worker's single provider is its `defaultProvider`, which must already be an enabled provider at the orchestrator level. When an orchestrator delegates to a worker whose provider is not in that orchestrator's `enabledProviders`, the delegation is rejected.
 
 ## Agent Context Directories
 
@@ -54,7 +54,7 @@ Each agent has its own on-disk context directory under the active profile:
 ```
 
 - The gateway reads `AGENT.md` for each agent at startup and includes its contents in that agent's system context string.
-- The `sessions/` directory holds persisted session files (`{session_id}.json`) and `bindings.json` for that agent. Only the orchestrator's `sessions/` directory is populated in the current architecture. See [CONTEXT.md](CONTEXT.md) for session persistence details.
+- The `sessions/` directory holds persisted session files (`{session_id}.json`) and `bindings.json` for that agent. Each orchestrator has its own `sessions/` directory with its own `SessionStore` (held in `GatewayState.session_stores`). See [CONTEXT.md](CONTEXT.md) for session persistence details.
 - `chai init` creates `agents/orchestrator/AGENT.md` for each default profile. The `sessions/` directory is created automatically by the gateway on startup.
 - When workers are defined in `config.json`, operators add `agents/<workerId>/AGENT.md` with worker-specific instructions.
 
@@ -75,8 +75,10 @@ The gateway builds **separate** static system context strings for each agent at 
 
 ### Orchestrator Build Order
 
+Built **per orchestrator** at startup and cached in `OrchestratorRuntime`:
+
 1. **Agent context** — Contents of `<profileRoot>/agents/<orchestratorId>/AGENT.md`. Trimmed. Omitted if missing or empty.
-2. **Workers roster** — If any workers are defined, a `## Workers` section is rendered by `build_workers_context` (see [CONTEXT.md](CONTEXT.md)). Omitted when there are no workers.
+2. **Workers roster** — If any workers are defined, a `## Workers` section is rendered by `build_workers_context` (see [CONTEXT.md](CONTEXT.md)). When the orchestrator has `enabledWorkers`, only those workers are included; otherwise all workers are included. Omitted when there are no workers.
 3. **Skills** — From enabled packages for the orchestrator: either `full` (inlined bodies) or `readOnDemand` (compact list + `read_skill` tool).
 
 ### Worker Build Order
@@ -98,7 +100,7 @@ Tool lists are built **per agent** at startup from that agent's enabled skill pa
 |-------------|-------------|--------|
 | Skill tools from `tools.json` | Only packages in orchestrator's `enabledSkills` | Only packages in worker's `enabledSkills` |
 | `read_skill` | Included when orchestrator's `contextMode` is `readOnDemand` and at least one skill is enabled | Included when worker's `contextMode` is `readOnDemand` and at least one skill is enabled |
-| `delegate_task` | Merged at the **front** of the orchestrator tool list when workers exist | **Not offered** (nested delegation disabled) |
+| `delegate_task` | Merged at the **front** of each orchestrator's tool list when that orchestrator has effective workers | **Not offered** (nested delegation disabled) |
 
 The same prebuilt list is sent on every turn for that agent.
 
@@ -114,6 +116,7 @@ The same prebuilt list is sent on every turn for that agent.
 When the orchestrator calls `delegate_task` with a bracket prefix `[workerId]` in the instruction:
 
 - The gateway matches the bracket prefix, injects `workerId`, strips the prefix from the instruction, and selects the matching `WorkerDelegateRuntime` by `workerId`.
+- `DelegateContext` carries `orchestrator_id: Option<&'a str>` so the delegation path knows which orchestrator initiated it. Delegation policy (`enabledWorkers`, `enabledProviders`, delegation caps) is checked against the calling orchestrator's `OrchestratorConfig`.
 - The worker turn runs on the worker's single `(defaultProvider, defaultModel)` pair.
 - The worker turn receives the worker's own system context, tools, and executor (no orchestrator context or tools leak through).
 - The worker turn message structure is `[system?, user(instruction)]` — not the main session transcript.
@@ -132,7 +135,7 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for delegation semantics, policy, limit
 | `enabledWorkers` | Orchestrator: worker ids this orchestrator can delegate to (array or `null`; absent/`null` means all workers). Workers: `null`. |
 | `contextMode` | Skill context mode for this agent |
 
-Heavy per-agent data (`systemContext`, `tools`, `skillsContext`) is available via the on-demand `agentDetail` WebSocket method, not the polling `status` response.
+Heavy per-agent data (`systemContext`, `tools`, `skillsContext`) is available via the on-demand `agentDetail` WebSocket method, not the polling `status` response. The `agentDetail` handler resolves orchestrators from the `orchestrator_runtimes` map first (keyed by orchestrator ID), then falls back to `worker_delegate_runtimes` (keyed by worker ID).
 
 See [GATEWAY_STATUS.md](GATEWAY_STATUS.md) for the full payload specification.
 

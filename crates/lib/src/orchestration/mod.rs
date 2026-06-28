@@ -20,7 +20,7 @@ pub use choice::{resolve_orchestrator_provider_choice, resolve_provider_choice, 
 pub use delegate::{
     delegate_task_tool_definition, execute_delegate_task, merge_delegate_task,
     worker_tool_list, DelegateContext, DelegateObservability, DelegateTaskResult,
-    WorkerDelegateRuntime, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED,
+    OrchestratorRuntime, WorkerDelegateRuntime, EVENT_DELEGATE_ERROR, EVENT_DELEGATE_REJECTED,
     EVENT_DELEGATE_START, EVENT_TOOL_CALL, DELEGATE_TASK_TOOL_NAME,
     EVENT_ASSISTANT_PROGRESS, EVENT_DELEGATE_COMPLETE, EVENT_TOOL_RESULT,
     EVENT_TOOL_LOOP_LIMIT,

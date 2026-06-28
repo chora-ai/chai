@@ -13,7 +13,7 @@ use crate::channels::{
     TelegramUpdate,
 };
 use crate::config::{
-    self, matrix_channel_configured, orchestrator_context_mode, resolve_telegram_webhook_secret,
+    self, matrix_channel_configured, resolve_telegram_webhook_secret,
     sessions_dir, worker_context_mode, Config, SkillContextMode,
 };
 #[cfg(feature = "matrix")]
@@ -21,14 +21,16 @@ use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentDetailParams, AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk,
-    SendParams, SessionsDeleteParams, SessionsHistoryParams, StopParams, WsRequest, WsResponse,
+    SendParams, SessionsDeleteParams, SessionsHistoryParams, SessionsListParams, StopParams,
+    WsRequest, WsResponse,
 };
 use crate::init;
 use crate::orchestration::{
     build_workers_context, effective_worker_defaults,
     merge_delegate_task, resolve_model,
     resolve_orchestrator_provider_choice, resolve_provider_choice, worker_tool_list, DelegateContext,
-    DelegateObservability, ProviderChoice, ProviderClients, WorkerDelegateRuntime,
+    DelegateObservability, OrchestratorRuntime, ProviderChoice, ProviderClients,
+    WorkerDelegateRuntime,
 };
 use crate::profile::{self, ChaiPaths};
 use crate::providers::{
@@ -149,8 +151,10 @@ fn require_connect_token(config: &Config) -> Option<String> {
 #[derive(Clone)]
 pub struct GatewayState {
     pub config: Arc<Config>,
-    /// System context built from orchestrator **`AGENT.md`**, worker roster, and skills.
-    pub system_context: String,
+    /// Per-orchestrator runtime state (system context, skills, tools), keyed by orchestrator id.
+    pub orchestrator_runtimes: Arc<HashMap<String, OrchestratorRuntime>>,
+    /// Per-orchestrator session stores, keyed by orchestrator id.
+    pub session_stores: Arc<HashMap<String, Arc<SessionStore>>>,
     /// When Some, WebSocket connect must provide params.auth.token matching this.
     pub required_token: Option<String>,
     /// Broadcasts events to connected clients (e.g. shutdown). Subscribers receive JSON event frames.
@@ -159,19 +163,12 @@ pub struct GatewayState {
     pub channel_tasks: Arc<tokio::sync::RwLock<Vec<JoinHandle<()>>>>,
     /// Sender for inbound channel messages (e.g. Telegram webhook POSTs). Processor task receives.
     pub inbound_tx: mpsc::Sender<InboundMessage>,
-    pub session_store: Arc<SessionStore>,
     pub channel_registry: Arc<ChannelRegistry>,
     pub bindings: Arc<SessionBindingStore>,
     /// Per-provider runtime state (client + discovered model list), keyed by provider id.
     pub provider_states: Arc<HashMap<String, ProviderRuntimeState>>,
     /// Built provider clients for dispatch (indexed by provider id).
     pub provider_clients: ProviderClients,
-    /// Loaded skills (name, description, content) for system context. Empty if load failed or no dirs.
-    pub skills: Arc<Vec<Skill>>,
-    /// Combined tool definitions for the orchestrator: skill tools from tools.json, plus read_skill when context mode is ReadOnDemand, plus delegate_task when at least one worker is configured (same list sent to the model).
-    pub tools_list: Option<Vec<ToolDefinition>>,
-    /// Generic executor built from skills' tools.json. None when no tools.
-    pub tool_executor: Option<Arc<dyn agent::ToolExecutor>>,
     /// Paired devices (deviceId → role, scopes, deviceToken); used for deviceToken auth and issuing new tokens.
     pub pairing_store: Arc<PairingStore>,
     /// Matrix channel handle when Matrix is configured (HTTP verification + allowlist).
@@ -237,15 +234,26 @@ impl GatewayState {
         self.channel_tasks.write().await.push(handle);
     }
 
-    /// Combined tool list and executor (built at startup; list matches status/tools panel, including delegate_task when workers are configured).
-    pub fn tools_and_executor(
-        &self,
-    ) -> (
-        Option<Vec<ToolDefinition>>,
-        Option<&dyn agent::ToolExecutor>,
-    ) {
-        let exec = self.tool_executor.as_deref();
-        (self.tools_list.clone(), exec)
+    /// Look up the orchestrator runtime by id. Returns the default orchestrator's runtime
+    /// when `id` is `None`.
+    pub fn orchestrator_runtime(&self, id: Option<&str>) -> Result<&OrchestratorRuntime, String> {
+        let id = id.unwrap_or_else(|| {
+            self.config.agents.default_orchestrator().id.as_str()
+        });
+        self.orchestrator_runtimes
+            .get(id)
+            .ok_or_else(|| format!("unknown orchestrator id: {id}"))
+    }
+
+    /// Look up the session store for an orchestrator. Returns the default orchestrator's
+    /// session store when `id` is `None`.
+    pub fn session_store_for(&self, orchestrator_id: Option<&str>) -> Result<&Arc<SessionStore>, String> {
+        let id = orchestrator_id.unwrap_or_else(|| {
+            self.config.agents.default_orchestrator().id.as_str()
+        });
+        self.session_stores
+            .get(id)
+            .ok_or_else(|| format!("no session store for orchestrator: {id}"))
     }
 }
 
@@ -348,12 +356,14 @@ fn skills_context_json(skills: &[Skill]) -> serde_json::Value {
 }
 /// Build system context from agent-ctx (AGENT.md), worker roster, and skills.
 /// Uses context_mode to choose full vs compact skill context.
+/// When `enabled_workers` is `Some(list)`, only those workers appear in the roster.
 fn build_system_context(
     agent_ctx: Option<&str>,
     skills: &[Skill],
     context_mode: SkillContextMode,
     agents: &config::AgentsConfig,
     skill_catalog: &[SkillEntry],
+    enabled_workers: Option<&[String]>,
 ) -> String {
     let mut out = String::new();
     if let Some(ctx) = agent_ctx {
@@ -363,7 +373,7 @@ fn build_system_context(
             out.push_str("\n\n");
         }
     }
-    let workers_ctx = build_workers_context(agents, skill_catalog);
+    let workers_ctx = build_workers_context(agents, skill_catalog, enabled_workers);
     if !workers_ctx.trim().is_empty() {
         out.push_str(&workers_ctx);
     }
@@ -573,6 +583,7 @@ fn broadcast_config_changed(event_tx: &tokio::sync::broadcast::Sender<String>) {
 
 /// Process one inbound channel message: get or create session, bind, append user message, run agent, send reply.
 /// If the message is the new-session trigger (e.g. /new), rebind the conversation to a fresh session and confirm.
+/// Channel messages always use the default orchestrator.
 async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     log::info!(
         "inbound: channel={}, conversation={}, text_len={}",
@@ -580,20 +591,38 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         msg.conversation_id,
         msg.text.len()
     );
+
+    // Channel messages always use the default orchestrator.
+    let orch_rt = match state.orchestrator_runtime(None) {
+        Ok(rt) => rt,
+        Err(e) => {
+            log::error!("inbound: failed to resolve default orchestrator: {}", e);
+            return;
+        }
+    };
+    let session_store = match state.session_store_for(None) {
+        Ok(s) => s,
+        Err(e) => {
+            log::error!("inbound: failed to resolve default session store: {}", e);
+            return;
+        }
+    };
+    let orch_config = state.config.agents.default_orchestrator();
+
     let trimmed = msg.text.trim();
     if trimmed.eq_ignore_ascii_case(NEW_SESSION_TRIGGER) {
         let old_id = state
             .bindings
             .get_session_id(&msg.channel_id, &msg.conversation_id)
             .await;
-        let new_id = state.session_store.create().await;
+        let new_id = session_store.create().await;
         state
             .bindings
             .bind(&msg.channel_id, &msg.conversation_id, &new_id)
             .await;
         if let Some(id) = old_id {
             state.bindings.remove_binding(&id).await;
-            state.session_store.remove(&id).await;
+            session_store.remove(&id).await;
         }
         if let Some(handle) = state.channel_registry.get(&msg.channel_id).await {
             let _ = handle
@@ -613,11 +642,11 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     let session_id = match session_id {
         Some(id) => {
             // Ensure the session is loaded (lazy-load from disk if needed).
-            if state.session_store.get(&id).await.is_some() {
+            if session_store.get(&id).await.is_some() {
                 id
             } else {
                 // Session was deleted or corrupt — create a new one and rebind.
-                let new_id = state.session_store.create().await;
+                let new_id = session_store.create().await;
                 state
                     .bindings
                     .bind(&msg.channel_id, &msg.conversation_id, &new_id)
@@ -626,7 +655,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             }
         }
         None => {
-            let id = state.session_store.create().await;
+            let id = session_store.create().await;
             state
                 .bindings
                 .bind(&msg.channel_id, &msg.conversation_id, &id)
@@ -634,8 +663,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             id
         }
     };
-    if state
-        .session_store
+    if session_store
         .append_message(&session_id, "user", &msg.text)
         .await
         .is_err()
@@ -653,17 +681,17 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         Some(&msg.channel_id),
         Some(&msg.conversation_id),
     );
-    let provider_choice = resolve_provider_choice(&state.config.providers, &state.config.agents);
+    let provider_choice = resolve_orchestrator_provider_choice(&state.config.providers, orch_config);
     let model_name = resolve_model(
         &state.config.providers,
-        state.config.agents.default_orchestrator().default_model.as_deref(),
+        orch_config.default_model.as_deref(),
         None,
         &provider_choice,
     );
     let has_workers = !state.worker_delegate_runtimes.is_empty();
-    let system_context = &state.system_context;
-    let (tools, tool_executor) = state.tools_and_executor();
-    let tools = merge_delegate_task(tools, has_workers);
+    let system_context = &orch_rt.system_context;
+    let tools = merge_delegate_task(orch_rt.tools_list.clone(), has_workers);
+    let tool_executor = orch_rt.tool_executor.as_deref();
     let worker_tools = worker_tool_list(tools.as_ref());
     // Get or create the stop flag for this session before building DelegateContext
     // so the worker turn can also be stopped (used by channel stop if needed).
@@ -678,6 +706,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         clients: &state.provider_clients,
         providers: &state.config.providers,
         agents: &state.config.agents,
+        orchestrator_id: Some(orch_config.id.as_str()),
         orchestrator_system_context: if system_context.trim().is_empty() {
             None
         } else {
@@ -693,7 +722,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),
         }),
-        session_store: Some(&state.session_store),
+        session_store: Some(session_store),
         session_id: Some(session_id.as_str()),
         stop_flag: Some(stop_flag.clone()),
         tool_index_offset: 0,
@@ -702,12 +731,12 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         .ok_or_else(|| format!("no client for provider '{}'", provider_choice))
         .expect("provider client should exist");
     let result = agent::run_turn_dyn(
-        &state.session_store,
+        session_store,
         &session_id,
         provider_dyn,
         &model_name,
         Some(system_context),
-        state.config.agents.default_orchestrator().max_tool_loops_per_turn,
+        orch_config.max_tool_loops_per_turn,
         tools,
         tool_executor,
         delegate,
@@ -805,7 +834,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
 
     let (inbound_tx, mut inbound_rx) = mpsc::channel::<InboundMessage>(64);
 
-    let orch_context_dir = config::orchestrator_context_dir(&config, &paths.profile_dir);
     let skills_dir = config::default_skills_dir(&paths.chai_home);
     let all_entries: Vec<SkillEntry> = match load_skills(skills_dir.as_path()) {
         Ok(entries) => entries,
@@ -865,12 +893,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         &orchestrator_entries,
         config.agents.default_orchestrator().default_model.as_deref(),
     );
-    let orch_ctx_mode = orchestrator_context_mode(&config.agents);
-    if orch_ctx_mode == SkillContextMode::ReadOnDemand {
-        log::info!(
-            "orchestrator skill context mode: readOnDemand (compact list + read_skill tool)"
-        );
-    }
     let sandbox = crate::exec::WriteSandbox::new(&paths.sandbox_dir());
     let sandbox_opt = if sandbox.has_roots() {
         log::info!(
@@ -919,26 +941,81 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         .as_ref()
         .map(|s| s.roots().len())
         .unwrap_or(0);
-    let orch_built =
-        build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
-    let skills = orch_built.skills.clone();
-    let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
-    let system_context = build_system_context(
-        agent_ctx.as_deref(),
-        &skills,
-        orch_ctx_mode,
-        &config.agents,
-        &all_entries,
-    );
 
-    let has_workers = config
-        .agents
-        .workers
-        .as_ref()
-        .map_or(false, |w| !w.is_empty());
-    let tools_list = merge_delegate_task(orch_built.tools_list.clone(), has_workers);
+    // Build per-orchestrator runtimes and session stores.
+    let mut orchestrator_runtimes: HashMap<String, OrchestratorRuntime> = HashMap::new();
+    let mut session_stores: HashMap<String, Arc<SessionStore>> = HashMap::new();
+    for orch in &config.agents.orchestrators {
+        let orch_id = orch.id.trim();
+        let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
 
-    let tool_executor = orch_built.tool_executor.clone();
+        // Resolve context dir, load AGENT.md.
+        let orch_context_dir = config::agent_context_dir(&paths.profile_dir, orch_id);
+        let orch_names = orch.enabled_skills_list();
+        let orchestrator_entries: Vec<SkillEntry> = all_entries
+            .iter()
+            .filter(|e| orch_names.iter().any(|n| n == &e.name))
+            .cloned()
+            .collect();
+        log::info!(
+            "orchestrator {}: {} skill package(s) enabled",
+            orch_id,
+            orchestrator_entries.len()
+        );
+        validate_skill_composition(
+            orch_id,
+            &orchestrator_entries,
+            orch.default_model.as_deref(),
+        );
+        let orch_ctx_mode = orch.context_mode();
+        if orch_ctx_mode == SkillContextMode::ReadOnDemand {
+            log::info!(
+                "orchestrator {} skill context mode: readOnDemand (compact list + read_skill tool)",
+                orch_id
+            );
+        }
+        let orch_built =
+            build_skill_runtime_for_entries(orchestrator_entries, orch_ctx_mode, sandbox_opt.clone());
+        let skills = orch_built.skills.clone();
+        let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
+
+        // Determine effective worker set for this orchestrator.
+        let effective_workers: Option<Vec<String>> = orch.enabled_workers.clone();
+        let has_effective_workers = match &effective_workers {
+            Some(v) => !v.is_empty(),
+            None => config.agents.workers.as_ref().map_or(false, |w| !w.is_empty()),
+        };
+
+        let system_context = build_system_context(
+            agent_ctx.as_deref(),
+            &skills,
+            orch_ctx_mode,
+            &config.agents,
+            &all_entries,
+            effective_workers.as_deref(),
+        );
+
+        let tools_list = merge_delegate_task(orch_built.tools_list.clone(), has_effective_workers);
+        let tool_executor = orch_built.tool_executor.clone();
+
+        orchestrator_runtimes.insert(
+            orch_id.to_string(),
+            OrchestratorRuntime {
+                system_context,
+                skills: Arc::new(skills),
+                tools_list,
+                tool_executor,
+                context_mode: orch_ctx_mode,
+            },
+        );
+
+        // Build session store for this orchestrator.
+        let sessions_path = sessions_dir(&paths.profile_dir, orch_id);
+        session_stores.insert(
+            orch_id.to_string(),
+            Arc::new(SessionStore::with_data_dir(sessions_path)),
+        );
+    }
 
     let mut worker_map: HashMap<String, WorkerDelegateRuntime> = HashMap::new();
     if let Some(workers) = &config.agents.workers {
@@ -975,33 +1052,29 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     }
     let worker_delegate_runtimes = Arc::new(worker_map);
 
-    // Build persistent session and binding stores.
-    let orch_id = config.agents.default_orchestrator().id.trim();
-    let orch_id = if orch_id.is_empty() {
+    // Build persistent binding store (shared across orchestrators; uses default orchestrator's sessions dir).
+    let default_orch_id = config.agents.default_orchestrator().id.trim();
+    let default_orch_id = if default_orch_id.is_empty() {
         "orchestrator"
     } else {
-        orch_id
+        default_orch_id
     };
-    let sessions_path = sessions_dir(&paths.profile_dir, orch_id);
-    let session_store = Arc::new(SessionStore::with_data_dir(sessions_path.clone()));
-    let binding_store = Arc::new(SessionBindingStore::with_data_dir(sessions_path.clone()));
+    let default_sessions_path = sessions_dir(&paths.profile_dir, default_orch_id);
+    let binding_store = Arc::new(SessionBindingStore::with_data_dir(default_sessions_path.clone()));
 
     #[cfg_attr(not(feature = "matrix"), allow(unused_mut))]
     let mut state = GatewayState {
         config: Arc::new(config.clone()),
-        system_context,
+        orchestrator_runtimes: Arc::new(orchestrator_runtimes),
+        session_stores: Arc::new(session_stores),
         required_token,
         event_tx: event_tx.clone(),
         channel_tasks: channel_tasks.clone(),
         inbound_tx: inbound_tx.clone(),
-        session_store: session_store.clone(),
         channel_registry: Arc::new(ChannelRegistry::new()),
         bindings: binding_store.clone(),
         provider_states: Arc::new(provider_states),
         provider_clients,
-        skills: Arc::new(skills),
-        tools_list,
-        tool_executor,
         pairing_store,
         #[cfg(feature = "matrix")]
         matrix_channel: None,
@@ -1016,13 +1089,30 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
 
     // Scan persisted sessions on startup (populates disk index for lazy loading).
     {
-        let summaries = session_store.scan().await;
+        let default_session_store = state.session_store_for(None).expect("default session store");
+        let summaries = default_session_store.scan().await;
         if !summaries.is_empty() {
             log::info!(
-                "loaded {} persisted session(s) from {}",
+                "loaded {} persisted session(s) for default orchestrator",
                 summaries.len(),
-                sessions_path.display(),
             );
+        }
+        // Scan sessions for non-default orchestrators.
+        for orch in &config.agents.orchestrators {
+            let orch_id = orch.id.trim();
+            if orch_id.is_empty() || orch_id == default_orch_id {
+                continue;
+            }
+            if let Ok(store) = state.session_store_for(Some(orch_id)) {
+                let summaries = store.scan().await;
+                if !summaries.is_empty() {
+                    log::info!(
+                        "loaded {} persisted session(s) for orchestrator {}",
+                        summaries.len(),
+                        orch_id
+                    );
+                }
+            }
         }
     }
     // Spawn model discovery tasks for each configured provider.
@@ -1645,7 +1735,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                                 if id.is_empty() {
                                     return None;
                                 }
-                                let pair = effective_worker_defaults(&state.config.providers, &state.config.agents, w);
+                                let pair = effective_worker_defaults(&state.config.providers, state.config.agents.default_orchestrator(), w);
                                 Some((id.to_string(), pair))
                             })
                             .collect()
@@ -1827,11 +1917,10 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                     continue;
                 }
-                let orchestrator_id = state.config.agents.default_orchestrator().id.trim();
-                let orchestrator_id = if orchestrator_id.is_empty() { "orchestrator" } else { orchestrator_id };
-                if agent_id == orchestrator_id {
-                    let system_context = &state.system_context;
-                    let tools_string = state
+                // Check orchestrator runtimes first, then worker runtimes.
+                if let Some(orch_rt) = state.orchestrator_runtimes.get(agent_id) {
+                    let system_context = &orch_rt.system_context;
+                    let tools_string = orch_rt
                         .tools_list
                         .as_ref()
                         .and_then(|tools| {
@@ -1842,11 +1931,11 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                             }
                         });
                     let payload = json!({
-                        "id": orchestrator_id,
+                        "id": agent_id,
                         "role": "orchestrator",
                         "systemContext": system_context,
                         "tools": tools_string,
-                        "skillsContext": skills_context_json(state.skills.as_ref()),
+                        "skillsContext": skills_context_json(orch_rt.skills.as_ref()),
                     });
                     let res = WsResponse::ok(&req.id, payload);
                     let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
@@ -1910,14 +1999,38 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         continue;
                     }
                 };
+                // Resolve the target orchestrator.
+                let orch_rt = match state.orchestrator_runtime(params.orchestrator_id.as_deref()) {
+                    Ok(rt) => rt,
+                    Err(e) => {
+                        let res = WsResponse::err(&req.id, e);
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                let session_store = match state.session_store_for(params.orchestrator_id.as_deref()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let res = WsResponse::err(&req.id, e);
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                let orch_config = match state.config.agents.orchestrator(params.orchestrator_id.as_deref()) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        let res = WsResponse::err(&req.id, e);
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
                 let session_id = if let Some(ref id) = params.session_id {
-                    state.session_store.get_or_create(id.clone()).await
+                    session_store.get_or_create(id.clone()).await
                 } else {
-                    state.session_store.create().await
+                    session_store.create().await
                 };
                 let user_message = params.message.clone();
-                if let Err(e) = state
-                    .session_store
+                if let Err(e) = session_store
                     .append_message(&session_id, "user", &params.message)
                     .await
                 {
@@ -1935,23 +2048,23 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     None,
                     None,
                 );
-                // Use request provider override when valid, else config default.
+                // Use request provider override when valid, else orchestrator default.
                 let provider_choice = params
                     .provider
                     .as_deref()
                     .and_then(|s| config::canonical_provider_id(&state.config.providers, s))
                     .map(ProviderChoice::new)
-                    .unwrap_or_else(|| resolve_provider_choice(&state.config.providers, &state.config.agents));
+                    .unwrap_or_else(|| resolve_orchestrator_provider_choice(&state.config.providers, orch_config));
                 let model_name = resolve_model(
                     &state.config.providers,
-                    state.config.agents.default_orchestrator().default_model.as_deref(),
+                    orch_config.default_model.as_deref(),
                     params.model.as_deref(),
                     &provider_choice,
                 );
                 let has_workers = !state.worker_delegate_runtimes.is_empty();
-                let system_context = &state.system_context;
-                let (tools, tool_executor) = state.tools_and_executor();
-                let tools = merge_delegate_task(tools, has_workers);
+                let system_context = &orch_rt.system_context;
+                let tools = merge_delegate_task(orch_rt.tools_list.clone(), has_workers);
+                let tool_executor = orch_rt.tool_executor.as_deref();
                 let worker_tools = worker_tool_list(tools.as_ref());
                 // Get or create the stop flag for this session. The flag is cleared
                 // at the start of each new turn inside execute_turn_main. The same
@@ -1968,6 +2081,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     clients: &state.provider_clients,
                     providers: &state.config.providers,
                     agents: &state.config.agents,
+                    orchestrator_id: Some(orch_config.id.as_str()),
                     orchestrator_system_context: if system_context.trim().is_empty() {
                         None
                     } else {
@@ -1983,7 +2097,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         tool_index_offset: 0,
                         emitted_tool_calls: AtomicUsize::new(0),
                     }),
-                    session_store: Some(&state.session_store),
+                    session_store: Some(session_store),
                     session_id: Some(session_id.as_str()),
                     stop_flag: Some(stop_flag.clone()),
                     tool_index_offset: 0,
@@ -1997,12 +2111,12 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     Some(system_context.as_str())
                 };
                 let run_result = agent::run_turn_dyn(
-                    &state.session_store,
+                    session_store,
                     &session_id,
                     provider_dyn,
                     &model_name,
                     system_context_opt,
-                    state.config.agents.default_orchestrator().max_tool_loops_per_turn,
+                    orch_config.max_tool_loops_per_turn,
                     tools,
                     tool_executor,
                     delegate,
@@ -2107,7 +2221,22 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             "sessions.list" => {
-                let summaries = state.session_store.scan().await;
+                let params: SessionsListParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        // Backward compat: treat as default orchestrator if params are invalid.
+                        SessionsListParams { orchestrator_id: None }
+                    }
+                };
+                let session_store = match state.session_store_for(params.orchestrator_id.as_deref()) {
+                    Ok(s) => s,
+                    Err(e) => {
+                        let res = WsResponse::err(&req.id, e);
+                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                        continue;
+                    }
+                };
+                let summaries = session_store.scan().await;
                 let mut entries = Vec::new();
                 for s in &summaries {
                     let mut entry = json!({
@@ -2142,7 +2271,15 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         continue;
                     }
                 };
-                match state.session_store.get(&params.session_id).await {
+                // Search across all orchestrator session stores for this session.
+                let mut session = None;
+                for store in state.session_stores.values() {
+                    if let Some(s) = store.get(&params.session_id).await {
+                        session = Some(s);
+                        break;
+                    }
+                }
+                match session {
                     Some(session) => {
                         let offset = params.offset.unwrap_or(0);
                         let messages: Vec<serde_json::Value> = if let Some(limit) = params.limit {
@@ -2180,29 +2317,38 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         continue;
                     }
                 };
-                match state.session_store.remove(&params.session_id).await {
-                    Some(_) => {
-                        state.bindings.remove_binding(&params.session_id).await;
-                        // Broadcast session.deleted event so clients can update without polling.
-                        let event = json!({
-                            "type": "event",
-                            "event": "session.deleted",
-                            "payload": { "sessionId": params.session_id },
-                        });
-                        if let Ok(text) = serde_json::to_string(&event) {
-                            let _ = state.event_tx.send(text);
-                        }
-                        let res = WsResponse::ok(&req.id, json!({ "deleted": true }));
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                // Try to remove from any orchestrator's session store.
+                let mut removed = false;
+                for store in state.session_stores.values() {
+                    if store.remove(&params.session_id).await.is_some() {
+                        removed = true;
+                        break;
                     }
-                    None => {
-                        let res = WsResponse::err(&req.id, "session not found");
-                        let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                }
+                if removed {
+                    state.bindings.remove_binding(&params.session_id).await;
+                    // Broadcast session.deleted event so clients can update without polling.
+                    let event = json!({
+                        "type": "event",
+                        "event": "session.deleted",
+                        "payload": { "sessionId": params.session_id },
+                    });
+                    if let Ok(text) = serde_json::to_string(&event) {
+                        let _ = state.event_tx.send(text);
                     }
+                    let res = WsResponse::ok(&req.id, json!({ "deleted": true }));
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
+                } else {
+                    let res = WsResponse::err(&req.id, "session not found");
+                    let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                 }
             }
             "sessions.delete_all" => {
-                let count = state.session_store.remove_all().await;
+                // Delete all sessions across all orchestrator session stores.
+                let mut total = 0;
+                for store in state.session_stores.values() {
+                    total += store.remove_all().await;
+                }
                 state.bindings.remove_all().await;
                 // Broadcast sessions.cleared event so clients can update without polling.
                 let event = json!({
@@ -2213,7 +2359,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 if let Ok(text) = serde_json::to_string(&event) {
                     let _ = state.event_tx.send(text);
                 }
-                let res = WsResponse::ok(&req.id, json!({ "deletedCount": count }));
+                let res = WsResponse::ok(&req.id, json!({ "deletedCount": total }));
                 let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
             }
             _ => {

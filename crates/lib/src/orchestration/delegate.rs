@@ -6,8 +6,8 @@ use super::model::resolve_model;
 use super::policy::{apply_delegation_bracket_match, assert_session_delegation_limits};
 use crate::agent::{run_turn_with_messages_dyn, ToolExecutor};
 use crate::config::{
-    canonical_provider_id, provider_discovery_enabled, AgentsConfig, ProvidersConfig,
-    SkillContextMode,
+    canonical_provider_id, AgentsConfig, OrchestratorConfig,
+    ProvidersConfig, SkillContextMode,
 };
 use crate::providers::{ChatMessage, ToolDefinition, ToolFunctionDefinition};
 use crate::session::SessionStore;
@@ -226,6 +226,22 @@ fn optional_worker_id_from_args(args: &serde_json::Value) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Per-orchestrator runtime state (built at gateway startup, keyed by orchestrator id).
+pub struct OrchestratorRuntime {
+    /// System context built from the orchestrator's **`AGENT.md`**, worker roster, and skills.
+    pub system_context: String,
+    /// Loaded skills (name, description, content) for this orchestrator.
+    pub skills: Arc<Vec<Skill>>,
+    /// Combined tool definitions for this orchestrator: skill tools from tools.json,
+    /// plus read_skill when context mode is ReadOnDemand, plus delegate_task when
+    /// at least one worker is in the orchestrator's effective worker set.
+    pub tools_list: Option<Vec<ToolDefinition>>,
+    /// Generic executor built from skills' tools.json. None when no tools.
+    pub tool_executor: Option<Arc<dyn ToolExecutor>>,
+    /// Skill context mode for this orchestrator.
+    pub context_mode: SkillContextMode,
+}
+
 /// Per-worker skill bundle for `delegate_task` when `workerId` is set (built at gateway startup).
 pub struct WorkerDelegateRuntime {
     /// Static system context (no orchestrator roster block).
@@ -242,6 +258,11 @@ pub struct DelegateContext<'a> {
     pub clients: &'a ProviderClients,
     pub providers: &'a ProvidersConfig,
     pub agents: &'a AgentsConfig,
+    /// The orchestrator id that owns this delegation context. Used by
+    /// `resolve_delegate_target()` to enforce `enabledWorkers` and
+    /// `enabledProviders`, and by policy enforcement to look up the
+    /// correct orchestrator's delegation caps.
+    pub orchestrator_id: Option<&'a str>,
     /// Full orchestrator system message for `delegate_task` without `workerId`.
     pub orchestrator_system_context: Option<&'a str>,
     /// Skill tools for the orchestrator path (no `delegate_task`); used when `workerId` is absent.
@@ -344,7 +365,8 @@ struct DelegateTarget {
 
 fn resolve_delegate_target(
     providers: &ProvidersConfig,
-    agents: &AgentsConfig,
+    orchestrator: &OrchestratorConfig,
+    workers: &Option<Vec<crate::config::WorkerConfig>>,
     args: &serde_json::Value,
 ) -> Result<DelegateTarget, String> {
     let obj = args
@@ -357,9 +379,20 @@ fn resolve_delegate_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
+    // Enforce enabledWorkers: reject delegation to a worker not in the list (when set).
+    if let Some(ref wid) = worker_id {
+        if let Some(ref enabled) = orchestrator.enabled_workers {
+            if !enabled.is_empty() && !enabled.iter().any(|w| w == wid.as_str()) {
+                return Err(format!(
+                    "worker {} is not in this orchestrator's enabledWorkers",
+                    wid
+                ));
+            }
+        }
+    }
+
     // Default to the first configured provider or "ollama".
-    let orch = agents.default_orchestrator();
-    let global_default_provider = orch
+    let global_default_provider = orchestrator
         .default_provider
         .as_deref()
         .and_then(|s| canonical_provider_id(providers, s))
@@ -367,8 +400,7 @@ fn resolve_delegate_target(
         .unwrap_or_else(|| "ollama".to_string());
 
     let (provider_id, model) = if let Some(ref worker_id) = worker_id {
-        let worker = agents
-            .workers
+        let worker = workers
             .as_ref()
             .and_then(|ws| ws.iter().find(|w| w.id == worker_id.as_str()))
             .ok_or_else(|| format!("unknown workerId: {}", worker_id))?;
@@ -379,34 +411,53 @@ fn resolve_delegate_target(
             .and_then(|s| canonical_provider_id(providers, s))
             .unwrap_or(global_default_provider.clone());
 
-        if !provider_discovery_enabled(providers, agents, &provider_id) {
-            return Err(format!(
-                "provider {} is not enabled for this agent (agents.enabledProviders)",
-                provider_id
-            ));
+        // Enforce enabledProviders: reject if the resolved provider is not in the
+        // orchestrator's enabledProviders (when set).
+        if let Some(ref enabled) = orchestrator.enabled_providers {
+            if !enabled.is_empty() {
+                let canonical = canonical_provider_id(providers, &provider_id);
+                let allowed = enabled.iter().any(|p| {
+                    canonical_provider_id(providers, p).as_ref() == canonical.as_ref()
+                });
+                if !allowed {
+                    return Err(format!(
+                        "provider {} is not in this orchestrator's enabledProviders",
+                        provider_id
+                    ));
+                }
+            }
         }
 
         let provider_choice = ProviderChoice::new(&provider_id);
         let config_model = worker
             .default_model
             .as_deref()
-            .or(orch.default_model.as_deref());
+            .or(orchestrator.default_model.as_deref());
         let model = resolve_model(providers, config_model, None, &provider_choice);
         (provider_id, model)
     } else {
         let provider_id = global_default_provider;
 
-        if !provider_discovery_enabled(providers, agents, &provider_id) {
-            return Err(format!(
-                "provider {} is not enabled for this agent (agents.enabledProviders)",
-                provider_id
-            ));
+        // Enforce enabledProviders for the orchestrator default path too.
+        if let Some(ref enabled) = orchestrator.enabled_providers {
+            if !enabled.is_empty() {
+                let canonical = canonical_provider_id(providers, &provider_id);
+                let allowed = enabled.iter().any(|p| {
+                    canonical_provider_id(providers, p).as_ref() == canonical.as_ref()
+                });
+                if !allowed {
+                    return Err(format!(
+                        "provider {} is not in this orchestrator's enabledProviders",
+                        provider_id
+                    ));
+                }
+            }
         }
 
         let provider_choice = ProviderChoice::new(&provider_id);
         let model = resolve_model(
             providers,
-            orch.default_model.as_deref(),
+            orchestrator.default_model.as_deref(),
             None,
             &provider_choice,
         );
@@ -458,7 +509,13 @@ pub async fn execute_delegate_task(
         .map(|s| s.trim())
         .filter(|s| !s.is_empty());
 
-    let target = match resolve_delegate_target(ctx.providers, ctx.agents, &merged) {
+    // Resolve the orchestrator config for this delegation context.
+    let orch = ctx
+        .agents
+        .orchestrator(ctx.orchestrator_id)
+        .map_err(|e| e.to_string())?;
+
+    let target = match resolve_delegate_target(ctx.providers, orch, &ctx.agents.workers, &merged) {
         Ok(t) => t,
         Err(e) => {
             if let Some(ref obs) = ctx.observability {
@@ -478,7 +535,7 @@ pub async fn execute_delegate_task(
     if let (Some(store), Some(sid)) = (ctx.session_store, ctx.session_id) {
         let wid_for_policy = worker_id.unwrap_or(provider_id);
         if let Err(e) =
-            assert_session_delegation_limits(store, sid, ctx.agents, wid_for_policy).await
+            assert_session_delegation_limits(store, sid, orch, wid_for_policy).await
         {
             if let Some(ref obs) = ctx.observability {
                 let reason = if e.contains("maxDelegationsPerSession") {
@@ -564,7 +621,7 @@ pub async fn execute_delegate_task(
     let provider = ctx.clients.get(choice).ok_or_else(|| {
         format!("no client registered for provider '{}'", choice.as_str())
     })?;
-    let max_iterations = ctx.agents.default_orchestrator().max_tool_loops_per_turn;
+    let max_iterations = orch.max_tool_loops_per_turn;
     let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
@@ -741,31 +798,118 @@ mod tests {
     #[test]
     fn resolve_delegate_target_uses_worker_defaults() {
         let providers = test_providers(&["ollama", "lms"]);
-        let agents = AgentsConfig {
-            orchestrators: vec![OrchestratorConfig {
-                id: "orchestrator".to_string(),
-                default_provider: Some("ollama".to_string()),
-                default_model: Some("global-default".to_string()),
-                enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
-                ..Default::default()
-            }],
-            workers: Some(vec![WorkerConfig {
-                id: "fast".to_string(),
-                default_provider: Some("lms".to_string()),
-                default_model: Some("worker-model".to_string()),
-                enabled_skills: None,
-                context_mode: None,
-            }]),
+        let orch = OrchestratorConfig {
+            id: "orchestrator".to_string(),
+            default_provider: Some("ollama".to_string()),
+            default_model: Some("global-default".to_string()),
+            enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
+            ..Default::default()
         };
+        let workers = Some(vec![WorkerConfig {
+            id: "fast".to_string(),
+            default_provider: Some("lms".to_string()),
+            default_model: Some("worker-model".to_string()),
+            enabled_skills: None,
+            context_mode: None,
+        }]);
 
         let args = json!({
             "workerId": "fast",
             "instruction": "do the thing"
         });
 
-        let target = resolve_delegate_target(&providers, &agents, &args).expect("resolved");
+        let target = resolve_delegate_target(&providers, &orch, &workers, &args).expect("resolved");
         assert_eq!(target.provider_id, "lms");
         assert_eq!(target.model, "worker-model");
+    }
+
+    #[test]
+    fn resolve_delegate_target_rejects_worker_not_in_enabled_workers() {
+        let providers = test_providers(&["ollama"]);
+        let orch = OrchestratorConfig {
+            id: "orchestrator".to_string(),
+            enabled_workers: Some(vec!["reader".to_string()]),
+            ..Default::default()
+        };
+        let workers = Some(vec![
+            WorkerConfig {
+                id: "reader".to_string(),
+                default_provider: None,
+                default_model: None,
+                enabled_skills: None,
+                context_mode: None,
+            },
+            WorkerConfig {
+                id: "engineer".to_string(),
+                default_provider: None,
+                default_model: None,
+                enabled_skills: None,
+                context_mode: None,
+            },
+        ]);
+
+        let args = json!({
+            "workerId": "engineer",
+            "instruction": "do the thing"
+        });
+
+        let err = resolve_delegate_target(&providers, &orch, &workers, &args).unwrap_err();
+        assert!(err.contains("enabledWorkers"), "expected enabledWorkers error, got: {}", err);
+    }
+
+    #[test]
+    fn resolve_delegate_target_rejects_provider_not_in_enabled_providers() {
+        let providers = test_providers(&["ollama", "lms"]);
+        let orch = OrchestratorConfig {
+            id: "orchestrator".to_string(),
+            default_provider: Some("ollama".to_string()),
+            enabled_providers: Some(vec!["ollama".to_string()]),
+            ..Default::default()
+        };
+        let workers = Some(vec![WorkerConfig {
+            id: "fast".to_string(),
+            default_provider: Some("lms".to_string()),
+            default_model: None,
+            enabled_skills: None,
+            context_mode: None,
+        }]);
+
+        let args = json!({
+            "workerId": "fast",
+            "instruction": "do the thing"
+        });
+
+        let err = resolve_delegate_target(&providers, &orch, &workers, &args).unwrap_err();
+        assert!(err.contains("enabledProviders"), "expected enabledProviders error, got: {}", err);
+    }
+
+    #[test]
+    fn resolve_delegate_target_allows_when_both_filters_pass() {
+        let providers = test_providers(&["ollama", "lms"]);
+        let orch = OrchestratorConfig {
+            id: "orchestrator".to_string(),
+            default_provider: Some("ollama".to_string()),
+            default_model: Some("orch-model".to_string()),
+            enabled_providers: Some(vec!["ollama".to_string(), "lms".to_string()]),
+            enabled_workers: Some(vec!["fast".to_string()]),
+            ..Default::default()
+        };
+        let workers = Some(vec![WorkerConfig {
+            id: "fast".to_string(),
+            default_provider: Some("lms".to_string()),
+            default_model: Some("fast-model".to_string()),
+            enabled_skills: None,
+            context_mode: None,
+        }]);
+
+        let args = json!({
+            "workerId": "fast",
+            "instruction": "do the thing"
+        });
+
+        let target = resolve_delegate_target(&providers, &orch, &workers, &args).expect("resolved");
+        assert_eq!(target.provider_id, "lms");
+        assert_eq!(target.model, "fast-model");
     }
 
     #[test]

@@ -2,7 +2,6 @@
 
 use crate::config::AgentsConfig;
 use crate::session::SessionStore;
-
 /// Match `[workerId]` at the start of the instruction, inject `workerId`, and strip the bracketed prefix.
 ///
 /// Every worker with a non-empty ID gets an automatic delegation prefix `[workerId]`. The system
@@ -65,11 +64,11 @@ pub fn apply_delegation_bracket_match(agents: &AgentsConfig, args: &serde_json::
 }
 
 /// Enforces **`maxDelegationsPerSession`** and **`maxDelegationsPerWorker`** before a delegation runs.
-/// Uses the default (first) orchestrator's delegation policy.
+/// Uses the provided orchestrator's delegation policy.
 pub async fn assert_session_delegation_limits(
     store: &SessionStore,
     session_id: &str,
-    agents: &AgentsConfig,
+    orchestrator: &crate::config::OrchestratorConfig,
     worker_id: &str,
 ) -> Result<(), String> {
     let session = store
@@ -77,9 +76,7 @@ pub async fn assert_session_delegation_limits(
         .await
         .ok_or_else(|| "session not found".to_string())?;
 
-    let orch = agents.default_orchestrator();
-
-    if let Some(max) = orch.max_delegations_per_session {
+    if let Some(max) = orchestrator.max_delegations_per_session {
         if session.delegation_count >= max {
             return Err(format!(
                 "max delegations per session reached (maxDelegationsPerSession={})",
@@ -88,7 +85,7 @@ pub async fn assert_session_delegation_limits(
         }
     }
 
-    if let Some(ref map) = orch.max_delegations_per_worker {
+    if let Some(ref map) = orchestrator.max_delegations_per_worker {
         if let Some(&limit) = map.get(worker_id) {
             let n = session
                 .delegation_by_worker

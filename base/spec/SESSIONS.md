@@ -27,8 +27,7 @@ Sessions are stored per agent under the agent's context directory:
 
 - **One file per session** — Each session is stored as `{session_id}.json`. The `sess-` prefix in session IDs makes filenames human-recognizable.
 - **`bindings.json` alongside sessions** — Session binding mappings are persisted in the same directory.
-- **Only the orchestrator's `sessions/` directory is populated** in the current architecture, since worker results are merged into the orchestrator's session transcript.
-- **Per-agent directory structure** already supports independent worker sessions if a future design introduces them.
+- **Per-orchestrator session stores** — Each orchestrator has its own `sessions/` directory, populated with its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`. Sessions from one orchestrator are completely separate from another — switching orchestrators switches session stores.
 
 ## Session File Format
 
@@ -154,16 +153,16 @@ If `bindings.json` is missing, the store starts with empty bindings. If it is co
 
 ### Startup
 
-1. `SessionStore` and `SessionBindingStore` are constructed with `with_data_dir()`, passing the orchestrator's `sessions/` directory path.
-2. `session_store.scan()` is called to populate a metadata index, enabling lazy loading.
+1. For each orchestrator in `config.agents.orchestrators`, a `SessionStore` and `SessionBindingStore` are constructed with `with_data_dir()`, passing that orchestrator's `sessions/` directory path. Store references are held in `GatewayState.session_stores: Arc<HashMap<String, Arc<SessionStore>>>`, keyed by orchestrator ID.
+2. Each session store's `scan()` is called to populate a metadata index, enabling lazy loading.
 
 ### Inbound Message Session Resolution
 
-When `process_inbound_message` resolves a binding to a session ID, it calls `session_store.get()` to ensure the session is loaded in memory (lazy-load from disk). If the session no longer exists on disk, a new session is created and the binding is updated.
+When `process_inbound_message` resolves a binding to a session ID, it calls the **default orchestrator's** `session_store.get()` to ensure the session is loaded in memory (lazy-load from disk). If the session no longer exists on disk, a new session is created and the binding is updated. Channel-bound messages always use the default (first) orchestrator — there is no `orchestratorId` parameter in the channel path.
 
 ### Agent Method
 
-The `agent` WebSocket method accepts an optional `sessionId`. If absent, creates a new session. If present, resumes via `get_or_create` — which lazy-loads persisted sessions from disk, so `sessionId` can reference a session from a previous gateway run.
+The `agent` WebSocket method accepts an optional `sessionId` and an optional `orchestratorId`. When `orchestratorId` is omitted, the default (first) orchestrator is used. When provided, the gateway resolves the matching `OrchestratorRuntime` and its `SessionStore`, and rejects unknown orchestrator IDs with an error. If `sessionId` is absent, a new session is created in the selected orchestrator's store. If present, the session is resumed via `get_or_create` — which lazy-loads persisted sessions from disk, so `sessionId` can reference a session from a previous gateway run.
 
 ## Gateway Protocol Methods
 
@@ -178,9 +177,11 @@ List all persisted sessions for the active profile's agents.
   "type": "req",
   "id": "1",
   "method": "sessions.list",
-  "params": {}
+  "params": { "orchestratorId": "reviewer" }
 }
 ```
+
+- `orchestratorId` is optional. When omitted, the default (first) orchestrator's session store is queried. When provided, the matching orchestrator's session store is queried.
 
 **Response:**
 
@@ -239,6 +240,7 @@ Retrieve the full message history for a specific session.
 ```
 
 - Supports optional `limit` and `offset` params for pagination.
+- The gateway searches **across all orchestrator session stores** for the session ID, so a session can be retrieved regardless of which orchestrator created it.
 - Returns an error for nonexistent sessions.
 - Messages are serialized with camelCase keys (`toolCalls`, `toolName`).
 
@@ -268,6 +270,7 @@ Delete a session by id.
 }
 ```
 
+- The gateway searches **across all orchestrator session stores** for the session ID, so a session can be deleted regardless of which orchestrator created it.
 - Removes the session from memory and disk.
 - Removes any associated binding entry.
 - Broadcasts a `session.deleted` event.

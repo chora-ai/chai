@@ -145,6 +145,9 @@ pub struct AgentParams {
     /// Override model for this turn. When provider is also set, must be a model id for that provider.
     #[serde(default)]
     pub model: Option<String>,
+    /// Target orchestrator id. When omitted, the default (first) orchestrator is used.
+    #[serde(default)]
+    pub orchestrator_id: Option<String>,
 }
 
 /// Params for WS method "stop": signal the agent to stop the current turn after the current iteration.
@@ -178,6 +181,15 @@ pub struct SessionsHistoryParams {
 #[serde(rename_all = "camelCase")]
 pub struct SessionsDeleteParams {
     pub session_id: String,
+}
+
+/// Params for WS method "sessions.list": list sessions for an orchestrator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsListParams {
+    /// Target orchestrator id. When omitted, the default (first) orchestrator is used.
+    #[serde(default)]
+    pub orchestrator_id: Option<String>,
 }
 
 impl WsResponse {

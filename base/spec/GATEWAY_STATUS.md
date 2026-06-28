@@ -106,13 +106,13 @@ Array of per-agent runtime rows. Orchestrator entries first (one per orchestrato
 
 **Protocol:** WebSocket `req` / `res` envelope; method **`"agentDetail"`**, params **`{ "agentId": "<id>" }`**.
 
-Heavy per-agent fields that are **not** included in the polling **`status`** response to reduce payload size. Fetched on-demand by the desktop when the Agent or Tools screen is active.
+Heavy per-agent fields that are **not** included in the polling **`status`** response to reduce payload size. Fetched on-demand by the desktop when the Agent or Tools screen is active. The handler resolves agents by checking the `orchestrator_runtimes` map first (keyed by orchestrator ID), then falling back to `worker_delegate_runtimes` (keyed by worker ID).
 
 | Field | Meaning |
 |-------|---------|
 | **`id`** | Agent id (same as the requested `agentId`). |
 | **`role`** | **`"orchestrator"`** or **`"worker"`**. |
-| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster, and skills). Injected as `messages[0]` on every turn; not persisted in the session store. |
+| **`systemContext`** | Full system context string for that role (built at startup from agent context, optional workers roster filtered by `enabledWorkers`, and skills). Injected as `messages[0]` on every turn; not persisted in the session store. |
 | **`tools`** | Pretty-printed JSON array of that agent's tool definitions, or **`null`**. Sent as a separate top-level field in the provider request; never part of the messages array. |
 | **`skillsContext`** | Per-skill body (name → frontmatter-stripped body). **`null`** when no skills are loaded. |
 

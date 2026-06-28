@@ -6,7 +6,7 @@ status: in-progress
 
 **Summary** — Allow users to configure multiple orchestrator agents in a single profile and switch between them from the desktop chat screen, enabling different orchestrator roles (e.g., developer, reviewer) that share the same workers and sandbox while maintaining separate agent context.
 
-**Status** — **In progress.** Phase 1 (config layer) delivered. Phases 2–4 remain.
+**Status** — **In progress.** Phases 1–2 and 4 (config layer, gateway runtime, spec/ADR updates) delivered. Phase 3 (Desktop UI + CLI) remains.
 
 ## Problem Statement
 
@@ -26,9 +26,9 @@ What the user really wants: a **shared sandbox** where a developer orchestrator 
 
 ## Goal
 
-Allow users to configure multiple orchestrator agents within a single profile, switch between them from the desktop chat screen (similar to the profile ComboBox), and have each orchestrator use its own `AGENT.md` context while sharing the same worker definitions, sandbox, and providers. Each orchestrator can optionally filter which workers it has access to via `enabledWorkers`, so that a reviewer orchestrator sees only the workers it needs while a developer orchestrator sees all.
+Allow users to configure multiple orchestrator agents within a single profile, switch between them from the desktop sessions sidebar (under an "Agent" header), and have each orchestrator use its own `AGENT.md` context while sharing the same worker definitions, sandbox, and providers. Each orchestrator can optionally filter which workers it has access to via `enabledWorkers`, so that a reviewer orchestrator sees only the workers it needs while a developer orchestrator sees all. Each orchestrator has its own session store, so sessions are naturally separated per orchestrator.
 
-The initial implementation supports **sequential use** — the user selects an orchestrator before starting a session, and switching orchestrators starts a new session. A future implementation could support **simultaneous use** (split screen, read-only second orchestrator), but that is explicitly out of scope for now.
+The initial implementation supports **sequential use** — the user selects an orchestrator before starting a session, and switching orchestrators switches the session store and updates the sessions list. A future implementation could support **simultaneous use** (split screen, read-only second orchestrator), but that is explicitly out of scope for now.
 
 ## Current State
 
@@ -44,14 +44,18 @@ The `agents` array in `config.json` is parsed by `agents_from_array()` in `crate
 
 ### Gateway Runtime
 
-At startup (`crates/lib/src/gateway/server.rs`, lines 777–910), the gateway builds:
+At startup (`crates/lib/src/gateway/server.rs`), the gateway builds:
 
-- **One system context** for the orchestrator (from `AGENT.md` + workers roster + skills).
-- **One tool list** for the orchestrator (skill tools + `delegate_task` if workers exist).
-- **One tool executor** for the orchestrator.
-- **Per-worker runtimes** (`WorkerDelegateRuntime`) with each worker's own system context, tools, and executor.
+- **One system context** for the default orchestrator (from `AGENT.md` + workers roster + skills), stored as a flat `system_context: String` field on `GatewayState`.
+- **One tool list** for the default orchestrator (skill tools + `delegate_task` if workers exist), stored as `tools_list: Option<Vec<ToolDefinition>>`.
+- **One tool executor** for the default orchestrator, stored as `tool_executor: Option<Arc<dyn ToolExecutor>>`.
+- **One skill set** for the default orchestrator, stored as `skills: Arc<Vec<Skill>>`.
+- **One session store** scoped to the default orchestrator's ID at `<profile_dir>/agents/<orchestrator_id>/sessions/`.
+- **Per-worker runtimes** (`WorkerDelegateRuntime`) with each worker's own system context, tools, and executor, keyed by worker ID in `worker_delegate_runtimes`.
 
-All of this is stored in `GatewayState` and referenced when the `agent` RPC is handled. The `agent` RPC has no parameter for selecting which orchestrator to use — it always uses the single configured orchestrator.
+All orchestrator-specific state is stored as flat fields on `GatewayState`. The `agent` RPC has no parameter for selecting which orchestrator to use — it always uses the default orchestrator. Every runtime path (the `agent` RPC handler, `agentDetail` handler, `process_inbound_message`, `resolve_delegate_target`, `build_workers_context`, `effective_worker_defaults`) is hardcoded to `config.agents.default_orchestrator()`.
+
+The only function that considers all orchestrators is `provider_discovery_enabled()`, which takes a union of all orchestrators' `enabled_providers` for startup-time model discovery. This is correct for discovery; per-orchestrator filtering is a use-time concern.
 
 ### Desktop Chat Screen
 
@@ -65,10 +69,7 @@ The Agent and Tools screens have a shared `dashboard_agent_id` ComboBox that ite
 
 ### Sessions
 
-Sessions are agent-agnostic — they store message history and delegation counters, not the orchestrator identity. The orchestrator context is bound to the turn at invocation time via `DelegateContext`, not stored in the session. This means switching orchestrators mid-session would require either:
-
-1. Starting a new session (clean, simple — the initial implementation).
-2. Injecting the new orchestrator's system context into the existing session (complex, risks confusing the model with a mid-conversation role change).
+Sessions are agent-agnostic — they store message history and delegation counters, not the orchestrator identity. The orchestrator context is bound to the turn at invocation time via `DelegateContext`, not stored in the session. Each orchestrator has its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`, so sessions are naturally separated per orchestrator at the storage level. Switching orchestrators switches session stores — the previous orchestrator's sessions remain accessible when switching back.
 
 ### ADR Context
 
@@ -79,8 +80,8 @@ The ORCHESTRATION ADR (`base/adr/ORCHESTRATION.md`) explicitly chose the single 
 ### In Scope
 
 - **Multiple orchestrator entries** in the `agents` array — relax the "exactly one" constraint to "at least one."
-- **Orchestrator ComboBox on the chat screen** — filtered to orchestrator agents only, similar to the existing Agent/Tools ComboBox pattern.
-- **Disabled during active session** — the ComboBox is interactive only when no session is active; switching orchestrators starts a new session.
+- **Orchestrator selector in the sessions sidebar** — ComboBox under an "Agent" header above the "Sessions" header; filtered to orchestrator agents; switching updates the session list.
+- **Disabled during active session** — the ComboBox is interactive only when no session is active; switching orchestrators updates the sessions list and sets the orchestrator for the next message.
 - **Active/inactive labeling** — agents in the Agent/Tools ComboBoxes show "active" or "inactive" based on the selected orchestrator.
 - **Shared workers** — all orchestrators in a profile share the same worker definitions, with optional per-orchestrator filtering via `enabledWorkers` (absent = all workers; present = listed workers only).
 - **Shared sandbox and providers** — orchestrators differ only in their agent context (`AGENT.md`), `enabledSkills`, `enabledWorkers`, `contextMode`, `defaultProvider`/`defaultModel`, and delegation policy. Workers, sandbox, providers, and channels are profile-level resources.
@@ -246,32 +247,42 @@ pub struct OrchestratorConfig {
 
 ### Gateway State Changes
 
-Today, `GatewayState` holds:
+Today, `GatewayState` holds flat fields for a single orchestrator:
 
-- `system_context: Option<String>` — the single orchestrator's system prompt.
-- `tools_list: Vec<ToolDefinition>` — the single orchestrator's tool list.
-- `tool_executor: Arc<dyn ToolExecutor>` — the single orchestrator's tool executor.
+- `system_context: String` — the single orchestrator's system prompt.
+- `skills: Arc<Vec<Skill>>` — the single orchestrator's skill set.
+- `tools_list: Option<Vec<ToolDefinition>>` — the single orchestrator's tool list.
+- `tool_executor: Option<Arc<dyn ToolExecutor>>` — the single orchestrator's tool executor.
 
 With multiple orchestrators, these become per-orchestrator:
 
 ```rust
 pub struct GatewayState {
-    pub orchestrator_runtimes: HashMap<String, OrchestratorRuntime>,
+    pub orchestrator_runtimes: Arc<HashMap<String, OrchestratorRuntime>>,
+    pub session_stores: Arc<HashMap<String, Arc<SessionStore>>>,
     // ... other fields unchanged
 }
 
 pub struct OrchestratorRuntime {
-    pub system_context: Option<String>,
-    pub tools_list: Vec<ToolDefinition>,
-    pub tool_executor: Arc<dyn ToolExecutor>,
+    pub system_context: String,
+    pub skills: Arc<Vec<Skill>>,
+    pub tools_list: Option<Vec<ToolDefinition>>,
+    pub tool_executor: Option<Arc<dyn ToolExecutor>>,
+    pub context_mode: SkillContextMode,
 }
 ```
 
-The gateway would build an `OrchestratorRuntime` for each orchestrator at startup (same logic as today, just repeated per orchestrator).
+`OrchestratorRuntime` mirrors the existing `WorkerDelegateRuntime` struct (which holds the same fields per worker). The gateway builds an `OrchestratorRuntime` for each orchestrator at startup — same logic as today, repeated per orchestrator with each orchestrator's context dir, enabled skills, context mode, and enabled workers.
+
+**Decision: Per-orchestrator session stores.** Each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`. The directory structure already supports this. Sessions from one orchestrator are completely separate from another — switching orchestrators means switching session stores. This prevents accidental cross-orchestrator session resumption and ensures the desktop sessions sidebar shows only sessions for the selected orchestrator. `GatewayState.session_stores` is a `HashMap<String, Arc<SessionStore>>` keyed by orchestrator ID.
+
+**Decision: No change to `provider_discovery_enabled()`.** This function takes a union of all orchestrators' `enabled_providers` for startup-time model discovery. This is correct for discovery — we want to discover models for all providers any orchestrator might use. Per-orchestrator `enabledProviders` filtering is a use-time concern, handled in the `agent` RPC handler and `resolve_delegate_target()`.
+
+**Decision: Pass `&OrchestratorConfig` directly.** Functions that currently call `agents.default_orchestrator()` internally (`resolve_delegate_target()`, `effective_worker_defaults()`) should accept `&OrchestratorConfig` as a parameter instead. This makes "which orchestrator?" explicit at every call site and avoids redundant lookups. The pattern already exists: `resolve_orchestrator_provider_choice()` takes `&OrchestratorConfig` directly, while `resolve_provider_choice()` wraps it for the default case.
 
 ### Agent RPC Extension
 
-The `agent` RPC currently has no parameter to select which agent handles the turn. The simplest extension:
+The `agent` RPC currently has no parameter to select which orchestrator handles the turn. The `AgentParams` struct in `protocol.rs` supports `provider` and `model` overrides but has no orchestrator field. The extension:
 
 ```json
 {
@@ -281,26 +292,44 @@ The `agent` RPC currently has no parameter to select which agent handles the tur
     "sessionId": "...",
     "provider": "...",
     "model": "...",
-    "agentId": "reviewer"
+    "orchestratorId": "reviewer"
   }
 }
 ```
 
-When `agentId` is omitted, the first (default) orchestrator is used. When provided, the gateway looks up the matching `OrchestratorRuntime` and uses its system context, tools, and executor for the turn. The `agentId` must reference an agent with role `orchestrator`; the gateway rejects IDs that refer to workers or don't exist.
+When `orchestratorId` is omitted, the first (default) orchestrator is used. When provided, the gateway looks up the matching `OrchestratorRuntime` and uses its system context, tools, and executor for the turn. The gateway also selects the corresponding `SessionStore` for session resolution. The `orchestratorId` must reference an agent with role `orchestrator`; the gateway rejects IDs that refer to workers or don't exist.
 
-### Desktop Chat Screen: Orchestrator ComboBox
+The `"agentDetail"` RPC handler is similarly updated: it currently only resolves the default orchestrator. With the `orchestrator_runtimes` map, it can look up any orchestrator by ID.
 
-A new ComboBox on the chat screen, positioned alongside the existing Provider and Model ComboBoxes:
+Channel-bound messages (`process_inbound_message`) always use the default orchestrator — no `orchestratorId` parameter in the channel path.
+
+### Sessions RPC Extension
+
+The `"sessions"` RPC currently uses the single session store. With per-orchestrator session stores, it needs an `orchestratorId: Option<String>` parameter. When omitted, the default orchestrator's session store is used. When provided, the matching orchestrator's session store is queried. This enables the desktop to list per-orchestrator sessions when the orchestrator selector changes.
+
+### Desktop Chat Screen: Orchestrator Selector
+
+A new ComboBox for selecting the active orchestrator, placed in the **sessions sidebar** under an "Agent" header above the existing "Sessions" header and session list:
 
 ```
-[ /new ] [ /help ] [ Orchestrator ▾ ] [ Provider ▾ ] [ Model ▾ ] [ Stop ] [ Send ]
+┌─────────────────────────┐
+│ Agent                   │
+│ [ Orchestrator ▾      ] │
+│                         │
+│ Sessions                │
+│ ─ session 1             │
+│ ─ session 2             │
+│ ─ session 3             │
+└─────────────────────────┘
 ```
+
+Switching the orchestrator ComboBox updates the sessions list to show sessions for the selected orchestrator (via the `sessions` RPC with `orchestratorId`).
 
 **Behavior**:
 - Populated from `status.agents` filtered to `role === "orchestrator"`.
 - Selected orchestrator determines which provider/model defaults are used (and filters the Provider/Model ComboBoxes accordingly).
 - **Disabled during active session** — `chat_turn_receiver.is_some()` or `chat_session_id.is_some()`.
-- Switching orchestrators while no session is active is a no-op for the current session (there isn't one). The next message will use the selected orchestrator.
+- Switching orchestrators while no session is active updates the sessions list and sets the orchestrator for the next message.
 - When only one orchestrator is configured, the ComboBox is still visible but disabled — no selection to make.
 
 ### Agent/Tools Screen: Active/Inactive Labeling
@@ -353,7 +382,7 @@ Rationale:
 
 **Why delegation-time filtering, not startup-time filtering**: All worker runtimes are still built at startup (they're the same regardless of which orchestrator delegates to them). Filtering happens at the system-prompt and delegation layers. This avoids complicating the `worker_delegate_runtimes` HashMap with per-orchestrator views and mirrors how `enabledProviders` works (all providers are still configured; only discovery and delegation are filtered).
 
-**Interaction with `enabledProviders`**: The two filters compose naturally. If orchestrator A has `enabledWorkers: ["engineer"]` and `enabledProviders: ["ollama"]`, but the engineer worker uses `defaultProvider: "lms"`, the existing `enabledProviders` check in `resolve_delegate_target()` catches this. No special interaction logic is needed.
+**Interaction with `enabledProviders`**: The two filters compose naturally. If orchestrator A has `enabledWorkers: ["engineer"]` and `enabledProviders: ["ollama"]`, but the engineer worker uses `defaultProvider: "lms"`, the `enabledProviders` check in `resolve_delegate_target()` (against the calling orchestrator's config, not via `provider_discovery_enabled()`) catches this. No special interaction logic is needed.
 
 **Validation**: Referenced worker IDs must exist in the profile's `agents` array. Unknown IDs produce a validation error at config load time, matching the validation pattern for `enabledProviders` and `enabledSkills`.
 
@@ -363,7 +392,7 @@ The `status.agents` array already includes all agents with their `role`. For mul
 
 The desktop currently resolves a single `orchestrator_id` from the first orchestrator entry. This would change to tracking all orchestrator IDs and which one is "active" (selected for chat). The active orchestrator could be stored as client-side state in the desktop app, or the gateway could track it as part of the session.
 
-**Decision: Client-side state.** The desktop tracks `active_orchestrator_id` locally. The gateway doesn't need to know which orchestrator is "active" — it just needs to know which orchestrator to use when the `agent` RPC arrives, which is communicated via the `agentId` parameter.
+**Decision: Client-side state.** The desktop tracks `active_orchestrator_id` locally. The gateway doesn't need to know which orchestrator is "active" — it just needs to know which orchestrator to use when the `agent` RPC arrives, which is communicated via the `orchestratorId` parameter.
 
 ### Profile vs. Orchestrator Switching
 
@@ -372,8 +401,8 @@ The desktop currently resolves a single `orchestrator_id` from the first orchest
 | Scope | Everything: config, workers, sandbox, providers, channels, skills | Agent context, skills, worker visibility, provider/model defaults, delegation policy |
 | Workers | Different per profile | Shared (with optional `enabledWorkers` filter) |
 | Sandbox | Isolated per profile | Shared |
+| Sessions | All sessions lost | Per-orchestrator session stores; switching shows the selected orchestrator's sessions |
 | Gateway restart | Required | Not required |
-| Session | All sessions lost | New session (old sessions remain accessible in history) |
 | Configuration | Separate `config.json` files | Same `config.json`, different orchestrator entries |
 
 Orchestrator switching is a **lighter-weight alternative** to profile switching when the user only wants to change the agent's role, not the entire environment.
@@ -385,55 +414,73 @@ Orchestrator switching is a **lighter-weight alternative** to profile switching 
 - [x] **`AgentsConfig` refactored** — Replace flat top-level orchestrator fields with `Vec<OrchestratorConfig>`. On-disk format unchanged.
 - [x] **`enabledWorkers` on `OrchestratorConfig`** — Optional `Vec<String>`; when absent, all profile workers are available; when present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`.
 - [x] **`enabledWorkers` validation** — Referenced worker IDs must exist in the profile's `agents` array. Unknown IDs produce a validation error.
-- [ ] **`enabledWorkers` system prompt filtering** — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster.
-- [ ] **`enabledWorkers` delegation enforcement** — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers` (when set), mirroring the `enabledProviders` check.
-- [ ] **Per-orchestrator runtime** — Gateway builds `OrchestratorRuntime` (system context, tools, executor) for each orchestrator at startup.
-- [ ] **`agent` RPC `agentId` parameter** — Optional; when omitted, the first orchestrator is used.
-- [ ] **Orchestrator ComboBox on chat screen** — Filtered to orchestrators; disabled during active session; switches start a new session.
+- [x] **`enabledWorkers` system prompt filtering** — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster.
+- [x] **`enabledWorkers` delegation enforcement** — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers` (when set), mirroring the `enabledProviders` check.
+- [x] **Per-orchestrator runtime** — Gateway builds `OrchestratorRuntime` (system context, tools, executor, skills, context mode) for each orchestrator at startup. Stored in `GatewayState.orchestrator_runtimes: HashMap<String, OrchestratorRuntime>`.
+- [x] **Per-orchestrator session stores** — Each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`. Stored in `GatewayState.session_stores: HashMap<String, Arc<SessionStore>>`.
+- [x] **`agent` RPC `orchestratorId` parameter** — Optional; when omitted, the first orchestrator is used. Gateway resolves the corresponding `OrchestratorRuntime` and `SessionStore`.
+- [x] **`sessions` RPC `orchestratorId` parameter** — Optional; when omitted, the default orchestrator's session store is queried. Enables per-orchestrator session listing.
+- [x] **`agentDetail` RPC per-orchestrator resolution** — Look up any orchestrator from the `orchestrator_runtimes` map, not just the default.
+- [ ] **Orchestrator selector on chat screen** — ComboBox in the sessions sidebar under an "Agent" header; disabled during active session; switches update the sessions list.
 - [ ] **Provider/Model ComboBox cascade** — Switching orchestrators updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults.
 - [ ] **Active/inactive labeling** — Agent and Tools screen ComboBoxes show `(active)` / `(inactive)` for orchestrators.
-- [ ] **`enabledProviders` enforcement** — Worker delegation is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`.
+- [x] **`enabledProviders` enforcement** — Worker delegation is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`. Enforced in `resolve_delegate_target()` against the calling orchestrator's config, not via `provider_discovery_enabled()`.
 - [ ] **Single-orchestrator backward compatibility** — When only one orchestrator is configured, desktop and CLI behavior is identical to today (ComboBox hidden or disabled; `--agent` flag has no effect).
 - [ ] **CLI `--agent` flag** — The `agent` CLI command accepts an optional `--agent <id>` flag that selects which orchestrator to use, equivalent to the desktop ComboBox selection.
-- [ ] **Spec updates** — Update `spec/AGENTS.md`, `spec/ORCHESTRATION.md`, `spec/CONFIGURATION.md`, `spec/DESKTOP.md`, `spec/CLI.md` to reflect multiple orchestrators, `enabledWorkers`, and the `--agent` flag.
-- [ ] **ADR update** — Update `adr/ORCHESTRATION.md` to note that the "exactly one" constraint has been relaxed.
+- [x] **Spec updates** — Update `spec/AGENTS.md`, `spec/ORCHESTRATION.md`, `spec/CONFIGURATION.md`, `spec/GATEWAY_STATUS.md`, `spec/CONTEXT.md`, `spec/SESSIONS.md` to reflect multiple orchestrators, per-orchestrator runtime, `enabledWorkers`, `enabledProviders` enforcement, and `orchestratorId` RPC parameters.
+- [x] **ADR update** — Update `adr/ORCHESTRATION.md` to note per-orchestrator runtime isolation and `enabledProviders` enforcement.
 
 ## Phases
-
 | Phase | Focus | Status |
 |-------|-------|--------|
 | 1 | Config layer: relax validation, refactor `AgentsConfig`, add `OrchestratorConfig` type (including `enabledWorkers`) | **Complete** |
-| 2 | Gateway runtime: per-orchestrator `OrchestratorRuntime`, `agent` RPC `agentId` parameter, `enabledWorkers` system prompt filtering and delegation enforcement, `enabledProviders` enforcement for shared workers | Not started |
-| 3 | Desktop UI + CLI: orchestrator ComboBox on chat screen, `--agent` CLI flag, active/inactive labeling, provider/model cascade | Not started |
-| 4 | Spec and ADR updates: document new behavior in all affected specs | Not started |
+| 2 | Gateway runtime: per-orchestrator `OrchestratorRuntime`, per-orchestrator session stores, `agent` RPC `orchestratorId` parameter, `sessions` RPC `orchestratorId` parameter, `agentDetail` per-orchestrator resolution, `enabledWorkers` system prompt filtering and delegation enforcement, `enabledProviders` enforcement for shared workers | **Complete** |
+| 3 | Desktop UI + CLI: orchestrator selector in sessions sidebar, `--agent` CLI flag, active/inactive labeling, provider/model cascade | Not started |
+| 4 | Spec and ADR updates: document new behavior in all affected specs | **Complete** (merged into Phase 2 graduation) |
 
-## Open Questions
+## Resolved Questions
 
 ### 1. What Happens When Switching Orchestrators With an Active Session?
 
-**Proposed answer**: The ComboBox is disabled during an active session. The user must start a new session (`/new`) before switching. This is the simplest and most predictable behavior.
+**Resolved**: The ComboBox is disabled during an active session. The user must start a new session (`/new`) before switching. This is the simplest and most predictable behavior.
 
-If the user has an active session with orchestrator A, starts a new session, and then selects orchestrator B, the new session uses orchestrator B. The previous session (with orchestrator A) remains in the session history.
+If the user has an active session with orchestrator A, starts a new session, and then selects orchestrator B, the new session uses orchestrator B. The previous session (with orchestrator A) remains in the session history for that orchestrator (per-orchestrator session stores).
 
 ### 2. Should Each Orchestrator Have Its Own Provider/Model Defaults?
 
-**Proposed answer**: Yes. Each orchestrator entry already supports `defaultProvider` and `defaultModel`. When the user switches orchestrators on the chat screen, the Provider and Model ComboBoxes should update to reflect the new orchestrator's defaults (if configured), while still allowing per-turn overrides.
+**Resolved**: Yes. Each orchestrator entry already supports `defaultProvider` and `defaultModel`. When the user switches orchestrators on the chat screen, the Provider and Model ComboBoxes should update to reflect the new orchestrator's defaults (if configured), while still allowing per-turn overrides.
 
 ### 3. How Does `enabledProviders` Interact With Shared Workers?
 
-**Proposed answer**: Each orchestrator's `enabledProviders` controls which providers are available for its own turns and for worker delegations it initiates. A worker with `defaultProvider: "lms"` can only be delegated to by orchestrators that have `"lms"` in their `enabledProviders`. The gateway should emit `orchestration.delegate.error` when an orchestrator attempts to delegate to a worker whose provider is not in the orchestrator's `enabledProviders`.
+**Resolved**: Each orchestrator's `enabledProviders` controls which providers are available for its own turns and for worker delegations it initiates. A worker with `defaultProvider: "lms"` can only be delegated to by orchestrators that have `"lms"` in their `enabledProviders`. The gateway emits `orchestration.delegate.error` when an orchestrator attempts to delegate to a worker whose provider is not in the orchestrator's `enabledProviders`. Enforcement is in `resolve_delegate_target()` against the calling orchestrator's config — `provider_discovery_enabled()` is not changed (it serves startup-time model discovery via union, which is correct for that purpose).
 
 ### 4. Should the Orchestrator ID Be Stored in the Session?
 
-**Proposed answer**: Not in the initial implementation. Sessions are agent-agnostic and adding orchestrator identity would complicate the session model. Instead, the orchestrator used for a session is implicit from the session history — the system context is reconstructed each turn. If we later want to display "which orchestrator created this session" in the UI, we can add it as session metadata without changing the gateway's session model.
+**Resolved**: Not in the initial implementation. Sessions are agent-agnostic and adding orchestrator identity would complicate the session model. Instead, the orchestrator used for a session is implicit from the session store it lives in (per-orchestrator session stores provide natural separation). If we later want to display "which orchestrator created this session" in the UI, we can add it as session metadata without changing the gateway's session model.
 
 ### 5. What About the Default When `agents` Is Omitted?
 
-**Proposed answer**: When the `agents` array is omitted (or `null`), the default remains a single orchestrator with id `"orchestrator"` — backward compatible. When an `agents` array is provided, it must contain at least one orchestrator (no longer "exactly one").
+**Resolved**: When the `agents` array is omitted (or `null`), the default remains a single orchestrator with id `"orchestrator"` — backward compatible. When an `agents` array is provided, it must contain at least one orchestrator (no longer "exactly one").
 
 ### 6. How Does This Affect Channel-Bound Sessions?
 
-**Proposed answer**: Channel messages (Telegram, etc.) currently go to the single orchestrator. With multiple orchestrators, channels need a way to select which orchestrator handles incoming messages. The simplest approach: channels always use the **first** (default) orchestrator. Channel-specific orchestrator routing is a separate feature.
+**Resolved**: Channel messages (Telegram, etc.) currently go to the single orchestrator. With multiple orchestrators, channels always use the **first** (default) orchestrator. Channel-specific orchestrator routing is a separate feature (listed in Follow-ups).
+
+### 7. Should Each Orchestrator Have Its Own SessionStore?
+
+**Resolved**: Yes. Each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`. The directory structure already supports this. Sessions from one orchestrator are completely separate from another — switching orchestrators switches session stores. This prevents accidental cross-orchestrator session resumption and ensures the desktop sessions sidebar shows only sessions for the selected orchestrator.
+
+### 8. How Should `resolve_delegate_target()` and `effective_worker_defaults()` Receive the Orchestrator Context?
+
+**Resolved**: Pass `&OrchestratorConfig` directly. The caller resolves the orchestrator and passes the specific config. This makes "which orchestrator?" explicit at every call site and avoids redundant lookups. The pattern already exists: `resolve_orchestrator_provider_choice()` takes `&OrchestratorConfig` directly, while `resolve_provider_choice()` wraps it for the default case.
+
+### 9. Should `provider_discovery_enabled()` Change for Phase 2?
+
+**Resolved**: No. `provider_discovery_enabled()` correctly serves startup-time discovery via union. Per-orchestrator `enabledProviders` filtering is a use-time concern handled at delegation time (in `resolve_delegate_target()`) and turn time (in the `agent` RPC handler).
+
+### 10. Where Should the Orchestrator Selector Be Placed in the Desktop UI?
+
+**Resolved**: In the sessions sidebar, under an "Agent" header above the "Sessions" header and session list — not alongside the Provider and Model ComboBoxes in the toolbar. This placement ties the orchestrator selection directly to the sessions list, since switching orchestrators switches which sessions are visible.
 
 ## Follow-ups
 

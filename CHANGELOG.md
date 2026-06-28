@@ -14,6 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Multiple orchestrator entries in the `agents` array — validation relaxes from "exactly one orchestrator" to "at least one"; each orchestrator has its own provider, model, skills, and delegation policy
 - `enabledWorkers` field on orchestrator entries — optional array of worker ids this orchestrator can delegate to; absent or `null` means all workers; present means only listed workers are visible and delegatable; unknown worker ids produce a validation error; rejected on worker entries at parse time
 - `OrchestratorConfig` type with accessor methods — `AgentsConfig` now holds `Vec<OrchestratorConfig>` with `default_orchestrator()`, `orchestrator(id)`, and `orchestrator_ids()` instead of flat top-level fields; on-disk `config.json` format is unchanged
+- Per-orchestrator `OrchestratorRuntime` — gateway builds a separate runtime (system context, skills, tools, executor, context mode) for each orchestrator at startup; `GatewayState` replaces flat `system_context`/`skills`/`tools_list`/`tool_executor` fields with `orchestrator_runtimes: HashMap<String, OrchestratorRuntime>`
+- Per-orchestrator session stores — each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`; held in `GatewayState.session_stores: HashMap<String, Arc<SessionStore>>`; sessions from one orchestrator are isolated from another
+- `agent` RPC `orchestratorId` parameter — optional; when omitted, the default (first) orchestrator is used; when provided, the gateway resolves the matching `OrchestratorRuntime` and `SessionStore`; unknown orchestrator IDs return an error
+- `sessions.list` RPC `orchestratorId` parameter — optional; when omitted, the default orchestrator's session store is queried; enables per-orchestrator session listing
+- `sessions.history` and `sessions.delete` search across all session stores — a session can be retrieved or deleted regardless of which orchestrator created it
+- `enabledWorkers` system prompt filtering — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster; the model never sees excluded workers
+- `enabledWorkers` delegation enforcement — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers`, mirroring the `enabledProviders` check
+- `enabledProviders` per-orchestrator enforcement — delegation to a worker is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`; enforced in `resolve_delegate_target()` against the calling orchestrator's config
+- `agentDetail` RPC per-orchestrator resolution — the handler checks `orchestrator_runtimes` map first, then falls back to `worker_delegate_runtimes`
+- Channel-bound messages always use the default orchestrator — `process_inbound_message` has no `orchestratorId` parameter
 
 ## [0.3.0] - 2026-06-27
 

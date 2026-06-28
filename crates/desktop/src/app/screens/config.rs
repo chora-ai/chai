@@ -333,7 +333,7 @@ fn config_summary_right_column(
                 ui.label(egui::RichText::new(wid).strong());
                 ui.add_space(spacing::SUBSECTION_HEADING_GAP);
                 dashboard::kv(ui, "Role", "worker");
-                let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.providers, &config.agents, w);
+                let (wp, wm) = lib::orchestration::effective_worker_defaults(&config.providers, config.agents.default_orchestrator(), w);
                 dashboard::kv(ui, "Default provider", wp.as_str());
                 dashboard::kv(ui, "Default model", wm.as_str());
                 let w_skills = lib::config::worker_enabled_skills_list(w);
