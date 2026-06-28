@@ -39,7 +39,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit log to commits affecting this file or directory path within the repository"
+            "description": "Limit log to commits affecting this file or directory path, relative to the repository root"
           }
         }
       }
@@ -65,14 +65,14 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit diff to a specific file or directory path within the repository"
+            "description": "Limit diff to a specific file or directory path, relative to the repository root"
           }
         }
       }
     },
     {
       "name": "git_diff_lines",
-      "description": "Read a range of lines from a git diff output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_diff output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "description": "Read a range of lines from a git diff output.",
       "parameters": {
         "type": "object",
         "required": ["start_line"],
@@ -99,7 +99,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit diff to a specific file or directory path within the repository"
+            "description": "Limit diff to a specific file or directory path, relative to the repository root"
           }
         }
       }
@@ -124,7 +124,7 @@
     },
     {
       "name": "git_show_lines",
-      "description": "Read a range of lines from a git show output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_show output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "description": "Read a range of lines from a git show output.",
       "parameters": {
         "type": "object",
         "required": ["start_line", "ref"],
@@ -175,7 +175,7 @@
         "properties": {
           "paths": {
             "type": "string",
-            "description": "File path or pattern to stage (e.g. 'src/main.rs', '.')"
+            "description": "File path or pattern to stage, relative to the repository root"
           },
           "repo": {
             "type": "string",
@@ -240,7 +240,7 @@
     },
     {
       "name": "git_branch_delete",
-      "description": "Delete a local branch. Use `force: true` to delete branches that were squash-merged (Git refuses `branch -d` for branches whose commit ancestry diverged from the target). Force-deleting a protected branch (`main`, `release/*`) is always blocked regardless of the `force` flag.",
+      "description": "Delete a local branch.",
       "parameters": {
         "type": "object",
         "required": ["branch_name"],
@@ -251,7 +251,7 @@
           },
           "force": {
             "type": "boolean",
-            "description": "Force-delete the branch (use `git branch -D`). Required after squash merges where Git does not consider the branch fully merged. Protected branches (`main`, `release/*`) are always blocked. Default: false."
+            "description": "Force-delete the branch (git branch -D). Default: false."
           },
           "repo": {
             "type": "string",
@@ -262,7 +262,7 @@
     },
     {
       "name": "git_merge",
-      "description": "Merge a branch into the current branch. Defaults to squash merge (--squash) which stages the combined diff without creating a merge commit — follow with git_commit to finalize.",
+      "description": "Merge a branch into the current branch.",
       "parameters": {
         "type": "object",
         "required": ["branch_name"],
@@ -273,7 +273,7 @@
           },
           "squash": {
             "type": "boolean",
-            "description": "Squash the branch's commits into a single staged change (default: true)"
+            "description": "Squash the branch's commits into a single staged change"
           },
           "repo": {
             "type": "string",
@@ -324,7 +324,7 @@
     },
     {
       "name": "git_rebase_continue",
-      "description": "Continue a rebase after resolving conflicts. Stage resolved files with git_add first, then run this to proceed.",
+      "description": "Continue a rebase after resolving conflicts.",
       "parameters": {
         "type": "object",
         "required": [],
@@ -352,7 +352,7 @@
     },
     {
       "name": "git_cherry_pick_continue",
-      "description": "Continue a cherry-pick after resolving conflicts. Stage resolved files with git_add first, then run this to proceed.",
+      "description": "Continue a cherry-pick after resolving conflicts.",
       "parameters": {
         "type": "object",
         "required": [],
@@ -380,7 +380,7 @@
     },
     {
       "name": "git_reset",
-      "description": "Undo the last commit(s) on the current branch. Defaults to a mixed reset (HEAD~1) which undoes the commit but keeps changes staged — follow with git_commit to re-commit or git_status to inspect.",
+      "description": "Reset the current branch to a specified ref.",
       "parameters": {
         "type": "object",
         "required": [],

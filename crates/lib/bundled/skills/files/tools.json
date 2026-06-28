@@ -16,7 +16,7 @@
     },
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers.",
+      "description": "Read a range of lines from a file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],
@@ -76,11 +76,6 @@
           "recursive": {
             "type": "boolean",
             "description": "Search directories recursively. On by default — set to false only when searching a single file path.",
-            "default": true
-          },
-          "line_number": {
-            "type": "boolean",
-            "description": "Show line numbers in output",
             "default": true
           },
           "ignore_case": {
@@ -169,11 +164,6 @@
           "literal": {
             "type": "boolean",
             "description": "Treat the pattern as literal text instead of regex. Default: false."
-          },
-          "line_number": {
-            "type": "boolean",
-            "description": "Show line numbers in the returned diff (default: true)",
-            "default": true
           }
         }
       }
@@ -208,24 +198,33 @@
     }
   ],
   "allowlist": {
-    "cat": [""],
     "ls": [""],
-    "grep": ["", "-E"],
+    "grep": ["", "-E", "-E --line-number"],
     "chai": [
       "file write",
       "file delete",
       "file patch",
       "file read-lines",
       "file delete-dir",
-      "file replace"
+      "file replace",
+      "file replace --line-number"
     ]
   },
   "execution": [
     {
       "tool": "files_read",
-      "binary": "cat",
-      "subcommand": "",
-      "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+      "binary": "chai",
+      "subcommand": "file read-lines",
+      "args": [
+        { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
+        {
+          "param": "start_line",
+          "kind": "flag",
+          "flag": "start-line",
+          "optional": true,
+          "absentDefault": 1
+        }
+      ],
       "successExitCodes": [1],
       "hintConditions": [
         {
@@ -280,18 +279,12 @@
     {
       "tool": "files_search",
       "binary": "grep",
-      "subcommand": "-E",
+      "subcommand": "-E --line-number",
       "args": [
         {
           "param": "recursive",
           "kind": "flagifboolean",
           "flagIfTrue": "--recursive",
-          "absentDefault": true
-        },
-        {
-          "param": "line_number",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--line-number",
           "absentDefault": true
         },
         {
@@ -311,7 +304,7 @@
       "hintConditions": [
         {
           "notEmpty": true,
-          "hint": "use files_read_lines for surrounding context"
+          "hint": "use files_read_lines to read surrounding context"
         }
       ],
       "maxOutputLines": 200
@@ -359,7 +352,7 @@
     {
       "tool": "files_replace",
       "binary": "chai",
-      "subcommand": "file replace",
+      "subcommand": "file replace --line-number",
       "args": [
         { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
         { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
@@ -374,12 +367,6 @@
           "param": "literal",
           "kind": "flagifboolean",
           "flagIfTrue": "--literal"
-        },
-        {
-          "param": "line_number",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--line-number",
-          "absentDefault": true
         }
       ],
       "maxOutputLines": 200

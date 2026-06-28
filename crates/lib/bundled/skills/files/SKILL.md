@@ -3,7 +3,7 @@ description: Read, write, replace, delete, list, and search files.
 capability_tier: full
 metadata:
   requires:
-    bins: ["cat", "ls", "grep", "chai"]
+    bins: ["ls", "grep", "chai"]
 ---
 
 ## Skill Directives
@@ -13,7 +13,6 @@ metadata:
 
 ## Skill Guidelines
 
-- When making targeted reads to large files, use `files_read_lines` instead of `files_read`
 - When making targeted edits to large files, use `files_write_lines` instead of `files_write`
 - When making multiple `files_write_lines` edits in the same file, work from bottom to top
 - When using `files_replace`, use `max_replacements: 1` to replace only the first match

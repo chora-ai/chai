@@ -39,7 +39,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit log to commits affecting this file or directory path within the repository"
+            "description": "Limit log to commits affecting this file or directory path, relative to the repository root"
           }
         }
       }
@@ -65,14 +65,14 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit diff to a specific file or directory path within the repository"
+            "description": "Limit diff to a specific file or directory path, relative to the repository root"
           }
         }
       }
     },
     {
       "name": "git_diff_lines",
-      "description": "Read a range of lines from a git diff output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_diff output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "description": "Read a range of lines from a git diff output.",
       "parameters": {
         "type": "object",
         "required": ["start_line"],
@@ -99,7 +99,7 @@
           },
           "path": {
             "type": "string",
-            "description": "Limit diff to a specific file or directory path within the repository"
+            "description": "Limit diff to a specific file or directory path, relative to the repository root"
           }
         }
       }
@@ -124,7 +124,7 @@
     },
     {
       "name": "git_show_lines",
-      "description": "Read a range of lines from a git show output with line numbers. Returns lines in the format {line_number}\\t{content}. Use this when git_show output is truncated to read the remaining lines without re-reading what was already shown. Set start_line to the line after the last shown line from the truncated output. When end_line is omitted, reads from start_line to the end of the output.",
+      "description": "Read a range of lines from a git show output.",
       "parameters": {
         "type": "object",
         "required": ["start_line", "ref"],

@@ -23,7 +23,11 @@ This release implements the persistent sessions epic.
 - [x] Implement Phase 3: Desktop session management
 - [x] Implement Phase 4: CLI session management (`chai sessions list`, `chai sessions delete`, `chai sessions clear`)
 
-### 2. Release Mechanics
+### 2. Skill Directives Second Pass
+
+- [x] Perform a second pass on SKILL.md directives across all skills — verify remaining directives are still justified, identify new candidates for enforcement via `hintConditions` or tool-level mechanisms, and confirm the audit changes are holding in practice
+
+### 3. Release Mechanics
 
 - [ ] Validate `scripts/build-release.sh 0.3.0` and experimental feature builds
 - [ ] Write tag file `base/tag/V0_3_0.md` following `base/meta/TAG.md` format

@@ -45,7 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Delete-confirmation hintConditions added to `files_delete`, `files_delete_dir`, `notes_delete`, and `notes_delete_dir` — every deletion now produces a verification hint
 - `git_branch_delete` hintCondition added for "not fully merged" error — suggests `force: true` when a branch was squash-merged
 - Tool descriptions trimmed to functional-spec-only content across all skills: removed output format descriptions, usage guidance, behavioral warnings, and `(use ./ prefix)` path hints from tool and parameter descriptions
+- `files_read` and `notes_read` now include line numbers in `{line_number}\t{content}` format — previously, these tools used `cat` which produced raw output without line numbers, requiring an extra `files_read_lines` or `files_search` call before editing
+- `files_search`, `notes_search`, `files_replace`, and `notes_replace` now always show line numbers — the `line_number` parameter has been removed from all four tools (it defaulted to `true` and was never needed as `false`)
 - `files_replace` and `notes_replace` descriptions and parameter descriptions trimmed from ~250 words each to functional specifications only; `max_replacements: 1` guidance moved to SKILL.md guidelines
+- `cat` removed from binary requirements for files, files-read, notes, and notes-read skills
 - Sandbox README files removed from bundled profile templates — `chai init` no longer creates `sandbox/README.md`
 - `cargo locate-project` removed from cargo skill allowlist (no longer needed)
 
@@ -82,6 +85,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `notes_daily_append` hint now correctly acknowledges that the file was created by the append operation, instead of implying the operation failed
 - `cargo_check` and `cargo_test` now show compiler warnings — previously, stderr was discarded on exit code 0, so warnings emitted to stderr (e.g., unused variable) were invisible to the agent and the tools reported "no warnings" even when warnings existed
 - `cargo_check` compilation errors and `cargo_test` test failures now produce filtered output — previously, exit code 101 bypassed the postProcess script, returning hundreds of lines of unfiltered output (progress lines, passing test lines) that consumed context window without providing actionable information; now only diagnostics (errors, warnings with multi-line context) and summaries (test result lines, crate-level summaries) are shown
+- `files_write_lines` `original_content` mismatch errors now include file line numbers (e.g., `file line N`) alongside content-relative line numbers, and the length-mismatch hint clarifies `original_content` vs file range (e.g., `original_content has X lines, file range lines A-B has Y lines`)
+- `log::warn!` diagnostic messages no longer appear in `files_write_lines` and `files_replace` tool output — previously, fuzzy-match warnings (NFC normalization, Unicode folding, trailing whitespace, blank-line boundary) leaked into agent tool results via stderr, creating confusing `WARN` lines in successful operations
 
 #### Skill Authoring
 

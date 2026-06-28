@@ -4,7 +4,7 @@ capability_tier: minimal
 variant_of: files
 metadata:
   requires:
-    bins: ["cat", "ls", "grep", "chai"]
+    bins: ["ls", "grep", "chai"]
 ---
 
 ## Skill Directives

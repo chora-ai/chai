@@ -312,7 +312,7 @@ One tool, one positional argument:
   "tools": [
     {
       "name": "files_read_lines",
-      "description": "Read a range of lines from a file with line numbers. Returns lines in the format {line_number}\\t{content}. Use this instead of files_read when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+      "description": "Read a range of lines from a file. Returns lines in the format {line_number}\\t{content}. Use this when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
       "parameters": {
         "type": "object",
         "required": ["path", "start_line"],

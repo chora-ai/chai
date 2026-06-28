@@ -40,8 +40,8 @@ This journey covers the **`files`** skill (full read + write + delete). The read
    - **Expect:** The agent uses `files_list` and `files_read` to list the sandbox and read the file. The reply includes the directory listing and file contents.
 
 4. **Search for content**
-   - Send: "Search for the word 'agent' in all files in this directory and show me the matches with line numbers."
-   - **Expect:** The agent uses `files_search` with `line_number: true`. The reply shows matching lines with line numbers.
+   - Send: "Search for the word 'agent' in all files in this directory and show me the matches."
+   - **Expect:** The agent uses `files_search`. The reply shows matching lines with line numbers (line numbers are always included in search output).
 
 5. **Write a file**
    - Send: "Create a file called test-note.md with the content '# Test Note\n\nHello from the files skill.'"

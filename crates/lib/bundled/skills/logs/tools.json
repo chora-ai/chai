@@ -2,7 +2,7 @@
   "tools": [
     {
       "name": "logs_recent",
-      "description": "Return the most recent N lines of chai gateway log output. Useful for checking finish_reason, token usage, and iteration counts from provider responses.",
+      "description": "Return the most recent N lines of chai gateway log output.",
       "parameters": {
         "type": "object",
         "required": [],
@@ -20,7 +20,7 @@
     },
     {
       "name": "logs_search",
-      "description": "Search gateway log output for a pattern. Returns matching lines with context. Use this to find specific events like finish_reason, truncated responses, or error messages.",
+      "description": "Search gateway log output for a pattern. Returns matching lines with context.",
       "parameters": {
         "type": "object",
         "required": ["pattern"],

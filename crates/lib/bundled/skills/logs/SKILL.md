@@ -8,5 +8,4 @@ metadata:
 
 ## Skill Guidelines
 
-- Use `logs_search` to check for specific conditions like `"finish_reason"` values, `"truncated"`, or `"error"` — it returns context lines around matches.
-- Log lines may contain token counts and finish reasons but not full message content; use them for self-diagnosis, not for reading conversation history.
+- Log lines contain diagnostic data but not full message content; use them for self-diagnosis, not for reading conversation history.

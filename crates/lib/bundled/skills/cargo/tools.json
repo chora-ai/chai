@@ -9,7 +9,7 @@
         "properties": {
           "package": {
             "type": "string",
-            "description": "Limit to a specific package. When omitted, checks the entire workspace."
+            "description": "Limit to a specific package. Checks the entire workspace if omitted."
           },
           "path": {
             "type": "string",
@@ -27,7 +27,7 @@
         "properties": {
           "package": {
             "type": "string",
-            "description": "Limit to a specific package. When omitted, tests the entire workspace."
+            "description": "Limit to a specific package. Tests the entire workspace if omitted."
           },
           "path": {
             "type": "string",

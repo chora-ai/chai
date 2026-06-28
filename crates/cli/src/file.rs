@@ -1163,13 +1163,6 @@ fn try_literal_trailing_ws_match(
         return LiteralMatchResult::NoMatch { leading_ws_hint };
     }
 
-    log::warn!(
-        "files_replace: regex matched 0 times but trailing-whitespace-tolerant \
-         literal search found {} match(es); pattern had different trailing whitespace \
-         than the file content",
-        match_ranges.len(),
-    );
-
     // Map each match range in the stripped content back to a range in the
     // original content, then apply the replacement with trailing whitespace
     // preservation.
@@ -1387,13 +1380,6 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     let actual_nfc: String = actual.nfc().collect();
     let expected_nfc: String = expected.nfc().collect();
     if actual_nfc == expected_nfc {
-        log::warn!(
-            "original_content: exact match failed but NFC-normalized match succeeded \
-             (lines {}-{}); this indicates a Unicode normalization form difference, \
-             not a content change",
-            start_line,
-            effective_end,
-        );
         return Ok(Vec::new());
     }
 
@@ -1401,12 +1387,6 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     let actual_folded = fold_unicode_to_ascii(&actual_nfc);
     let expected_folded = fold_unicode_to_ascii(&expected_nfc);
     if actual_folded == expected_folded {
-        log::warn!(
-            "original_content: exact and NFC match failed but Unicode-ASCII folded match succeeded \
-             (lines {}-{}); the LLM likely substituted ASCII lookalikes for Unicode characters",
-            start_line,
-            effective_end,
-        );
         return Ok(Vec::new());
     }
 
@@ -1424,12 +1404,6 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     let actual_trimmed = strip_trailing_ws(&actual_folded);
     let expected_trimmed = strip_trailing_ws(&expected_folded);
     if actual_trimmed == expected_trimmed {
-        log::warn!(
-            "original_content: exact, NFC, and folded match all failed but trailing-whitespace-tolerant match succeeded \
-             (lines {}-{}); the LLM likely dropped trailing whitespace when reproducing file content",
-            start_line,
-            effective_end,
-        );
         // Extract trailing whitespace from each original line for reapplication
         // to the replacement content.
         let trailing_ws: Vec<String> = actual_lines
@@ -1462,12 +1436,6 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     let actual_boundary_stripped = strip_boundary_blank_lines(&actual_trimmed);
     let expected_boundary_stripped = strip_boundary_blank_lines(&expected_trimmed);
     if actual_boundary_stripped == expected_boundary_stripped {
-        log::warn!(
-            "original_content: stages 1-4 all failed but blank-line-boundary-tolerant match succeeded \
-             (lines {}-{}); the LLM's original_content differed from the file at the top or bottom blank-line boundary",
-            start_line,
-            effective_end,
-        );
         // Extract trailing whitespace from each original line for reapplication
         // to the replacement content, same as Stage 4.
         let trailing_ws: Vec<String> = actual_lines
@@ -1487,6 +1455,8 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     // Find the first line that differs between expected and actual, to give
     // an actionable hint about where the mismatch is (rather than just byte
     // offsets or lengths, which are hard to map to line boundaries).
+    // Line numbers are expressed as file line numbers (1-indexed from
+    // start_line) so the agent can cross-reference with files_read output.
     let line_hint = {
         let expected_lines: Vec<&str> = expected.lines().collect();
         let actual_lines: Vec<&str> = actual.lines().collect();
@@ -1495,15 +1465,17 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
             .find(|(_, (e, a))| e != a);
         match first_diff {
             Some((i, (exp_line, act_line))) => format!(
-                "\nhint: first difference at line {} of the content — expected: {:?}, actual: {:?}",
+                "\nhint: first difference at line {} of the content (file line {}) — expected: {:?}, actual: {:?}",
                 i + 1,
+                start_line + i,
                 exp_line,
                 act_line,
             ),
             None if expected_lines.len() != actual_lines.len() => format!(
-                "\nhint: content lines match up to line {} but lengths differ — expected {} lines, actual {} lines",
-                expected_lines.len().min(actual_lines.len()),
+                "\nhint: original_content has {} lines, file range lines {}-{} has {} lines",
                 expected_lines.len(),
+                start_line,
+                effective_end,
                 actual_lines.len(),
             ),
             None => String::new(),
