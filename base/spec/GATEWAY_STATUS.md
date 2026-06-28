@@ -36,7 +36,7 @@ Top-level key order matches **`config.json`** blocks for cross-check: **`gateway
 }
 ```
 
-The top-level **`skills`** block holds shared skill store metadata (not per-agent). Per-agent skill fields (**`enabledSkills`**, **`contextMode`**) are flat fields on each **`agents[]`** object. Heavy per-agent data (**`systemContext`**, **`tools`**, **`skillsContext`**) is not included in the polling `status` response; it is available on-demand via the **`agentDetail`** WebSocket method (see below).
+The top-level **`skills`** block holds shared skill store metadata (not per-agent). Per-agent skill fields (**`enabledSkills`**, **`enabledWorkers`**, **`contextMode`**) are flat fields on each **`agents[]`** object. Heavy per-agent data (**`systemContext`**, **`tools`**, **`skillsContext`**) is not included in the polling `status` response; it is available on-demand via the **`agentDetail`** WebSocket method (see below).
 
 ### `gateway`
 
@@ -95,8 +95,8 @@ Array of per-agent runtime rows. Orchestrator entries first (one per orchestrato
 | **`defaultProvider`**, **`defaultModel`** | Effective routing defaults for that row. |
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
 | **`enabledSkills`** | Skill package names loaded for that agent. Mirrors **`config.json`** **`agents[].enabledSkills`**. |
-| **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
 | **`enabledWorkers`** | Orchestrator: worker ids this orchestrator can delegate to (array or **`null`**; absent/`null` means no workers; empty array means all workers). Workers: **`null`**. |
+| **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
 | **`maxToolLoopsPerTurn`** | Orchestrator: maximum tool loops per turn (integer or **`null`**; omitted = no limit; applies globally to both orchestrator and worker turns). Workers: **`null`**. |
 | **`maxDelegationsPerTurn`** | Orchestrator: optional cap on **`delegate_task`** calls per turn (integer or **`null`**). Workers: **`null`**. |
 | **`maxDelegationsPerSession`** | Orchestrator: optional cap on **`delegate_task`** calls per session (integer or **`null`**). Workers: **`null`**. |

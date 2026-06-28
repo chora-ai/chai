@@ -72,7 +72,7 @@ All available skills are listed in alphabetical order with no agent selector or 
 
 ### Agent
 
-`agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `contextMode`). The gateway is the sole authoritative source — no on-disk fallbacks.
+`agentDetail` (on-demand WebSocket method) supplies per-agent heavy data (`systemContext`, `tools`, `skillsContext`). The Agent combo (orchestrator vs each worker) is populated from `status.agents` (lightweight fields: `id`, `role`, `enabledSkills`, `enabledWorkers`, `contextMode`). The gateway is the sole authoritative source — no on-disk fallbacks.
 
 | Agent | Layout |
 |-------|--------|

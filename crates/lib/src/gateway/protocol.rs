@@ -8,7 +8,7 @@
 //! **`payload.skills`**: shared skill store metadata (**`packagesDiscovered`** on disk before per-agent filtering).
 //! **`payload.agents`**: array of runtime agent rows (**`orchestrator`** first, then **`worker`** rows sorted by **`id`**).
 //! Each object includes **`id`**, **`role`**, **`defaultProvider`**, **`defaultModel`**, **`enabledProviders`**
-//! (orchestrator array; **`null`** for workers), **`enabledSkills`**, **`contextMode`**, and
+//! (orchestrator array; **`null`** for workers), **`enabledSkills`**, **`enabledWorkers`**, **`contextMode`**, and
 //! orchestrator-only delegation caps (**`maxToolLoopsPerTurn`**, **`maxDelegationsPerTurn`**,
 //! **`maxDelegationsPerSession`**, **`maxDelegationsPerWorker`**; **`null`** for workers).
 //! Heavy per-agent data (**`systemContext`**, **`tools`**, **`skillsContext`**) is available via the

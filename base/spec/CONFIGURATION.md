@@ -17,7 +17,7 @@ The file expresses operator intent: bind address, channels, providers, agent lay
 | **`config.json`** | Operator intent. | This document; **`config.rs`**; **`README.md`** |
 | **`status` WebSocket payload** | Runtime snapshot (sanitized). | [GATEWAY_STATUS.md](GATEWAY_STATUS.md) |
 
-The desktop app aligns **config** top-level blocks with **`status`** payload blocks in this order: **`gateway`**, **`channels`**, **`providers`**, **`sandbox`**, **`agents`**, **`skills`**. Per-agent **`enabledSkills`** and **`contextMode`** in **`config.json`** correspond to the matching row in **`status.agents[]`** (**`enabledSkills`**, **`contextMode`**, and the skill context fields on that object). The top-level **`skills`** block in **`config.json`** corresponds to the top-level **`skills`** block in the **`status`** payload.
+The desktop app aligns **config** top-level blocks with **`status`** payload blocks in this order: **`gateway`**, **`channels`**, **`providers`**, **`sandbox`**, **`agents`**, **`skills`**. Per-agent **`enabledSkills`**, **`enabledWorkers`**, and **`contextMode`** in **`config.json`** correspond to the matching row in **`status.agents[]`** (**`enabledSkills`**, **`enabledWorkers`**, **`contextMode`**, and the skill context fields on that object). The top-level **`skills`** block in **`config.json`** corresponds to the top-level **`skills`** block in the **`status`** payload.
 
 ---
 
@@ -48,7 +48,7 @@ This spec describes **blocks and policy**, not every optional key.
 }
 ```
 
-**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. The **`skills`** block holds shared skill package settings; per-agent **`enabledSkills`** and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skills.lockMode`** controls gateway startup behavior for the lockfile — in strict mode (the default), the lockfile acts as a complete manifest: the gateway refuses to start if the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash (see [PROFILES.md](PROFILES.md)).
+**`providers`** may be omitted when defaults or environment suffice. **`agents`** is an array in the file. The **`skills`** block holds shared skill package settings; per-agent **`enabledSkills`**, **`enabledWorkers`**, and **`contextMode`** live on orchestrator and worker entries inside **`agents`**. **`skills.lockMode`** controls gateway startup behavior for the lockfile — in strict mode (the default), the lockfile acts as a complete manifest: the gateway refuses to start if the lockfile is missing, any enabled skill has no lock entry (unpinned), or any pinned skill's active version does not match its locked hash (see [PROFILES.md](PROFILES.md)).
 
 ---
 

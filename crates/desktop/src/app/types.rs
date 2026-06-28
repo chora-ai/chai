@@ -245,6 +245,8 @@ pub struct StatusOrchestratorRow {
     pub(crate) enabled_skills: Vec<String>,
     /// **`payload.agents[].enabledWorkers`** for this orchestrator.
     pub(crate) enabled_workers: Option<Vec<String>>,
+    /// **`payload.agents[].contextMode`** for this orchestrator.
+    pub(crate) context_mode: Option<String>,
     /// **`payload.agents[].maxToolLoopsPerTurn`** for this orchestrator.
     pub(crate) max_tool_loops_per_turn: Option<u32>,
     /// **`payload.agents[].maxDelegationsPerTurn`** for this orchestrator.

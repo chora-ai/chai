@@ -369,6 +369,7 @@ With workers configured, the orchestrator can delegate subtasks using the built-
 - `defaultProvider` / `defaultModel` — Which backend and model the agent uses. The `defaultProvider` must match a provider `id` in the `providers` array.
 - `enabledProviders` — Which providers to poll for model discovery at startup. Provider ids must match entries in the `providers` array. When omitted or empty, only the default provider is discovered.
 - `enabledSkills` — Which skill packages to load for this agent. Omitted or empty means no skills.
+- `enabledWorkers` — Which workers this orchestrator can delegate to (orchestrator-only). Absent or `null` means no workers; empty array means all workers.
 - `contextMode` — How skill content appears in the system context: `full` (inlined) or `readOnDemand` (compact list + `read_skill` tool).
 
 ## Securing the Gateway

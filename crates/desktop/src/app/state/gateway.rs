@@ -547,6 +547,10 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                                             .filter_map(|v| v.as_str().map(String::from))
                                             .collect()
                                     });
+                                let orch_context_mode = details
+                                    .agent_context_modes
+                                    .get(&id)
+                                    .cloned();
                                 let orch_max_tool_loops = entry
                                     .get("maxToolLoopsPerTurn")
                                     .and_then(|v| v.as_u64())
@@ -584,6 +588,7 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                                     enabled_providers: orch_enabled_providers,
                                     enabled_skills: orch_enabled_skills,
                                     enabled_workers: orch_enabled_workers,
+                                    context_mode: orch_context_mode,
                                     max_tool_loops_per_turn: orch_max_tool_loops,
                                     max_delegations_per_turn: orch_max_del_per_turn,
                                     max_delegations_per_session: orch_max_del_per_session,

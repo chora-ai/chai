@@ -296,19 +296,6 @@ fn status_column_left(
     status_providers_section(ui, status);
 }
 
-fn context_mode_for_agent(s: &GatewayStatusDetails, agent_id: &str) -> String {
-    let id = agent_id.trim();
-    if let Some(m) = s.agent_context_modes.get(id) {
-        return m.clone();
-    }
-    if let Some(rt) = s.agent_skills.get(id) {
-        if let Some(ref m) = rt.context_mode {
-            return m.clone();
-        }
-    }
-    "—".to_string()
-}
-
 fn status_sandbox_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails>) {
     dashboard::section_group(ui, "Sandbox", |ui| {
         if let Some(s) = status {
@@ -359,7 +346,6 @@ fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails
                         orch_skills_csv.as_str()
                     },
                 );
-                dashboard::kv(ui, "Context mode", context_mode_for_agent(s, oid).as_str());
 
                 // Enabled workers.
                 match &orch.enabled_workers {
@@ -367,6 +353,7 @@ fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails
                     Some(ew) if ew.is_empty() => dashboard::kv(ui, "Enabled workers", "(all)"),
                     Some(ew) => dashboard::kv(ui, "Enabled workers", ew.join(", ").as_str()),
                 }
+                dashboard::kv(ui, "Context mode", orch.context_mode.as_deref().unwrap_or("—"));
 
                 // Orchestrator limit fields (same order as config screen).
                 let mut any_limit = false;

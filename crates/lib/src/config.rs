@@ -411,7 +411,7 @@ pub struct TelegramChannelConfig {
 /// Skill package settings: lock mode and shared skill configuration.
 ///
 /// In `config.json`, the **`skills`** block holds settings for the shared skill package
-/// system. Per-agent skill enablement (`enabledSkills`, `contextMode`) lives on each
+/// system. Per-agent skill enablement (`enabledSkills`, `enabledWorkers`, `contextMode`) lives on each
 /// agent entry inside the **`agents`** array.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
