@@ -56,20 +56,21 @@ Each release has a working document in the root of `base/` named `RELEASE_VX_Y_Z
 
 1. **Scope the release** — Create `base/RELEASE_VX_Y_Z.md` with requirements and open questions.
 2. **Complete all requirements** — Check off each item as it is completed.
-3. **Validate build script and experimental feature builds** — Verify that `scripts/build-release.sh` produces build artifacts successfully and experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
-4. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section. Add the new tag file entry to `base/README.md` using the exact Summary text from the tag file (see `base/meta/TAG.md`).
-5. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
-6. **Bump versions** — Update all `Cargo.toml` files to the release version.
-7. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
-8. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
-9. **Commit** — Stage all changes (version bump, lockfile update, tag file, knowledge base index, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
-10. **Create the release branch** — `git branch release/vX.Y.x` from the release commit (e.g. `git branch release/v0.1.x`).
-11. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
-12. **Push** — Push `main`, the release branch, and the tag to origin.
-13. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
-14. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
-15. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
-16. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
+3. **Audit changelog** — Verify that all entries are concise, user-facing changes since the last release.
+4. **Validate build script and experimental feature builds** — Verify that `scripts/build-release.sh` produces build artifacts successfully and experimental feature builds compile and link correctly (see [Experimental Features](#experimental-features)).
+5. **Write the tag file** — Create `base/tag/VX_Y_Z.md` following the format defined in `base/meta/TAG.md`. If any supported platform lacks a pre-built binary, include a Build Instructions section. Add the new tag file entry to `base/README.md` using the exact Summary text from the tag file (see `base/meta/TAG.md`).
+6. **Update the changelog** — Replace the `## [Unreleased]` heading in `CHANGELOG.md` with `## [X.Y.Z] - YYYY-MM-DD`.
+7. **Bump versions** — Update all `Cargo.toml` files to the release version.
+8. **Update the lockfile** — Run `cargo update` to sync `Cargo.lock` with the new version numbers.
+9. **Delete the working document** — Remove `base/RELEASE_VX_Y_Z.md`.
+10. **Commit** — Stage all changes (version bump, lockfile update, tag file, knowledge base index, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
+11. **Create the release branch** — `git branch release/vX.Y.x` from the release commit (e.g. `git branch release/v0.1.x`).
+12. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
+13. **Push** — Push `main`, the release branch, and the tag to origin.
+14. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
+15. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
+16. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
+17. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.
 
 ### Patch Releases
 

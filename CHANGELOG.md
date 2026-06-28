@@ -11,19 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### CLI
 
-- `chai resolve` subcommand — sandbox-aware path resolution for tool `resolveCommand` entries, replacing shell scripts with type-safe, testable Rust validation. Five variants: `repo-path` (validates git repository root), `cargo-path` (validates cargo workspace manifest), `clone-path` (validates clone target paths), `file-path` (validates generic file paths), and `sandbox` (generic sandbox boundary check). Handles symlinked directories and non-existent paths via ancestor-walk canonicalization. `repo-path` and `cargo-path` unconditionally validate the working directory is inside the sandbox regardless of whether project discovery succeeds, preventing path-traversal attacks when the discovery command fails. Rejection messages display the user-provided path
+- `chai resolve` subcommand with five variants: `repo-path`, `cargo-path`, `clone-path`, `file-path`, and `sandbox` — sandbox-aware path resolution that validates paths before they reach tools
 - `chai sessions list` — list sessions for the active profile (or a specified profile via `--profile`) directly from disk; displays session id, timestamps, message count, and channel binding; sorted by most recently updated; no gateway connection required
 - `chai sessions delete <ID>` — delete a session by id directly from disk; removes the session and its binding; no gateway connection required
 - `chai sessions clear` — delete all sessions directly from disk; reports the count of deleted sessions; no gateway connection required
 
 #### Desktop
 
-- Session sidebar loads persisted sessions on gateway connect via `sessions.list` — sidebar is populated with timestamps (e.g. "Jun 10, 12:34") and short session IDs instead of raw UUIDs
-- Session history loads on demand when selecting a persisted session via `sessions.history` — chat area shows "Loading session history…" while the fetch is in flight
-- Per-session "×" delete button in the session sidebar — calls `sessions.delete` on the gateway; right-aligned via RTL layout so labels cannot push the button off screen
-- "Clear all sessions" button with confirmation dialog at the bottom of the session sidebar — calls `sessions.delete_all`; confirmation dialog stacks the warning label above the buttons to fit the narrow 220px panel
+- Session sidebar loads persisted sessions on gateway connect — sidebar is populated with timestamps and short session IDs
+- Session history loads on demand when selecting a persisted session — chat area shows "Loading session history…" while the fetch is in flight
+- Per-session "×" delete button in the session sidebar
+- "Clear all sessions" button with confirmation dialog at the bottom of the session sidebar
 - "New session" button is always visible in the sessions panel, regardless of whether a session is active
-- Channel-bound sessions display a channel tag (e.g. `(telegram)`) in the sidebar and are read-only from the desktop — clicking a channel session loads its history for viewing but disables the chat input, preventing accidental session overwrites
+- Channel-bound sessions display a channel tag in the sidebar and are read-only from the desktop — clicking a channel session loads its history for viewing but disables the chat input
 
 #### Runtime and Configuration
 
@@ -32,39 +32,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `sessions.delete` WebSocket method: deletes a session from memory and disk, removes associated bindings, broadcasts a `session.deleted` event
 - `sessions.delete_all` WebSocket method: deletes all sessions for the active profile from memory and disk, broadcasts a `sessions.cleared` event
 
+#### Skill Authoring
+
+- `hintConditions` field on execution specs — declarative inline hint conditions with four types: `match` (substring in output), `exitCode` (integer or `"nonzero"`), `notEmpty` (non-empty output), and `whenArg` (parameter-value match). The `hint` field supports `{param_name}` template variables for dynamic text
+
 ### Changed
 
 #### Skills
 
-- Git, git-read, git-remote, and cargo skills now use `chai resolve` subcommands (`repo-path`, `cargo-path`, `clone-path`) via `resolveCommand.binary`/`resolveCommand.subcommand` instead of shell scripts for sandbox boundary validation — the same `is_inside_sandbox` logic is now type-safe, testable Rust code instead of copy-pasted shell
-- 25 hint scripts across 8 skills migrated from `postProcess` to inline `hintConditions` in `tools.json`: files (`hint-not-found`, `hint-overwrite`, `hint-search-results`), files-read (`hint-not-found`, `hint-search-results`), git (`hint-not-repo`, `hint-commit-status`, `hint-merge`, `hint-rebase`, `hint-cherry-pick`, `hint-diff-ref-main`, `hint-reset`), git-read (`hint-not-repo`, `hint-diff-ref-main`), git-remote (`hint-pull-errors`, `hint-push-errors`), notes (`hint-not-found`, `hint-overwrite`, `hint-search-results`), notes-read (`hint-not-found`, `hint-search-results`), notes-daily (`hint-not-found`, `hint-daily-overwrite`), skills (`hint-init-next-steps`, `hint-validate-errors`), skills-read (`hint-validate-errors`). Simple exit-code and substring-match hints are now declarative; `postProcess` is reserved for complex hints requiring output transformation or external commands
-- Diagnostic hints ADR updated: three-tier hint architecture (1. `hintConditions` for simple conditions, 2. `postProcess` scripts for complex logic, 3. binary-level for internal state)
-- `TOOLS_SCHEMA.md` spec updated with `hintConditions` field documentation
-- Skill directives audit: 14 directives deleted (already enforced by tools/sandbox or redundant with hints/workflow docs), 11 moved from hard directives to soft `## Skill Guidelines` sections, 3 converted to tool enforcement (delete-confirmation hintConditions, expanded `git_reset` denyPattern to block `main`, `git_branch_delete` hintCondition for "not fully merged"). Hard rules reduced from 39 to 14 (64% reduction). New `## Skill Guidelines` sections added to 8 skills (cargo, files, git, git-read, git-remote, notes, notes-wikilink, skills)
 - `git_reset` denyPattern expanded from `"^release/.+$"` to `"^(main|release/.+)$"` — resets on `main` are now blocked in addition to `release/*`
 - Delete-confirmation hintConditions added to `files_delete`, `files_delete_dir`, `notes_delete`, and `notes_delete_dir` — every deletion now produces a verification hint
 - `git_branch_delete` hintCondition added for "not fully merged" error — suggests `force: true` when a branch was squash-merged
-- Tool descriptions trimmed to functional-spec-only content across all skills: removed output format descriptions, usage guidance, behavioral warnings, and `(use ./ prefix)` path hints from tool and parameter descriptions
 - `files_read` and `notes_read` now include line numbers in `{line_number}\t{content}` format — previously, these tools used `cat` which produced raw output without line numbers, requiring an extra `files_read_lines` or `files_search` call before editing
 - `files_search`, `notes_search`, `files_replace`, and `notes_replace` now always show line numbers — the `line_number` parameter has been removed from all four tools (it defaulted to `true` and was never needed as `false`)
-- `files_replace` and `notes_replace` descriptions and parameter descriptions trimmed from ~250 words each to functional specifications only; `max_replacements: 1` guidance moved to SKILL.md guidelines
-- `cat` removed from binary requirements for files, files-read, notes, and notes-read skills
 - Sandbox README files removed from bundled profile templates — `chai init` no longer creates `sandbox/README.md`
-- `cargo locate-project` removed from cargo skill allowlist (no longer needed)
-
-#### Skill Authoring
-
-- Skills-design SKILL.md now distinguishes tool enforcement from tool descriptions: "tools over inference means enforcement over directives, not descriptions over guidelines" — tool enforcement costs zero per-turn context; tool descriptions are still inference
-- Skills-design SKILL.md now includes "Tool Description Sizing" section: tool descriptions should contain only functional specifications (what the tool does, how to parameterize it), not usage guidance, output format descriptions, or behavioral warnings
-- Diagnostic hints ADR updated: Consequences section now documents directive-to-enforcement conversion results and tool description sizing insight
-
-### Removed
-
-#### Skills
-
-- Sandbox resolve shell scripts removed (replaced by `chai resolve` subcommand): `resolve-repo-path.sh` (git, git-read, git-remote), `resolve-clone-path.sh` (git-remote), `resolve-cargo-path.sh` (cargo)
-- Hint scripts removed (replaced by inline `hintConditions`): `hint-not-found.sh` (files, files-read, notes, notes-read, notes-daily), `hint-overwrite.sh` (files, notes), `hint-search-results.sh` (files, files-read, notes, notes-read), `hint-not-repo.sh` (git, git-read), `hint-commit-status.sh` (git), `hint-merge.sh` (git), `hint-rebase.sh` (git), `hint-cherry-pick.sh` (git), `hint-diff-ref-main.sh` (git, git-read), `hint-reset.sh` (git), `hint-pull-errors.sh` (git-remote), `hint-push-errors.sh` (git-remote), `hint-daily-overwrite.sh` (notes-daily), `hint-init-next-steps.sh` (skills), `hint-validate-errors.sh` (skills, skills-read)
-- Empty `git-read/scripts/` directory removed
 
 ### Fixed
 
@@ -78,22 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Skills
 
-- Diagnostic hints now follow consistent formatting conventions: `verify_original` hints start at column 0 (no leading indentation), multiple hints are separated by blank lines, and `hint-reset.sh` always produces a blank line before the hint even when git output is empty
-- Hint script pass-through calls now use `printf '%s\n'` instead of `printf '%s'` to restore the trailing newline stripped by command substitution, ensuring blank-line separators between tool output and hints render correctly
 - Truncation notices now frame continuation as optional (e.g., "To continue reading, use X; omit end_line to read the rest") instead of imperative ("Use X to read the remaining lines")
-- Git hint scripts use `printf '%s'` instead of `echo` for output pass-through, preventing POSIX `echo` from interpreting escape sequences
 - `notes_daily_append` hint now correctly acknowledges that the file was created by the append operation, instead of implying the operation failed
-- `cargo_check` and `cargo_test` now show compiler warnings — previously, stderr was discarded on exit code 0, so warnings emitted to stderr (e.g., unused variable) were invisible to the agent and the tools reported "no warnings" even when warnings existed
-- `cargo_check` compilation errors and `cargo_test` test failures now produce filtered output — previously, exit code 101 bypassed the postProcess script, returning hundreds of lines of unfiltered output (progress lines, passing test lines) that consumed context window without providing actionable information; now only diagnostics (errors, warnings with multi-line context) and summaries (test result lines, crate-level summaries) are shown
-- `files_write_lines` `original_content` mismatch errors now include file line numbers (e.g., `file line N`) alongside content-relative line numbers, and the length-mismatch hint clarifies `original_content` vs file range (e.g., `original_content has X lines, file range lines A-B has Y lines`)
-- `log::warn!` diagnostic messages no longer appear in `files_write_lines` and `files_replace` tool output — previously, fuzzy-match warnings (NFC normalization, Unicode folding, trailing whitespace, blank-line boundary) leaked into agent tool results via stderr, creating confusing `WARN` lines in successful operations
-
-#### Skill Authoring
-
-- `hintConditions` field on execution specs: declarative inline hint conditions that the executor evaluates after `postProcess` and before truncation. Four condition types: `match` (substring in output), `exitCode` (integer or `"nonzero"`), `notEmpty` (non-empty output), `whenArg` (parameter-value match). Multiple conditions on the same entry use AND logic. Multiple entries all produce hints when matched. The `hint` field supports `{param_name}` template variables for dynamic text. Replaces simple `postProcess` hint scripts (those that only inspect output and append a static hint) with one-liner declarations in `tools.json`, reserving `postProcess` for hints that require output transformation, external commands, or multi-step logic
-- Skills-design SKILL.md now documents upward traversal by external commands (git, cargo) and the requirement for resolve scripts to validate the resolved project root is inside the sandbox, including symlinked directories
-- Skills-design SKILL.md now documents the pre/post-resolution validation gap for parameters referenced via `$name` in `resolveCommand.args` (not in the execution `args` array and not validated by the sandbox)
-- Skills-design SKILL.md security audit checklist now includes two new checks: (5) resolve scripts constructing paths from parameters not in the `args` array must reject dangerous values, and (6) tools using `workingDir` with upward-traversing commands must validate the project root
+- `cargo_check` and `cargo_test` now show compiler warnings — previously, stderr was discarded on exit code 0, so warnings were invisible to the agent
+- `cargo_check` compilation errors and `cargo_test` test failures now produce filtered output — previously, exit code 101 bypassed the postProcess script, returning hundreds of lines of unfiltered output that consumed context window without providing actionable information; now only diagnostics and summaries are shown
+- `files_write_lines` `original_content` mismatch errors now include file line numbers (e.g., `file line N`) alongside content-relative line numbers, and the length-mismatch hint clarifies `original_content` vs file range
+- `log::warn!` diagnostic messages no longer appear in `files_write_lines` and `files_replace` tool output — previously, fuzzy-match warnings leaked into agent tool results via stderr, creating confusing `WARN` lines in successful operations
 
 ## [0.2.0] - 2026-06-24
 

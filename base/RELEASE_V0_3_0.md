@@ -29,6 +29,7 @@ This release implements the persistent sessions epic.
 
 ### 3. Release Mechanics
 
+- [x] Verify that all entries are concise, user-facing changes since the last release
 - [ ] Validate `scripts/build-release.sh 0.3.0` and experimental feature builds
 - [ ] Write tag file `base/tag/V0_3_0.md` following `base/meta/TAG.md` format
 - [ ] Update knowledge base index `base/README.md` — add new tag file entry using exact Summary text
