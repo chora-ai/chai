@@ -188,11 +188,13 @@ fn build_skill_agent_map(
         // gateway is the source of truth for which agents are running and
         // which skills each has enabled — even if the config on disk has
         // been edited but the gateway has not been restarted.
-        let orch_id = gs
-            .orchestrator_id()
-            .unwrap_or("orchestrator");
+        let orch_ids: std::collections::HashSet<&str> = gs
+            .orchestrators
+            .iter()
+            .map(|o| o.id.as_str())
+            .collect();
         for (agent_id, rt) in &gs.agent_skills {
-            let is_orchestrator = agent_id == orch_id;
+            let is_orchestrator = orch_ids.contains(agent_id.as_str());
             for name in &rt.enabled_skills {
                 map.entry(name.trim().to_string())
                     .or_default()

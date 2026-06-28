@@ -10,6 +10,10 @@ pub(crate) enum SessionsCmd {
         /// Profile name
         #[arg(long, value_name = "NAME")]
         profile: Option<String>,
+
+        /// Orchestrator agent id (defaults to the first orchestrator)
+        #[arg(long, value_name = "ID")]
+        agent: Option<String>,
     },
     /// Delete a session by id
     Delete {
@@ -24,34 +28,39 @@ pub(crate) enum SessionsCmd {
         /// Profile name
         #[arg(long, value_name = "NAME")]
         profile: Option<String>,
+
+        /// Orchestrator agent id (defaults to the first orchestrator)
+        #[arg(long, value_name = "ID")]
+        agent: Option<String>,
     },
 }
 
 pub(crate) async fn run_sessions(cmd: SessionsCmd) -> Result<()> {
     match cmd {
-        SessionsCmd::List { profile } => list_sessions(profile).await,
+        SessionsCmd::List { profile, agent } => list_sessions(profile, agent).await,
         SessionsCmd::Delete { id, profile } => delete_session(id, profile).await,
-        SessionsCmd::Clear { profile } => clear_sessions(profile).await,
+        SessionsCmd::Clear { profile, agent } => clear_sessions(profile, agent).await,
     }
 }
 
-/// Load the session store and binding store for the given profile.
-fn open_stores(profile: Option<&str>) -> Result<(lib::session::SessionStore, lib::routing::SessionBindingStore)> {
+/// Load the session store and binding store for the given profile and orchestrator.
+fn open_stores(profile: Option<&str>, agent: Option<&str>) -> Result<(lib::session::SessionStore, lib::routing::SessionBindingStore)> {
     let (config, paths) = lib::config::load_config(profile)?;
-    let orch_id = config.agents.default_orchestrator().id.trim();
-    let orch_id = if orch_id.is_empty() {
-        "orchestrator"
-    } else {
-        orch_id
+    let orch_id = match agent {
+        Some(id) => id,
+        None => config.agents.default_orchestrator().id.trim(),
     };
+    let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
+    // Validate that orch_id refers to an actual orchestrator.
+    config.agents.orchestrator(Some(orch_id)).map_err(|e| anyhow::anyhow!(e))?;
     let sessions_path = lib::config::sessions_dir(&paths.profile_dir, orch_id);
     let session_store = lib::session::SessionStore::with_data_dir(sessions_path.clone());
     let binding_store = lib::routing::SessionBindingStore::with_data_dir(sessions_path);
     Ok((session_store, binding_store))
 }
 
-async fn list_sessions(profile: Option<String>) -> Result<()> {
-    let (session_store, binding_store) = open_stores(profile.as_deref())?;
+async fn list_sessions(profile: Option<String>, agent: Option<String>) -> Result<()> {
+    let (session_store, binding_store) = open_stores(profile.as_deref(), agent.as_deref())?;
     let summaries = session_store.scan().await;
 
     if summaries.is_empty() {
@@ -78,7 +87,7 @@ async fn list_sessions(profile: Option<String>) -> Result<()> {
 }
 
 async fn delete_session(id: String, profile: Option<String>) -> Result<()> {
-    let (session_store, binding_store) = open_stores(profile.as_deref())?;
+    let (session_store, binding_store) = open_stores(profile.as_deref(), None)?;
     match session_store.remove(&id).await {
         Some(_) => {
             binding_store.remove_binding(&id).await;
@@ -89,8 +98,8 @@ async fn delete_session(id: String, profile: Option<String>) -> Result<()> {
     }
 }
 
-async fn clear_sessions(profile: Option<String>) -> Result<()> {
-    let (session_store, binding_store) = open_stores(profile.as_deref())?;
+async fn clear_sessions(profile: Option<String>, agent: Option<String>) -> Result<()> {
+    let (session_store, binding_store) = open_stores(profile.as_deref(), agent.as_deref())?;
     let count = session_store.remove_all().await;
     binding_store.remove_all().await;
     println!("deleted {} session(s)", count);

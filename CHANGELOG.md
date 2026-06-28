@@ -12,18 +12,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Runtime and Configuration
 
 - Multiple orchestrator entries in the `agents` array — validation relaxes from "exactly one orchestrator" to "at least one"; each orchestrator has its own provider, model, skills, and delegation policy
-- `enabledWorkers` field on orchestrator entries — optional array of worker ids this orchestrator can delegate to; absent or `null` means all workers; present means only listed workers are visible and delegatable; unknown worker ids produce a validation error; rejected on worker entries at parse time
+- `enabledWorkers` field on orchestrator entries — optional array of worker ids this orchestrator can delegate to; absent or `null` means no workers enabled (`delegate_task` not offered); empty array means all profile workers; non-empty means only listed workers; unknown worker ids produce a validation error; rejected on worker entries at parse time
 - `OrchestratorConfig` type with accessor methods — `AgentsConfig` now holds `Vec<OrchestratorConfig>` with `default_orchestrator()`, `orchestrator(id)`, and `orchestrator_ids()` instead of flat top-level fields; on-disk `config.json` format is unchanged
 - Per-orchestrator `OrchestratorRuntime` — gateway builds a separate runtime (system context, skills, tools, executor, context mode) for each orchestrator at startup; `GatewayState` replaces flat `system_context`/`skills`/`tools_list`/`tool_executor` fields with `orchestrator_runtimes: HashMap<String, OrchestratorRuntime>`
 - Per-orchestrator session stores — each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`; held in `GatewayState.session_stores: HashMap<String, Arc<SessionStore>>`; sessions from one orchestrator are isolated from another
 - `agent` RPC `orchestratorId` parameter — optional; when omitted, the default (first) orchestrator is used; when provided, the gateway resolves the matching `OrchestratorRuntime` and `SessionStore`; unknown orchestrator IDs return an error
 - `sessions.list` RPC `orchestratorId` parameter — optional; when omitted, the default orchestrator's session store is queried; enables per-orchestrator session listing
+- `sessions.delete_all` RPC `orchestratorId` parameter — optional; when provided, only clears sessions for that orchestrator's session store; when omitted, clears all (backward compatible); `sessions.cleared` event includes `orchestratorId`
 - `sessions.history` and `sessions.delete` search across all session stores — a session can be retrieved or deleted regardless of which orchestrator created it
 - `enabledWorkers` system prompt filtering — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster; the model never sees excluded workers
 - `enabledWorkers` delegation enforcement — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers`, mirroring the `enabledProviders` check
 - `enabledProviders` per-orchestrator enforcement — delegation to a worker is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`; enforced in `resolve_delegate_target()` against the calling orchestrator's config
 - `agentDetail` RPC per-orchestrator resolution — the handler checks `orchestrator_runtimes` map first, then falls back to `worker_delegate_runtimes`
 - Channel-bound messages always use the default orchestrator — `process_inbound_message` has no `orchestratorId` parameter
+- Gateway broadcast events (`session.message`, `session.deleted`, delegation events) include `orchestratorId` in their payloads — enables clients to filter events by active orchestrator
+
+#### Desktop
+
+- Orchestrator selector ComboBox in the chat sidebar — "Agent" section heading above "Sessions"; switching updates the session list and provider/model defaults; disabled when only one orchestrator is configured or during an active agent turn
+- Config screen shows all orchestrators with per-orchestrator `enabledWorkers` display — `None` shows "(none)", empty array shows "(all)", non-empty shows comma-separated worker ids
+- Gateway screen shows `enabledWorkers` per orchestrator with "(none)"/"(all)" display — the row is always visible (previously `None` was hidden)
+- Skills screen correctly identifies all orchestrator agents (not just the default) for green/blue color coding
+- Agent and Tools screens correctly label all orchestrator agents with `— orchestrator` suffix (not `— worker`) using a HashSet of orchestrator IDs
+- "Clear all sessions" scopes deletion to the active orchestrator — passes `orchestratorId` to `sessions.delete_all`
+- Session event filtering by orchestrator — desktop ignores `session.deleted` and `sessions.cleared` events from non-active orchestrators
+- Provider/model ComboBoxes cascade on orchestrator switch — selecting a different orchestrator updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults
+
+#### CLI
+
+- `--agent <id>` flag on `chai chat` — selects which orchestrator to use for the chat session; passes `orchestratorId` in the agent RPC
+- `--agent <id>` flag on `chai sessions list` — scopes session listing to a specific orchestrator's session store
+- `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
 
 ## [0.3.0] - 2026-06-27
 

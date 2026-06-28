@@ -45,6 +45,9 @@ pub const EVENT_CONFIG_CHANGED: &str = "gateway.config.changed";
 pub struct DelegateObservability {
     pub event_tx: broadcast::Sender<String>,
     pub session_id: Option<String>,
+    /// Orchestrator id that owns the session. Included in event payloads so clients
+    /// can filter events by active orchestrator.
+    pub orchestrator_id: Option<String>,
     /// Source label included in tool call/result events — the agent id (e.g.
     /// `"orchestrator"` or a worker id like `"engineer"`) so the desktop can
     /// display the author and style worker messages differently.
@@ -69,6 +72,7 @@ impl Clone for DelegateObservability {
         Self {
             event_tx: self.event_tx.clone(),
             session_id: self.session_id.clone(),
+            orchestrator_id: self.orchestrator_id.clone(),
             source: self.source.clone(),
             tool_index_offset: self.tool_index_offset,
             // A cloned observability is a fresh instance for a new worker;
@@ -87,6 +91,9 @@ impl DelegateObservability {
         if let Some(obj) = base.as_object_mut() {
             if let Some(ref s) = self.source {
                 obj.insert("source".to_string(), json!(s));
+            }
+            if let Some(ref oid) = self.orchestrator_id {
+                obj.insert("orchestratorId".to_string(), json!(oid));
             }
         }
         base
@@ -379,14 +386,24 @@ fn resolve_delegate_target(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
 
-    // Enforce enabledWorkers: reject delegation to a worker not in the list (when set).
+    // Enforce enabledWorkers: reject delegation based on the orchestrator's enabled worker set.
+    // None = no workers allowed; Some([]) = all workers allowed; Some(list) = only listed workers.
     if let Some(ref wid) = worker_id {
-        if let Some(ref enabled) = orchestrator.enabled_workers {
-            if !enabled.is_empty() && !enabled.iter().any(|w| w == wid.as_str()) {
+        match &orchestrator.enabled_workers {
+            None => {
                 return Err(format!(
-                    "worker {} is not in this orchestrator's enabledWorkers",
+                    "worker {} is not in this orchestrator's enabledWorkers (none configured)",
                     wid
                 ));
+            }
+            Some(enabled) if enabled.is_empty() => {} // empty = all workers
+            Some(enabled) => {
+                if !enabled.iter().any(|w| w == wid.as_str()) {
+                    return Err(format!(
+                        "worker {} is not in this orchestrator's enabledWorkers",
+                        wid
+                    ));
+                }
             }
         }
     }
@@ -625,6 +642,7 @@ pub async fn execute_delegate_task(
     let worker_obs = ctx.observability.as_ref().map(|obs| DelegateObservability {
         event_tx: obs.event_tx.clone(),
         session_id: obs.session_id.clone(),
+        orchestrator_id: obs.orchestrator_id.clone(),
         source: Some(worker_id.unwrap_or("worker").to_string()),
         tool_index_offset: ctx.tool_index_offset,
         emitted_tool_calls: AtomicUsize::new(0),
@@ -803,6 +821,7 @@ mod tests {
             default_provider: Some("ollama".to_string()),
             default_model: Some("global-default".to_string()),
             enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
+            enabled_workers: Some(vec![]),
             ..Default::default()
         };
         let workers = Some(vec![WorkerConfig {
@@ -858,12 +877,39 @@ mod tests {
     }
 
     #[test]
+    fn resolve_delegate_target_rejects_when_enabled_workers_none() {
+        let providers = test_providers(&["ollama"]);
+        let orch = OrchestratorConfig {
+            id: "orchestrator".to_string(),
+            enabled_workers: None,
+            ..Default::default()
+        };
+        let workers = Some(vec![WorkerConfig {
+            id: "reader".to_string(),
+            default_provider: None,
+            default_model: None,
+            enabled_skills: None,
+            context_mode: None,
+        }]);
+
+        let args = json!({
+            "workerId": "reader",
+            "instruction": "do the thing"
+        });
+
+        let err = resolve_delegate_target(&providers, &orch, &workers, &args).unwrap_err();
+        assert!(err.contains("enabledWorkers"), "expected enabledWorkers error, got: {}", err);
+        assert!(err.contains("none configured"), "expected 'none configured', got: {}", err);
+    }
+
+    #[test]
     fn resolve_delegate_target_rejects_provider_not_in_enabled_providers() {
         let providers = test_providers(&["ollama", "lms"]);
         let orch = OrchestratorConfig {
             id: "orchestrator".to_string(),
             default_provider: Some("ollama".to_string()),
             enabled_providers: Some(vec!["ollama".to_string()]),
+            enabled_workers: Some(vec![]),
             ..Default::default()
         };
         let workers = Some(vec![WorkerConfig {
@@ -918,6 +964,7 @@ mod tests {
         let obs = DelegateObservability {
             event_tx: tx,
             session_id: Some("sess-1".to_string()),
+            orchestrator_id: Some("orchestrator".to_string()),
             source: None,
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),
@@ -943,6 +990,7 @@ mod tests {
         let obs = DelegateObservability {
             event_tx: tx,
             session_id: Some("sess-2".to_string()),
+            orchestrator_id: Some("orchestrator".to_string()),
             source: Some("worker".to_string()),
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),
@@ -950,6 +998,7 @@ mod tests {
         let merged = obs.merge_base(json!({ "toolName": "read_file" }));
         assert_eq!(merged["sessionId"], "sess-2");
         assert_eq!(merged["source"], "worker");
+        assert_eq!(merged["orchestratorId"], "orchestrator");
         assert_eq!(merged["toolName"], "read_file");
     }
 
@@ -959,6 +1008,7 @@ mod tests {
         let obs = DelegateObservability {
             event_tx: tx,
             session_id: Some("sess-3".to_string()),
+            orchestrator_id: None,
             source: None,
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),
@@ -988,6 +1038,7 @@ mod tests {
         let obs = DelegateObservability {
             event_tx: tx,
             session_id: Some("sess-4".to_string()),
+            orchestrator_id: None,
             source: None,
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),

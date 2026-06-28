@@ -1,14 +1,12 @@
 ---
-status: in-progress
+status: complete
 ---
 
 # Epic: Multiple Orchestrator Configuration
 
 **Summary** — Allow users to configure multiple orchestrator agents in a single profile and switch between them from the desktop chat screen, enabling different orchestrator roles (e.g., developer, reviewer) that share the same workers and sandbox while maintaining separate agent context.
 
-**Status** — **In progress.** Phases 1–2 and 4 (config layer, gateway runtime, spec/ADR updates) delivered. Phase 3 (Desktop UI + CLI) remains.
-
-## Problem Statement
+**Status** — **Complete.** All four phases delivered.
 
 Today, the `agents` array in `config.json` enforces **exactly one orchestrator**. All conversations go through that single orchestrator. When a user wants different orchestrator behaviors — for example, a developer orchestrator that writes code and a reviewer orchestrator that audits it — they must either:
 
@@ -26,7 +24,7 @@ What the user really wants: a **shared sandbox** where a developer orchestrator 
 
 ## Goal
 
-Allow users to configure multiple orchestrator agents within a single profile, switch between them from the desktop sessions sidebar (under an "Agent" header), and have each orchestrator use its own `AGENT.md` context while sharing the same worker definitions, sandbox, and providers. Each orchestrator can optionally filter which workers it has access to via `enabledWorkers`, so that a reviewer orchestrator sees only the workers it needs while a developer orchestrator sees all. Each orchestrator has its own session store, so sessions are naturally separated per orchestrator.
+Allow users to configure multiple orchestrator agents within a single profile, switch between them from the desktop sessions sidebar (under an "Agent" header), and have each orchestrator use its own `AGENT.md` context while sharing the same worker definitions, sandbox, and providers. Each orchestrator can optionally enable workers via `enabledWorkers` — absent means no workers, empty array means all workers, and a non-empty list means only the listed workers. Each orchestrator has its own session store, so sessions are naturally separated per orchestrator.
 
 The initial implementation supports **sequential use** — the user selects an orchestrator before starting a session, and switching orchestrators switches the session store and updates the sessions list. A future implementation could support **simultaneous use** (split screen, read-only second orchestrator), but that is explicitly out of scope for now.
 
@@ -81,9 +79,9 @@ The ORCHESTRATION ADR (`base/adr/ORCHESTRATION.md`) explicitly chose the single 
 
 - **Multiple orchestrator entries** in the `agents` array — relax the "exactly one" constraint to "at least one."
 - **Orchestrator selector in the sessions sidebar** — ComboBox under an "Agent" header above the "Sessions" header; filtered to orchestrator agents; switching updates the session list.
-- **Disabled during active session** — the ComboBox is interactive only when no session is active; switching orchestrators updates the sessions list and sets the orchestrator for the next message.
+- **Disabled during active turn** — the ComboBox is interactive when no agent turn is in progress (same condition as provider/model ComboBoxes and the Send button); switching orchestrators updates the sessions list and sets the orchestrator for the next message.
 - **Active/inactive labeling** — agents in the Agent/Tools ComboBoxes show "active" or "inactive" based on the selected orchestrator.
-- **Shared workers** — all orchestrators in a profile share the same worker definitions, with optional per-orchestrator filtering via `enabledWorkers` (absent = all workers; present = listed workers only).
+- **Shared workers** — all orchestrators in a profile share the same worker definitions, with optional per-orchestrator filtering via `enabledWorkers` (absent = no workers; empty array = all workers; present with ids = listed workers only).
 - **Shared sandbox and providers** — orchestrators differ only in their agent context (`AGENT.md`), `enabledSkills`, `enabledWorkers`, `contextMode`, `defaultProvider`/`defaultModel`, and delegation policy. Workers, sandbox, providers, and channels are profile-level resources.
 
 ### Out of Scope
@@ -328,19 +326,15 @@ Switching the orchestrator ComboBox updates the sessions list to show sessions f
 **Behavior**:
 - Populated from `status.agents` filtered to `role === "orchestrator"`.
 - Selected orchestrator determines which provider/model defaults are used (and filters the Provider/Model ComboBoxes accordingly).
-- **Disabled during active session** — `chat_turn_receiver.is_some()` or `chat_session_id.is_some()`.
-- Switching orchestrators while no session is active updates the sessions list and sets the orchestrator for the next message.
+- **Disabled during active turn** — `chat_turn_receiver.is_some()` or `chat_stopping`. The ComboBox is enabled between turns even while viewing a session.
+- Switching orchestrators updates the sessions list and sets the orchestrator for the next message.
 - When only one orchestrator is configured, the ComboBox is still visible but disabled — no selection to make.
 
-### Agent/Tools Screen: Active/Inactive Labeling
+### Agent/Tools Screen: Orchestrator Labeling
 
-The existing `dashboard_agent_id` ComboBox on the Agent and Tools screens currently labels orchestrator entries with ` — orchestrator`. This would change to:
+The existing `dashboard_agent_id` ComboBox on the Agent and Tools screens labels orchestrator entries with ` — orchestrator` and workers with ` — worker`. The implementation uses a `HashSet` of orchestrator IDs to correctly identify all orchestrators (not just the first/default), so non-default orchestrators are labeled `— orchestrator` instead of `— worker`.
 
-- **Active orchestrator**: `developer — orchestrator (active)`
-- **Inactive orchestrator**: `reviewer — orchestrator (inactive)`
-- **Workers**: unchanged (`engineer — worker`)
-
-"Active" means the orchestrator currently selected on the chat screen. This gives the user a clear view of which orchestrator will handle the next message.
+Active/inactive labeling (`(active)` / `(inactive)` suffixes) was deferred — see Design Deviations and Follow-ups.
 
 ### Workers Roster in System Context
 
@@ -370,9 +364,14 @@ Rationale:
 }
 ```
 
-**Semantics**:
-- **Absent or `null`** — all profile workers are available (default; backward compatible).
-- **Present** — only workers with matching IDs are visible and delegatable.
+With `"enabledWorkers": []`, the orchestrator gets all workers. Without `enabledWorkers`, the orchestrator gets no workers (and no `delegate_task` tool).
+
+**Semantics** (updated during Phase 3 — see Design Deviations):
+- **Absent or `null`** — no workers enabled; `delegate_task` tool is not offered.
+- **Present, empty array** (`[]`) — all profile workers are available.
+- **Present, non-empty** — only workers with matching IDs are visible and delegatable.
+
+This aligns with `enabledSkills`, where `None` means "no skills" (declarative/opt-in). The original design treated `None` as "all workers" (implicit/allow-all), which was inconsistent and made it impossible to configure an orchestrator that intentionally does not enable any workers.
 
 **Enforcement at two layers**:
 1. **System prompt** — `build_workers_context()` filters the `## Workers` roster to only include workers in the orchestrator's `enabledWorkers` (when set). The model never sees excluded workers and therefore never attempts to delegate to them.
@@ -407,12 +406,36 @@ The desktop currently resolves a single `orchestrator_id` from the first orchest
 
 Orchestrator switching is a **lighter-weight alternative** to profile switching when the user only wants to change the agent's role, not the entire environment.
 
+## Design Deviations
+
+The following deviations from the original design were made during Phase 3 implementation:
+
+### `enabledWorkers: None` Means No Workers (Declarative Semantics)
+
+The original design treated `enabledWorkers: None` as "all workers" (implicit/allow-all). During implementation, this was changed to "no workers" (declarative/opt-in), aligning with `enabledSkills` where `None` means "no skills." The new semantics:
+
+| Value | Meaning |
+|-------|---------|
+| `None` (omitted) | No workers enabled — `delegate_task` tool is not offered |
+| `Some([])` (empty array) | All profile workers are available |
+| `Some(["reader"])` | Only the listed workers are available |
+
+This makes it possible to configure an orchestrator that intentionally does not enable any workers — previously there was no way to express this when workers were configured in the profile. The empty array shorthand for "all workers" is reasonable: an orchestrator that explicitly enables workers but lists none is a natural way to say "give me all of them."
+
+### Orchestrator ComboBox Disabled During Active Turn Only
+
+The original design specified that the ComboBox would be disabled whenever a session was active (`chat_session_id.is_some()`). During implementation, this was changed to disable only during an active agent turn (`chat_turn_receiver.is_some()` or `chat_stopping`), matching the enable condition of the provider/model ComboBoxes and the Send button. This is more flexible — the user can switch orchestrators between turns while viewing any session.
+
+### Active/Inactive Labeling Not Implemented
+
+The original design specified that Agent and Tools screen ComboBoxes would show `(active)` / `(inactive)` suffixes for orchestrators. Instead, the implementation ensures all orchestrators are correctly labeled with `— orchestrator` (not `— worker`) by using a `HashSet` of orchestrator IDs rather than single-ID equality. Active/inactive labeling was deferred — it is tracked as a follow-up.
+
 ## Requirements
 
 - [x] **Multiple orchestrator entries** — The `agents` array accepts multiple entries with `role: "orchestrator"`. Validation requires at least one (not exactly one).
 - [x] **Backward-compatible defaults** — When `agents` is omitted, the default remains a single orchestrator with id `"orchestrator"`.
 - [x] **`AgentsConfig` refactored** — Replace flat top-level orchestrator fields with `Vec<OrchestratorConfig>`. On-disk format unchanged.
-- [x] **`enabledWorkers` on `OrchestratorConfig`** — Optional `Vec<String>`; when absent, all profile workers are available; when present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`.
+- [x] **`enabledWorkers` on `OrchestratorConfig`** — Optional `Vec<String>`; when absent, no workers are enabled (`delegate_task` not offered); empty array means all workers; non-empty means only listed workers. Aligns with `enabledSkills` (declarative/opt-in). See Design Deviations for the semantic change from the original design.
 - [x] **`enabledWorkers` validation** — Referenced worker IDs must exist in the profile's `agents` array. Unknown IDs produce a validation error.
 - [x] **`enabledWorkers` system prompt filtering** — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster.
 - [x] **`enabledWorkers` delegation enforcement** — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers` (when set), mirroring the `enabledProviders` check.
@@ -421,12 +444,12 @@ Orchestrator switching is a **lighter-weight alternative** to profile switching 
 - [x] **`agent` RPC `orchestratorId` parameter** — Optional; when omitted, the first orchestrator is used. Gateway resolves the corresponding `OrchestratorRuntime` and `SessionStore`.
 - [x] **`sessions` RPC `orchestratorId` parameter** — Optional; when omitted, the default orchestrator's session store is queried. Enables per-orchestrator session listing.
 - [x] **`agentDetail` RPC per-orchestrator resolution** — Look up any orchestrator from the `orchestrator_runtimes` map, not just the default.
-- [ ] **Orchestrator selector on chat screen** — ComboBox in the sessions sidebar under an "Agent" header; disabled during active session; switches update the sessions list.
-- [ ] **Provider/Model ComboBox cascade** — Switching orchestrators updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults.
-- [ ] **Active/inactive labeling** — Agent and Tools screen ComboBoxes show `(active)` / `(inactive)` for orchestrators.
+- [x] **Orchestrator selector on chat screen** — ComboBox in the sessions sidebar under an "Agent" header; disabled during active turn (not session); switches update the sessions list.
+- [x] **Provider/Model ComboBox cascade** — Switching orchestrators updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults.
+- [x] **Agent/Tools screen orchestrator labeling** — Agent and Tools screen ComboBoxes show correct `— orchestrator` / `— worker` suffixes for all agents (using a HashSet of orchestrator IDs, not single-ID equality). Active/inactive labeling was not implemented — see Design Deviations.
 - [x] **`enabledProviders` enforcement** — Worker delegation is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`. Enforced in `resolve_delegate_target()` against the calling orchestrator's config, not via `provider_discovery_enabled()`.
-- [ ] **Single-orchestrator backward compatibility** — When only one orchestrator is configured, desktop and CLI behavior is identical to today (ComboBox hidden or disabled; `--agent` flag has no effect).
-- [ ] **CLI `--agent` flag** — The `agent` CLI command accepts an optional `--agent <id>` flag that selects which orchestrator to use, equivalent to the desktop ComboBox selection.
+- [x] **Single-orchestrator backward compatibility** — When only one orchestrator is configured, the ComboBox is visible but disabled; `--agent` flag defaults to the single orchestrator.
+- [x] **CLI `--agent` flag** — The `chat` and `sessions list`/`sessions clear` commands accept an optional `--agent <id>` flag that selects which orchestrator to use, equivalent to the desktop ComboBox selection.
 - [x] **Spec updates** — Update `spec/AGENTS.md`, `spec/ORCHESTRATION.md`, `spec/CONFIGURATION.md`, `spec/GATEWAY_STATUS.md`, `spec/CONTEXT.md`, `spec/SESSIONS.md` to reflect multiple orchestrators, per-orchestrator runtime, `enabledWorkers`, `enabledProviders` enforcement, and `orchestratorId` RPC parameters.
 - [x] **ADR update** — Update `adr/ORCHESTRATION.md` to note per-orchestrator runtime isolation and `enabledProviders` enforcement.
 
@@ -435,16 +458,16 @@ Orchestrator switching is a **lighter-weight alternative** to profile switching 
 |-------|-------|--------|
 | 1 | Config layer: relax validation, refactor `AgentsConfig`, add `OrchestratorConfig` type (including `enabledWorkers`) | **Complete** |
 | 2 | Gateway runtime: per-orchestrator `OrchestratorRuntime`, per-orchestrator session stores, `agent` RPC `orchestratorId` parameter, `sessions` RPC `orchestratorId` parameter, `agentDetail` per-orchestrator resolution, `enabledWorkers` system prompt filtering and delegation enforcement, `enabledProviders` enforcement for shared workers | **Complete** |
-| 3 | Desktop UI + CLI: orchestrator selector in sessions sidebar, `--agent` CLI flag, active/inactive labeling, provider/model cascade | Not started |
+| 3 | Desktop UI + CLI: orchestrator selector in sessions sidebar, `--agent` CLI flag, orchestrator labeling on Agent/Tools screens, provider/model cascade | **Complete** |
 | 4 | Spec and ADR updates: document new behavior in all affected specs | **Complete** (merged into Phase 2 graduation) |
 
 ## Resolved Questions
 
 ### 1. What Happens When Switching Orchestrators With an Active Session?
 
-**Resolved**: The ComboBox is disabled during an active session. The user must start a new session (`/new`) before switching. This is the simplest and most predictable behavior.
+**Resolved**: The ComboBox is disabled only during an active agent turn (`chat_turn_receiver.is_some()` or `chat_stopping`), not during an active session. The user can switch orchestrators while viewing an existing session (after the turn completes), which updates the session list and resets to "New Session" state. This is more flexible than disabling during any session — the user can freely explore sessions across orchestrators between turns.
 
-If the user has an active session with orchestrator A, starts a new session, and then selects orchestrator B, the new session uses orchestrator B. The previous session (with orchestrator A) remains in the session history for that orchestrator (per-orchestrator session stores).
+The original plan was to disable the ComboBox whenever a session was active (`chat_session_id.is_some()`), but this was overly restrictive. The user should be able to switch orchestrators between turns while viewing any session, since switching only affects which sessions are visible and which orchestrator will handle the next message.
 
 ### 2. Should Each Orchestrator Have Its Own Provider/Model Defaults?
 
@@ -484,6 +507,7 @@ If the user has an active session with orchestrator A, starts a new session, and
 
 ## Follow-ups
 
+- **Active/inactive labeling on Agent/Tools screens** — Show `(active)` / `(inactive)` suffixes for orchestrators in the Agent and Tools screen ComboBoxes, based on which orchestrator is currently selected on the chat screen. Deferred from Phase 3; the current implementation ensures correct `— orchestrator` / `— worker` labeling for all agents.
 - **Simultaneous orchestrator sessions** — Split-screen mode with two orchestrators running concurrently. Requires investigation into shared git directory access and desktop UI layout.
 - **Per-orchestrator channel routing** — Allow channels to specify which orchestrator handles their messages.
 

@@ -58,10 +58,11 @@ impl ChaiApp {
         let Some(ref details) = self.gateway_status else {
             return;
         };
+        let active_orch_id = self.active_orchestrator_id.as_deref();
         let provider = self
             .current_provider
             .as_deref()
-            .or(details.default_provider())
+            .or_else(|| details.default_provider_for(active_orch_id))
             .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
             .or_else(|| enabled.first().map(|s| s.as_str()))
             .unwrap_or("ollama");
@@ -76,14 +77,14 @@ impl ChaiApp {
         let effective = self
             .current_model
             .as_deref()
-            .or(details.default_model())
+            .or_else(|| details.default_model_for(active_orch_id))
             .or(self.default_model.as_deref());
         let in_list = effective
             .map(|m| models.iter().any(|x| x == m))
             .unwrap_or(false);
         if !in_list {
             self.current_model = details
-                .default_model()
+                .default_model_for(active_orch_id)
                 .map(String::from)
                 .filter(|m| models.contains(m))
                 .or_else(|| models.first().cloned());
@@ -972,6 +973,7 @@ pub(crate) fn run_agent_turn(
     message: String,
     provider: Option<String>,
     model: Option<String>,
+    orchestrator_id: Option<String>,
 ) -> Result<AgentReply, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
@@ -1052,7 +1054,9 @@ pub(crate) fn run_agent_turn(
         if let Some(m) = &model {
             agent_params["model"] = serde_json::Value::String(m.clone());
         }
-
+        if let Some(id) = &orchestrator_id {
+            agent_params["orchestratorId"] = serde_json::Value::String(id.clone());
+        }
         let agent_req = serde_json::json!({
             "type": "req",
             "id": "2",
@@ -1242,7 +1246,8 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
 
 /// Fetch the session list from the gateway via `sessions.list` WebSocket method.
 /// Returns summary metadata for all sessions (id, timestamps, message count, channel binding).
-pub(crate) fn fetch_sessions_list(profile_override: Option<&str>) -> Result<Vec<crate::app::SessionSummary>, String> {
+/// When `orchestrator_id` is `Some`, scopes the request to that orchestrator's session store.
+pub(crate) fn fetch_sessions_list(profile_override: Option<&str>, orchestrator_id: Option<&str>) -> Result<Vec<crate::app::SessionSummary>, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1285,7 +1290,11 @@ pub(crate) fn fetch_sessions_list(profile_override: Option<&str>) -> Result<Vec<
                 break;
             }
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.list", "params": {} });
+        let mut params = serde_json::json!({});
+        if let Some(id) = orchestrator_id {
+            params["orchestratorId"] = serde_json::Value::String(id.to_string());
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.list", "params": params });
         ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
@@ -1560,7 +1569,9 @@ pub(crate) fn fetch_sessions_delete(profile_override: Option<&str>, session_id: 
 }
 
 /// Delete all sessions via the `sessions.delete_all` WebSocket method.
-pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>) -> Result<usize, String> {
+/// When `orchestrator_id` is Some, only deletes sessions for that orchestrator.
+/// When None, deletes sessions for all orchestrators.
+pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>, orchestrator_id: Option<&str>) -> Result<usize, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1596,7 +1607,11 @@ pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>) -> Resul
                 break;
             }
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete_all", "params": {} });
+        let mut params = serde_json::json!({});
+        if let Some(id) = orchestrator_id {
+            params["orchestratorId"] = serde_json::Value::String(id.to_string());
+        }
+        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete_all", "params": params });
         ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;

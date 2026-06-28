@@ -251,75 +251,96 @@ fn config_summary_right_column(
     ui: &mut egui::Ui,
     config: &lib::config::Config,
 ) {
-    let (default_provider, default_model) =
-        lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
-
-    let orch = config.agents.default_orchestrator();
-    let orch_id = orch.id.trim();
-    let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
-
     dashboard::section_group(ui, "Sandbox", |ui| {
         dashboard::kv(ui, "Mode", config.sandbox.mode.as_str());
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
 
     dashboard::section_group(ui, "Agents", |ui| {
-        // Orchestrator subsection — title is just the lowercase agent id.
-        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-        ui.label(egui::RichText::new(orch_id).strong());
-        ui.add_space(spacing::SUBSECTION_HEADING_GAP);
-        dashboard::kv(ui, "Role", "orchestrator");
-        dashboard::kv(ui, "Default provider", default_provider.as_str());
-        dashboard::kv(ui, "Default model", default_model.as_str());
-        let orch_ep = enabled_providers_display(&orch.enabled_providers);
-        dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
-        let orch_skills = lib::config::orchestrator_enabled_skills_list(&config.agents);
-        let orch_skills_csv = orch_skills.join(", ");
-        dashboard::kv(
-            ui,
-            "Enabled skills",
-            if orch_skills.is_empty() {
-                "(empty)"
-            } else {
-                orch_skills_csv.as_str()
-            },
-        );
-        let orch_mode = lib::config::orchestrator_context_mode(&config.agents);
-        dashboard::kv(
-            ui,
-            "Context mode",
-            match orch_mode {
-                lib::config::SkillContextMode::Full => "full",
-                lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
-            },
-        );
+        for orch in &config.agents.orchestrators {
+            let orch_id = orch.id.trim();
+            let orch_id = if orch_id.is_empty() { "orchestrator" } else { orch_id };
 
-        // Orchestrator limit fields (same order as gateway screen).
-        let mut any_limit = false;
-        if let Some(n) = orch.max_tool_loops_per_turn {
-            dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
-            any_limit = true;
-        }
-        if let Some(n) = orch.max_delegations_per_turn {
-            dashboard::kv(ui, "Max delegations per turn", &n.to_string());
-            any_limit = true;
-        }
-        if let Some(n) = orch.max_delegations_per_session {
-            dashboard::kv(ui, "Max delegations per session", &n.to_string());
-            any_limit = true;
-        }
-        if let Some(ref m) = orch.max_delegations_per_worker {
-            if !m.is_empty() {
-                let display: Vec<String> = m
-                    .iter()
-                    .map(|(k, v)| format!("{} ({})", k, v))
-                    .collect();
-                dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
+            let orch_provider = orch
+                .default_provider
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .unwrap_or_else(|| {
+                    config.providers.entries.first()
+                        .map(|p| p.id.trim())
+                        .unwrap_or("ollama")
+                });
+            let orch_model_fallback = lib::config::resolve_provider_default_model(&config.providers, orch_provider);
+            let orch_model = orch
+                .default_model
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .unwrap_or(orch_model_fallback.as_str());
+
+            // Orchestrator subsection — title is just the lowercase agent id.
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            ui.label(egui::RichText::new(orch_id).strong());
+            ui.add_space(spacing::SUBSECTION_HEADING_GAP);
+            dashboard::kv(ui, "Role", "orchestrator");
+            dashboard::kv(ui, "Default provider", orch_provider);
+            dashboard::kv(ui, "Default model", orch_model);
+            let orch_ep = enabled_providers_display(&orch.enabled_providers);
+            dashboard::kv(ui, "Enabled providers", orch_ep.as_str());
+            let orch_skills = orch.enabled_skills_list();
+            let orch_skills_csv = orch_skills.join(", ");
+            dashboard::kv(
+                ui,
+                "Enabled skills",
+                if orch_skills.is_empty() {
+                    "(empty)"
+                } else {
+                    orch_skills_csv.as_str()
+                },
+            );
+            match &orch.enabled_workers {
+                None => dashboard::kv(ui, "Enabled workers", "(none)"),
+                Some(workers) if workers.is_empty() => dashboard::kv(ui, "Enabled workers", "(all)"),
+                Some(workers) => dashboard::kv(ui, "Enabled workers", workers.join(", ").as_str()),
+            }
+            let orch_mode = orch.context_mode();
+            dashboard::kv(
+                ui,
+                "Context mode",
+                match orch_mode {
+                    lib::config::SkillContextMode::Full => "full",
+                    lib::config::SkillContextMode::ReadOnDemand => "readOnDemand",
+                },
+            );
+
+            // Orchestrator limit fields (same order as gateway screen).
+            let mut any_limit = false;
+            if let Some(n) = orch.max_tool_loops_per_turn {
+                dashboard::kv(ui, "Max tool loops per turn", &n.to_string());
                 any_limit = true;
             }
-        }
-        if any_limit {
-            ui.add_space(spacing::LINE);
+            if let Some(n) = orch.max_delegations_per_turn {
+                dashboard::kv(ui, "Max delegations per turn", &n.to_string());
+                any_limit = true;
+            }
+            if let Some(n) = orch.max_delegations_per_session {
+                dashboard::kv(ui, "Max delegations per session", &n.to_string());
+                any_limit = true;
+            }
+            if let Some(ref m) = orch.max_delegations_per_worker {
+                if !m.is_empty() {
+                    let display: Vec<String> = m
+                        .iter()
+                        .map(|(k, v)| format!("{} ({})", k, v))
+                        .collect();
+                    dashboard::kv(ui, "Max delegations per worker", display.join(", ").as_str());
+                    any_limit = true;
+                }
+            }
+            if any_limit {
+                ui.add_space(spacing::LINE);
+            }
         }
 
         if let Some(ref workers) = config.agents.workers {

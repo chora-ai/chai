@@ -48,6 +48,10 @@ enum Commands {
         /// Optional existing session id to continue.
         #[arg(long, value_name = "ID")]
         session: Option<String>,
+
+        /// Orchestrator agent id (defaults to the first orchestrator)
+        #[arg(long, value_name = "ID")]
+        agent: Option<String>,
     },
 
     /// List profiles, switch the active symlink, or show current profile
@@ -103,9 +107,9 @@ async fn main() {
         Some(Commands::Gateway { profile, .. }) => profile.as_deref(),
         Some(Commands::Chat { profile, .. }) => profile.as_deref(),
         Some(Commands::Sessions { sub }) => match sub {
-            sessions::SessionsCmd::List { profile } => profile.as_deref(),
+            sessions::SessionsCmd::List { profile, .. } => profile.as_deref(),
             sessions::SessionsCmd::Delete { profile, .. } => profile.as_deref(),
-            sessions::SessionsCmd::Clear { profile } => profile.as_deref(),
+            sessions::SessionsCmd::Clear { profile, .. } => profile.as_deref(),
         },
         _ => None,
     };
@@ -136,8 +140,8 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Chat { profile, session }) => {
-            if let Err(e) = chat::run_chat(profile, session).await {
+        Some(Commands::Chat { profile, session, agent }) => {
+            if let Err(e) = chat::run_chat(profile, session, agent).await {
                 eprintln!("chat error: {}", e);
                 std::process::exit(1);
             }

@@ -15,7 +15,7 @@ const CHAT_HELP_TEXT: &str = "available commands:\n\n/new - start a new session 
 const CHAT_NEW_SESSION_ACK: &str =
     "New session. Next message will start with a clean history.";
 
-pub(crate) async fn run_chat(profile: Option<String>, session: Option<String>) -> Result<()> {
+pub(crate) async fn run_chat(profile: Option<String>, session: Option<String>, agent: Option<String>) -> Result<()> {
     use std::io::{self, Write};
 
     let mut current_session = session;
@@ -46,7 +46,7 @@ pub(crate) async fn run_chat(profile: Option<String>, session: Option<String>) -
             continue;
         }
 
-        match agent_turn_via_gateway(profile.as_deref(), current_session.clone(), input.to_string()).await {
+        match agent_turn_via_gateway(profile.as_deref(), current_session.clone(), input.to_string(), agent.as_deref()).await {
             Ok(reply) => {
                 current_session = Some(reply.session_id);
                 println!("< {}", reply.reply.trim());
@@ -64,6 +64,7 @@ async fn agent_turn_via_gateway(
     profile: Option<&str>,
     session_id: Option<String>,
     message: String,
+    orchestrator_id: Option<&str>,
 ) -> Result<AgentReply> {
     let mut conn = GatewayConn::connect(profile).await?;
 
@@ -72,6 +73,9 @@ async fn agent_turn_via_gateway(
     });
     if let Some(id) = session_id {
         agent_params["sessionId"] = serde_json::Value::String(id);
+    }
+    if let Some(id) = orchestrator_id {
+        agent_params["orchestratorId"] = serde_json::Value::String(id.to_string());
     }
 
     let payload = conn.call("agent", agent_params).await?;

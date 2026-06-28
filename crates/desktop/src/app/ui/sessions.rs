@@ -2,6 +2,17 @@ use eframe::egui;
 
 use super::super::ChaiApp;
 
+/// Section heading style matching the left sidebar.
+fn section_heading(ui: &mut egui::Ui, label: &str) {
+    ui.add_space(18.0);
+    ui.label(
+        egui::RichText::new(label)
+            .strong()
+            .color(ui.style().visuals.weak_text_color()),
+    );
+    ui.add_space(12.0);
+}
+
 /// Short label for a session in the sessions list (timestamp with optional channel name).
 fn session_label_display(summary: &super::super::SessionSummary) -> String {
     // Parse the ISO 8601 timestamp to a short display form like "Jun 10, 12:34".
@@ -86,9 +97,46 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
             egui::Frame::none()
                 .inner_margin(egui::Margin::symmetric(24.0, 0.0))
                 .show(ui, |ui| {
-                    ui.add_space(24.0);
-                    ui.heading("Sessions");
-                    ui.add_space(ChaiApp::SCREEN_TITLE_BOTTOM_SPACING);
+                    ui.add_space(6.0);
+
+                    // ── Agent selector ──
+                    section_heading(ui, "Agent");
+                    let orchestrator_ids: Vec<String> = app
+                        .gateway_status
+                        .as_ref()
+                        .map(|gs| gs.orchestrators.iter().map(|o| o.id.clone()).collect())
+                        .unwrap_or_default();
+                    let active_id = app
+                        .active_orchestrator_id
+                        .as_deref()
+                        .or_else(|| orchestrator_ids.first().map(|s| s.as_str()))
+                        .unwrap_or("orchestrator");
+                    let single_orchestrator = orchestrator_ids.len() <= 1;
+                    // Disable when: not running, only one orchestrator, or a chat turn is in progress.
+                    let combo_enabled = running
+                        && !single_orchestrator
+                        && app.chat_turn_receiver.is_none()
+                        && !app.chat_stopping;
+
+                    let mut selected_id = active_id.to_string();
+                    ui.add_enabled_ui(combo_enabled, |ui| {
+                        let width = ui.available_width();
+                        egui::ComboBox::from_id_source("active_orchestrator_select")
+                            .width(width)
+                            .selected_text(active_id)
+                            .show_ui(ui, |ui| {
+                                for id in &orchestrator_ids {
+                                    ui.selectable_value(&mut selected_id, id.clone(), id);
+                                }
+                            });
+                    });
+                    if selected_id != active_id {
+                        app.switch_active_orchestrator(selected_id);
+                    }
+
+                    // ── Sessions ──
+                    section_heading(ui, "Sessions");
+
                     if !running {
                         ui.label("Start the gateway to see sessions.");
                     } else {
@@ -209,10 +257,12 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                 if ui.button("Yes, clear all").clicked() {
                                     app.show_clear_all_confirm = false;
                                     let profile_override = app.cached_profile_override.clone();
+                                    let orchestrator_id = app.active_orchestrator_id.clone();
                                     let (tx, rx) = std::sync::mpsc::channel();
                                     std::thread::spawn(move || {
                                         let result = super::super::state::gateway::fetch_sessions_delete_all(
                                             profile_override.as_deref(),
+                                            orchestrator_id.as_deref(),
                                         );
                                         let _ = tx.send(result);
                                     });

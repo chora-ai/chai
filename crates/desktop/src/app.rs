@@ -213,6 +213,9 @@ pub struct ChaiApp {
     /// Agent id that was last requested for detail fetch. Used to detect when the
     /// user switches agents so a new fetch can be triggered.
     agent_detail_requested_id: Option<String>,
+    /// Active orchestrator id for the chat screen. Defaults to the first orchestrator.
+    /// When only one orchestrator is configured, the ComboBox is disabled.
+    active_orchestrator_id: Option<String>,
 }
 /// Return the current time as an ISO 8601 string (e.g. "2025-06-10T12:34:56Z").
 /// Used for session timestamps when a session is created locally (before the
@@ -365,6 +368,7 @@ impl Default for ChaiApp {
             agent_detail_fetch_error: None,
             agent_detail_receiver: None,
             agent_detail_requested_id: None,
+            active_orchestrator_id: None,
         }
     }
 }
@@ -484,7 +488,8 @@ impl ChaiApp {
         self.cached_desktop_config_mtime = None;
     }
 
-    /// Returns the list of enabled providers for the chat dropdown. Cached until the Config screen is shown.
+    /// Returns the list of enabled providers for the chat dropdown. Cached until the Config screen is shown
+    /// or the active orchestrator changes.
     pub fn enabled_providers(&mut self) -> Vec<String> {
         if let Some(ref list) = self.cached_enabled_providers {
             return list.clone();
@@ -492,16 +497,24 @@ impl ChaiApp {
         let config = self.load_config_cached()
             .map(|(c, _)| c.clone())
             .unwrap_or_default();
-        // Start from enabledProviders when set; otherwise fall back to the effective default provider.
-        let mut list: Vec<String> = if config
-            .agents
-            .default_orchestrator()
+        // Resolve the active orchestrator from state or fall back to default.
+        let active_orch_id = self.active_orchestrator_id
+            .as_deref()
+            .or_else(|| config.agents.orchestrators.first().map(|o| o.id.as_str()))
+            .unwrap_or("orchestrator");
+        let orch = config.agents.orchestrator(Some(active_orch_id))
+            .unwrap_or_else(|_| config.agents.default_orchestrator());
+        // Start from enabledProviders when set; otherwise fall back to the active
+        // orchestrator's effective default provider (not the default orchestrator's).
+        let mut list: Vec<String> = if orch
             .enabled_providers
             .as_ref()
             .map(|v| v.is_empty())
             .unwrap_or(true)
         {
-            let (default, _) = lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
+            let default = lib::orchestration::resolve_orchestrator_provider_choice(&config.providers, orch)
+                .as_str()
+                .to_string();
             vec![default]
         } else {
             let mut seen = std::collections::HashSet::new();
@@ -511,9 +524,7 @@ impl ChaiApp {
                 .iter()
                 .map(|p| p.id.trim().to_lowercase())
                 .collect();
-            config
-                .agents
-                .default_orchestrator()
+            orch
                 .enabled_providers
                 .as_ref()
                 .unwrap()
@@ -524,12 +535,14 @@ impl ChaiApp {
                 .filter(|s| seen.insert(s.clone()))
                 .collect()
         };
-        // Always include the effective default provider in the dropdown so the UI reflects
-        // which provider the gateway will actually use when no override is provided.
-        let (default_provider, _) =
-            lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
-        if !list.contains(&default_provider) {
-            list.push(default_provider);
+        // Always include the active orchestrator's effective default provider in the
+        // dropdown so the UI reflects which provider the gateway will actually use
+        // when no override is provided.
+        let orch_default = lib::orchestration::resolve_orchestrator_provider_choice(&config.providers, orch)
+            .as_str()
+            .to_string();
+        if !list.contains(&orch_default) {
+            list.push(orch_default);
         }
         self.cached_enabled_providers = Some(list.clone());
         list
@@ -540,7 +553,31 @@ impl ChaiApp {
         self.cached_enabled_providers = None;
     }
 
+    /// Switch the active orchestrator on the chat screen. Invalidates provider/model
+    /// caches, resets the session list, and clears the chat view so it reloads from
+    /// the new orchestrator's data.
+    pub(crate) fn switch_active_orchestrator(&mut self, new_id: String) {
+        if self.active_orchestrator_id.as_deref() == Some(new_id.as_str()) {
+            return;
+        }
+        self.active_orchestrator_id = Some(new_id);
+        self.cached_enabled_providers = None;
+        self.current_provider = None;
+        self.current_model = None;
+        self.sessions_list_fetched = false;
+        self.session_order.clear();
+        self.session_summaries.clear();
+        self.session_messages.clear();
+        self.chat_session_id = None;
+        self.selected_session_id = None;
+        self.chat_messages.clear();
+        self.chat_messages.push(ChatMessage::system(
+            "New Session. Next message will start with a clean history.".to_string(),
+        ));
+    }
+
     /// After **`status`** refresh, keep **Agent** / **Tools** / **Skills** agent selection valid.
+    /// Also initializes `active_orchestrator_id` from the gateway status when not yet set.
     pub(crate) fn reconcile_dashboard_agent_selection(&mut self) {
         let Some(details) = self.gateway_status.as_ref() else {
             self.dashboard_agent_id = None;
@@ -558,6 +595,18 @@ impl ChaiApp {
             .unwrap_or(false);
         if !valid {
             self.dashboard_agent_id = Some(orch.to_string());
+        }
+        // Initialize active_orchestrator_id from gateway status when not yet set
+        // (first status response after gateway starts).
+        if self.active_orchestrator_id.is_none() {
+            self.active_orchestrator_id = Some(orch.to_string());
+        }
+        // If the active orchestrator no longer exists in the gateway, fall back to default.
+        if let Some(ref active) = self.active_orchestrator_id {
+            if !details.orchestrators.iter().any(|o| o.id == *active) {
+                self.active_orchestrator_id = Some(orch.to_string());
+                self.invalidate_enabled_providers_cache();
+            }
         }
     }
 
@@ -659,6 +708,7 @@ impl ChaiApp {
         self.sessions_delete_receiver = None;
         self.sessions_delete_all_receiver = None;
         self.show_clear_all_confirm = false;
+        self.active_orchestrator_id = None;
     }
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         state::logs::init_logging();
@@ -1106,16 +1156,18 @@ impl ChaiApp {
         }
         // Send provider only when we know it (from UI override or gateway status). Do not hardcode
         // a fallback (e.g. "ollama") when status is unavailable—let the gateway use its config.
+        let active_orch = self.active_orchestrator_id.as_deref();
         let provider = self.current_provider.clone().or_else(|| {
             self.gateway_status
                 .as_ref()
-                .and_then(|s| s.default_provider().map(String::from))
+                .and_then(|s| s.default_provider_for(active_orch).map(String::from))
         });
         let model = self.current_model.clone();
+        let orchestrator_id = self.active_orchestrator_id.clone();
         let profile_override = self.cached_profile_override.clone();
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let result = state::gateway::run_agent_turn(profile_override.as_deref(), session_id, message, provider, model);
+            let result = state::gateway::run_agent_turn(profile_override.as_deref(), session_id, message, provider, model, orchestrator_id);
             let _ = tx.send(result);
         });
         self.chat_turn_receiver = Some(rx);
@@ -1189,8 +1241,9 @@ impl ChaiApp {
         {
             let (tx, rx) = mpsc::channel();
             let profile_override = self.cached_profile_override.clone();
+            let orchestrator_id = self.active_orchestrator_id.clone();
             std::thread::spawn(move || {
-                let result = state::gateway::fetch_sessions_list(profile_override.as_deref());
+                let result = state::gateway::fetch_sessions_list(profile_override.as_deref(), orchestrator_id.as_deref());
                 let _ = tx.send(result);
             });
             self.sessions_list_receiver = Some(rx);

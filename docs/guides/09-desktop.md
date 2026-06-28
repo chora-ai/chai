@@ -66,6 +66,10 @@ The right-side sessions panel lists all persisted sessions for the active profil
 
 Channel-bound sessions (e.g. from Telegram) are read-only from the desktop — you can view their history but cannot send messages from the desktop chat input, since that would create a new empty session and overwrite the channel session's history.
 
+### Agent Selector
+
+When multiple orchestrators are configured, the right sidebar shows an "Agent" ComboBox above the session list. Selecting a different orchestrator updates the sessions list and the provider/model defaults. The ComboBox is disabled when only one orchestrator is configured or during an active agent turn.
+
 ### Model and Provider Selection
 
 Below the chat input, dropdown selectors let you override the provider and model for the next message — useful for testing different backends without editing `config.json`.

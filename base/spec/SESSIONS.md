@@ -286,9 +286,11 @@ Delete all sessions for the active profile.
   "type": "req",
   "id": "4",
   "method": "sessions.delete_all",
-  "params": {}
+  "params": { "orchestratorId": "researcher" }
 }
 ```
+
+- `orchestratorId` is optional. When provided, only clears sessions for that orchestrator's session store and selectively removes its bindings. When omitted, clears all orchestrators' sessions (backward compatible).
 
 **Response:**
 
@@ -301,16 +303,18 @@ Delete all sessions for the active profile.
 }
 ```
 
-- Clears all sessions from memory and disk.
-- Clears all bindings.
-- Broadcasts a `sessions.cleared` event.
+- When `orchestratorId` is provided: clears that orchestrator's sessions from memory and disk, selectively removes associated bindings.
+- When `orchestratorId` is omitted: clears all sessions from memory and disk, clears all bindings.
+- Broadcasts a `sessions.cleared` event with `orchestratorId` in the payload.
 
 ### Session Events
 
 | Event | Payload | When |
 |-------|---------|------|
-| `session.deleted` | `{ "sessionId": "..." }` | After `sessions.delete` succeeds |
-| `sessions.cleared` | `{}` | After `sessions.delete_all` succeeds |
+| `session.deleted` | `{ "sessionId": "...", "orchestratorId": "..." }` | After `sessions.delete` succeeds |
+| `sessions.cleared` | `{ "orchestratorId": "..." }` | After `sessions.delete_all` succeeds |
+
+`orchestratorId` in event payloads enables clients to filter events by active orchestrator. When absent (backward compatibility with older gateway versions), the event applies to all orchestrators.
 
 RPC result handlers perform immediate local cleanup on success so the UI updates without delay. Broadcast events serve as a redundant fallback — if the broadcast arrives after the RPC handler has already cleaned up, the removal is a no-op (idempotent).
 
@@ -342,13 +346,12 @@ This is a lazy-load pattern: sessions are listed with metadata only, and full hi
 ### Channel-Bound Session Read-Only Guard
 
 Clicking a channel-bound session sets `selected_session_id` (for viewing) but not `chat_session_id` (for sending). The `can_send_base` guard checks `chat_session_id.is_some()`, disabling the chat input for channel-bound sessions. This prevents the desktop from sending a message that would cause the gateway's `get_or_create` to create a new empty session, overwriting the channel session's history on disk.
-
 ### Session Event Processing
 
 | Event | Desktop Behavior |
 |-------|-----------------|
-| `session.deleted` | Removes the session from `session_messages`, `session_order`, and `session_summaries`. Switches to "New session" mode if it was the selected session. |
-| `sessions.cleared` | Clears all local session state and switches to "New session" mode. |
+| `session.deleted` | When `orchestratorId` matches the active orchestrator (or is absent), removes the session from `session_messages`, `session_order`, and `session_summaries`. Switches to "New session" mode if it was the selected session. When `orchestratorId` doesn't match the active orchestrator, the event is ignored. |
+| `sessions.cleared` | When `orchestratorId` matches the active orchestrator (or is absent), clears all local session state and switches to "New session" mode. When `orchestratorId` doesn't match the active orchestrator, the event is ignored. |
 
 RPC result handlers perform immediate local cleanup on success so the UI updates without delay. Broadcast events serve as a redundant fallback — if the broadcast arrives after the RPC handler has already cleaned up, the removal is a no-op (idempotent).
 
@@ -362,10 +365,9 @@ CLI session commands operate **directly on the session store on disk** — no ga
 
 | Command | Behavior |
 |---------|----------|
-| `chai sessions list` | Lists sessions for the active profile from disk via `SessionStore::scan()`. Shows session id, timestamps, message count, and channel binding (if any). Sorted by most recently updated. Supports `--profile`. |
+| `chai sessions list` | Lists sessions for the active profile from disk via `SessionStore::scan()`. Shows session id, timestamps, message count, and channel binding (if any). Sorted by most recently updated. Supports `--profile` and `--agent <id>` (scopes to a specific orchestrator's session store). |
 | `chai sessions delete <ID>` | Removes a session from disk via `SessionStore::remove()` and its binding via `SessionBindingStore::remove_binding()`. Prints confirmation. Supports `--profile`. |
-| `chai sessions clear` | Removes all sessions and bindings from disk via `SessionStore::remove_all()` and `SessionBindingStore::remove_all()`. Prints count of deleted sessions. Supports `--profile`. |
-
+| `chai sessions clear` | Removes all sessions and bindings from disk via `SessionStore::remove_all()` and `SessionBindingStore::remove_all()`. Prints count of deleted sessions. Supports `--profile` and `--agent <id>` (scopes to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions). |
 ### `GatewayConn` Refactor
 
 The gateway WebSocket connect + auth handshake was extracted from `chat.rs` into a reusable `GatewayConn` struct (`crates/cli/src/gatewayconn.rs`). `GatewayConn::connect(profile)` establishes an authenticated connection. `GatewayConn::call(method, params)` sends a method request and waits for the matching response. The `chat` command was refactored to use `GatewayConn`, reducing boilerplate. The gateway protocol session methods remain for the desktop client.

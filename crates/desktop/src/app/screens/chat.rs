@@ -104,9 +104,10 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .current_provider
                     .as_deref()
                     .or_else(|| {
+                        let orch_id = app.active_orchestrator_id.as_deref();
                         app.gateway_status
                             .as_ref()
-                            .and_then(|s| s.default_provider())
+                            .and_then(|s| s.default_provider_for(orch_id))
                     })
                     .or_else(|| {
                         app.gateway_status
@@ -125,7 +126,10 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 let effective_default_model = app
                     .gateway_status
                     .as_ref()
-                    .and_then(|s| s.default_model().map(String::from))
+                    .and_then(|s| {
+                        let orch_id = app.active_orchestrator_id.as_deref();
+                        s.default_model_for(orch_id).map(String::from)
+                    })
                     .or_else(|| app.default_model.clone());
 
                 // Determine if this provider is a hosted API (remote endpoint that may not support

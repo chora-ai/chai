@@ -24,6 +24,11 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             }
 
             let gs = app.gateway_status.as_ref().unwrap();
+            let orch_ids: std::collections::HashSet<&str> = gs
+                .orchestrators
+                .iter()
+                .map(|o| o.id.as_str())
+                .collect();
             let orch_id = gs.orchestrator_id().unwrap_or("orchestrator");
             let orch_owned = orch_id.to_string();
             let selected_id = app
@@ -38,7 +43,7 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .width(220.0)
                     .show_ui(ui, |ui| {
                         for id in gs.agent_skills.keys() {
-                            let suffix = if id == orch_id {
+                            let suffix = if orch_ids.contains(id.as_str()) {
                                 " — orchestrator"
                             } else {
                                 " — worker"

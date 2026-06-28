@@ -362,13 +362,10 @@ fn status_agents_section(ui: &mut egui::Ui, status: Option<&GatewayStatusDetails
                 dashboard::kv(ui, "Context mode", context_mode_for_agent(s, oid).as_str());
 
                 // Enabled workers.
-                if let Some(ref ew) = orch.enabled_workers {
-                    let ew_display = if ew.is_empty() {
-                        "(none)".to_string()
-                    } else {
-                        ew.join(", ")
-                    };
-                    dashboard::kv(ui, "Enabled workers", ew_display.as_str());
+                match &orch.enabled_workers {
+                    None => dashboard::kv(ui, "Enabled workers", "(none)"),
+                    Some(ew) if ew.is_empty() => dashboard::kv(ui, "Enabled workers", "(all)"),
+                    Some(ew) => dashboard::kv(ui, "Enabled workers", ew.join(", ").as_str()),
                 }
 
                 // Orchestrator limit fields (same order as config screen).

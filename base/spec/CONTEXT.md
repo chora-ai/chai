@@ -35,7 +35,7 @@ For a **new session**, when the user sends a message, the gateway sends the prov
 
 1. **Agent context** — Contents of **`AGENT.md`** at **`<profileRoot>/agents/<orchestratorId>/AGENT.md`**. Trimmed. Omitted if missing or empty.
 2. **`"\n\n"`** — Only if agent context was non-empty.
-3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog, enabled_workers)`** appends a **`## Workers`** section (see [Workers Section](#workers-section-build_workers_context) below). `enabled_workers` is derived from the orchestrator's `OrchestratorConfig.enabled_workers` — when `Some(ids)`, only those workers are included; when `None`, all workers are included (backward compatible). Omitted entirely when there are no workers.
+3. **Workers** — If **`config.agents.workers`** is non-empty, **`build_workers_context(agents, skill_catalog, enabled_workers)`** appends a **`## Workers`** section (see [Workers Section](#workers-section-build_workers_context) below). `enabled_workers` is derived from the orchestrator's `OrchestratorConfig.enabled_workers` — when `Some(ids)`, only those workers are included; when `Some([])` (empty array), all workers are included; when `None`, no workers roster is included and `delegate_task` is not offered. Omitted entirely when there are no workers.
 4. **`"\n\n"`** — Only if the workers section was non-empty.
 5. **Skills** — From **`build_skill_context_full`** (**`full`**) or **`build_skill_context_compact`** (**`readOnDemand`**) using **only** packages whose names are in the **orchestrator** **`enabledSkills`** list, or empty if that list is missing/empty or none match disk.
 
@@ -62,7 +62,7 @@ For a **new session**, when the user sends a message, the gateway sends the prov
 ### Workers Section (`build_workers_context`)
 
 - Empty string if **`agents.workers`** is missing or empty.
-- When `enabled_workers` is `Some(ids)`, only workers whose IDs are in `ids` are included in the roster. When `None`, all workers are included (backward compatible).
+- When `enabled_workers` is `Some(ids)`, only workers whose IDs are in `ids` are included in the roster. When `Some([])` (empty array), all workers are included. When `None`, no workers are included and `delegate_task` is not offered.
 - Otherwise:
 ```
 ## Workers

@@ -202,20 +202,41 @@ impl ChaiApp {
             }
             // Handle session deletion events — remove local state for the deleted session.
             if ev.role == "session_deleted" {
-                let sid = ev.session_id.clone();
-                if !sid.is_empty() {
-                    self.remove_session_local(&sid);
+                // When orchestrator_id is set, only handle if it matches the active orchestrator.
+                // When None (backward compat), always handle.
+                let should_handle = ev.orchestrator_id.as_deref() == self.active_orchestrator_id.as_deref()
+                    || ev.orchestrator_id.is_none();
+                if should_handle {
+                    let sid = ev.session_id.clone();
+                    if !sid.is_empty() {
+                        self.remove_session_local(&sid);
+                    }
                 }
                 continue;
             }
-            // Handle sessions-cleared events — remove all local session state.
+            // Handle sessions-cleared events — remove local session state.
             if ev.role == "sessions_cleared" {
-                self.session_messages.clear();
-                self.session_summaries.clear();
-                self.session_order.clear();
-                self.start_new_session();
-                self.chat_session_id = None;
+                // When orchestrator_id is set, only clear if it matches the active orchestrator.
+                // When None (backward compat), all orchestrators were cleared.
+                let should_clear = ev.orchestrator_id.as_deref() == self.active_orchestrator_id.as_deref()
+                    || ev.orchestrator_id.is_none();
+                if should_clear {
+                    self.session_messages.clear();
+                    self.session_summaries.clear();
+                    self.session_order.clear();
+                    self.start_new_session();
+                    self.chat_session_id = None;
+                }
                 continue;
+            }
+            // Filter session events by active orchestrator. When the event carries an
+            // orchestrator_id, skip it if it doesn't match the active orchestrator.
+            // This prevents sessions from other orchestrators from appearing in the sidebar.
+            // Events without orchestrator_id (backward compat) are always processed.
+            if let Some(ref ev_oid) = ev.orchestrator_id {
+                if Some(ev_oid.as_str()) != self.active_orchestrator_id.as_deref() {
+                    continue;
+                }
             }
             let session_id = ev.session_id.clone();
             let entry = self
@@ -654,6 +675,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                         .collect::<Vec<_>>()
                                 });
                             let tool_results = tool_results.filter(|v| !v.is_empty());
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id,
                                 role,
@@ -669,6 +694,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -690,6 +716,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             else {
                                 continue;
                             };
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let content = format_delegation_line(event_name, data);
 
                             // When delegation completes with a reply, emit the worker message
@@ -723,6 +753,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                         tool_index: None,
                                         source: Some(worker_id.to_string()),
                                         pending_tool_calls: None,
+                                        orchestrator_id: event_orchestrator_id.clone(),
                                     };
                                     let _ = tx.send(worker_ev);
                                 }
@@ -743,9 +774,9 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
-
                             ctx.request_repaint();
                         }
                     } else if event_name == "session.tool_call" || event_name == "session.tool_result" {
@@ -776,6 +807,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 .get("source")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let role = if event_name == "session.tool_call" {
                                 "tool_call"
                             } else {
@@ -796,6 +831,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index,
                                 source,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -823,6 +859,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 .get("source")
                                 .and_then(|v| v.as_str())
                                 .map(|s| s.to_string());
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id: session_id.to_string(),
                                 role: "assistant_progress".to_string(),
@@ -838,6 +878,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -857,6 +898,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 .get("pendingToolCalls")
                                 .and_then(|v| v.as_array())
                                 .map(|arr| arr.clone());
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id: session_id.to_string(),
                                 role: "tool_loop_limit".to_string(),
@@ -872,6 +917,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -887,6 +933,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             else {
                                 continue;
                             };
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id: session_id.to_string(),
                                 role: "turn_stopped".to_string(),
@@ -902,6 +952,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
@@ -918,6 +969,10 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 .filter(|s| !s.is_empty())
                                 .unwrap_or("")
                                 .to_string();
+                            let event_orchestrator_id = data
+                                .get("orchestratorId")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
                             let ev = SessionEvent {
                                 session_id,
                                 role: "session_deleted".to_string(),
@@ -933,12 +988,19 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 tool_index: None,
                                 source: None,
                                 pending_tool_calls: None,
+                                orchestrator_id: event_orchestrator_id,
                             };
                             let _ = tx.send(ev);
                             ctx.request_repaint();
                         }
                     } else if event_name == "sessions.cleared" {
-                        // Gateway reports all sessions were deleted.
+                        // Gateway reports sessions were deleted.
+                        // Extract orchestratorId from payload to determine scope.
+                        let cleared_orchestrator_id = val
+                            .get("payload")
+                            .and_then(|p| p.get("orchestratorId"))
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.to_string());
                         let ev = SessionEvent {
                             session_id: String::new(),
                             role: "sessions_cleared".to_string(),
@@ -954,6 +1016,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             tool_index: None,
                             source: None,
                             pending_tool_calls: None,
+                            orchestrator_id: cleared_orchestrator_id,
                         };
                         let _ = tx.send(ev);
                         ctx.request_repaint();
@@ -977,6 +1040,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             tool_index: None,
                             source: None,
                             pending_tool_calls: None,
+                            orchestrator_id: None,
                         };
                         let _ = tx.send(ev);
                         ctx.request_repaint();

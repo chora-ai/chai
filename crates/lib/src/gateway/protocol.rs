@@ -192,6 +192,15 @@ pub struct SessionsListParams {
     pub orchestrator_id: Option<String>,
 }
 
+/// Params for WS method "sessions.delete_all": delete all sessions for an orchestrator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsDeleteAllParams {
+    /// Target orchestrator id. When omitted, all orchestrators' sessions are deleted.
+    #[serde(default)]
+    pub orchestrator_id: Option<String>,
+}
+
 impl WsResponse {
     pub fn ok(id: impl Into<String>, payload: serde_json::Value) -> Self {
         Self {

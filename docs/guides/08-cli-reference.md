@@ -56,15 +56,16 @@ Start an interactive chat session with the default agent through the running gat
 chai chat                           # New session, active profile
 chai chat --session <ID>            # Continue an existing session
 chai chat --profile developer       # Connect to the gateway on a specific profile
+chai chat --agent researcher        # Use a specific orchestrator
 ```
 
 | Flag | Description |
 |------|-------------|
 | `--profile <NAME>` | Profile for config resolution (must match the running gateway's profile) |
 | `--session <ID>` | Resume an existing session by id |
+| `--agent <ID>` | Select which orchestrator to use (defaults to the first orchestrator) |
 
 **Chat commands** (typed as messages):
-
 | Command | Description |
 |---------|-------------|
 | `/new` | Start a new session (clears conversation history) |

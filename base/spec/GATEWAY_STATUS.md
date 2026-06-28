@@ -96,7 +96,7 @@ Array of per-agent runtime rows. Orchestrator entries first (one per orchestrato
 | **`enabledProviders`** | Orchestrator: provider ids for discovery scope (same semantics as config). Workers: **`null`**. |
 | **`enabledSkills`** | Skill package names loaded for that agent. Mirrors **`config.json`** **`agents[].enabledSkills`**. |
 | **`contextMode`** | **`"full"`** or **`"readOnDemand"`**. Mirrors **`config.json`** **`agents[].contextMode`**. |
-| **`enabledWorkers`** | Orchestrator: worker ids this orchestrator can delegate to (array or **`null`**; absent/`null` means all workers). Workers: **`null`**. |
+| **`enabledWorkers`** | Orchestrator: worker ids this orchestrator can delegate to (array or **`null`**; absent/`null` means no workers; empty array means all workers). Workers: **`null`**. |
 | **`maxToolLoopsPerTurn`** | Orchestrator: maximum tool loops per turn (integer or **`null`**; omitted = no limit; applies globally to both orchestrator and worker turns). Workers: **`null`**. |
 | **`maxDelegationsPerTurn`** | Orchestrator: optional cap on **`delegate_task`** calls per turn (integer or **`null`**). Workers: **`null`**. |
 | **`maxDelegationsPerSession`** | Orchestrator: optional cap on **`delegate_task`** calls per session (integer or **`null`**). Workers: **`null`**. |

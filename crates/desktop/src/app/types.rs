@@ -181,6 +181,9 @@ pub struct SessionEvent {
     /// Tool calls that were generated but not executed because the loop limit was reached.
     /// Set on `session.tool_loop_limit` events.
     pub(crate) pending_tool_calls: Option<Vec<serde_json::Value>>,
+    /// Orchestrator id from `sessions.cleared` events. When set, only sessions for this
+    /// orchestrator were deleted. When None, all orchestrators' sessions were cleared.
+    pub(crate) orchestrator_id: Option<String>,
 }
 
 /// Channel binding info for a session, as returned by `sessions.list`.
@@ -318,13 +321,25 @@ impl GatewayStatusDetails {
     pub(crate) fn orchestrator_id(&self) -> Option<&str> {
         self.orchestrators.first().map(|o| o.id.as_str())
     }
-    /// Default provider of the default (first) orchestrator.
-    pub(crate) fn default_provider(&self) -> Option<&str> {
-        self.orchestrators.first().map(|o| o.default_provider.as_str()).filter(|s| !s.is_empty())
+    /// Find an orchestrator row by id.
+    pub(crate) fn find_orchestrator(&self, id: &str) -> Option<&StatusOrchestratorRow> {
+        self.orchestrators.iter().find(|o| o.id == id)
     }
-    /// Default model of the default (first) orchestrator.
-    pub(crate) fn default_model(&self) -> Option<&str> {
-        self.orchestrators.first().map(|o| o.default_model.as_str()).filter(|s| !s.is_empty())
+    /// Default provider for a specific orchestrator, falling back to the default orchestrator.
+    pub(crate) fn default_provider_for(&self, orchestrator_id: Option<&str>) -> Option<&str> {
+        orchestrator_id
+            .and_then(|id| self.find_orchestrator(id))
+            .or_else(|| self.orchestrators.first())
+            .map(|o| o.default_provider.as_str())
+            .filter(|s| !s.is_empty())
+    }
+    /// Default model for a specific orchestrator, falling back to the default orchestrator.
+    pub(crate) fn default_model_for(&self, orchestrator_id: Option<&str>) -> Option<&str> {
+        orchestrator_id
+            .and_then(|id| self.find_orchestrator(id))
+            .or_else(|| self.orchestrators.first())
+            .map(|o| o.default_model.as_str())
+            .filter(|s| !s.is_empty())
     }
 }
 

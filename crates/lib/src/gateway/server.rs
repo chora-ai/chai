@@ -21,7 +21,7 @@ use crate::gateway::matrix_routes;
 use crate::gateway::pairing::PairingStore;
 use crate::gateway::protocol::{
     AgentDetailParams, AgentParams, ConnectDevice, ConnectParams, HelloAuth, HelloOk,
-    SendParams, SessionsDeleteParams, SessionsHistoryParams, SessionsListParams, StopParams,
+    SendParams, SessionsDeleteAllParams, SessionsDeleteParams, SessionsHistoryParams, SessionsListParams, StopParams,
     WsRequest, WsResponse,
 };
 use crate::init;
@@ -508,9 +508,11 @@ fn channel_reply_text(result: &agent::AgentTurnResult) -> Option<String> {
 const NEW_SESSION_TRIGGER: &str = "/new";
 
 /// Broadcast a session.message event over WebSocket to connected clients.
+/// `orchestrator_id` is included in the payload so clients can filter events by orchestrator.
 fn broadcast_session_message(
     state: &GatewayState,
     session_id: &str,
+    orchestrator_id: &str,
     role: &str,
     content: &str,
     tool_calls: Option<&[crate::providers::ToolCall]>,
@@ -525,6 +527,7 @@ fn broadcast_session_message(
             .unwrap_or_else(|| json!([]));
         json!({
             "sessionId": session_id,
+            "orchestratorId": orchestrator_id,
             "role": role,
             "content": content,
             "channelId": channel_id,
@@ -535,6 +538,7 @@ fn broadcast_session_message(
     } else {
         json!({
             "sessionId": session_id,
+            "orchestratorId": orchestrator_id,
             "role": role,
             "content": content,
             "channelId": channel_id,
@@ -674,6 +678,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
     broadcast_session_message(
         &state,
         &session_id,
+        &orch_config.id,
         "user",
         &msg.text,
         None,
@@ -718,6 +723,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         observability: Some(DelegateObservability {
             event_tx: state.event_tx.clone(),
             session_id: Some(session_id.clone()),
+            orchestrator_id: Some(orch_config.id.clone()),
             source: Some("orchestrator".to_string()),
             tool_index_offset: 0,
             emitted_tool_calls: AtomicUsize::new(0),
@@ -762,6 +768,7 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
         broadcast_session_message(
             &state,
             &session_id,
+            &orch_config.id,
             "assistant",
             &reply,
             if result.tool_calls.is_empty() {
@@ -980,10 +987,12 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         let agent_ctx = agent_ctx::load_agent_ctx(Some(orch_context_dir.as_path()));
 
         // Determine effective worker set for this orchestrator.
+        // None = no workers; Some([]) = all workers; Some(list) = only listed workers.
         let effective_workers: Option<Vec<String>> = orch.enabled_workers.clone();
         let has_effective_workers = match &effective_workers {
-            Some(v) => !v.is_empty(),
-            None => config.agents.workers.as_ref().map_or(false, |w| !w.is_empty()),
+            Some(v) if v.is_empty() => config.agents.workers.as_ref().map_or(false, |w| !w.is_empty()),
+            Some(_) => true,
+            None => false,
         };
 
         let system_context = build_system_context(
@@ -2041,6 +2050,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 broadcast_session_message(
                     &state,
                     &session_id,
+                    &orch_config.id,
                     "user",
                     &user_message,
                     None,
@@ -2093,6 +2103,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     observability: Some(DelegateObservability {
                         event_tx: state.event_tx.clone(),
                         session_id: Some(session_id.clone()),
+                        orchestrator_id: Some(orch_config.id.clone()),
                         source: Some("orchestrator".to_string()),
                         tool_index_offset: 0,
                         emitted_tool_calls: AtomicUsize::new(0),
@@ -2135,6 +2146,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         broadcast_session_message(
                             &state,
                             &session_id,
+                            &orch_config.id,
                             "assistant",
                             &result.content,
                             if result.tool_calls.is_empty() {
@@ -2319,19 +2331,27 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 };
                 // Try to remove from any orchestrator's session store.
                 let mut removed = false;
-                for store in state.session_stores.values() {
+                let mut removed_from_orchestrator: Option<String> = None;
+                for (orch_id, store) in state.session_stores.iter() {
                     if store.remove(&params.session_id).await.is_some() {
                         removed = true;
+                        removed_from_orchestrator = Some(orch_id.clone());
                         break;
                     }
                 }
                 if removed {
                     state.bindings.remove_binding(&params.session_id).await;
                     // Broadcast session.deleted event so clients can update without polling.
+                    // Include orchestratorId so clients can filter by active orchestrator.
+                    let payload = if let Some(ref oid) = removed_from_orchestrator {
+                        json!({ "sessionId": params.session_id, "orchestratorId": oid })
+                    } else {
+                        json!({ "sessionId": params.session_id })
+                    };
                     let event = json!({
                         "type": "event",
                         "event": "session.deleted",
-                        "payload": { "sessionId": params.session_id },
+                        "payload": payload,
                     });
                     if let Ok(text) = serde_json::to_string(&event) {
                         let _ = state.event_tx.send(text);
@@ -2344,17 +2364,42 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 }
             }
             "sessions.delete_all" => {
-                // Delete all sessions across all orchestrator session stores.
+                let params: SessionsDeleteAllParams = match serde_json::from_value(req.params.clone()) {
+                    Ok(p) => p,
+                    Err(_) => {
+                        // Backward compat: treat as delete-all if params are invalid.
+                        SessionsDeleteAllParams { orchestrator_id: None }
+                    }
+                };
                 let mut total = 0;
-                for store in state.session_stores.values() {
-                    total += store.remove_all().await;
+                if let Some(ref oid) = params.orchestrator_id {
+                    // Delete sessions for a specific orchestrator only.
+                    if let Some(store) = state.session_stores.get(oid.as_str()) {
+                        // Collect session IDs before removing so we can clean up bindings.
+                        let session_ids: Vec<String> = store.scan().await.iter().map(|s| s.id.clone()).collect();
+                        total += store.remove_all().await;
+                        for sid in &session_ids {
+                            state.bindings.remove_binding(sid).await;
+                        }
+                    }
+                } else {
+                    // No orchestrator specified: delete sessions across all orchestrators.
+                    for store in state.session_stores.values() {
+                        total += store.remove_all().await;
+                    }
+                    state.bindings.remove_all().await;
                 }
-                state.bindings.remove_all().await;
                 // Broadcast sessions.cleared event so clients can update without polling.
+                // Include orchestratorId when scoped to a specific orchestrator.
+                let payload = if let Some(ref oid) = params.orchestrator_id {
+                    json!({ "orchestratorId": oid })
+                } else {
+                    json!({})
+                };
                 let event = json!({
                     "type": "event",
                     "event": "sessions.cleared",
-                    "payload": {},
+                    "payload": payload,
                 });
                 if let Ok(text) = serde_json::to_string(&event) {
                     let _ = state.event_tx.send(text);

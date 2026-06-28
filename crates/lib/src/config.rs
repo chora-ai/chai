@@ -468,7 +468,7 @@ pub struct OrchestratorConfig {
     /// Skill package names enabled for this orchestrator. Omitted or empty ⇒ no skills.
     #[serde(default)]
     pub enabled_skills: Option<Vec<String>>,
-    /// Worker ids this orchestrator can delegate to. Omitted or empty ⇒ all profile workers are available.
+    /// Worker ids this orchestrator can delegate to. Omitted ⇒ no workers; empty array ⇒ all profile workers are available.
     #[serde(default)]
     pub enabled_workers: Option<Vec<String>>,
     /// How this orchestrator's skill docs are inlined vs `read_skill`.
@@ -517,7 +517,7 @@ impl OrchestratorConfig {
         self.enabled_skills.as_deref().unwrap_or(&[])
     }
 
-    /// This orchestrator's enabled worker ids (may be empty). When `None`, all workers are available.
+    /// This orchestrator's enabled worker ids. When `None`, no workers are enabled; when empty, all workers are available.
     pub fn enabled_workers_list(&self) -> &[String] {
         self.enabled_workers.as_deref().unwrap_or(&[])
     }
@@ -1716,7 +1716,7 @@ mod tests {
     }
 
     #[test]
-    fn agents_enabled_workers_absent_means_all() {
+    fn agents_enabled_workers_absent_means_none() {
         let j = r#"{"agents":[
             {"id":"main","role":"orchestrator"},
             {"id":"fast","role":"worker"}
@@ -2052,6 +2052,51 @@ mod tests {
             resolve_provider_api_key(&c.providers, "nearai"),
             Some("sk-literal-123".to_string())
         );
+    }
+
+    #[test]
+    fn provider_discovery_enabled_union_across_orchestrators() {
+        // Two orchestrators, each with a different defaultProvider and no
+        // enabledProviders set. Model discovery must run for both providers
+        // (union approach) so switching orchestrators doesn't require a restart.
+        let j = r#"{"providers":[
+            {"id":"nearai","endpointType":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1"},
+            {"id":"ollama","endpointType":"ollama"}
+        ],"agents":[
+            {"id":"developer","role":"orchestrator","defaultProvider":"nearai"},
+            {"id":"reviewer","role":"orchestrator","defaultProvider":"ollama"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        // Both providers should be discovered since each is the default for
+        // an orchestrator that has no explicit enabledProviders.
+        assert!(
+            provider_discovery_enabled(&c.providers, &c.agents, "nearai"),
+            "nearai should be discovered (default for developer)"
+        );
+        assert!(
+            provider_discovery_enabled(&c.providers, &c.agents, "ollama"),
+            "ollama should be discovered (default for reviewer)"
+        );
+    }
+
+    #[test]
+    fn orchestrator_discovery_provider_ids_per_orchestrator() {
+        // Verify that orchestrator_discovery_provider_ids returns the correct
+        // single provider for each orchestrator when enabledProviders is absent.
+        let j = r#"{"providers":[
+            {"id":"nearai","endpointType":"openai-compat","baseUrl":"https://cloud-api.near.ai/v1"},
+            {"id":"ollama","endpointType":"ollama"}
+        ],"agents":[
+            {"id":"developer","role":"orchestrator","defaultProvider":"nearai"},
+            {"id":"reviewer","role":"orchestrator","defaultProvider":"ollama"}
+        ]}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        let dev = c.agents.orchestrator(Some("developer")).unwrap();
+        let rev = c.agents.orchestrator(Some("reviewer")).unwrap();
+        let dev_ids = orchestrator_discovery_provider_ids(&c.providers, dev);
+        let rev_ids = orchestrator_discovery_provider_ids(&c.providers, rev);
+        assert_eq!(dev_ids, vec!["nearai"]);
+        assert_eq!(rev_ids, vec!["ollama"]);
     }
 
     #[test]

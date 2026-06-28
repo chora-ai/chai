@@ -48,7 +48,8 @@ pub fn effective_worker_defaults(
 /// minimal for smaller model support.
 ///
 /// When `enabled_workers` is `Some(list)`, only workers whose id appears in the
-/// list are included. When `None` or empty, all workers are included (current behavior).
+/// list are included. When `None`, no workers are included. When `Some([])` (empty),
+/// all workers are included.
 pub fn build_workers_context(
     agents: &AgentsConfig,
     skill_catalog: &[SkillEntry],
@@ -61,6 +62,12 @@ pub fn build_workers_context(
         return String::new();
     }
 
+    // When enabled_workers is None, no workers are enabled.
+    let enabled = match enabled_workers {
+        None => return String::new(),
+        Some(v) => v,
+    };
+
     let skill_by_name: HashMap<&str, &SkillEntry> =
         skill_catalog.iter().map(|e| (e.name.as_str(), e)).collect();
 
@@ -72,11 +79,9 @@ pub fn build_workers_context(
     out.push_str("`delegate_task` calls execute sequentially — each worker turn completes before the next begins.\n\n");
     out.push_str("Only delegate a task to a worker if the worker has the relevant skills.\n\n");
     for w in workers {
-        // Filter by enabled_workers when set.
-        if let Some(allowed) = enabled_workers {
-            if !allowed.is_empty() && !allowed.iter().any(|id| id == w.id.as_str()) {
-                continue;
-            }
+        // Filter by enabled_workers: empty list means all workers; non-empty list means only listed ids.
+        if !enabled.is_empty() && !enabled.iter().any(|id| id == w.id.as_str()) {
+            continue;
         }
         lines_for_worker(&mut out, w, &skill_by_name);
     }
@@ -169,7 +174,8 @@ mod tests {
 
     #[test]
     fn includes_orchestrator_and_worker() {
-        let s = build_workers_context(&sample_agents(), &[], None);
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&sample_agents(), &[], Some(&empty));
         assert!(s.contains("You are the orchestrator agent"));
         assert!(s.contains("sequentially"));
         assert!(s.contains("bob"));
@@ -194,7 +200,8 @@ mod tests {
                 context_mode: None,
             }]),
         };
-        let s = build_workers_context(&a, &[], None);
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&a, &[], Some(&empty));
         assert!(s.contains("bob"));
         assert!(s.contains("### bob"));
         assert!(s.contains("Start your instruction with `[bob]`"));
@@ -231,20 +238,23 @@ mod tests {
             variant_of: None,
             matched_bin_group: None,
         }];
-        let s = build_workers_context(&a, &catalog, None);
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&a, &catalog, Some(&empty));
         assert!(!s.contains("provider"));
         assert!(s.contains("- does a thing"));
     }
 
     #[test]
     fn bracket_prefix_rendered_per_worker() {
-        let s = build_workers_context(&sample_agents(), &[], None);
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&sample_agents(), &[], Some(&empty));
         assert!(s.contains("Start your instruction with `[bob]`"));
     }
 
     #[test]
     fn no_provider_model_in_context() {
-        let s = build_workers_context(&sample_agents(), &[], None);
+        let empty: Vec<String> = vec![];
+        let s = build_workers_context(&sample_agents(), &[], Some(&empty));
         assert!(!s.contains("provider"));
         assert!(!s.contains("model"));
     }
@@ -280,9 +290,9 @@ mod tests {
     }
 
     #[test]
-    fn enabled_workers_none_includes_all() {
+    fn enabled_workers_none_includes_none() {
         let s = build_workers_context(&sample_agents(), &[], None);
-        assert!(s.contains("### bob"));
+        assert!(s.is_empty());
     }
 
     #[test]

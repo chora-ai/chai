@@ -25,7 +25,7 @@ At least one entry with `"role": "orchestrator"`. Multiple orchestrators are sup
 | `defaultProvider`, `defaultModel` | Main session defaults |
 | `enabledProviders` | Which provider stacks this agent may use (discovery and routing scope) |
 | `enabledSkills` | Array of skill package names to load for this agent from `~/.chai/skills/`. Missing or empty ⇒ no skills. |
-| `enabledWorkers` | Optional array of worker ids this orchestrator can delegate to. When absent or `null`, all profile workers are available. When present, only listed workers are visible and delegatable. Follows the same pattern as `enabledProviders` and `enabledSkills`. Orchestrator-only — rejected on worker entries at parse time. |
+| `enabledWorkers` | Optional array of worker ids this orchestrator can delegate to. When absent or `null`, no workers are enabled — `delegate_task` is not offered. Empty array means all profile workers are available. Non-empty means only listed workers are visible and delegatable. Aligns with `enabledSkills` (declarative/opt-in). Orchestrator-only — rejected on worker entries at parse time. |
 | `contextMode` | `full` \| `readOnDemand` — how this agent's skill text appears in system context |
 | `maxToolLoopsPerTurn` | Maximum tool loops per turn (omitted = no limit). Safety net against runaway loops. Applies to both orchestrator and worker turns. When reached on the orchestrator turn, the gateway emits a `session.tool_loop_limit` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). When the turn is stopped by the user, the gateway emits a `session.turn_stopped` event (see [ORCHESTRATION.md](ORCHESTRATION.md)). |
 | `maxDelegationsPerTurn`, `maxDelegationsPerSession`, `maxDelegationsPerWorker` | Delegation caps |
@@ -78,7 +78,7 @@ The gateway builds **separate** static system context strings for each agent at 
 Built **per orchestrator** at startup and cached in `OrchestratorRuntime`:
 
 1. **Agent context** — Contents of `<profileRoot>/agents/<orchestratorId>/AGENT.md`. Trimmed. Omitted if missing or empty.
-2. **Workers roster** — If any workers are defined, a `## Workers` section is rendered by `build_workers_context` (see [CONTEXT.md](CONTEXT.md)). When the orchestrator has `enabledWorkers`, only those workers are included; otherwise all workers are included. Omitted when there are no workers.
+2. **Workers roster** — If any workers are defined and the orchestrator has `enabledWorkers` set, a `## Workers` section is rendered by `build_workers_context` (see [CONTEXT.md](CONTEXT.md)). When `enabledWorkers` is `Some(ids)`, only those workers are included. When `enabledWorkers` is `Some([])` (empty array), all workers are included. When `enabledWorkers` is `None`, no workers roster is included and `delegate_task` is not offered. Omitted when there are no effective workers for that orchestrator.
 3. **Skills** — From enabled packages for the orchestrator: either `full` (inlined bodies) or `readOnDemand` (compact list + `read_skill` tool).
 
 ### Worker Build Order
@@ -100,7 +100,7 @@ Tool lists are built **per agent** at startup from that agent's enabled skill pa
 |-------------|-------------|--------|
 | Skill tools from `tools.json` | Only packages in orchestrator's `enabledSkills` | Only packages in worker's `enabledSkills` |
 | `read_skill` | Included when orchestrator's `contextMode` is `readOnDemand` and at least one skill is enabled | Included when worker's `contextMode` is `readOnDemand` and at least one skill is enabled |
-| `delegate_task` | Merged at the **front** of each orchestrator's tool list when that orchestrator has effective workers | **Not offered** (nested delegation disabled) |
+| `delegate_task` | Merged at the **front** of each orchestrator's tool list when that orchestrator has effective workers (`enabledWorkers` is `Some([])` with workers available, or `Some(ids)` with matching workers). Not offered when `enabledWorkers` is `None` or no matching workers exist. | **Not offered** (nested delegation disabled) |
 
 The same prebuilt list is sent on every turn for that agent.
 
@@ -132,7 +132,7 @@ See [ORCHESTRATION.md](ORCHESTRATION.md) for delegation semantics, policy, limit
 | `id`, `role` | Agent identity |
 | `defaultProvider`, `defaultModel` | Effective routing defaults |
 | `enabledSkills` | Skill package names loaded for this agent |
-| `enabledWorkers` | Orchestrator: worker ids this orchestrator can delegate to (array or `null`; absent/`null` means all workers). Workers: `null`. |
+| `enabledWorkers` | Orchestrator: worker ids this orchestrator can delegate to (array or `null`; absent/`null` means no workers; empty array means all workers). Workers: `null`. |
 | `contextMode` | Skill context mode for this agent |
 
 Heavy per-agent data (`systemContext`, `tools`, `skillsContext`) is available via the on-demand `agentDetail` WebSocket method, not the polling `status` response. The `agentDetail` handler resolves orchestrators from the `orchestrator_runtimes` map first (keyed by orchestrator ID), then falls back to `worker_delegate_runtimes` (keyed by worker ID).
