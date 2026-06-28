@@ -49,7 +49,6 @@ Always read the relevant convention file before adding or modifying a document i
 - **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and editor for Chai agent context, skill files, and sandbox.
 - **[MULTI_ORCHESTRATOR.md](epic/MULTI_ORCHESTRATOR.md)** — (draft) Enable support for multiple orchestrator agents in a single profile.
 - **[PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md)** — (draft) Enable the orchestrator agent to run multiple delegation calls in parallel.
-
 - **[SPLIT_DEPLOYMENT.md](epic/SPLIT_DEPLOYMENT.md)** — (draft) Enable a hosted-gateway deployment model with secure data transfer.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
@@ -119,3 +118,4 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[V0_1_0.md](tag/V0_1_0.md)** — First official release of Chai, a privacy-preserving multi-agent management system designed for constrained-model operation. Provides a local gateway with orchestrator–worker delegation, Telegram messaging, skill-based tooling with content-addressed versioning, per-profile configuration and sandboxing, and a native desktop application.
 - **[V0_2_0.md](tag/V0_2_0.md)** — Second release of Chai. Adds a `cargo` skill for compilation and test verification during sessions, branch integration tools (merge, rebase, cherry-pick, reset) for the `git` skill, and line-range pagination companions for truncated diff/show output. Fixes multiple desktop error-handling gaps and skill output issues. Renames tools and parameters for consistency with the tool and parameter naming ADR.
+- **[V0_3_0.md](tag/V0_3_0.md)** — Third release of Chai. Adds persistent sessions with gateway protocol methods and desktop sidebar management, CLI session commands, a `chai resolve` subcommand for sandbox-aware path validation, and `hintConditions` for declarative skill hints. Fixes sandbox traversal vulnerabilities in git and cargo skills, and improves cargo and file-editing tool output.
