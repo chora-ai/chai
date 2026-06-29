@@ -90,6 +90,30 @@ chai profile switch <name>          # Change the active symlink (gateway must be
 
 The `CHAI_PROFILE` environment variable overrides `~/.chai/active` for a single process without changing the symlink.
 
+## `chai session`
+
+Manage sessions — list, delete, or clear sessions for the active profile. These commands operate directly on the session store on disk; no gateway connection is required.
+
+```bash
+chai session list                            # List sessions for the active profile
+chai session list --profile developer        # List sessions for a specific profile
+chai session list --agent researcher         # List sessions for a specific orchestrator
+chai session delete <ID>                     # Delete a session by id
+chai session clear                           # Delete all sessions for the default orchestrator
+chai session clear --agent researcher        # Delete all sessions for a specific orchestrator
+```
+
+| Subcommand | Description |
+|-----------|-------------|
+| `list` | List sessions from disk. Shows session id (shortened), message count, timestamp, and channel binding (if any). Sorted by most recently updated. |
+| `delete <ID>` | Delete a session by id. Removes the session and its binding from disk. |
+| `clear` | Delete all sessions from disk. Reports the count of deleted sessions. |
+
+| Flag | Description |
+|------|-------------|
+| `--profile <NAME>` | Override the active profile (available on all subcommands) |
+| `--agent <ID>` | Scope to a specific orchestrator's session store (available on `list` and `clear`) |
+
 ## `chai skill`
 
 Manage skill packages — inspection, creation, updates, validation, and version pinning.
@@ -180,7 +204,7 @@ For more on skills, see [Skills](06-skills.md).
 
 ## `chai file`
 
-File operations primarily designed for skill tool backends. These commands are lower-level than the skill system and are typically used by scripts or when working outside a skill's tool execution context.
+Tool backend for file operations. These commands are lower-level than the skill system and are typically used by scripts or when working outside a skill's tool execution context.
 
 Most commands accept content via `--content` or stdin (when `--content` is omitted).
 
@@ -280,7 +304,7 @@ Move a Markdown note and update all `[[old-name]]` and `[[old-name|...]]` wikili
 
 ## `chai logs`
 
-Read and search the gateway's in-memory log buffer. These commands query the running gateway via its HTTP API — the gateway must be running for them to return data.
+Tool backend for log operations. Read and search the gateway's in-memory log buffer. These commands query the running gateway via its HTTP API — the gateway must be running for them to return data.
 
 ### Recent Lines
 

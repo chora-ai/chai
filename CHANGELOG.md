@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### CLI
 
 - `--agent <id>` flag on `chai chat` — selects which orchestrator to use for the chat session; passes `orchestratorId` in the agent RPC
-- `--agent <id>` flag on `chai sessions list` — scopes session listing to a specific orchestrator's session store
-- `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
+- `--agent <id>` flag on `chai session list` — scopes session listing to a specific orchestrator's session store
+- `--agent <id>` flag on `chai session clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
 - `chai skill write-allowlist-json` and `chai skill write-execution-json` — new CLI subcommands for writing the companion files independently
 - `chai skill read --file allowlist_json` and `--file execution_json` — new file type values for reading companion files
 - `chai skill dry-run` — preview what a tool call would execute without running the command; shows argv mapping, sandbox validation, deny pattern checks, stdin content, temp files, and post-processing pipeline; optional `--simulated-output` flag previews postProcess, hintConditions, and truncation on provided output
@@ -56,6 +56,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### CLI
 
+- CLI subcommand rename: `chai sessions` → `chai session` — singular naming convention for resource-type namespaces (consistent with `chai profile`, `chai skill`, `chai file`)
+- CLI subcommand description updates — tool-backend commands (`file`, `git`, `logs`, `skill`) now use "Tool backend for ..." descriptions; resource-management commands describe the resource
 - `chai skill init` — creates three-file format templates: `tools.json` as `[]`, `allowlist.json` as `{}`, `execution.json` as `[]`
 - `chai skill list` — shows population status for `allowlist.json` and `execution.json` alongside `tools.json`
 - `chai skill validate` — validates each file independently (JSON syntax, schema conformance) and checks cross-file consistency (tool names in `execution.json` must match `tools.json`; binary/subcommand pairs in `execution.json` must be in `allowlist.json`)

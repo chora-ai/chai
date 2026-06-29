@@ -4,7 +4,7 @@ use anyhow::Result;
 use clap::Subcommand;
 
 #[derive(Subcommand)]
-pub(crate) enum SessionsCmd {
+pub(crate) enum SessionCmd {
     /// List sessions for the active profile
     List {
         /// Profile name
@@ -35,11 +35,11 @@ pub(crate) enum SessionsCmd {
     },
 }
 
-pub(crate) async fn run_sessions(cmd: SessionsCmd) -> Result<()> {
+pub(crate) async fn run_session(cmd: SessionCmd) -> Result<()> {
     match cmd {
-        SessionsCmd::List { profile, agent } => list_sessions(profile, agent).await,
-        SessionsCmd::Delete { id, profile } => delete_session(id, profile).await,
-        SessionsCmd::Clear { profile, agent } => clear_sessions(profile, agent).await,
+        SessionCmd::List { profile, agent } => list_sessions(profile, agent).await,
+        SessionCmd::Delete { id, profile } => delete_session(id, profile).await,
+        SessionCmd::Clear { profile, agent } => clear_sessions(profile, agent).await,
     }
 }
 

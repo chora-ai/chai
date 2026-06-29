@@ -7,7 +7,7 @@ mod init;
 mod logs;
 mod profile;
 mod resolve;
-mod sessions;
+mod session;
 mod skill;
 
 use clap::{Parser, Subcommand};
@@ -60,34 +60,34 @@ enum Commands {
         sub: profile::ProfileCmd,
     },
 
-    /// Manage skill packages (discover CLIs, generate, validate, inspect)
-    Skill {
+    /// List sessions, delete a session, or clear all sessions
+    Session {
         #[command(subcommand)]
-        sub: skill::SkillCmd,
+        sub: session::SessionCmd,
     },
 
-    /// File operations for skill tool backends
+    /// Tool backend for file operations
     File {
         #[command(subcommand)]
         sub: file::FileCmd,
     },
 
-    /// Git operations for skill tool backends
+    /// Tool backend for git operations
     Git {
         #[command(subcommand)]
         sub: git::GitCmd,
     },
 
-    /// Read and search the gateway's in-memory log buffer
+    /// Tool backend for log operations
     Logs {
         #[command(subcommand)]
         sub: logs::LogsCmd,
     },
 
-    /// Manage sessions (list, delete, clear)
-    Sessions {
+    /// Tool backend for skill operations
+    Skill {
         #[command(subcommand)]
-        sub: sessions::SessionsCmd,
+        sub: skill::SkillCmd,
     },
 
     /// Sandbox-aware path resolution for tool resolve commands
@@ -106,10 +106,10 @@ async fn main() {
     let cli_profile = match &cli.command {
         Some(Commands::Gateway { profile, .. }) => profile.as_deref(),
         Some(Commands::Chat { profile, .. }) => profile.as_deref(),
-        Some(Commands::Sessions { sub }) => match sub {
-            sessions::SessionsCmd::List { profile, .. } => profile.as_deref(),
-            sessions::SessionsCmd::Delete { profile, .. } => profile.as_deref(),
-            sessions::SessionsCmd::Clear { profile, .. } => profile.as_deref(),
+        Some(Commands::Session { sub }) => match sub {
+            session::SessionCmd::List { profile, .. } => profile.as_deref(),
+            session::SessionCmd::Delete { profile, .. } => profile.as_deref(),
+            session::SessionCmd::Clear { profile, .. } => profile.as_deref(),
         },
         _ => None,
     };
@@ -152,9 +152,9 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Skill { sub }) => {
-            if let Err(e) = skill::run_skill(sub) {
-                eprintln!("skill: {}", e);
+        Some(Commands::Session { sub }) => {
+            if let Err(e) = session::run_session(sub).await {
+                eprintln!("session: {}", e);
                 std::process::exit(1);
             }
         }
@@ -176,9 +176,9 @@ async fn main() {
                 std::process::exit(1);
             }
         }
-        Some(Commands::Sessions { sub }) => {
-            if let Err(e) = sessions::run_sessions(sub).await {
-                eprintln!("sessions: {}", e);
+        Some(Commands::Skill { sub }) => {
+            if let Err(e) = skill::run_skill(sub) {
+                eprintln!("skill: {}", e);
                 std::process::exit(1);
             }
         }
