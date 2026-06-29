@@ -10,13 +10,15 @@ metadata:
 
 ## How Skills Are Structured
 
-A skill is a directory containing three components:
+A skill is a directory containing these components:
 
 - **`SKILL.md`** — Agent-facing instructions. Written in Markdown with optional YAML frontmatter. Loaded into the agent's context every turn, so every line has an ongoing cost.
-- **`tools.json`** — Tool definitions, execution mapping, and command allowlist. Declares typed tool schemas the model can call and maps each tool to a CLI binary and subcommand. Schema conformance is enforced by `skills_validate`.
-- **`scripts/`** (optional) — Helper scripts referenced by `resolveCommand` or `postProcess` in tools.json. Run via `sh` with no allowlist entry needed.
+- **`tools.json`** — Tool definitions for the LLM: name, description, and parameter schemas. The root is an array of tool spec objects.
+- **`allowlist.json`** — Security grants: binary→subcommand mapping that defines what the runtime executor is permitted to run.
+- **`execution.json`** — Implementation mapping: how to run each tool (binary, subcommand, arg mapping, hints, deny patterns, postProcess, sideRead).
+- **`scripts/`** (optional) — Helper scripts referenced by `resolveCommand` or `postProcess` in `execution.json`. Run via `sh` with no allowlist entry needed.
 
-A skill without `tools.json` contributes instructions only — no callable tools. A skill with `tools.json` adds callable tools on top of that knowledge.
+A skill without `tools.json` contributes instructions only — no callable tools. A skill with `tools.json` (and its companion `allowlist.json` and `execution.json`) adds callable tools on top of that knowledge.
 
 ## Tools Over Inference
 
@@ -52,7 +54,7 @@ Hints are more effective than directives for three reasons:
 
 ### Hint Implementation: hintConditions (Preferred for Simple Hints)
 
-When a hint can be determined by a simple condition — substring match in the output, exit-code check, non-empty output, or parameter-value check — declare it inline in `tools.json` using the `hintConditions` field. No separate script file is needed.
+When a hint can be determined by a simple condition — substring match in the output, exit-code check, non-empty output, or parameter-value check — declare it inline in `execution.json` using the `hintConditions` field. No separate script file is needed.
 
 Condition types: `match` (substring), `exitCode` (integer or `"nonzero"`), `notEmpty` (boolean), `whenArg` (parameter-value). Multiple conditions on the same entry use AND logic. Multiple entries are all evaluated; all matching entries produce hints. The `hint` field supports `{param_name}` template variables for dynamic hint text.
 
@@ -62,7 +64,7 @@ Pattern: `successExitCodes` → `hintConditions` → hint on error output.
 
 ### Hint Implementation: postProcess Scripts (For Complex Hints)
 
-When a hint requires output transformation, multi-step logic, external commands, or structured data parsing, implement it as a `postProcess` script in `tools.json`. Each script receives the tool's output on stdin, inspects it for error conditions, and appends one-line hints when conditions are detected. Non-matching output passes through unchanged.
+When a hint requires output transformation, multi-step logic, external commands, or structured data parsing, implement it as a `postProcess` script in `execution.json`. Each script receives the tool's output on stdin, inspects it for error conditions, and appends one-line hints when conditions are detected. Non-matching output passes through unchanged.
 
 Use `postProcess` scripts when the hint:
 - Requires filtering or transforming the output (e.g., collapsing progress lines, classifying errors).
@@ -240,7 +242,7 @@ A hyphenated skill name indicates a variant of the base skill (the part before t
 
 ### Self-Containment
 
-Each skill must be self-contained. SKILL.md must not reference tools from other skills or assume another skill is co-enabled. Extension variants must define only their own tools in `tools.json` — they do not duplicate the base skill's tool surface.
+Each skill must be self-contained. SKILL.md must not reference tools from other skills or assume another skill is co-enabled. Extension variants must define only their own tools in their tool descriptor files (`tools.json`, `allowlist.json`, `execution.json`) — they do not duplicate the base skill's tool surface.
 
 ### `variant_of` Field
 

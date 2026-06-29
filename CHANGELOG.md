@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### CLI
+
+- `--agent <id>` flag on `chai chat` — selects which orchestrator to use for the chat session; passes `orchestratorId` in the agent RPC
+- `--agent <id>` flag on `chai sessions list` — scopes session listing to a specific orchestrator's session store
+- `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
+- `chai skill write-allowlist-json` and `chai skill write-execution-json` — new CLI subcommands for writing the companion files independently
+- `chai skill read --file allowlist_json` and `--file execution_json` — new file type values for reading companion files
+
+#### Desktop
+
+- Orchestrator selector ComboBox in the chat sidebar — "Agent" section heading above "Sessions"; switching updates the session list and provider/model defaults; disabled when only one orchestrator is configured or during an active agent turn
+- Config screen shows all orchestrators with per-orchestrator `enabledWorkers` display — `None` shows "(none)", empty array shows "(all)", non-empty shows comma-separated worker ids
+- Gateway screen shows `enabledWorkers` per orchestrator with "(none)"/"(all)" display — the row is always visible (previously `None` was hidden)
+- Skills screen correctly identifies all orchestrator agents (not just the default) for green/blue color coding
+- Agent and Tools screens correctly label all orchestrator agents with `— orchestrator` suffix (not `— worker`) using a HashSet of orchestrator IDs
+- "Clear all sessions" scopes deletion to the active orchestrator — passes `orchestratorId` to `sessions.delete_all`
+- Session event filtering by orchestrator — desktop ignores `session.deleted` and `sessions.cleared` events from non-active orchestrators
+- Provider/model ComboBoxes cascade on orchestrator switch — selecting a different orchestrator updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults
+
+#### Skills
+
+- `skills_write_allowlist_json` and `skills_write_execution_json` — new skill-authoring tools for writing companion files
+
 #### Runtime and Configuration
 
 - Multiple orchestrator entries in the `agents` array — validation relaxes from "exactly one orchestrator" to "at least one"; each orchestrator has its own provider, model, skills, and delegation policy
@@ -27,22 +50,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Channel-bound messages always use the default orchestrator — `process_inbound_message` has no `orchestratorId` parameter
 - Gateway broadcast events (`session.message`, `session.deleted`, delegation events) include `orchestratorId` in their payloads — enables clients to filter events by active orchestrator
 
-#### Desktop
-
-- Orchestrator selector ComboBox in the chat sidebar — "Agent" section heading above "Sessions"; switching updates the session list and provider/model defaults; disabled when only one orchestrator is configured or during an active agent turn
-- Config screen shows all orchestrators with per-orchestrator `enabledWorkers` display — `None` shows "(none)", empty array shows "(all)", non-empty shows comma-separated worker ids
-- Gateway screen shows `enabledWorkers` per orchestrator with "(none)"/"(all)" display — the row is always visible (previously `None` was hidden)
-- Skills screen correctly identifies all orchestrator agents (not just the default) for green/blue color coding
-- Agent and Tools screens correctly label all orchestrator agents with `— orchestrator` suffix (not `— worker`) using a HashSet of orchestrator IDs
-- "Clear all sessions" scopes deletion to the active orchestrator — passes `orchestratorId` to `sessions.delete_all`
-- Session event filtering by orchestrator — desktop ignores `session.deleted` and `sessions.cleared` events from non-active orchestrators
-- Provider/model ComboBoxes cascade on orchestrator switch — selecting a different orchestrator updates the Provider and Model ComboBoxes to reflect the new orchestrator's defaults
+### Changed
 
 #### CLI
 
-- `--agent <id>` flag on `chai chat` — selects which orchestrator to use for the chat session; passes `orchestratorId` in the agent RPC
-- `--agent <id>` flag on `chai sessions list` — scopes session listing to a specific orchestrator's session store
-- `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
+- `chai skill init` — creates three-file format templates: `tools.json` as `[]`, `allowlist.json` as `{}`, `execution.json` as `[]`
+- `chai skill list` — shows population status for `allowlist.json` and `execution.json` alongside `tools.json`
+- `chai skill validate` — validates each file independently (JSON syntax, schema conformance) and checks cross-file consistency (tool names in `execution.json` must match `tools.json`; binary/subcommand pairs in `execution.json` must be in `allowlist.json`)
+
+#### Skills
+
+- All 15 bundled skills with tool descriptors migrated from the legacy single-file `tools.json` format to the three-file format (`tools.json`, `allowlist.json`, `execution.json`)
+
+#### Skill Authoring
+
+- Three-file tool descriptor format — the monolithic `tools.json` (root object with `tools`, `allowlist`, `execution` keys) is split into three independent files: `tools.json` (root array of tool definitions), `allowlist.json` (root object of security grants), and `execution.json` (root array of execution specs). Each file has a single responsibility: communication, security, and implementation respectively. The loader detects the format at load time and supports both the new three-file format and the legacy single-file format (with a deprecation warning)
 
 ### Fixed
 

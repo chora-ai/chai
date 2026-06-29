@@ -39,13 +39,13 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
 
 3. **List installed skills**
    - Send an agent message: "List all installed skills."
-   - **Expect:** The agent uses `skills_list` and returns a table showing each skill's name, SKILL.md status, tools.json status, and tool count. Bundled skills like `files`, `notes`, `git`, etc. should appear.
+   - **Expect:** The agent uses `skills_list` and returns a table showing each skill's name, SKILL.md status, tools.json/allowlist.json/execution.json status, and tool count. Bundled skills like `files`, `notes`, `git`, etc. should appear.
 
 4. **Read a skill's definition**
    - Send: "Read the SKILL.md for the 'notes' skill."
    - **Expect:** The agent uses `skills_read` with `file: "skill_md"` and returns the full content of the notes skill's SKILL.md.
-   - Then: "Read the tools.json for the 'notes' skill."
-   - **Expect:** The agent uses `skills_read` with `file: "tools_json"` and returns the tool definitions, allowlist, and execution mapping.
+   - Then: "Read the tools.json, allowlist.json, and execution.json for the 'notes' skill."
+   - **Expect:** The agent uses `skills_read` with `file: "tools_json"`, `file: "allowlist_json"`, and `file: "execution_json"` and returns the tool definitions, security grants, and execution mapping from the three separate files.
 
 5. **Validate a skill**
    - Send: "Validate the 'notes' skill."
@@ -60,9 +60,9 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
    - **Expect:** The agent uses `skills_init` and reports success.
    - Verify: `chai skill list` should now show `test-skill`.
 
-8. **Write the skill's tools.json**
-   - Send: "Write a tools.json for 'test-skill' that defines a single tool called 'test-skill_echo' with a 'message' parameter. It should use the 'echo' binary with no subcommand and a positional argument for the message parameter. The allowlist should allow echo with an empty subcommand. The execution section should map the tool to echo."
-   - **Expect:** The agent uses `skills_write_tools_json` and reports success.
+8. **Write the skill's tool descriptor files**
+   - Send: "Write the tool descriptor files for 'test-skill': tools.json with a single tool called 'test-skill_echo' with a 'message' parameter, allowlist.json allowing the 'echo' binary with an empty subcommand, and execution.json mapping the tool to echo with a positional argument for the message parameter."
+   - **Expect:** The agent uses `skills_write_tools_json`, `skills_write_allowlist_json`, and `skills_write_execution_json` and reports success for each.
    - Then: "Validate the 'test-skill' skill."
    - **Expect:** The agent uses `skills_validate` and reports "PASS" or lists any issues to fix.
 
@@ -98,7 +98,7 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 - **"loaded 0 skill(s)"** — The `skills` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the skills_list tool to show all installed skills."
 - **`skills_init` fails with "already exists"** — A skill with that name already exists. Choose a different name or delete the existing one first.
-- **`skills_validate` reports errors** — The tools.json may have structural issues. The agent (or you) can use `skills_read` with `file: "tools_json"` to inspect the content and identify the problem. Fix the JSON and write again.
+- **`skills_validate` reports errors** — The tool descriptor files may have structural issues or cross-file inconsistencies. The agent (or you) can use `skills_read` with `file: "tools_json"`, `file: "allowlist_json"`, or `file: "execution_json"` to inspect the content and identify the problem. Fix the JSON and write again.
 - **`skills_write_tools_json` reports JSON parse error** — The content is not valid JSON. This can happen when the model's output is malformed. Re-send the request with the correct JSON structure.
 - **Custom skill not loaded after restart** — The skill was created but not added to `enabledSkills` in `config.json`. Add it to the array and restart the gateway.
 - **`skills_delete` fails** — The skill name may be wrong. Use `skills_list` first to confirm the exact directory name.
@@ -111,11 +111,11 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 | 1 | Confirm `skills` in `enabledSkills` | Config includes the skill |
 | 2 | `chai gateway` | At least 1 skill loaded |
 | 3 | "List installed skills" | Agent returns skill inventory |
-| 4 | "Read notes SKILL.md and tools.json" | Agent returns skill definitions |
+| 4 | "Read notes SKILL.md and tool descriptor files" | Agent returns skill definitions |
 | 5 | "Validate the notes skill" | Agent reports PASS or lists issues |
 | 6 | "Discover the git binary" | Agent returns git subcommands |
 | 7 | "Init test-skill" | Skill directory created |
-| 8 | "Write tools.json for test-skill" | Tool definitions written and validated |
+| 8 | "Write tool descriptor files for test-skill" | Tool descriptor files written and validated |
 | 9 | "Write SKILL.md for test-skill" | Skill instructions written |
 | 10 | Restart gateway | Custom skill loads (if in enabledSkills) |
 | 11 | "Delete test-skill" | Skill removed |

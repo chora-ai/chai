@@ -1,0 +1,190 @@
+[
+  {
+    "tool": "git_status",
+    "binary": "git",
+    "subcommand": "status",
+    "args": [
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [128],
+    "hintConditions": [
+      {
+        "match": "not a git repository",
+        "hint": "not a git repository — specify a valid repo path"
+      }
+    ]
+  },
+  {
+    "tool": "git_log",
+    "binary": "git",
+    "subcommand": "log",
+    "args": [
+      {
+        "param": "count",
+        "kind": "flag",
+        "flag": "n",
+        "optional": true,
+        "absentDefault": "10"
+      },
+      { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
+      {
+        "param": "oneline",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--oneline"
+      },
+      {
+        "param": "path",
+        "kind": "positional",
+        "optional": true,
+        "disambiguateAfterSkippedPositionals": true
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 200,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To paginate, use skip with the same count; use oneline: true for compact output."
+  },
+  {
+    "tool": "git_diff",
+    "binary": "git",
+    "subcommand": "diff",
+    "args": [
+      {
+        "param": "staged",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--cached"
+      },
+      { "param": "ref", "kind": "positional", "optional": true },
+      {
+        "param": "path",
+        "kind": "positional",
+        "optional": true,
+        "disambiguateAfterSkippedPositionals": true
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 200,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
+    "hintConditions": [
+      {
+        "whenArg": { "ref": "main" },
+        "hint": "showing changes since diverging from main"
+      }
+    ]
+  },
+  {
+    "tool": "git_diff_lines",
+    "binary": "chai",
+    "subcommand": "git diff-lines",
+    "args": [
+      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "end_line",
+        "kind": "flag",
+        "flag": "end-line",
+        "optional": true
+      },
+      {
+        "param": "staged",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--staged"
+      },
+      { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
+      { "param": "path", "kind": "flag", "flag": "path", "optional": true },
+      {
+        "param": "repo",
+        "kind": "flag",
+        "flag": "repo",
+        "optional": true,
+        "readPath": true
+      }
+    ]
+  },
+  {
+    "tool": "git_show",
+    "binary": "git",
+    "subcommand": "show",
+    "args": [
+      { "param": "ref", "kind": "positional" },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 200,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_show_lines with start_line: {next_start}; omit end_line to read the rest."
+  },
+  {
+    "tool": "git_show_lines",
+    "binary": "chai",
+    "subcommand": "git show-lines",
+    "args": [
+      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "end_line",
+        "kind": "flag",
+        "flag": "end-line",
+        "optional": true
+      },
+      { "param": "ref", "kind": "flag", "flag": "ref" },
+      {
+        "param": "repo",
+        "kind": "flag",
+        "flag": "repo",
+        "optional": true,
+        "readPath": true
+      }
+    ]
+  },
+  {
+    "tool": "git_branch",
+    "binary": "git",
+    "subcommand": "branch",
+    "args": [
+      { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 200
+  }
+]

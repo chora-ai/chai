@@ -1,122 +1,56 @@
-{
-  "tools": [
-    {
-      "name": "notes_frontmatter_read",
-      "description": "Read the YAML frontmatter of a note. Returns key-value pairs without the --- delimiters.",
-      "parameters": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_frontmatter_edit",
-      "description": "Set a YAML frontmatter key to a value. Adds the key if missing, updates if present. Creates a frontmatter block if the file has none.",
-      "parameters": {
-        "type": "object",
-        "required": ["path", "key", "value"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          },
-          "key": {
-            "type": "string",
-            "description": "Frontmatter key to set (e.g. 'type', 'status', 'tags')"
-          },
-          "value": {
-            "type": "string",
-            "description": "Value to set the key to (e.g. 'draft', '[research, ai]')"
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_frontmatter_delete",
-      "description": "Remove a YAML frontmatter key from a note. No-op if the key does not exist.",
-      "parameters": {
-        "type": "object",
-        "required": ["path", "key"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          },
-          "key": {
-            "type": "string",
-            "description": "Frontmatter key to remove (e.g. 'status', 'draft')"
-          }
+[
+  {
+    "name": "notes_frontmatter_read",
+    "description": "Read the YAML frontmatter of a note. Returns key-value pairs without the --- delimiters.",
+    "parameters": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
         }
       }
     }
-  ],
-  "allowlist": {
-    "chai": [
-      "file frontmatter-read",
-      "file frontmatter-edit",
-      "file frontmatter-delete"
-    ]
   },
-  "execution": [
-    {
-      "tool": "notes_frontmatter_read",
-      "binary": "chai",
-      "subcommand": "file frontmatter-read",
-      "args": [
-        {
-          "param": "path",
-          "kind": "flag",
-          "flag": "path",
-          "readPath": true
-        }
-      ],
-      "successExitCodes": [1]
-    },
-    {
-      "tool": "notes_frontmatter_edit",
-      "binary": "chai",
-      "subcommand": "file frontmatter-edit",
-      "args": [
-        {
-          "param": "path",
-          "kind": "flag",
-          "flag": "path",
-          "writePath": true
+  {
+    "name": "notes_frontmatter_edit",
+    "description": "Set a YAML frontmatter key to a value. Adds the key if missing, updates if present. Creates a frontmatter block if the file has none.",
+    "parameters": {
+      "type": "object",
+      "required": ["path", "key", "value"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
         },
-        {
-          "param": "key",
-          "kind": "flag",
-          "flag": "key"
+        "key": {
+          "type": "string",
+          "description": "Frontmatter key to set (e.g. 'type', 'status', 'tags')"
         },
-        {
-          "param": "value",
-          "kind": "tempfile",
-          "flag": "value-file"
+        "value": {
+          "type": "string",
+          "description": "Value to set the key to (e.g. 'draft', '[research, ai]')"
         }
-      ]
-    },
-    {
-      "tool": "notes_frontmatter_delete",
-      "binary": "chai",
-      "subcommand": "file frontmatter-delete",
-      "args": [
-        {
-          "param": "path",
-          "kind": "flag",
-          "flag": "path",
-          "writePath": true
-        },
-        {
-          "param": "key",
-          "kind": "flag",
-          "flag": "key"
-        }
-      ]
+      }
     }
-  ]
-}
+  },
+  {
+    "name": "notes_frontmatter_delete",
+    "description": "Remove a YAML frontmatter key from a note. No-op if the key does not exist.",
+    "parameters": {
+      "type": "object",
+      "required": ["path", "key"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
+        },
+        "key": {
+          "type": "string",
+          "description": "Frontmatter key to remove (e.g. 'status', 'draft')"
+        }
+      }
+    }
+  }
+]

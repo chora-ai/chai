@@ -1,88 +1,38 @@
-{
-  "tools": [
-    {
-      "name": "logs_recent",
-      "description": "Return the most recent N lines of chai gateway log output.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "lines": {
-            "type": "integer",
-            "description": "Number of recent lines to return (default: 50, max: 200)"
-          },
-          "level": {
-            "type": "string",
-            "description": "Filter by log level: info, warn, error, or debug. Defaults to warn if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "logs_search",
-      "description": "Search gateway log output for a pattern. Returns matching lines with context.",
-      "parameters": {
-        "type": "object",
-        "required": ["pattern"],
-        "properties": {
-          "pattern": {
-            "type": "string",
-            "description": "Pattern to search for (substring match)"
-          },
-          "context": {
-            "type": "integer",
-            "description": "Number of context lines around each match (default: 2)"
-          }
+[
+  {
+    "name": "logs_recent",
+    "description": "Return the most recent N lines of chai gateway log output.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "lines": {
+          "type": "integer",
+          "description": "Number of recent lines to return (default: 50, max: 200)"
+        },
+        "level": {
+          "type": "string",
+          "description": "Filter by log level: info, warn, error, or debug. Defaults to warn if omitted."
         }
       }
     }
-  ],
-  "allowlist": {
-    "chai": ["logs recent", "logs search"]
   },
-  "execution": [
-    {
-      "tool": "logs_recent",
-      "binary": "chai",
-      "subcommand": "logs recent",
-      "args": [
-        {
-          "param": "lines",
-          "kind": "flag",
-          "flag": "lines",
-          "optional": true
+  {
+    "name": "logs_search",
+    "description": "Search gateway log output for a pattern. Returns matching lines with context.",
+    "parameters": {
+      "type": "object",
+      "required": ["pattern"],
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Pattern to search for (substring match)"
         },
-        {
-          "param": "level",
-          "kind": "flag",
-          "flag": "level",
-          "optional": true,
-          "absentDefault": "warn"
+        "context": {
+          "type": "integer",
+          "description": "Number of context lines around each match (default: 2)"
         }
-      ],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "logs_search",
-      "binary": "chai",
-      "subcommand": "logs search",
-      "args": [
-        {
-          "param": "pattern",
-          "kind": "flag",
-          "flag": "pattern"
-        },
-        {
-          "param": "context",
-          "kind": "flag",
-          "flag": "context",
-          "optional": true
-        }
-      ],
-      "maxOutputLines": 200,
-      "postProcess": {
-        "script": "hint-many-matches"
       }
     }
-  ]
-}
+  }
+]

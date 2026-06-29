@@ -98,7 +98,9 @@ Manage skill packages — inspection, creation, updates, validation, and version
 chai skill list                                           # Show installed skills and status
 chai skill read <name> --file skill_md                     # Read SKILL.md
 chai skill read <name> --file tools_json                   # Read tools.json
-chai skill validate <name>                                 # Validate tools.json
+chai skill read <name> --file allowlist_json               # Read allowlist.json
+chai skill read <name> --file execution_json               # Read execution.json
+chai skill validate <name>                                 # Validate tool descriptor files
 chai skill init <name> --description "..."                 # Create a new skill
 chai skill delete <name>                                   # Remove a skill package
 ```
@@ -115,6 +117,14 @@ echo "..." | chai skill write-skill-md <name>
 # Write tools.json (validated before writing)
 chai skill write-tools-json <name> --content '...'
 echo '...' | chai skill write-tools-json <name>
+
+# Write allowlist.json (validated before writing)
+chai skill write-allowlist-json <name> --content '...'
+echo '...' | chai skill write-allowlist-json <name>
+
+# Write execution.json (validated before writing)
+chai skill write-execution-json <name> --content '...'
+echo '...' | chai skill write-execution-json <name>
 
 # Write a script
 chai skill write-script <name> <base> --content '...'
@@ -142,7 +152,7 @@ chai skill discover <binary>                    # Show a CLI's help output
 chai skill discover <binary> --subcommand <sub> # Show subcommand help
 ```
 
-Discovers a CLI binary's interface by running its `--help`. Useful when building `tools.json` for a new binary.
+Discovers a CLI binary's interface by running its `--help`. Useful when building tool descriptor files for a new binary.
 
 For more on skills, see [Skills](06-skills.md).
 

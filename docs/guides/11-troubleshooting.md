@@ -167,12 +167,12 @@ This logs warnings instead of refusing to start. See [Skills → Skill Lock Mode
 
 ### Tool Validation Fails
 
-Run `chai skill validate <name>` to check `tools.json` for schema errors. Common issues:
+Run `chai skill validate <name>` to check tool descriptor files for schema errors. Common issues:
 
-- Missing required keys: `tools`, `allowlist`, or `execution`
-- Tool name in `execution` that doesn't match any entry in `tools`
-- Binary in `execution` that isn't listed in `allowlist`
-- Subcommand in `execution` that isn't in the binary's allowlist
+- Missing required file: `allowlist.json` or `execution.json` (when `tools.json` is present)
+- Tool name in `execution.json` that doesn't match any entry in `tools.json`
+- Binary in `execution.json` that isn't listed in `allowlist.json`
+- Subcommand in `execution.json` that isn't in the binary's allowlist in `allowlist.json`
 
 ## Profiles
 

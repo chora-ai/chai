@@ -1,0 +1,7 @@
+{
+  "chai": [
+    "file frontmatter-read",
+    "file frontmatter-edit",
+    "file frontmatter-delete"
+  ]
+}

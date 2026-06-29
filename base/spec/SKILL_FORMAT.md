@@ -10,7 +10,7 @@ Skills are markdown-based instructions (one per directory) that can be loaded an
 
 - Each skill lives in its own directory under **`~/.chai/skills`**. The loader discovers packages as immediate subdirectories containing **`SKILL.md`**. There is no config override for the skill root.
 - **Content**: `SKILL.md` is Markdown with optional YAML frontmatter between `---` delimiters.
-- **Optional tools**: A skill directory may also contain **`tools.json`** (see [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md)). Only skills with a valid `tools.json` expose callable tools to the agent; skills without it are still loaded for context (their SKILL.md appears in the system message when context mode is `full`, or in the compact list when `readOnDemand`).
+- **Optional tools**: A skill directory may also contain a tool descriptor consisting of **`tools.json`**, **`allowlist.json`**, and **`execution.json`** (see [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md)). Only skills with valid tool descriptor files expose callable tools to the agent; skills without them are still loaded for context (their SKILL.md appears in the system message when context mode is `full`, or in the compact list when `readOnDemand`).
 - **Optional scripts**: A skill directory may contain a **`scripts/`** subdirectory. Tools can reference these scripts in `resolveCommand.script` (e.g. for param resolution); the executor runs them via `sh` with no allowlist entry (only files under the skill's `scripts/` dir are executed). See [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md).
 
 ## Frontmatter
@@ -83,5 +83,5 @@ This project uses a **project-neutral** metadata shape so skills can be shared a
 | [SKILL_PACKAGES.md](SKILL_PACKAGES.md) | Versioned layout, content hashing, rollback, startup validation, and CLI commands |
 | [PROFILES.md](PROFILES.md) | Per-profile lockfile (`skills.lock`), generation tracking, and lock verification |
 | [CONFIGURATION.md](CONFIGURATION.md) | `skills.lockMode` config field |
-| [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` schema: tools array, allowlist, execution mapping |
+| [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | Tool descriptor schema: `tools.json`, `allowlist.json`, `execution.json` |
 | [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`enabledSkills`, `contextMode`) |

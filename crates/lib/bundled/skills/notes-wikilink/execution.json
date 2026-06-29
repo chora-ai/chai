@@ -1,0 +1,112 @@
+[
+  {
+    "tool": "notes_wikilink_find_backlinks",
+    "binary": "grep",
+    "subcommand": "-rn --include=*.md",
+    "args": [
+      {
+        "param": "note_name",
+        "kind": "positional",
+        "resolveCommand": {
+          "script": "build-backlink-pattern",
+          "args": ["$param"]
+        }
+      },
+      {
+        "param": "scope",
+        "kind": "positional",
+        "readPath": true,
+        "optional": true
+      }
+    ],
+    "successExitCodes": [0, 1],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_wikilink_find_outlinks",
+    "binary": "grep",
+    "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
+    "args": [
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
+    ],
+    "postProcess": {
+      "script": "sanitize-outlinks",
+      "args": ["$scope"]
+    },
+    "successExitCodes": [0, 1],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_wikilink_find_by_tag",
+    "binary": "grep",
+    "subcommand": "-rn --include=*.md",
+    "args": [
+      {
+        "param": "tag",
+        "kind": "positional",
+        "resolveCommand": {
+          "script": "normalize-tag",
+          "args": ["$param"]
+        }
+      },
+      {
+        "param": "scope",
+        "kind": "positional",
+        "readPath": true,
+        "optional": true
+      }
+    ],
+    "successExitCodes": [0, 1],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_wikilink_find_broken",
+    "binary": "grep",
+    "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
+    "args": [
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
+    ],
+    "postProcess": {
+      "script": "check-broken-links",
+      "args": ["$scope"],
+      "emptyIsResult": true
+    },
+    "successExitCodes": [0, 1],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_wikilink_rename",
+    "binary": "chai",
+    "subcommand": "file rename",
+    "args": [
+      {
+        "param": "from",
+        "kind": "flag",
+        "flag": "from",
+        "writePath": true
+      },
+      {
+        "param": "to",
+        "kind": "flag",
+        "flag": "to",
+        "writePath": true
+      },
+      {
+        "param": "scope",
+        "kind": "flag",
+        "flag": "scope",
+        "readPath": true,
+        "optional": true
+      }
+    ],
+    "maxOutputLines": 200
+  }
+]

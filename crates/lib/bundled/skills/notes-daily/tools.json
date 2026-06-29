@@ -1,142 +1,64 @@
-{
-  "tools": [
-    {
-      "name": "notes_daily_read",
-      "description": "Read a daily note by date. Defaults to today if no date is provided.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "date": {
-            "type": "string",
-            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_daily_write",
-      "description": "Create or overwrite a daily note by date. Defaults to today if no date is provided.",
-      "parameters": {
-        "type": "object",
-        "required": ["content"],
-        "properties": {
-          "date": {
-            "type": "string",
-            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          },
-          "content": {
-            "type": "string",
-            "description": "Full note content in markdown format including YAML frontmatter"
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_daily_append",
-      "description": "Append content to a daily note by date. Creates the file if it does not exist. Defaults to today if no date is provided.",
-      "parameters": {
-        "type": "object",
-        "required": ["content"],
-        "properties": {
-          "date": {
-            "type": "string",
-            "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          },
-          "content": {
-            "type": "string",
-            "description": "Content to append to the daily note"
-          }
+[
+  {
+    "name": "notes_daily_read",
+    "description": "Read a daily note by date. Defaults to today if no date is provided.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
         }
       }
     }
-  ],
-  "allowlist": {
-    "cat": [""],
-    "chai": ["file write", "file append"]
   },
-  "execution": [
-    {
-      "tool": "notes_daily_read",
-      "binary": "cat",
-      "subcommand": "",
-      "args": [
-        {
-          "param": "date",
-          "kind": "positional",
-          "readPath": true,
-          "optional": true,
-          "resolveCommand": {
-            "script": "resolve-daily-path",
-            "args": ["$param", "$scope"]
-          }
-        }
-      ],
-      "successExitCodes": [1],
-      "hintConditions": [{ "exitCode": "nonzero", "hint": "no daily note found for this date — use notes_daily_write to create one" }],
-      "maxOutputLines": 500
-    },
-    {
-      "tool": "notes_daily_write",
-      "binary": "chai",
-      "subcommand": "file write",
-      "args": [
-        {
-          "param": "date",
-          "kind": "flag",
-          "flag": "path",
-          "optional": true,
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-daily-path",
-            "args": ["$param", "$scope"]
-          }
+  {
+    "name": "notes_daily_write",
+    "description": "Create or overwrite a daily note by date. Defaults to today if no date is provided.",
+    "parameters": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
         },
-        {
-          "param": "content",
-          "kind": "stdin"
-        }
-      ],
-      "hintConditions": [
-        { "match": "overwriting existing", "hint": "daily note already exists — consider notes_daily_append to add content instead" }
-      ]
-    },
-    {
-      "tool": "notes_daily_append",
-      "binary": "chai",
-      "subcommand": "file append",
-      "args": [
-        {
-          "param": "date",
-          "kind": "flag",
-          "flag": "path",
-          "optional": true,
-          "writePath": true,
-          "resolveCommand": {
-            "script": "resolve-daily-path",
-            "args": ["$param", "$scope"]
-          }
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
         },
-        {
-          "param": "content",
-          "kind": "stdin"
+        "content": {
+          "type": "string",
+          "description": "Full note content in markdown format including YAML frontmatter"
         }
-      ],
-      "hintConditions": [
-        { "match": "(created new file)", "hint": "no daily note existed for this date — appended content to a new file; use notes_daily_write to set the full content instead" }
-      ]
+      }
     }
-  ]
-}
+  },
+  {
+    "name": "notes_daily_append",
+    "description": "Append content to a daily note by date. Creates the file if it does not exist. Defaults to today if no date is provided.",
+    "parameters": {
+      "type": "object",
+      "required": ["content"],
+      "properties": {
+        "date": {
+          "type": "string",
+          "description": "Date in YYYY-MM-DD format (e.g. '2026-04-06'). Omit for today's note."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
+        },
+        "content": {
+          "type": "string",
+          "description": "Content to append to the daily note"
+        }
+      }
+    }
+  }
+]

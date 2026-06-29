@@ -1,78 +1,43 @@
-{
-  "tools": [
-    {
-      "name": "skills_list",
-      "description": "List all installed skills showing SKILL.md and tools.json population status and tool count.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {}
-      }
-    },
-    {
-      "name": "skills_read",
-      "description": "Read a skill's SKILL.md or tools.json file content.",
-      "parameters": {
-        "type": "object",
-        "required": ["skill_name", "file"],
-        "properties": {
-          "skill_name": {
-            "type": "string",
-            "description": "Skill directory name (e.g. 'files', 'git', 'notes')"
-          },
-          "file": {
-            "type": "string",
-            "description": "File to read: 'skill_md' for SKILL.md, 'tools_json' for tools.json"
-          }
-        }
-      }
-    },
-    {
-      "name": "skills_validate",
-      "description": "Validate a skill's tools.json for schema conformance. Reports errors (must fix) and warnings (should review).",
-      "parameters": {
-        "type": "object",
-        "required": ["skill_name"],
-        "properties": {
-          "skill_name": {
-            "type": "string",
-            "description": "Skill directory name to validate"
-          }
-        }
-      }
+[
+  {
+    "name": "skills_list",
+    "description": "List all installed skills showing SKILL.md, tools.json, allowlist.json, and execution.json population status and tool count.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {}
     }
-  ],
-  "allowlist": {
-    "chai": ["skill list", "skill read", "skill validate"]
   },
-  "execution": [
-    {
-      "tool": "skills_list",
-      "binary": "chai",
-      "subcommand": "skill list",
-      "args": []
-    },
-    {
-      "tool": "skills_read",
-      "binary": "chai",
-      "subcommand": "skill read",
-      "args": [
-        { "param": "skill_name", "kind": "positional" },
-        { "param": "file", "kind": "flag", "flag": "file" }
-      ],
-      "maxOutputLines": 500,
-      "postProcess": {
-        "script": "hint-path-annotations",
-        "args": ["$file"]
+  {
+    "name": "skills_read",
+    "description": "Read a skill's SKILL.md, tools.json, allowlist.json, or execution.json file content.",
+    "parameters": {
+      "type": "object",
+      "required": ["skill_name", "file"],
+      "properties": {
+        "skill_name": {
+          "type": "string",
+          "description": "Skill directory name (e.g. 'files', 'git', 'notes')"
+        },
+        "file": {
+          "type": "string",
+          "description": "File to read: 'skill_md' for SKILL.md, 'tools_json' for tools.json, 'allowlist_json' for allowlist.json, 'execution_json' for execution.json"
+        }
       }
-    },
-    {
-      "tool": "skills_validate",
-      "binary": "chai",
-      "subcommand": "skill validate",
-      "args": [{ "param": "skill_name", "kind": "positional" }],
-      "successExitCodes": [1],
-      "hintConditions": [{ "match": "ERROR:", "hint": "use skills_read with file: 'tools_json' to examine the content" }]
     }
-  ]
-}
+  },
+  {
+    "name": "skills_validate",
+    "description": "Validate a skill's tool descriptor files for schema conformance and cross-file consistency. Reports errors (must fix) and warnings (should review).",
+    "parameters": {
+      "type": "object",
+      "required": ["skill_name"],
+      "properties": {
+        "skill_name": {
+          "type": "string",
+          "description": "Skill directory name to validate"
+        }
+      }
+    }
+  }
+]

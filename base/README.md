@@ -43,6 +43,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[SIGNAL_ADAPTER.md](adr/SIGNAL_ADAPTER.md)** — Why Signal lives in a separate adapter package with an optional Cargo feature (experimental).
 - **[DIAGNOSTIC_HINTS.md](adr/DIAGNOSTIC_HINTS.md)** — Why chai skill tools use diagnostic hints in tool output instead of directives in SKILL.md.
 - **[TOOL_PARAMETER_NAMING.md](adr/TOOL_PARAMETER_NAMING.md)** — Why bundled skills follow consistent tool and parameter naming conventions (`{skill}_{verb}`, `path`/`repo`/`scope` semantics, qualified identifiers, flag alignment).
+- **[SKILL_DESCRIPTOR_SPLIT.md](adr/SKILL_DESCRIPTOR_SPLIT.md)** — Why the monolithic `tools.json` is split into three files: `tools.json` (tool definitions), `allowlist.json` (security grants), and `execution.json` (implementation mapping).
 
 ### `/epic`
 

@@ -1,0 +1,20 @@
+{
+  "git": [
+    "status",
+    "log",
+    "diff",
+    "show",
+    "branch",
+    "add",
+    "commit -F -",
+    "checkout -b",
+    "checkout",
+    "branch -d",
+    "branch -D",
+    "merge",
+    "rebase",
+    "cherry-pick",
+    "reset"
+  ],
+  "chai": ["git diff-lines", "git show-lines", "resolve repo-path"]
+}

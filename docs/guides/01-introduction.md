@@ -33,7 +33,7 @@ An **agent** is a named configuration entry that ties a provider and model to a 
 
 ### Skills
 
-**Skills** are declarative packages that give an agent instructions and tools. Each skill is a directory containing a `SKILL.md` (instructions the model sees), an optional `tools.json` (typed tool schemas the model can call), and optional scripts. Skills are opt-in per agent via the `enabledSkills` config field — nothing runs unless you declare it.
+**Skills** are declarative packages that give an agent instructions and tools. Each skill is a directory containing a `SKILL.md` (instructions the model sees), optional tool descriptor files (`tools.json`, `allowlist.json`, `execution.json` — typed tool schemas the model can call and their implementation mapping), and optional scripts. Skills are opt-in per agent via the `enabledSkills` config field — nothing runs unless you declare it.
 
 ### Channels
 

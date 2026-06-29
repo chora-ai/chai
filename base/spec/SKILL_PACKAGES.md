@@ -17,21 +17,25 @@ skills/<name>/
     a1b2c3d/
       SKILL.md
       tools.json
+      allowlist.json
+      execution.json
       scripts/
     f8e9d0b/
       SKILL.md
       tools.json
+      allowlist.json
+      execution.json
       scripts/
 ```
 
-- **`versions/<hash>/`** — Immutable snapshot directories identified by a truncated SHA-256 content hash. Each snapshot contains the complete skill content (`SKILL.md`, `tools.json`, `scripts/`).
+- **`versions/<hash>/`** — Immutable snapshot directories identified by a truncated SHA-256 content hash. Each snapshot contains the complete skill content (`SKILL.md`, `tools.json`, `allowlist.json`, `execution.json`, `scripts/`).
 - **`active`** — Symlink selecting the current version. The loader resolves `active` before reading skill files; if the symlink is missing or broken, the skill is skipped.
 
 ### Content Hash Computation
 
 The hash is a truncated SHA-256 of the canonical skill content:
 
-- **Canonical form**: sorted relative file paths, each entry as `<relative-path>\0<file-contents>`, concatenated and hashed.
+- **Canonical form**: sorted relative file paths, each entry as `<relative-path>\0<file-contents>`, concatenated and hashed. After the tool descriptor split, this includes `tools.json`, `allowlist.json`, and `execution.json` individually — changing any one file produces a new hash.
 - **Line endings and trailing newlines** are hashed as-is (no normalization) — the hash reflects the exact bytes.
 - **Script permissions** are not included in the hash (they are a deployment concern, not a content concern).
 - The `versions/` directory and `active` symlink at the skill root are excluded from hash computation.
@@ -78,6 +82,6 @@ For lockfile schema and generation tracking, see [PROFILES.md](PROFILES.md).
 | [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, frontmatter fields, and `tools.json` |
 | [PROFILES.md](PROFILES.md) | Per-profile lockfile (`skills.lock`), generation tracking, and lock verification |
 | [CONFIGURATION.md](CONFIGURATION.md) | `skills.lockMode` config field |
-| [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | `tools.json` schema: tools array, allowlist, execution mapping |
+| [TOOLS_SCHEMA.md](TOOLS_SCHEMA.md) | Tool descriptor schema: `tools.json`, `allowlist.json`, `execution.json` |
 | [AGENTS.md](AGENTS.md) | Per-agent skill configuration (`enabledSkills`, `contextMode`) |
 | [CONTEXT.md](CONTEXT.md) | Context on every turn: system message, session history, tool schemas |

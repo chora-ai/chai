@@ -1,364 +1,168 @@
-{
-  "tools": [
-    {
-      "name": "git_status",
-      "description": "Show working tree status: current branch, staged changes, unstaged changes, and untracked files.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_log",
-      "description": "Show recent commit history.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "count": {
-            "type": "integer",
-            "description": "Number of commits to show (e.g. 10). Defaults to 10 if omitted."
-          },
-          "skip": {
-            "type": "integer",
-            "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits). Use with count to paginate through history."
-          },
-          "oneline": {
-            "type": "boolean",
-            "description": "Use compact one-line format per commit"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          },
-          "path": {
-            "type": "string",
-            "description": "Limit log to commits affecting this file or directory path, relative to the repository root"
-          }
-        }
-      }
-    },
-    {
-      "name": "git_diff",
-      "description": "Show differences between working tree, index, or commits.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "staged": {
-            "type": "boolean",
-            "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
-          },
-          "ref": {
-            "type": "string",
-            "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          },
-          "path": {
-            "type": "string",
-            "description": "Limit diff to a specific file or directory path, relative to the repository root"
-          }
-        }
-      }
-    },
-    {
-      "name": "git_diff_lines",
-      "description": "Read a range of lines from a git diff output.",
-      "parameters": {
-        "type": "object",
-        "required": ["start_line"],
-        "properties": {
-          "start_line": {
-            "type": "integer",
-            "description": "Line number to start reading at (1-indexed, inclusive)"
-          },
-          "end_line": {
-            "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
-          },
-          "staged": {
-            "type": "boolean",
-            "description": "Show staged changes (--cached)"
-          },
-          "ref": {
-            "type": "string",
-            "description": "Compare against a specific commit, branch, or ref"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          },
-          "path": {
-            "type": "string",
-            "description": "Limit diff to a specific file or directory path, relative to the repository root"
-          }
-        }
-      }
-    },
-    {
-      "name": "git_show",
-      "description": "Show the contents of a specific commit (message, author, diff).",
-      "parameters": {
-        "type": "object",
-        "required": ["ref"],
-        "properties": {
-          "ref": {
-            "type": "string",
-            "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_show_lines",
-      "description": "Read a range of lines from a git show output.",
-      "parameters": {
-        "type": "object",
-        "required": ["start_line", "ref"],
-        "properties": {
-          "start_line": {
-            "type": "integer",
-            "description": "Line number to start reading at (1-indexed, inclusive)"
-          },
-          "end_line": {
-            "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
-          },
-          "ref": {
-            "type": "string",
-            "description": "Commit hash, branch name, tag, or ref to show"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          }
-        }
-      }
-    },
-    {
-      "name": "git_branch",
-      "description": "List branches. Shows all local branches with the current branch marked.",
-      "parameters": {
-        "type": "object",
-        "required": [],
-        "properties": {
-          "all": {
-            "type": "boolean",
-            "description": "Include remote-tracking branches"
-          },
-          "repo": {
-            "type": "string",
-            "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-          }
+[
+  {
+    "name": "git_status",
+    "description": "Show working tree status: current branch, staged changes, unstaged changes, and untracked files.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
         }
       }
     }
-  ],
-  "allowlist": {
-    "git": ["status", "log", "diff", "show", "branch"],
-    "chai": ["git diff-lines", "git show-lines", "resolve repo-path"]
   },
-  "execution": [
-    {
-      "tool": "git_status",
-      "binary": "git",
-      "subcommand": "status",
-      "args": [
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "binary": "chai",
-            "subcommand": "resolve repo-path",
-            "args": ["--path", "$param"]
-          }
-        }
-      ],
-      "successExitCodes": [128],
-      "hintConditions": [
-        {
-          "match": "not a git repository",
-          "hint": "not a git repository — specify a valid repo path"
-        }
-      ]
-    },
-    {
-      "tool": "git_log",
-      "binary": "git",
-      "subcommand": "log",
-      "args": [
-        {
-          "param": "count",
-          "kind": "flag",
-          "flag": "n",
-          "optional": true,
-          "absentDefault": "10"
+  {
+    "name": "git_log",
+    "description": "Show recent commit history.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "count": {
+          "type": "integer",
+          "description": "Number of commits to show (e.g. 10). Defaults to 10 if omitted."
         },
-        { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
-        {
-          "param": "oneline",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--oneline"
+        "skip": {
+          "type": "integer",
+          "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits). Use with count to paginate through history."
         },
-        {
-          "param": "path",
-          "kind": "positional",
-          "optional": true,
-          "disambiguateAfterSkippedPositionals": true
+        "oneline": {
+          "type": "boolean",
+          "description": "Use compact one-line format per commit"
         },
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "binary": "chai",
-            "subcommand": "resolve repo-path",
-            "args": ["--path", "$param"]
-          }
-        }
-      ],
-      "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To paginate, use skip with the same count; use oneline: true for compact output."
-    },
-    {
-      "tool": "git_diff",
-      "binary": "git",
-      "subcommand": "diff",
-      "args": [
-        {
-          "param": "staged",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--cached"
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
         },
-        { "param": "ref", "kind": "positional", "optional": true },
-        {
-          "param": "path",
-          "kind": "positional",
-          "optional": true,
-          "disambiguateAfterSkippedPositionals": true
-        },
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "binary": "chai",
-            "subcommand": "resolve repo-path",
-            "args": ["--path", "$param"]
-          }
+        "path": {
+          "type": "string",
+          "description": "Limit log to commits affecting this file or directory path, relative to the repository root"
         }
-      ],
-      "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_diff_lines with start_line: {next_start}; omit end_line to read the rest.",
-      "hintConditions": [
-        {
-          "whenArg": { "ref": "main" },
-          "hint": "showing changes since diverging from main"
-        }
-      ]
-    },
-    {
-      "tool": "git_diff_lines",
-      "binary": "chai",
-      "subcommand": "git diff-lines",
-      "args": [
-        { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        {
-          "param": "end_line",
-          "kind": "flag",
-          "flag": "end-line",
-          "optional": true
-        },
-        {
-          "param": "staged",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--staged"
-        },
-        { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
-        { "param": "path", "kind": "flag", "flag": "path", "optional": true },
-        {
-          "param": "repo",
-          "kind": "flag",
-          "flag": "repo",
-          "optional": true,
-          "readPath": true
-        }
-      ]
-    },
-    {
-      "tool": "git_show",
-      "binary": "git",
-      "subcommand": "show",
-      "args": [
-        { "param": "ref", "kind": "positional" },
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "binary": "chai",
-            "subcommand": "resolve repo-path",
-            "args": ["--path", "$param"]
-          }
-        }
-      ],
-      "maxOutputLines": 200,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use git_show_lines with start_line: {next_start}; omit end_line to read the rest."
-    },
-    {
-      "tool": "git_show_lines",
-      "binary": "chai",
-      "subcommand": "git show-lines",
-      "args": [
-        { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        {
-          "param": "end_line",
-          "kind": "flag",
-          "flag": "end-line",
-          "optional": true
-        },
-        { "param": "ref", "kind": "flag", "flag": "ref" },
-        {
-          "param": "repo",
-          "kind": "flag",
-          "flag": "repo",
-          "optional": true,
-          "readPath": true
-        }
-      ]
-    },
-    {
-      "tool": "git_branch",
-      "binary": "git",
-      "subcommand": "branch",
-      "args": [
-        { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
-        {
-          "param": "repo",
-          "kind": "workingdir",
-          "optional": true,
-          "resolveCommand": {
-            "binary": "chai",
-            "subcommand": "resolve repo-path",
-            "args": ["--path", "$param"]
-          }
-        }
-      ],
-      "maxOutputLines": 200
+      }
     }
-  ]
-}
+  },
+  {
+    "name": "git_diff",
+    "description": "Show differences between working tree, index, or commits.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "staged": {
+          "type": "boolean",
+          "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        },
+        "path": {
+          "type": "string",
+          "description": "Limit diff to a specific file or directory path, relative to the repository root"
+        }
+      }
+    }
+  },
+  {
+    "name": "git_diff_lines",
+    "description": "Read a range of lines from a git diff output.",
+    "parameters": {
+      "type": "object",
+      "required": ["start_line"],
+      "properties": {
+        "start_line": {
+          "type": "integer",
+          "description": "Line number to start reading at (1-indexed, inclusive)"
+        },
+        "end_line": {
+          "type": "integer",
+          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
+        },
+        "staged": {
+          "type": "boolean",
+          "description": "Show staged changes (--cached)"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Compare against a specific commit, branch, or ref"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        },
+        "path": {
+          "type": "string",
+          "description": "Limit diff to a specific file or directory path, relative to the repository root"
+        }
+      }
+    }
+  },
+  {
+    "name": "git_show",
+    "description": "Show the contents of a specific commit (message, author, diff).",
+    "parameters": {
+      "type": "object",
+      "required": ["ref"],
+      "properties": {
+        "ref": {
+          "type": "string",
+          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        }
+      }
+    }
+  },
+  {
+    "name": "git_show_lines",
+    "description": "Read a range of lines from a git show output.",
+    "parameters": {
+      "type": "object",
+      "required": ["start_line", "ref"],
+      "properties": {
+        "start_line": {
+          "type": "integer",
+          "description": "Line number to start reading at (1-indexed, inclusive)"
+        },
+        "end_line": {
+          "type": "integer",
+          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output."
+        },
+        "ref": {
+          "type": "string",
+          "description": "Commit hash, branch name, tag, or ref to show"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        }
+      }
+    }
+  },
+  {
+    "name": "git_branch",
+    "description": "List branches. Shows all local branches with the current branch marked.",
+    "parameters": {
+      "type": "object",
+      "required": [],
+      "properties": {
+        "all": {
+          "type": "boolean",
+          "description": "Include remote-tracking branches"
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        }
+      }
+    }
+  }
+]

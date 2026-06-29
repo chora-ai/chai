@@ -1,0 +1,4 @@
+{
+  "git": ["status", "log", "diff", "show", "branch"],
+  "chai": ["git diff-lines", "git show-lines", "resolve repo-path"]
+}

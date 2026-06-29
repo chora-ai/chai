@@ -1,0 +1,30 @@
+[
+  {
+    "tool": "skills_list",
+    "binary": "chai",
+    "subcommand": "skill list",
+    "args": []
+  },
+  {
+    "tool": "skills_read",
+    "binary": "chai",
+    "subcommand": "skill read",
+    "args": [
+      { "param": "skill_name", "kind": "positional" },
+      { "param": "file", "kind": "flag", "flag": "file" }
+    ],
+    "maxOutputLines": 500,
+    "postProcess": {
+      "script": "hint-path-annotations",
+      "args": ["$file"]
+    }
+  },
+  {
+    "tool": "skills_validate",
+    "binary": "chai",
+    "subcommand": "skill validate",
+    "args": [{ "param": "skill_name", "kind": "positional" }],
+    "successExitCodes": [1],
+    "hintConditions": [{ "match": "ERROR:", "hint": "use skills_read with file: 'tools_json', 'allowlist_json', or 'execution_json' to examine the content" }]
+  }
+]

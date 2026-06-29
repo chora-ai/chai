@@ -1,0 +1,124 @@
+[
+  {
+    "tool": "cargo_check",
+    "binary": "cargo",
+    "subcommand": "check",
+    "condition": { "binGroup": 0 },
+    "args": [
+      {
+        "param": "package",
+        "kind": "flag",
+        "flag": "p",
+        "optional": true
+      },
+      {
+        "param": "path",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve cargo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [101],
+    "postProcess": {
+      "script": "hint-check",
+      "args": ["$package"]
+    },
+    "maxOutputLines": 100
+  },
+  {
+    "tool": "cargo_check",
+    "binary": "cargo",
+    "binaryWrapper": ["nix", "develop", "--command"],
+    "subcommand": "check",
+    "condition": { "binGroup": 1 },
+    "args": [
+      {
+        "param": "package",
+        "kind": "flag",
+        "flag": "p",
+        "optional": true
+      },
+      {
+        "param": "path",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve cargo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [101],
+    "postProcess": {
+      "script": "hint-check",
+      "args": ["$package"]
+    },
+    "maxOutputLines": 100
+  },
+  {
+    "tool": "cargo_test",
+    "binary": "cargo",
+    "subcommand": "test",
+    "condition": { "binGroup": 0 },
+    "args": [
+      {
+        "param": "package",
+        "kind": "flag",
+        "flag": "p",
+        "optional": true
+      },
+      {
+        "param": "path",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve cargo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [101],
+    "postProcess": {
+      "script": "hint-test",
+      "args": ["$package"]
+    },
+    "maxOutputLines": 100
+  },
+  {
+    "tool": "cargo_test",
+    "binary": "cargo",
+    "binaryWrapper": ["nix", "develop", "--command"],
+    "subcommand": "test",
+    "condition": { "binGroup": 1 },
+    "args": [
+      {
+        "param": "package",
+        "kind": "flag",
+        "flag": "p",
+        "optional": true
+      },
+      {
+        "param": "path",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve cargo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [101],
+    "postProcess": {
+      "script": "hint-test",
+      "args": ["$package"]
+    },
+    "maxOutputLines": 100
+  }
+]

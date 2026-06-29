@@ -1,14 +1,23 @@
-//! Tool descriptor (tools.json) for declarative skill tools.
+//! Tool descriptor for declarative skill tools.
 //!
-//! When a skill directory contains `tools.json`, the loader parses it and attaches
-//! tool definitions, allowlist, and per-tool execution mapping to the skill. The gateway can
-//! use this to build the LLM tool list and drive a generic executor.
+//! A skill's tool surface is defined by up to three JSON files:
+//! - `tools.json` — tool definitions for the LLM (name, description, parameter schemas)
+//! - `allowlist.json` — binary→subcommand security grants
+//! - `execution.json` — per-tool execution mapping
+//!
+//! The legacy single-file format (`tools.json` with a root object containing `tools`,
+//! `allowlist`, and `execution` keys) is still supported during migration.
+//!
+//! The loader parses these files and constructs a `ToolDescriptor`, which the gateway
+//! uses to build the LLM tool list and drive a generic executor.
 
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt;
 
-/// Root structure of a skill's tools.json file.
+/// In-memory representation of a skill's tool surface, assembled from
+/// `tools.json`, `allowlist.json`, and `execution.json` (new three-file format)
+/// or the legacy single-file `tools.json` (root object with `tools`/`allowlist`/`execution` keys).
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ToolDescriptor {
@@ -669,6 +678,20 @@ impl ToolDescriptor {
         }
         a
     }
+
+    /// Construct a `ToolDescriptor` from the three separate sources used by the
+    /// new three-file format (`tools.json`, `allowlist.json`, `execution.json`).
+    pub fn from_parts(
+        tools: Vec<ToolSpec>,
+        allowlist: HashMap<String, Vec<String>>,
+        execution: Vec<ExecutionSpec>,
+    ) -> Self {
+        Self {
+            tools,
+            allowlist,
+            execution,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1000,6 +1023,31 @@ mod tests {
     fn values_match_cross_type_bool_to_string() {
         assert!(values_match(&serde_json::json!(true), &serde_json::json!("true")));
         assert!(!values_match(&serde_json::json!(true), &serde_json::json!("false")));
+    }
+
+    // --- ToolDescriptor::from_parts tests ---
+
+    #[test]
+    fn tool_descriptor_from_parts_constructs_descriptor() {
+        let tools = vec![ToolSpec {
+            name: "test_tool".to_string(),
+            description: Some("A test tool".to_string()),
+            parameters: serde_json::json!({"type": "object"}),
+        }];
+        let mut allowlist = HashMap::new();
+        allowlist.insert("echo".to_string(), vec!["".to_string()]);
+        let execution = vec![ExecutionSpec {
+            tool: "test_tool".to_string(),
+            binary: "echo".to_string(),
+            subcommand: "".to_string(),
+            ..Default::default()
+        }];
+        let desc = ToolDescriptor::from_parts(tools, allowlist, execution);
+        assert_eq!(desc.tools.len(), 1);
+        assert_eq!(desc.tools[0].name, "test_tool");
+        assert!(desc.allowlist.contains_key("echo"));
+        assert_eq!(desc.execution.len(), 1);
+        assert_eq!(desc.execution[0].tool, "test_tool");
     }
 
     // --- Deserialization tests ---

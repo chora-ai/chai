@@ -1,0 +1,4 @@
+{
+  "git": ["clone", "pull", "push", "remote -v"],
+  "chai": ["resolve repo-path", "resolve clone-path"]
+}

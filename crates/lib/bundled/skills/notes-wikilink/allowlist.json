@@ -1,0 +1,4 @@
+{
+  "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"],
+  "chai": ["file rename"]
+}

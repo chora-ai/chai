@@ -4,7 +4,7 @@ Each profile has a **write sandbox** that restricts where skill tools may write.
 
 ## What the Sandbox Does
 
-When a skill tool has a **`writePath`** parameter (marked in its `tools.json`), the executor validates the resolved path against writable roots **before** running the command. If the path is outside all writable roots, the tool call is rejected with an error — the command is never spawned.
+When a skill tool has a **`writePath`** parameter (marked in its `execution.json`), the executor validates the resolved path against writable roots **before** running the command. If the path is outside all writable roots, the tool call is rejected with an error — the command is never spawned.
 
 This prevents a model from using a write tool to modify files outside the authorized tree (e.g. turning `cat` into `cat > /etc/passwd`).
 
@@ -129,7 +129,6 @@ If you accidentally delete the `sandbox/` directory, running `chai init` will re
 ## CWD Restriction
 
 When a write-path tool runs, the executor sets the command's working directory to the sandbox root. This prevents binaries from writing to implicit CWD-relative locations outside the authorized tree.
-
 
 ## Try It
 

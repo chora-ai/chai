@@ -1,0 +1,15 @@
+{
+  "chai": [
+    "skill discover",
+    "skill list",
+    "skill read",
+    "skill validate",
+    "skill init",
+    "skill write-skill-md",
+    "skill write-tools-json",
+    "skill write-allowlist-json",
+    "skill write-execution-json",
+    "skill write-script",
+    "skill delete"
+  ]
+}

@@ -1,0 +1,45 @@
+[
+  {
+    "tool": "logs_recent",
+    "binary": "chai",
+    "subcommand": "logs recent",
+    "args": [
+      {
+        "param": "lines",
+        "kind": "flag",
+        "flag": "lines",
+        "optional": true
+      },
+      {
+        "param": "level",
+        "kind": "flag",
+        "flag": "level",
+        "optional": true,
+        "absentDefault": "warn"
+      }
+    ],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "logs_search",
+    "binary": "chai",
+    "subcommand": "logs search",
+    "args": [
+      {
+        "param": "pattern",
+        "kind": "flag",
+        "flag": "pattern"
+      },
+      {
+        "param": "context",
+        "kind": "flag",
+        "flag": "context",
+        "optional": true
+      }
+    ],
+    "maxOutputLines": 200,
+    "postProcess": {
+      "script": "hint-many-matches"
+    }
+  }
+]

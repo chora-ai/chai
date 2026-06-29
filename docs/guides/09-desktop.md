@@ -31,7 +31,7 @@ The sidebar provides navigation between screens:
 | Screen | Description |
 |--------|-------------|
 | **Chat** | Send messages to the orchestrator agent, view replies, see tool calls and delegation events. |
-| **Skills** | Browse installed skill packages, view SKILL.md and tools.json, toggle skills per agent. |
+| **Skills** | Browse installed skill packages, view SKILL.md and tool descriptor files (tools.json, allowlist.json, execution.json), toggle skills per agent. |
 | **Agent** | Inspect the system message for each agent (built at startup from `AGENT.md`, the workers roster, and skills content). The system message is injected as the first message on every turn, separate from the persistent session history. |
 | **Tools** | Inspect the resolved tool schemas for each agent. Tool schemas are sent as a separate top-level field on every turn, outside the messages array. |
 | **Config** | Read-only view of the active profile's `config.json` with a summary of providers, agents, channels, and delegation rules. Provides the config file path so you can edit it externally. |

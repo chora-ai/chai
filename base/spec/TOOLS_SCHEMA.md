@@ -2,9 +2,17 @@
 status: stable
 ---
 
-# Tools Schema (tools.json)
+# Tools Schema
 
-When a skill directory contains a `tools.json` file, the loader parses it and attaches tool definitions, an allowlist, and per-tool execution mapping to the skill. This allows skills to declare their tools declaratively so a generic executor can run them without per-skill code.
+When a skill directory contains tool descriptor files, the loader parses them and attaches tool definitions, an allowlist, and per-tool execution mapping to the skill. This allows skills to declare their tools declaratively so a generic executor can run them without per-skill code.
+
+The tool descriptor is split across three files with distinct responsibilities:
+
+| File | Root Type | Content | Audience |
+|------|-----------|---------|----------|
+| `tools.json` | Array | Tool definitions: name, description, parameter schemas | The LLM (agent) |
+| `allowlist.json` | Object | Binary→subcommand security grants | The runtime executor |
+| `execution.json` | Array | Per-tool execution mapping: binary, subcommand, args, hints, deny patterns, postProcess, sideRead | The runtime executor |
 
 **Parameters (JSON Schema):** Each tool's **`parameters`** object uses the same **JSON Schema subset** used across LLM **function / tool** APIs: typically `type: "object"`, **`properties`**, **`required`**, and per-argument **`type`**, **`description`**, and optional constraints. That matches what **OpenAI** (tools / function parameters), **Ollama** (`tools` in chat), and **OpenAI-compatible** servers expect. Chai forwards the descriptor's tool list to the active **`Provider`** without rewriting the schema. For examples and field conventions, see vendor docs (e.g. OpenAI function-calling parameter shape).
 
@@ -37,24 +45,17 @@ Pattern: `{skill}_{verb}` with noun suffix only for disambiguation. The `{skill}
 
 ## File Location
 
-- **Path**: `<skill_dir>/tools.json` (same directory as `SKILL.md`).
-- **Optional**: If absent, the skill has no descriptor; the skill contributes no tools and does not function for tool execution. Everything tool-related is defined in `tools.json`; the lib is generic and has no skill-specific code.
+- **`tools.json`**: `<skill_dir>/tools.json` — Tool definitions array (same directory as `SKILL.md`).
+- **`allowlist.json`**: `<skill_dir>/allowlist.json` — Security grants object.
+- **`execution.json`**: `<skill_dir>/execution.json` — Execution mapping array.
+- **Optional**: If `tools.json` is absent, the skill has no descriptor; the skill contributes no tools and does not function for tool execution. If `allowlist.json` or `execution.json` is absent but `tools.json` is present, the loader logs a warning and treats the skill as having no descriptor.
+- Everything tool-related is defined in these three files; the lib is generic and has no skill-specific code.
 
 ## Schema
 
-Root object:
+### `tools.json` (array of tool spec)
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `tools` | array | Tool definitions for the LLM (name, description, parameters schema). |
-| `allowlist` | object | Binary name → array of allowed subcommands. Only these (binary, subcommand) pairs may be run. |
-| `execution` | array | Per-tool execution: how to run each tool (binary, subcommand, arg mapping). |
-
-All keys are **camelCase** in JSON.
-
-### `tools` (array of tool spec)
-
-Each element:
+Root is an array. Each element:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -62,14 +63,14 @@ Each element:
 | `description` | string (optional) | Short description for the model. |
 | `parameters` | object | JSON Schema for arguments (see **Parameters (JSON Schema)** above). |
 
-### `allowlist` (object)
+### `allowlist.json` (object)
 
 - **Keys**: Binary name (e.g. `chai`).
 - **Values**: Array of allowed subcommand strings (e.g. `["file read", "file write"]`).
 
 Only (binary, subcommand) pairs listed here may be executed. The safe exec layer enforces this.
 
-### `execution` (array of execution spec)
+### `execution.json` (array of execution spec)
 
 Each element:
 
@@ -305,64 +306,90 @@ Appends a file's contents to the tool result when the file exists. After the mai
 
 ## Example
 
-One tool, one positional argument:
+One tool, one positional argument — split across three files:
 
+**`tools.json`**:
 ```json
-{
-  "tools": [
-    {
-      "name": "files_read_lines",
-      "description": "Read a range of lines from a file. Returns lines in the format {line_number}\\t{content}. Use this when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
-      "parameters": {
-        "type": "object",
-        "required": ["path", "start_line"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "File path relative to the sandbox root"
-          },
-          "start_line": {
-            "type": "integer",
-            "description": "Line number to start reading at (1-indexed, inclusive)"
-          },
-          "end_line": {
-            "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
-          }
+[
+  {
+    "name": "files_read_lines",
+    "description": "Read a range of lines from a file. Returns lines in the format {line_number}\\t{content}. Use this when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+    "parameters": {
+      "type": "object",
+      "required": ["path", "start_line"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to the sandbox root"
+        },
+        "start_line": {
+          "type": "integer",
+          "description": "Line number to start reading at (1-indexed, inclusive)"
+        },
+        "end_line": {
+          "type": "integer",
+          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
         }
       }
     }
-  ],
-  "allowlist": {
-    "chai": [ "file read-lines"]
-  },
-  "execution": [
-    {
-      "tool": "files_read_lines",
-      "binary": "chai",
-      "subcommand": "file read-lines",
-      "args": [
-        { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
-        { "param": "start_line", "kind": "flag", "flag": "start-line" },
-        {
-          "param": "end_line",
-          "kind": "flag",
-          "flag": "end-line",
-          "optional": true
-        }
-      ]
-    }
-  ]
+  }
+]
+```
+
+**`allowlist.json`**:
+```json
+{
+  "chai": ["file read-lines"]
 }
 ```
 
+**`execution.json`**:
+```json
+[
+  {
+    "tool": "files_read_lines",
+    "binary": "chai",
+    "subcommand": "file read-lines",
+    "args": [
+      { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
+      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "end_line",
+        "kind": "flag",
+        "flag": "end-line",
+        "optional": true
+      }
+    ]
+  }
+]
+```
+
+## Legacy Format
+
+The original `tools.json` used a single root object with three top-level keys:
+
+```json
+{
+  "tools": [...],
+  "allowlist": {...},
+  "execution": [...]
+}
+```
+
+This format is still supported for backward compatibility. The loader detects the format at load time:
+
+- **Root object** with `tools`/`allowlist`/`execution` keys → legacy single-file format, parsed as before.
+- **Root array** → new three-file format, companion files (`allowlist.json`, `execution.json`) are also read.
+
+A deprecation warning is logged when the legacy format is detected. Both formats produce the same `ToolDescriptor` in memory.
+
 ## Implementation Notes
 
-- **Loader**: `load_skills` reads `tools.json` from each skill dir; on success, sets `SkillEntry.tool_descriptor`. On parse error, logs a warning and leaves `tool_descriptor` as `None`. When `metadata.requires.bins` uses OR-groups and a group matches, the loader records the matched group index (`SkillEntry.matched_bin_group`) and filters execution specs: only specs with `condition.binGroup` equal to the matched index, or specs with no `condition`, are retained. This keeps the executor unaware of bin group logic — it receives a pre-filtered descriptor.
+- **Loader**: `load_skills` reads `tools.json` from each skill dir and detects its format (root array → three-file, root object → legacy). For the three-file format, it also reads `allowlist.json` and `execution.json`, then constructs a `ToolDescriptor` from the three sources. On success, sets `SkillEntry.tool_descriptor`. On parse error (or missing companion files for the three-file format), logs a warning and leaves `tool_descriptor` as `None`. When `metadata.requires.bins` uses OR-groups and a group matches, the loader records the matched group index (`SkillEntry.matched_bin_group`) and filters execution specs: only specs with `condition.binGroup` equal to the matched index, or specs with no `condition`, are retained. This keeps the executor unaware of bin group logic — it receives a pre-filtered descriptor.
 - **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill's SKILL.md content in-process; see [CONTEXT.md](CONTEXT.md).
 - **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `resolveCommand` when set) and runs via the allowlist.
-- **Binary wrappers**: When `binaryWrapper` is set on an execution spec, the executor constructs the command as `wrapper[0] wrapper[1..] resolved_binary subcommand args...` instead of `resolved_binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism (e.g. `nix develop --command`), not a privilege escalation. The wrapper binary must be on PATH (guaranteed by the OR-group bin check at load time). `binaryWrapper` is an author-declared field in `tools.json`, not an agent-provided parameter; the agent cannot inject an arbitrary wrapper at runtime.
-- **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script`. The executor runs only files under that directory via `sh`; no allowlist entry is needed.
+- **Binary wrappers**: When `binaryWrapper` is set on an execution spec, the executor constructs the command as `wrapper[0] wrapper[1..] resolved_binary subcommand args...` instead of `resolved_binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism (e.g. `nix develop --command`), not a privilege escalation. The wrapper binary must be on PATH (guaranteed by the OR-group bin check at load time). `binaryWrapper` is an author-declared field in `execution.json`, not an agent-provided parameter; the agent cannot inject an arbitrary wrapper at runtime.
+- **Scripts**: A skill may place scripts in a **`scripts/`** directory and reference them in `resolveCommand.script` (in `execution.json`). The executor runs only files under that directory via `sh`; no allowlist entry is needed.
 - **Resolvers**: Param resolution is generic (run a script or an allowlisted command, use stdout). Skill-specific logic (e.g. resolving a bare date to a daily-note path) can live in a script in the skill's `scripts/` dir or in a separate binary the skill allowlists; lib, CLI, and desktop contain no skill- or tool-specific code.
 - **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's merged output (stdout + stderr) to the post-processor's stdin and returns the post-processor's stdout instead. The executor always merges stderr into stdout (appended after stdout with a newline separator) before the post-process step, so hint scripts can inspect diagnostics written to stderr (e.g., compiler warnings). On failure or empty output, the original merged output is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).
 - **Hint conditions**: When `hintConditions` is set on an execution spec, the executor evaluates each condition against the post-processed output and the main command's exit code. Matching conditions append `hint:` lines with blank-line separators. This runs after `postProcess` and before `truncate_output`, so inline hints are present in the output for truncation to preserve. The effective args (augmented with `absentDefault` values) are passed for `whenArg` matching and `{param_name}` template expansion. When `exitCode: "nonzero"` is used, `successExitCodes` must also be declared — otherwise the executor's error propagation short-circuits before `hintConditions` is evaluated.

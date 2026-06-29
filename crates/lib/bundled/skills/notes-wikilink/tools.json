@@ -1,214 +1,96 @@
-{
-  "tools": [
-    {
-      "name": "notes_wikilink_find_backlinks",
-      "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
-      "parameters": {
-        "type": "object",
-        "required": ["note_name"],
-        "properties": {
-          "note_name": {
-            "type": "string",
-            "description": "Note name to search for backlinks to (e.g. 'Conventions', 'AI Assistant')"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_wikilink_find_outlinks",
-      "description": "Extract all wikilink targets from a note. Returns one link target per line (note names only, without brackets).",
-      "parameters": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_wikilink_find_by_tag",
-      "description": "Find notes that contain a given tag in their content or frontmatter.",
-      "parameters": {
-        "type": "object",
-        "required": ["tag"],
-        "properties": {
-          "tag": {
-            "type": "string",
-            "description": "Tag to search for (e.g. 'agentic-systems' or '#agentic-systems')"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_wikilink_find_broken",
-      "description": "Check a note for broken wikilinks. Returns a list of link targets that do not resolve to existing notes.",
-      "parameters": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_wikilink_rename",
-      "description": "Rename a note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes.",
-      "parameters": {
-        "type": "object",
-        "required": ["from", "to"],
-        "properties": {
-          "from": {
-            "type": "string",
-            "description": "Current note path relative to the sandbox root"
-          },
-          "to": {
-            "type": "string",
-            "description": "New note path relative to the sandbox root"
-          },
-          "scope": {
-            "type": "string",
-            "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
-          }
+[
+  {
+    "name": "notes_wikilink_find_backlinks",
+    "description": "Find all notes that contain a wikilink to a given note name. Returns file paths and matching lines.",
+    "parameters": {
+      "type": "object",
+      "required": ["note_name"],
+      "properties": {
+        "note_name": {
+          "type": "string",
+          "description": "Note name to search for backlinks to (e.g. 'Conventions', 'AI Assistant')"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
         }
       }
     }
-  ],
-  "allowlist": {
-    "grep": ["-rn --include=*.md", "-oP (?<=\\[\\[)[^\\]|]+"],
-    "chai": ["file rename"]
   },
-  "execution": [
-    {
-      "tool": "notes_wikilink_find_backlinks",
-      "binary": "grep",
-      "subcommand": "-rn --include=*.md",
-      "args": [
-        {
-          "param": "note_name",
-          "kind": "positional",
-          "resolveCommand": {
-            "script": "build-backlink-pattern",
-            "args": ["$param"]
-          }
+  {
+    "name": "notes_wikilink_find_outlinks",
+    "description": "Extract all wikilink targets from a note. Returns one link target per line (note names only, without brackets).",
+    "parameters": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
         },
-        {
-          "param": "scope",
-          "kind": "positional",
-          "readPath": true,
-          "optional": true
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
         }
-      ],
-      "successExitCodes": [0, 1],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "notes_wikilink_find_outlinks",
-      "binary": "grep",
-      "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
-      "args": [
-        {
-          "param": "path",
-          "kind": "positional",
-          "readPath": true
-        }
-      ],
-      "postProcess": {
-        "script": "sanitize-outlinks",
-        "args": ["$scope"]
-      },
-      "successExitCodes": [0, 1],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "notes_wikilink_find_by_tag",
-      "binary": "grep",
-      "subcommand": "-rn --include=*.md",
-      "args": [
-        {
-          "param": "tag",
-          "kind": "positional",
-          "resolveCommand": {
-            "script": "normalize-tag",
-            "args": ["$param"]
-          }
-        },
-        {
-          "param": "scope",
-          "kind": "positional",
-          "readPath": true,
-          "optional": true
-        }
-      ],
-      "successExitCodes": [0, 1],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "notes_wikilink_find_broken",
-      "binary": "grep",
-      "subcommand": "-oP (?<=\\[\\[)[^\\]|]+",
-      "args": [
-        {
-          "param": "path",
-          "kind": "positional",
-          "readPath": true
-        }
-      ],
-      "postProcess": {
-        "script": "check-broken-links",
-        "args": ["$scope"],
-        "emptyIsResult": true
-      },
-      "successExitCodes": [0, 1],
-      "maxOutputLines": 200
-    },
-    {
-      "tool": "notes_wikilink_rename",
-      "binary": "chai",
-      "subcommand": "file rename",
-      "args": [
-        {
-          "param": "from",
-          "kind": "flag",
-          "flag": "from",
-          "writePath": true
-        },
-        {
-          "param": "to",
-          "kind": "flag",
-          "flag": "to",
-          "writePath": true
-        },
-        {
-          "param": "scope",
-          "kind": "flag",
-          "flag": "scope",
-          "readPath": true,
-          "optional": true
-        }
-      ],
-      "maxOutputLines": 200
+      }
     }
-  ]
-}
+  },
+  {
+    "name": "notes_wikilink_find_by_tag",
+    "description": "Find notes that contain a given tag in their content or frontmatter.",
+    "parameters": {
+      "type": "object",
+      "required": ["tag"],
+      "properties": {
+        "tag": {
+          "type": "string",
+          "description": "Tag to search for (e.g. 'agentic-systems' or '#agentic-systems')"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Directory path relative to the sandbox root to narrow the search. Omit to search all notes."
+        }
+      }
+    }
+  },
+  {
+    "name": "notes_wikilink_find_broken",
+    "description": "Check a note for broken wikilinks. Returns a list of link targets that do not resolve to existing notes.",
+    "parameters": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
+        }
+      }
+    }
+  },
+  {
+    "name": "notes_wikilink_rename",
+    "description": "Rename a note and update all wikilinks that reference it. Both plain links ([[Old Name]]) and aliased links ([[Old Name|alias]]) are updated across all notes.",
+    "parameters": {
+      "type": "object",
+      "required": ["from", "to"],
+      "properties": {
+        "from": {
+          "type": "string",
+          "description": "Current note path relative to the sandbox root"
+        },
+        "to": {
+          "type": "string",
+          "description": "New note path relative to the sandbox root"
+        },
+        "scope": {
+          "type": "string",
+          "description": "Path to the directory relative to the sandbox root (e.g. 'my-notes'). Omit when the notes is at the sandbox root."
+        }
+      }
+    }
+  }
+]

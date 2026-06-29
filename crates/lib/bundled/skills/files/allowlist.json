@@ -1,0 +1,13 @@
+{
+  "ls": [""],
+  "grep": ["", "-E", "-E --line-number"],
+  "chai": [
+    "file write",
+    "file delete",
+    "file patch",
+    "file read-lines",
+    "file delete-dir",
+    "file replace",
+    "file replace --line-number"
+  ]
+}

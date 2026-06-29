@@ -1,0 +1,39 @@
+[
+  {
+    "tool": "rss_check_feed",
+    "binary": "curl",
+    "subcommand": "-sf --max-time 10",
+    "args": [
+      {
+        "param": "feed",
+        "kind": "positional",
+        "resolveCommand": {
+          "script": "resolve-feed-url",
+          "args": ["$param"]
+        }
+      }
+    ],
+    "successExitCodes": [6, 7],
+    "postProcess": {
+      "script": "parse-rss",
+      "args": ["$feed"]
+    }
+  },
+  {
+    "tool": "rss_list_feeds",
+    "binary": "cat",
+    "subcommand": "",
+    "args": [
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true,
+        "optional": true,
+        "resolveCommand": {
+          "script": "resolve-feeds-path",
+          "args": ["$param"]
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,251 @@
+[
+  {
+    "tool": "notes_read",
+    "binary": "chai",
+    "subcommand": "file read-lines",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "readPath": true
+      },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line",
+        "optional": true,
+        "absentDefault": 1
+      }
+    ],
+    "successExitCodes": [1],
+    "hintConditions": [
+      {
+        "exitCode": "nonzero",
+        "hint": "note not found — use notes_list to list available notes"
+      }
+    ],
+    "maxOutputLines": 500,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
+  },
+  {
+    "tool": "notes_read_lines",
+    "binary": "chai",
+    "subcommand": "file read-lines",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "readPath": true
+      },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line"
+      },
+      {
+        "param": "end_line",
+        "kind": "flag",
+        "flag": "end-line",
+        "optional": true
+      }
+    ],
+    "successExitCodes": [1],
+    "hintConditions": [
+      {
+        "exitCode": "nonzero",
+        "hint": "note not found — use notes_list to list available notes"
+      }
+    ]
+  },
+  {
+    "tool": "notes_list",
+    "binary": "ls",
+    "subcommand": "",
+    "args": [
+      {
+        "param": "long",
+        "kind": "flagifboolean",
+        "flagIfTrue": "-l"
+      },
+      {
+        "param": "all",
+        "kind": "flagifboolean",
+        "flagIfTrue": "-a"
+      },
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
+    ],
+    "maxOutputLines": 200,
+    "postProcess": {
+      "script": "sanitize-ls"
+    },
+    "sideRead": {
+      "pathParam": "path",
+      "filename": "AGENTS.md",
+      "oncePerSession": true
+    }
+  },
+  {
+    "tool": "notes_search",
+    "binary": "grep",
+    "subcommand": "-E --line-number",
+    "args": [
+      {
+        "param": "recursive",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--recursive",
+        "absentDefault": true
+      },
+      {
+        "param": "ignore_case",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--ignore-case"
+      },
+      {
+        "param": "files_with_matches",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--files-with-matches"
+      },
+      {
+        "param": "pattern",
+        "kind": "positional"
+      },
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
+    ],
+    "successExitCodes": [0, 1],
+    "hintConditions": [
+      {
+        "notEmpty": true,
+        "hint": "use notes_read_lines to read surrounding context"
+      }
+    ],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_write",
+    "binary": "chai",
+    "subcommand": "file write",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "content",
+        "kind": "stdin"
+      }
+    ],
+    "hintConditions": [
+      { "match": "overwriting existing", "hint": "overwrote existing note" }
+    ]
+  },
+  {
+    "tool": "notes_write_lines",
+    "binary": "chai",
+    "subcommand": "file patch",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line"
+      },
+      {
+        "param": "end_line",
+        "kind": "flag",
+        "flag": "end-line",
+        "optional": true
+      },
+      {
+        "param": "original_content",
+        "kind": "tempfile",
+        "flag": "original-content-file"
+      },
+      {
+        "param": "content",
+        "kind": "stdin"
+      }
+    ],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_replace",
+    "binary": "chai",
+    "subcommand": "file replace --line-number",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
+      { "param": "replacement", "kind": "stdin" },
+      {
+        "param": "max_replacements",
+        "kind": "flag",
+        "flag": "max-replacements",
+        "optional": true
+      },
+      {
+        "param": "literal",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--literal"
+      }
+    ],
+    "maxOutputLines": 200
+  },
+  {
+    "tool": "notes_delete",
+    "binary": "chai",
+    "subcommand": "file delete",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      }
+    ],
+    "successExitCodes": [0],
+    "hintConditions": [
+      { "exitCode": 0, "hint": "note deleted — verify this was intended" }
+    ]
+  },
+  {
+    "tool": "notes_delete_dir",
+    "binary": "chai",
+    "subcommand": "file delete-dir",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      }
+    ],
+    "successExitCodes": [0],
+    "hintConditions": [
+      {
+        "exitCode": 0,
+        "hint": "directory deleted — verify this was intended"
+      }
+    ]
+  }
+]

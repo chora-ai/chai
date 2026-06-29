@@ -1,0 +1,57 @@
+[
+  {
+    "tool": "notes_frontmatter_read",
+    "binary": "chai",
+    "subcommand": "file frontmatter-read",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "readPath": true
+      }
+    ],
+    "successExitCodes": [1]
+  },
+  {
+    "tool": "notes_frontmatter_edit",
+    "binary": "chai",
+    "subcommand": "file frontmatter-edit",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "key",
+        "kind": "flag",
+        "flag": "key"
+      },
+      {
+        "param": "value",
+        "kind": "tempfile",
+        "flag": "value-file"
+      }
+    ]
+  },
+  {
+    "tool": "notes_frontmatter_delete",
+    "binary": "chai",
+    "subcommand": "file frontmatter-delete",
+    "args": [
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "key",
+        "kind": "flag",
+        "flag": "key"
+      }
+    ]
+  }
+]

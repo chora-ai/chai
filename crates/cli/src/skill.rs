@@ -15,11 +15,11 @@ pub(crate) enum SkillCmd {
     },
     /// List installed skills with population status
     List,
-    /// Read a skill's SKILL.md or tools.json file
+    /// Read a skill's SKILL.md, tools.json, allowlist.json, or execution.json file
     Read {
         /// Skill directory name (e.g. 'files')
         skill_name: String,
-        /// File to read: 'skill_md' or 'tools_json'
+        /// File to read: 'skill_md', 'tools_json', 'allowlist_json', or 'execution_json'
         #[arg(long)]
         file: String,
     },
@@ -44,7 +44,23 @@ pub(crate) enum SkillCmd {
     WriteToolsJson {
         /// Skill directory name
         skill_name: String,
-        /// Complete tools.json content as JSON. If omitted, content is read from stdin.
+        /// Complete tools.json content as JSON (tool definitions array). If omitted, content is read from stdin.
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
+    },
+    /// Write or overwrite allowlist.json for a skill (validates JSON before writing). Content is read from stdin when --content is omitted.
+    WriteAllowlistJson {
+        /// Skill directory name
+        skill_name: String,
+        /// Complete allowlist.json content as JSON. If omitted, content is read from stdin.
+        #[arg(long, allow_hyphen_values = true)]
+        content: Option<String>,
+    },
+    /// Write or overwrite execution.json for a skill (validates JSON before writing). Content is read from stdin when --content is omitted.
+    WriteExecutionJson {
+        /// Skill directory name
+        skill_name: String,
+        /// Complete execution.json content as JSON. If omitted, content is read from stdin.
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
@@ -58,7 +74,7 @@ pub(crate) enum SkillCmd {
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
-    /// Validate a skill's tools.json for schema conformance
+    /// Validate a skill's tools.json, allowlist.json, and execution.json for schema conformance
     Validate {
         /// Skill directory name
         skill_name: String,
@@ -128,16 +144,20 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
                 };
                 let has_skill_md = content_dir.join("SKILL.md").exists();
                 let has_tools_json = content_dir.join("tools.json").exists();
+                let has_allowlist_json = content_dir.join("allowlist.json").exists();
+                let has_execution_json = content_dir.join("execution.json").exists();
                 let tool_count = if has_tools_json {
                     count_tools(&content_dir.join("tools.json")).unwrap_or(0)
                 } else {
                     0
                 };
                 println!(
-                    "{:<20}  SKILL.md: {:<3}  tools.json: {:<3}  tools: {}",
+                    "{:<20}  SKILL.md: {:<3}  tools.json: {:<3}  allowlist.json: {:<3}  execution.json: {:<3}  tools: {}",
                     name,
                     if has_skill_md { "yes" } else { "no" },
                     if has_tools_json { "yes" } else { "no" },
+                    if has_allowlist_json { "yes" } else { "no" },
+                    if has_execution_json { "yes" } else { "no" },
                     tool_count
                 );
             }
@@ -164,8 +184,10 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
             let path = match file.as_str() {
                 "skill_md" => content_dir.join("SKILL.md"),
                 "tools_json" => content_dir.join("tools.json"),
+                "allowlist_json" => content_dir.join("allowlist.json"),
+                "execution_json" => content_dir.join("execution.json"),
                 other => anyhow::bail!(
-                    "file type must be 'skill_md' or 'tools_json', got '{}'",
+                    "file type must be 'skill_md', 'tools_json', 'allowlist_json', or 'execution_json', got '{}'",
                     other
                 ),
             };
@@ -193,17 +215,23 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
                 "---\ndescription: {}\ncapability_tier: moderate\nmetadata:\n  requires:\n    bins: []\n---\n",
                 desc
             );
-            let tools_json = "{\n  \"tools\": [],\n  \"allowlist\": {},\n  \"execution\": []\n}\n";
+            let tools_json = "[]\n";
+            let allowlist_json = "{}\n";
+            let execution_json = "[]\n";
             // Compute hash from initial content and create versioned layout
             let entries: Vec<(&str, &[u8])> = vec![
                 ("SKILL.md", skill_md.as_bytes()),
                 ("tools.json", tools_json.as_bytes()),
+                ("allowlist.json", allowlist_json.as_bytes()),
+                ("execution.json", execution_json.as_bytes()),
             ];
             let hash = lib::skills::versioning::compute_hash_from_entries(&entries);
             let snapshot_dir = skill_dir.join("versions").join(&hash);
             std::fs::create_dir_all(&snapshot_dir)?;
             std::fs::write(snapshot_dir.join("SKILL.md"), &skill_md)?;
             std::fs::write(snapshot_dir.join("tools.json"), tools_json)?;
+            std::fs::write(snapshot_dir.join("allowlist.json"), allowlist_json)?;
+            std::fs::write(snapshot_dir.join("execution.json"), execution_json)?;
             lib::skills::versioning::set_active_version(&skill_dir, &hash)?;
             println!(
                 "initialized skill '{}' at {} (version {})",
@@ -261,6 +289,56 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
             );
             Ok(())
         }
+        SkillCmd::WriteAllowlistJson {
+            skill_name,
+            content,
+        } => {
+            validate_skill_name(&skill_name)?;
+            let content = read_content_from_stdin_or(content)?;
+            let skill_dir = skill_root()?.join(&skill_name);
+            if !skill_dir.exists() {
+                anyhow::bail!("skill '{}' not found", skill_name);
+            }
+            let _: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| anyhow::anyhow!("invalid JSON: {}", e))?;
+            let hash = lib::skills::versioning::write_and_snapshot(
+                &skill_dir,
+                "allowlist.json",
+                content.as_bytes(),
+            )?;
+            println!(
+                "wrote allowlist.json for '{}' ({} bytes, version {})",
+                skill_name,
+                content.len(),
+                hash,
+            );
+            Ok(())
+        }
+        SkillCmd::WriteExecutionJson {
+            skill_name,
+            content,
+        } => {
+            validate_skill_name(&skill_name)?;
+            let content = read_content_from_stdin_or(content)?;
+            let skill_dir = skill_root()?.join(&skill_name);
+            if !skill_dir.exists() {
+                anyhow::bail!("skill '{}' not found", skill_name);
+            }
+            let _: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|e| anyhow::anyhow!("invalid JSON: {}", e))?;
+            let hash = lib::skills::versioning::write_and_snapshot(
+                &skill_dir,
+                "execution.json",
+                content.as_bytes(),
+            )?;
+            println!(
+                "wrote execution.json for '{}' ({} bytes, version {})",
+                skill_name,
+                content.len(),
+                hash,
+            );
+            Ok(())
+        }
         SkillCmd::WriteScript {
             skill_name,
             script_name,
@@ -309,8 +387,44 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
             if !tools_path.exists() {
                 anyhow::bail!("no tools.json for '{}'", skill_name);
             }
-            let content = std::fs::read_to_string(&tools_path)?;
-            validate_tools_json(&content)
+            let tools_content = std::fs::read_to_string(&tools_path)?;
+            let tools_root: serde_json::Value = serde_json::from_str(&tools_content)
+                .map_err(|e| anyhow::anyhow!("invalid JSON in tools.json: {}", e))?;
+            match tools_root {
+                serde_json::Value::Object(_) => {
+                    // Legacy single-file format.
+                    println!("WARNING: tools.json uses the legacy single-file format — migrate to the three-file format (tools.json as array, allowlist.json, execution.json)");
+                    validate_tools_json_legacy(&tools_content)
+                }
+                serde_json::Value::Array(_) => {
+                    // New three-file format.
+                    let allowlist_path = content_dir.join("allowlist.json");
+                    let execution_path = content_dir.join("execution.json");
+                    let allowlist_content = match std::fs::read_to_string(&allowlist_path) {
+                        Ok(c) => c,
+                        Err(_) => {
+                            anyhow::bail!(
+                                "tools.json is present (new format) but allowlist.json is missing"
+                            );
+                        }
+                    };
+                    let execution_content = match std::fs::read_to_string(&execution_path) {
+                        Ok(c) => c,
+                        Err(_) => {
+                            anyhow::bail!(
+                                "tools.json is present (new format) but execution.json is missing"
+                            );
+                        }
+                    };
+                    validate_tools_three_file(&tools_content, &allowlist_content, &execution_content)
+                }
+                other => {
+                    anyhow::bail!(
+                        "unexpected root type in tools.json: expected object or array, got {}",
+                        json_value_kind(&other)
+                    );
+                }
+            }
         }
         SkillCmd::Lock => {
             let paths = lib::profile::resolve_profile_dir(None)?;
@@ -427,7 +541,11 @@ fn validate_skill_name(name: &str) -> Result<()> {
 fn count_tools(path: &std::path::Path) -> Option<usize> {
     let content = std::fs::read_to_string(path).ok()?;
     let data: serde_json::Value = serde_json::from_str(&content).ok()?;
-    data.get("tools")?.as_array().map(|a| a.len())
+    match data {
+        serde_json::Value::Array(arr) => Some(arr.len()),
+        serde_json::Value::Object(_) => data.get("tools")?.as_array().map(|a| a.len()),
+        _ => None,
+    }
 }
 
 fn json_value_kind(v: &serde_json::Value) -> &'static str {
@@ -441,7 +559,8 @@ fn json_value_kind(v: &serde_json::Value) -> &'static str {
     }
 }
 
-fn validate_tools_json(content: &str) -> Result<()> {
+/// Validate the legacy single-file tools.json format (root object with tools/allowlist/execution keys).
+fn validate_tools_json_legacy(content: &str) -> Result<()> {
     let data: serde_json::Value =
         serde_json::from_str(content).map_err(|e| anyhow::anyhow!("fail: invalid JSON: {}", e))?;
 
@@ -493,6 +612,129 @@ fn validate_tools_json(content: &str) -> Result<()> {
         .as_array()
         .expect("execution validated as array");
 
+    validate_cross_file_consistency(tools, allowlist, execution, &mut errors, &mut warnings);
+
+    for e in &errors {
+        println!("ERROR: {}", e);
+    }
+    for w in &warnings {
+        println!("WARNING: {}", w);
+    }
+
+    if errors.is_empty() {
+        let allowlist_count: usize = allowlist
+            .values()
+            .filter_map(|v| v.as_array())
+            .map(|a| a.len())
+            .sum();
+        let status = if warnings.is_empty() {
+            "PASS"
+        } else {
+            "PASS (with warnings)"
+        };
+        println!(
+            "{}: {} tools, {} execution specs, {} allowlisted subcommands",
+            status,
+            tools.len(),
+            execution.len(),
+            allowlist_count
+        );
+        Ok(())
+    } else {
+        anyhow::bail!("validation failed with {} error(s)", errors.len())
+    }
+}
+
+/// Validate the new three-file format (tools.json as array, allowlist.json, execution.json).
+fn validate_tools_three_file(
+    tools_content: &str,
+    allowlist_content: &str,
+    execution_content: &str,
+) -> Result<()> {
+    let mut errors: Vec<String> = Vec::new();
+    let mut warnings: Vec<String> = Vec::new();
+
+    // Validate each file independently.
+    let tools_data: serde_json::Value = serde_json::from_str(tools_content)
+        .map_err(|e| anyhow::anyhow!("tools.json: invalid JSON: {}", e))?;
+    let tools = match tools_data.as_array() {
+        Some(arr) => arr,
+        None => {
+            anyhow::bail!(
+                "tools.json: root must be a JSON array, got {}",
+                json_value_kind(&tools_data)
+            );
+        }
+    };
+
+    let allowlist_data: serde_json::Value = serde_json::from_str(allowlist_content)
+        .map_err(|e| anyhow::anyhow!("allowlist.json: invalid JSON: {}", e))?;
+    let allowlist = match allowlist_data.as_object() {
+        Some(obj) => obj,
+        None => {
+            anyhow::bail!(
+                "allowlist.json: root must be a JSON object, got {}",
+                json_value_kind(&allowlist_data)
+            );
+        }
+    };
+
+    let execution_data: serde_json::Value = serde_json::from_str(execution_content)
+        .map_err(|e| anyhow::anyhow!("execution.json: invalid JSON: {}", e))?;
+    let execution = match execution_data.as_array() {
+        Some(arr) => arr,
+        None => {
+            anyhow::bail!(
+                "execution.json: root must be a JSON array, got {}",
+                json_value_kind(&execution_data)
+            );
+        }
+    };
+
+    // Validate cross-file consistency.
+    validate_cross_file_consistency(tools, allowlist, execution, &mut errors, &mut warnings);
+
+    for e in &errors {
+        println!("ERROR: {}", e);
+    }
+    for w in &warnings {
+        println!("WARNING: {}", w);
+    }
+
+    if errors.is_empty() {
+        let allowlist_count: usize = allowlist
+            .values()
+            .filter_map(|v| v.as_array())
+            .map(|a| a.len())
+            .sum();
+        let status = if warnings.is_empty() {
+            "PASS"
+        } else {
+            "PASS (with warnings)"
+        };
+        println!(
+            "{}: {} tools, {} execution specs, {} allowlisted subcommands",
+            status,
+            tools.len(),
+            execution.len(),
+            allowlist_count
+        );
+        Ok(())
+    } else {
+        anyhow::bail!("validation failed with {} error(s)", errors.len())
+    }
+}
+
+/// Validate cross-file consistency: tool names in execution must match tools,
+/// binary/subcommand pairs in execution must be in allowlist, and every tool
+/// must have an execution spec.
+fn validate_cross_file_consistency(
+    tools: &[serde_json::Value],
+    allowlist: &serde_json::Map<String, serde_json::Value>,
+    execution: &[serde_json::Value],
+    errors: &mut Vec<String>,
+    warnings: &mut Vec<String>,
+) {
     let mut tool_names = std::collections::HashSet::new();
     let mut exec_tool_names = std::collections::HashSet::new();
 
@@ -626,35 +868,5 @@ fn validate_tools_json(content: &str) -> Result<()> {
         if !tool_names.contains(name) {
             errors.push(format!("execution references undefined tool \"{}\"", name));
         }
-    }
-
-    for e in &errors {
-        println!("ERROR: {}", e);
-    }
-    for w in &warnings {
-        println!("WARNING: {}", w);
-    }
-
-    if errors.is_empty() {
-        let allowlist_count: usize = allowlist
-            .values()
-            .filter_map(|v| v.as_array())
-            .map(|a| a.len())
-            .sum();
-        let status = if warnings.is_empty() {
-            "PASS"
-        } else {
-            "PASS (with warnings)"
-        };
-        println!(
-            "{}: {} tools, {} execution specs, {} allowlisted subcommands",
-            status,
-            tools.len(),
-            execution.len(),
-            allowlist_count
-        );
-        Ok(())
-    } else {
-        anyhow::bail!("validation failed with {} error(s)", errors.len())
     }
 }

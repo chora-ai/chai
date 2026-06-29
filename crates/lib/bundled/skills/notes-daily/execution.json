@@ -1,0 +1,72 @@
+[
+  {
+    "tool": "notes_daily_read",
+    "binary": "cat",
+    "subcommand": "",
+    "args": [
+      {
+        "param": "date",
+        "kind": "positional",
+        "readPath": true,
+        "optional": true,
+        "resolveCommand": {
+          "script": "resolve-daily-path",
+          "args": ["$param", "$scope"]
+        }
+      }
+    ],
+    "successExitCodes": [1],
+    "hintConditions": [{ "exitCode": "nonzero", "hint": "no daily note found for this date — use notes_daily_write to create one" }],
+    "maxOutputLines": 500
+  },
+  {
+    "tool": "notes_daily_write",
+    "binary": "chai",
+    "subcommand": "file write",
+    "args": [
+      {
+        "param": "date",
+        "kind": "flag",
+        "flag": "path",
+        "optional": true,
+        "writePath": true,
+        "resolveCommand": {
+          "script": "resolve-daily-path",
+          "args": ["$param", "$scope"]
+        }
+      },
+      {
+        "param": "content",
+        "kind": "stdin"
+      }
+    ],
+    "hintConditions": [
+      { "match": "overwriting existing", "hint": "daily note already exists — consider notes_daily_append to add content instead" }
+    ]
+  },
+  {
+    "tool": "notes_daily_append",
+    "binary": "chai",
+    "subcommand": "file append",
+    "args": [
+      {
+        "param": "date",
+        "kind": "flag",
+        "flag": "path",
+        "optional": true,
+        "writePath": true,
+        "resolveCommand": {
+          "script": "resolve-daily-path",
+          "args": ["$param", "$scope"]
+        }
+      },
+      {
+        "param": "content",
+        "kind": "stdin"
+      }
+    ],
+    "hintConditions": [
+      { "match": "(created new file)", "hint": "no daily note existed for this date — appended content to a new file; use notes_daily_write to set the full content instead" }
+    ]
+  }
+]

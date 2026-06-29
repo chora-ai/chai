@@ -1,0 +1,115 @@
+[
+  {
+    "tool": "git_clone",
+    "binary": "git",
+    "subcommand": "clone",
+    "args": [
+      { "param": "url", "kind": "positional" },
+      {
+        "param": "path",
+        "kind": "positional",
+        "writePath": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve clone-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ]
+  },
+  {
+    "tool": "git_pull",
+    "binary": "git",
+    "subcommand": "pull",
+    "args": [
+      { "param": "remote", "kind": "positional", "optional": true },
+      { "param": "branch_name", "kind": "positional", "optional": true },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [1, 128],
+    "hintConditions": [
+      {
+        "match": "no tracking information",
+        "hint": "no tracking branch set — specify remote and branch explicitly"
+      },
+      {
+        "match": "Could not resolve",
+        "hint": "remote not found — use git_remote to list configured remotes"
+      }
+    ]
+  },
+  {
+    "tool": "git_push",
+    "binary": "git",
+    "subcommand": "push",
+    "args": [
+      {
+        "param": "set_upstream",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--set-upstream"
+      },
+      { "param": "remote", "kind": "positional", "optional": true },
+      {
+        "param": "branch_name",
+        "kind": "positional",
+        "optional": true,
+        "denyPattern": "^(main|release/.+)$",
+        "denyResolveCommand": {
+          "script": "resolve-current-branch",
+          "args": ["$workingDir"]
+        }
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "successExitCodes": [1, 128],
+    "hintConditions": [
+      {
+        "match": "non-fast-forward",
+        "hint": "pull first to integrate remote changes, then retry"
+      },
+      {
+        "match": "no upstream branch",
+        "hint": "no upstream set — use set_upstream: true on first push"
+      },
+      {
+        "match": "No remote",
+        "hint": "no remote configured — use git_remote to list configured remotes"
+      }
+    ]
+  },
+  {
+    "tool": "git_remote",
+    "binary": "git",
+    "subcommand": "remote -v",
+    "args": [
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ]
+  }
+]

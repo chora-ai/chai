@@ -7,10 +7,10 @@ Skills give agents instructions and tools. Each skill is a declarative package t
 A skill is a directory under `~/.chai/skills/` containing at minimum a `SKILL.md` file. The skill's directory name is its stable **package id** (for example `files`). A skill can provide:
 
 - **Instructions** — `SKILL.md` contains Markdown (with optional YAML frontmatter) that the model reads. This is the skill's "brain": what it knows, how it should behave, and how to use its tools.
-- **Tool definitions** — An optional `tools.json` declares typed tool schemas that the model can call. Without this file, the skill contributes context only (no callable tools).
+- **Tool definitions** — Optional tool descriptor files (`tools.json`, `allowlist.json`, `execution.json`) declare typed tool schemas the model can call and map them to CLI commands. Without these files, the skill contributes context only (no callable tools).
 - **Scripts** — An optional `scripts/` subdirectory holds helper scripts that tool execution can invoke (for parameter resolution, post-processing, etc.).
 
-A skill without `tools.json` is still useful — its `SKILL.md` content appears in the agent's system context, giving the model domain knowledge. A skill with `tools.json` adds callable tools on top of that knowledge.
+A skill without `tools.json` is still useful — its `SKILL.md` content appears in the agent's system context, giving the model domain knowledge. A skill with `tools.json` (and its companion `allowlist.json` and `execution.json`) adds callable tools on top of that knowledge.
 
 ## Directory Layout
 
@@ -27,6 +27,8 @@ A skill with tools and scripts:
 ~/.chai/skills/my-skill/
   SKILL.md
   tools.json
+  allowlist.json
+  execution.json
   scripts/
     resolve-path.sh
 ```
@@ -40,11 +42,15 @@ A versioned skill (the standard layout after `chai init` or `chai skill init`):
     a1b2c3d4e5f6/                      # immutable snapshot (content hash)
       SKILL.md
       tools.json
+      allowlist.json
+      execution.json
       scripts/
         resolve-path.sh
     b2c3d4e5f6a7/                      # older snapshot
       SKILL.md
       tools.json
+      allowlist.json
+      execution.json
 ```
 
 The gateway loads files from the directory that `active` resolves to. Older snapshots under `versions/` stay on disk for rollback unless you delete them.
@@ -80,38 +86,45 @@ agent's system context when the skill is enabled.
 
 When the gateway builds the agent's system context, it strips the frontmatter and inlines the body (see [Context Modes](#context-modes) below).
 
-## tools.json
+## Tool Descriptor Files
 
-`tools.json` declares the callable tools a skill provides. It has three top-level sections:
+The tool descriptor is split across three files with distinct responsibilities:
 
-- **`tools`** — Array of tool definitions for the LLM (name, description, JSON Schema parameters).
-- **`allowlist`** — Binary name → array of allowed subcommands. Only these (binary, subcommand) pairs may be executed.
-- **`execution`** — Array mapping each tool to a binary, subcommand, argument template, and optional processing hooks.
+- **`tools.json`** — Tool definitions for the LLM: name, description, and parameter schemas. The root is an array of tool spec objects.
+- **`allowlist.json`** — Security grants: binary name → array of allowed subcommands. Only these (binary, subcommand) pairs may be executed.
+- **`execution.json`** — Implementation mapping: binary, subcommand, argument template, and optional processing hooks for each tool.
 
 A minimal example with one tool:
 
+**`tools.json`**:
+```json
+[
+  {
+    "name": "git_status",
+    "description": "Git status"
+  }
+]
+```
+
+**`allowlist.json`**:
 ```json
 {
-  "tools": [
-    {
-      "name": "git_status",
-      "description": "Git status",
-    }
-  ],
-  "allowlist": {
-    "git": ["status"]
-  },
-  "execution": [
-    {
-      "tool": "git_status",
-      "binary": "git",
-      "subcommand": "status"
-    }
-  ]
+  "git": ["status"]
 }
 ```
 
-The `args` array maps each JSON parameter to a command-line argument kind: `positional`, `flag`, `flagifboolean`, or `stdin`. For full field details including `resolveCommand`, `postProcess`, `hintConditions`, `sideRead`, `writePath`, and `readPath`, see the tools schema spec.
+**`execution.json`**:
+```json
+[
+  {
+    "tool": "git_status",
+    "binary": "git",
+    "subcommand": "status"
+  }
+]
+```
+
+The `args` array in each execution spec maps each JSON parameter to a command-line argument kind: `positional`, `flag`, `flagifboolean`, or `stdin`. For full field details including `resolveCommand`, `postProcess`, `hintConditions`, `sideRead`, `writePath`, and `readPath`, see the tools schema spec.
 
 ## Enabling Skills on an Agent
 
@@ -211,7 +224,7 @@ Initialize a new skill with template files:
 chai skill init my-skill --description "Does something useful"
 ```
 
-This creates `~/.chai/skills/my-skill/` with a starter `SKILL.md` and `tools.json`. You can then customize the content using the write commands or by editing files directly.
+This creates `~/.chai/skills/my-skill/` with a starter `SKILL.md` and template tool descriptor files (`tools.json`, `allowlist.json`, `execution.json`). You can then customize the content using the write commands or by editing files directly.
 
 ### Inspecting Skills
 
@@ -222,19 +235,21 @@ chai skill list
 # Read a skill's SKILL.md
 chai skill read my-skill --file skill_md
 
-# Read a skill's tools.json
+# Read a skill's tool descriptor files
 chai skill read my-skill --file tools_json
+chai skill read my-skill --file allowlist_json
+chai skill read my-skill --file execution_json
 ```
 
 ### Validating Skills
 
-After creating or editing a `tools.json`, validate it against the schema:
+After creating or editing tool descriptor files, validate them against the schema:
 
 ```bash
 chai skill validate my-skill
 ```
 
-This checks JSON conformance and reports errors before the gateway loads the skill.
+This checks JSON conformance for each file independently, then validates cross-file consistency (tool names in `execution.json` must match `tools.json`; binary/subcommand pairs in `execution.json` must be in `allowlist.json`).
 
 ## Updating a Skill
 
@@ -248,6 +263,8 @@ The `chai skill write-*` commands copy the current active tree, apply your chang
 |---------|-----------------|
 | `chai skill write-skill-md <name> --content '...'` | `SKILL.md` |
 | `chai skill write-tools-json <name> --content '...'` | `tools.json` (validated before write) |
+| `chai skill write-allowlist-json <name> --content '...'` | `allowlist.json` (validated before write) |
+| `chai skill write-execution-json <name> --content '...'` | `execution.json` (validated before write) |
 | `chai skill write-script <name> <base> --content '...'` | `scripts/<base>.sh` |
 
 Each command creates a **new** revision. For multi-file changes, run one command per file — each builds a new snapshot from whatever `active` was at the start of that command. For example, updating `SKILL.md` and then `tools.json` creates two new revisions. That is normal.
@@ -270,7 +287,7 @@ The exact bytes (including newlines), path spellings, and which files exist all 
 
 Use this when you want to edit several files in an editor and produce **one** new revision:
 
-1. **Copy the active tree** — Resolve `active` (or copy from `versions/<current>/`) into a temporary working directory. Copy only the skill payload (`SKILL.md`, `tools.json`, `scripts/`); do not include `versions/` or `active`.
+1. **Copy the active tree** — Resolve `active` (or copy from `versions/<current>/`) into a temporary working directory. Copy only the skill payload (`SKILL.md`, `tools.json`, `allowlist.json`, `execution.json`, `scripts/`); do not include `versions/` or `active`.
 2. **Edit** your files in the working directory.
 3. **Compute the 12-character content hash** using the algorithm above. There is no `chai skill hash` command today; use a small script or reproduce the algorithm from `versioning.rs`.
 4. **Install the snapshot** — `mkdir -p ~/.chai/skills/<name>/versions/<hash>`, copy your working tree into it, and repoint `active` to `versions/<hash>` (relative symlink).
@@ -334,7 +351,7 @@ chai skill delete my-skill
 
 | Question | Answer |
 |----------|--------|
-| What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional `tools.json` and `scripts/`. |
+| What is a skill? | A directory under `~/.chai/skills/` with `SKILL.md` and optional tool descriptor files (`tools.json`, `allowlist.json`, `execution.json`) and `scripts/`. |
 | How do I enable a skill? | Add its name to the `enabledSkills` array on an agent entry in `config.json`. |
 | Can a skill provide context without tools? | Yes — a skill without `tools.json` contributes instructions only. |
 | What bundled skills are available? | 16 skills covering files, git, logs, notes, RSS, skill management, and Rust compilation. See [Bundled Skills](#bundled-skills). |

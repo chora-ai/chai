@@ -6,7 +6,10 @@
 //!
 //! When OR-groups are present, the loader records which group matched so that
 //! `condition.binGroup` in execution specs can select the appropriate spec.
-//! When present, `tools.json` in the skill directory is parsed and attached as the tool descriptor.
+//!
+//! Tool descriptors are loaded from the new three-file format (`tools.json` as a
+//! root array, `allowlist.json`, `execution.json`) or the legacy single-file format
+//! (`tools.json` as a root object with `tools`/`allowlist`/`execution` keys).
 
 use anyhow::Result;
 use serde::Deserialize;
@@ -22,7 +25,8 @@ pub struct SkillEntry {
     pub path: PathBuf,
     /// Raw SKILL.md content (for agent context).
     pub content: String,
-    /// When the skill dir contains tools.json, parsed descriptor (tools, allowlist, execution mapping).
+    /// When the skill dir contains a tool descriptor (three-file format or legacy single-file
+    /// tools.json), the parsed descriptor (tools, allowlist, execution mapping).
     /// Execution specs with unsatisfied `condition` fields are filtered out during loading.
     pub tool_descriptor: Option<ToolDescriptor>,
     /// Capability tier from SKILL.md frontmatter (`minimal`, `moderate`, `full`). Now parsed from top-level field (was previously nested inside `generated_from`).
@@ -290,14 +294,100 @@ fn load_skills_from_root(dir: &Path) -> Result<Vec<SkillEntry>> {
     Ok(out)
 }
 
-/// If the skill directory contains tools.json, parse and return it. Otherwise None.
+/// Load the tool descriptor for a skill directory.
+///
+/// Supports two formats:
+/// - **Legacy**: `tools.json` is a root object with `tools`/`allowlist`/`execution` keys.
+///   Logs a deprecation warning.
+/// - **New three-file**: `tools.json` is a root array (tool definitions),
+///   `allowlist.json` is a root object, `execution.json` is a root array.
+///
+/// If `tools.json` is absent, returns `None` (skill has no tools).
+/// If `tools.json` is present (new format) but `allowlist.json` or `execution.json`
+/// is absent, logs a warning and returns `None` (incomplete descriptor).
 fn load_tool_descriptor(skill_dir: &Path) -> Option<ToolDescriptor> {
-    let path = skill_dir.join("tools.json");
-    let content = std::fs::read_to_string(&path).ok()?;
-    match serde_json::from_str::<ToolDescriptor>(&content) {
-        Ok(d) => Some(d),
+    let tools_path = skill_dir.join("tools.json");
+    let content = std::fs::read_to_string(&tools_path).ok()?;
+    // Peek at the root value to determine the format.
+    let root: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
         Err(e) => {
-            log::warn!("failed to parse {}: {}", path.display(), e);
+            log::warn!("failed to parse {}: {}", tools_path.display(), e);
+            return None;
+        }
+    };
+    match root {
+        serde_json::Value::Object(_) => {
+            // Legacy single-file format: root object with tools/allowlist/execution keys.
+            log::warn!(
+                "deprecated: {} uses the legacy single-file format (root object with tools/allowlist/execution keys) — migrate to the three-file format (tools.json as array, allowlist.json, execution.json)",
+                tools_path.display(),
+            );
+            match serde_json::from_value::<ToolDescriptor>(root) {
+                Ok(d) => Some(d),
+                Err(e) => {
+                    log::warn!("failed to parse {}: {}", tools_path.display(), e);
+                    None
+                }
+            }
+        }
+        serde_json::Value::Array(_) => {
+            // New three-file format: tools.json is a root array.
+            let tools: Vec<super::descriptor::ToolSpec> = match serde_json::from_value(root) {
+                Ok(t) => t,
+                Err(e) => {
+                    log::warn!("failed to parse {} as tool array: {}", tools_path.display(), e);
+                    return None;
+                }
+            };
+            // Read allowlist.json.
+            let allowlist_path = skill_dir.join("allowlist.json");
+            let allowlist_content = match std::fs::read_to_string(&allowlist_path) {
+                Ok(c) => c,
+                Err(_) => {
+                    log::warn!(
+                        "tools.json is present (new format) but {} is missing — skill has no descriptor",
+                        allowlist_path.display(),
+                    );
+                    return None;
+                }
+            };
+            let allowlist: std::collections::HashMap<String, Vec<String>> =
+                match serde_json::from_str(&allowlist_content) {
+                    Ok(a) => a,
+                    Err(e) => {
+                        log::warn!("failed to parse {}: {}", allowlist_path.display(), e);
+                        return None;
+                    }
+                };
+            // Read execution.json.
+            let execution_path = skill_dir.join("execution.json");
+            let execution_content = match std::fs::read_to_string(&execution_path) {
+                Ok(c) => c,
+                Err(_) => {
+                    log::warn!(
+                        "tools.json is present (new format) but {} is missing — skill has no descriptor",
+                        execution_path.display(),
+                    );
+                    return None;
+                }
+            };
+            let execution: Vec<super::descriptor::ExecutionSpec> =
+                match serde_json::from_str(&execution_content) {
+                    Ok(e) => e,
+                    Err(e) => {
+                        log::warn!("failed to parse {}: {}", execution_path.display(), e);
+                        return None;
+                    }
+                };
+            Some(ToolDescriptor::from_parts(tools, allowlist, execution))
+        }
+        other => {
+            log::warn!(
+                "unexpected root type in {}: expected object or array, got {}",
+                tools_path.display(),
+                json_value_kind(&other),
+            );
             None
         }
     }
@@ -463,6 +553,218 @@ mod tests {
         assert_eq!(desc.execution[0].tool, "git_status");
         assert_eq!(desc.execution[0].binary, "git");
         assert_eq!(desc.execution[0].subcommand, "status");
+    }
+
+    /// Helper: create a versioned skill directory with the given files.
+    fn create_versioned_skill(
+        parent: &Path,
+        name: &str,
+        files: &[(&str, &str)],
+    ) -> PathBuf {
+        let skill_dir = parent.join(name);
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        let entries: Vec<(&str, &[u8])> = files
+            .iter()
+            .map(|(name, content)| (*name, content.as_bytes()))
+            .collect();
+        let hash = super::super::versioning::compute_hash_from_entries(&entries);
+        let snapshot_dir = skill_dir.join("versions").join(&hash);
+        std::fs::create_dir_all(&snapshot_dir).unwrap();
+        for (name, content) in files {
+            // Create parent directories if needed (e.g. for scripts/)
+            let file_path = snapshot_dir.join(name);
+            if let Some(parent) = file_path.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(&file_path, content).unwrap();
+        }
+        super::super::versioning::set_active_version(&skill_dir, &hash).unwrap();
+        skill_dir
+    }
+
+    #[test]
+    fn load_tool_descriptor_three_file_format() {
+        let tmp = std::env::temp_dir().join(format!(
+            "chai-test-three-file-{:?}",
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let skill_md = "---\ndescription: test three-file format\n---\n\n# test\n";
+        let tools_json = r#"[
+            {
+                "name": "files_read",
+                "description": "Read a file.",
+                "parameters": {
+                    "type": "object",
+                    "required": ["path"],
+                    "properties": {
+                        "path": { "type": "string" }
+                    }
+                }
+            }
+        ]"#;
+        let allowlist_json = r#"{
+            "cat": [""],
+            "chai": ["file read-lines"]
+        }"#;
+        let execution_json = r#"[
+            {
+                "tool": "files_read",
+                "binary": "cat",
+                "subcommand": "",
+                "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+                "successExitCodes": [1]
+            }
+        ]"#;
+
+        create_versioned_skill(
+            &tmp,
+            "three_file_test",
+            &[
+                ("SKILL.md", skill_md),
+                ("tools.json", tools_json),
+                ("allowlist.json", allowlist_json),
+                ("execution.json", execution_json),
+            ],
+        );
+
+        let skills = load_skills(&tmp).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "three_file_test")
+            .expect("skill three_file_test");
+        let desc = entry
+            .tool_descriptor
+            .as_ref()
+            .expect("tool_descriptor should be present");
+        assert_eq!(desc.tools.len(), 1);
+        assert_eq!(desc.tools[0].name, "files_read");
+        assert!(desc.allowlist.contains_key("cat"));
+        assert!(desc.allowlist.contains_key("chai"));
+        assert_eq!(desc.execution.len(), 1);
+        assert_eq!(desc.execution[0].tool, "files_read");
+        assert_eq!(desc.execution[0].binary, "cat");
+        assert_eq!(desc.execution[0].subcommand, "");
+        assert_eq!(desc.execution[0].success_exit_codes, Some(vec![1]));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_tool_descriptor_legacy_format_still_works() {
+        // The existing fixture uses the legacy format — this test just confirms
+        // it still loads correctly (the existing load_skills_parses_tools_json_when_present
+        // test covers this, but let's be explicit).
+        let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let skills_dir: PathBuf = [&manifest_dir, "tests", "fixtures", "loader_tool_test"]
+            .iter()
+            .collect();
+        let skills = load_skills(skills_dir.parent().unwrap()).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "loader_tool_test")
+            .expect("fixture skill loader_tool_test");
+        assert!(entry.tool_descriptor.is_some());
+    }
+
+    #[test]
+    fn load_tool_descriptor_missing_allowlist_returns_none() {
+        let tmp = std::env::temp_dir().join(format!(
+            "chai-test-missing-allowlist-{:?}",
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let skill_md = "---\ndescription: missing allowlist\n---\n\n# test\n";
+        let tools_json = r#"[{"name": "test_tool", "description": "test", "parameters": {"type": "object"}}]"#;
+        let execution_json = r#"[{"tool": "test_tool", "binary": "echo", "subcommand": ""}]"#;
+
+        create_versioned_skill(
+            &tmp,
+            "missing_allowlist",
+            &[
+                ("SKILL.md", skill_md),
+                ("tools.json", tools_json),
+                ("execution.json", execution_json),
+            ],
+        );
+
+        let skills = load_skills(&tmp).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "missing_allowlist")
+            .expect("skill missing_allowlist");
+        assert!(
+            entry.tool_descriptor.is_none(),
+            "tool_descriptor should be None when allowlist.json is missing"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_tool_descriptor_missing_execution_returns_none() {
+        let tmp = std::env::temp_dir().join(format!(
+            "chai-test-missing-execution-{:?}",
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let skill_md = "---\ndescription: missing execution\n---\n\n# test\n";
+        let tools_json = r#"[{"name": "test_tool", "description": "test", "parameters": {"type": "object"}}]"#;
+        let allowlist_json = r#"{"echo": [""]}"#;
+
+        create_versioned_skill(
+            &tmp,
+            "missing_execution",
+            &[
+                ("SKILL.md", skill_md),
+                ("tools.json", tools_json),
+                ("allowlist.json", allowlist_json),
+            ],
+        );
+
+        let skills = load_skills(&tmp).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "missing_execution")
+            .expect("skill missing_execution");
+        assert!(
+            entry.tool_descriptor.is_none(),
+            "tool_descriptor should be None when execution.json is missing"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn load_tool_descriptor_no_tools_json_returns_none() {
+        let tmp = std::env::temp_dir().join(format!(
+            "chai-test-no-tools-{:?}",
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let skill_md = "---\ndescription: no tools\n---\n\n# test\n";
+
+        create_versioned_skill(&tmp, "no_tools", &[("SKILL.md", skill_md)]);
+
+        let skills = load_skills(&tmp).unwrap();
+        let entry = skills
+            .iter()
+            .find(|s| s.name == "no_tools")
+            .expect("skill no_tools");
+        assert!(
+            entry.tool_descriptor.is_none(),
+            "tool_descriptor should be None when tools.json is absent"
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

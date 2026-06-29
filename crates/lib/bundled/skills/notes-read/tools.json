@@ -1,231 +1,91 @@
-{
-  "tools": [
-    {
-      "name": "notes_read",
-      "description": "Read the contents of a note.",
-      "parameters": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_read_lines",
-      "description": "Read a range of lines from a note.",
-      "parameters": {
-        "type": "object",
-        "required": ["path", "start_line"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Note path relative to the sandbox root"
-          },
-          "start_line": {
-            "type": "integer",
-            "description": "Line number to start reading at (1-indexed, inclusive)"
-          },
-          "end_line": {
-            "type": "integer",
-            "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_list",
-      "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing.",
-      "parameters": {
-        "type": "object",
-        "required": ["path"],
-        "properties": {
-          "path": {
-            "type": "string",
-            "description": "Directory path relative to the sandbox root"
-          },
-          "long": {
-            "type": "boolean",
-            "description": "Show detailed format with permissions, size, and dates"
-          },
-          "all": {
-            "type": "boolean",
-            "description": "Include hidden files (dotfiles)"
-          }
-        }
-      }
-    },
-    {
-      "name": "notes_search",
-      "description": "Search note contents for a pattern using grep. Returns matching lines with context.",
-      "parameters": {
-        "type": "object",
-        "required": ["pattern", "path"],
-        "properties": {
-          "pattern": {
-            "type": "string",
-            "description": "Search pattern (extended regex supported)"
-          },
-          "path": {
-            "type": "string",
-            "description": "Note or directory path relative to the sandbox root"
-          },
-          "recursive": {
-            "type": "boolean",
-            "description": "Search directories recursively. On by default — set to false only when searching a single note path.",
-            "default": true
-          },
-          "ignore_case": {
-            "type": "boolean",
-            "description": "Ignore case when matching"
-          },
-          "files_with_matches": {
-            "type": "boolean",
-            "description": "Show only file names that contain matches, not the matching lines"
-          }
+[
+  {
+    "name": "notes_read",
+    "description": "Read the contents of a note.",
+    "parameters": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
         }
       }
     }
-  ],
-  "allowlist": {
-    "ls": [""],
-    "grep": ["", "-E", "-E --line-number"],
-    "chai": ["file read-lines"]
   },
-  "execution": [
-    {
-      "tool": "notes_read",
-      "binary": "chai",
-      "subcommand": "file read-lines",
-      "args": [
-        {
-          "param": "path",
-          "kind": "flag",
-          "flag": "path",
-          "readPath": true
+  {
+    "name": "notes_read_lines",
+    "description": "Read a range of lines from a note.",
+    "parameters": {
+      "type": "object",
+      "required": ["path", "start_line"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Note path relative to the sandbox root"
         },
-        {
-          "param": "start_line",
-          "kind": "flag",
-          "flag": "start-line",
-          "optional": true,
-          "absentDefault": 1
-        }
-      ],
-      "successExitCodes": [1],
-      "hintConditions": [
-        {
-          "exitCode": "nonzero",
-          "hint": "note not found — use notes_list to list available notes"
-        }
-      ],
-      "maxOutputLines": 500,
-      "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
-    },
-    {
-      "tool": "notes_read_lines",
-      "binary": "chai",
-      "subcommand": "file read-lines",
-      "args": [
-        {
-          "param": "path",
-          "kind": "flag",
-          "flag": "path",
-          "readPath": true
+        "start_line": {
+          "type": "integer",
+          "description": "Line number to start reading at (1-indexed, inclusive)"
         },
-        {
-          "param": "start_line",
-          "kind": "flag",
-          "flag": "start-line"
-        },
-        {
-          "param": "end_line",
-          "kind": "flag",
-          "flag": "end-line",
-          "optional": true
+        "end_line": {
+          "type": "integer",
+          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
         }
-      ],
-      "successExitCodes": [1],
-      "hintConditions": [
-        {
-          "exitCode": "nonzero",
-          "hint": "note not found — use notes_list to list available notes"
-        }
-      ]
-    },
-    {
-      "tool": "notes_list",
-      "binary": "ls",
-      "subcommand": "",
-      "args": [
-        {
-          "param": "long",
-          "kind": "flagifboolean",
-          "flagIfTrue": "-l"
-        },
-        {
-          "param": "all",
-          "kind": "flagifboolean",
-          "flagIfTrue": "-a"
-        },
-        {
-          "param": "path",
-          "kind": "positional",
-          "readPath": true
-        }
-      ],
-      "maxOutputLines": 200,
-      "postProcess": {
-        "script": "sanitize-ls"
-      },
-      "sideRead": {
-        "pathParam": "path",
-        "filename": "AGENTS.md",
-        "oncePerSession": true
       }
-    },
-    {
-      "tool": "notes_search",
-      "binary": "grep",
-      "subcommand": "-E --line-number",
-      "args": [
-        {
-          "param": "recursive",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--recursive",
-          "absentDefault": true
-        },
-        {
-          "param": "ignore_case",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--ignore-case"
-        },
-        {
-          "param": "files_with_matches",
-          "kind": "flagifboolean",
-          "flagIfTrue": "--files-with-matches"
-        },
-        {
-          "param": "pattern",
-          "kind": "positional"
-        },
-        {
-          "param": "path",
-          "kind": "positional",
-          "readPath": true
-        }
-      ],
-      "successExitCodes": [0, 1],
-      "hintConditions": [
-        {
-          "notEmpty": true,
-          "hint": "use notes_read_lines to read surrounding context"
-        }
-      ],
-      "maxOutputLines": 200
     }
-  ]
-}
+  },
+  {
+    "name": "notes_list",
+    "description": "List files and directories at a given path. When an AGENTS.md file exists in the listed directory, its contents are automatically appended to the listing.",
+    "parameters": {
+      "type": "object",
+      "required": ["path"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Directory path relative to the sandbox root"
+        },
+        "long": {
+          "type": "boolean",
+          "description": "Show detailed format with permissions, size, and dates"
+        },
+        "all": {
+          "type": "boolean",
+          "description": "Include hidden files (dotfiles)"
+        }
+      }
+    }
+  },
+  {
+    "name": "notes_search",
+    "description": "Search note contents for a pattern using grep. Returns matching lines with context.",
+    "parameters": {
+      "type": "object",
+      "required": ["pattern", "path"],
+      "properties": {
+        "pattern": {
+          "type": "string",
+          "description": "Search pattern (extended regex supported)"
+        },
+        "path": {
+          "type": "string",
+          "description": "Note or directory path relative to the sandbox root"
+        },
+        "recursive": {
+          "type": "boolean",
+          "description": "Search directories recursively. On by default — set to false only when searching a single note path.",
+          "default": true
+        },
+        "ignore_case": {
+          "type": "boolean",
+          "description": "Ignore case when matching"
+        },
+        "files_with_matches": {
+          "type": "boolean",
+          "description": "Show only file names that contain matches, not the matching lines"
+        }
+      }
+    }
+  }
+]

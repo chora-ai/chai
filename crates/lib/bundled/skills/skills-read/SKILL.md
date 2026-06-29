@@ -10,11 +10,11 @@ metadata:
 ## Audit Workflow
 
 1. Call `skills_validate` with `skill_name` and review the output: **ERROR** lines are structural failures, **WARNING** lines are potential issues, **PASS** indicates conformance.
-2. If errors are found, call `skills_read` with `file` set to `tools_json` to examine the content.
+2. If errors are found, call `skills_read` with the appropriate `file` value (`tools_json`, `allowlist_json`, or `execution_json`) to examine the content.
 
 ## Security Audit
 
-When auditing a skill for security, check every parameter in the `args` array of each execution spec in tools.json:
+When auditing a skill for security, check every parameter in the `args` array of each execution spec in execution.json:
 
 1. Does the parameter receive path-like values (absolute paths, `./`-prefixed paths)? If yes, it should be annotated with `readPath: true` or `writePath: true`.
 2. Is it a write target? If yes, it should use `writePath` (auto-creates parent dirs).
@@ -27,6 +27,7 @@ Note: Unannotated `positional` and `flag` parameters are subject to a runtime pa
 ## Cross-Validation Workflow
 
 1. Call `skills_list` to get the inventory.
-2. For each skill of interest, call `skills_validate` to check tools.json.
+2. For each skill of interest, call `skills_validate` to check the tool descriptor files.
 3. Call `skills_read` with `file` set to `skill_md` to check SKILL.md consistency: verify frontmatter includes `description`, `capability_tier`, and `metadata.requires.bins`, and that `metadata.requires.bins` matches binaries in the allowlist.
-4. Call `skills_read` with `file` set to `tools_json` and run the security audit checklist above.
+4. Call `skills_read` with `file` set to `execution_json` and run the security audit checklist above.
+5. Call `skills_read` with `file` set to `allowlist_json` and verify that allowlisted binaries/subcommands match what execution.json uses.
