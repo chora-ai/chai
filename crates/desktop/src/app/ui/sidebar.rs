@@ -16,7 +16,7 @@ fn section_heading(ui: &mut egui::Ui, label: &str) {
 pub fn sidebar(current_screen: &mut Screen, ctx: &egui::Context) {
     egui::SidePanel::left("sidebar")
         .resizable(false)
-        .exact_width(152.0)
+        .exact_width(120.0)
         .show(ctx, |ui| {
             egui::Frame::none()
                 .inner_margin(egui::Margin::symmetric(24.0, 0.0))

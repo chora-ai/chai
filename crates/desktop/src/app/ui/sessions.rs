@@ -92,7 +92,7 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
 
     egui::SidePanel::right("sessions_panel")
         .resizable(false)
-        .exact_width(220.0)
+        .exact_width(200.0)
         .show(ctx, |ui| {
             egui::Frame::none()
                 .inner_margin(egui::Margin::symmetric(24.0, 0.0))
@@ -120,7 +120,7 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
 
                     let mut selected_id = active_id.to_string();
                     ui.add_enabled_ui(combo_enabled, |ui| {
-                        let width = ui.available_width();
+                        let width = ui.available_width() - 18.0;
                         egui::ComboBox::from_id_source("active_orchestrator_select")
                             .width(width)
                             .selected_text(active_id)
@@ -205,6 +205,7 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                 let turn_in_progress = app.chat_turn_receiver.is_some() || app.chat_stopping;
                                 let can_delete = !(is_active && turn_in_progress);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.add_space(18.0);
                                     if !is_deleting {
                                         let delete_button = ui.add_enabled(can_delete, egui::Button::new("×").small());
                                         if delete_button.clicked() {

@@ -17,9 +17,9 @@ const GREEN_BORDER: egui::Color32 = egui::Color32::from_rgb(70, 90, 70);
 
 pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     let subtitle = if !running {
-        Some("Start the gateway to chat with the orchestrator.")
+        Some("Start the gateway to chat with the agent.")
     } else {
-        Some("Chat with the orchestrator using the selected provider and model.")
+        Some("Chat with the agent using the selected provider and model.")
     };
     crate::app::ui_screen(ui, "Chat", subtitle, |ui| {
         let can_send_base = running
