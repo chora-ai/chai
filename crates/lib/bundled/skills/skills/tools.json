@@ -183,5 +183,27 @@
         }
       }
     }
+  },
+  {
+    "name": "skills_dry_run",
+    "description": "Preview what a tool call would execute without running the command. Shows the argv mapping, sandbox validation, deny pattern checks, stdin content, temp files, and post-processing pipeline. Use this to verify execution.json and allowlist.json mapping is correct. With --simulated-output, also previews postProcess, hintConditions, and truncation on the provided output.",
+    "parameters": {
+      "type": "object",
+      "required": ["tool", "args"],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "description": "Tool name to preview (e.g. 'git_commit', 'files_write')"
+        },
+        "args": {
+          "type": "string",
+          "description": "Tool call arguments as JSON (e.g. '{\"message\": \"feat: add feature\"}')"
+        },
+        "simulated_output": {
+          "type": "string",
+          "description": "Simulated command output for post-execution pipeline preview (postProcess, hintConditions, truncation). Omit to skip the post-processing preview."
+        }
+      }
+    }
   }
 ]

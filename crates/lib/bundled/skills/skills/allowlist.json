@@ -10,6 +10,7 @@
     "skill write-allowlist-json",
     "skill write-execution-json",
     "skill write-script",
-    "skill delete"
+    "skill delete",
+    "skill dry-run"
   ]
 }

@@ -191,6 +191,67 @@ pub(crate) fn extract_stdin_content(
     Ok(None)
 }
 
+/// Compute temp-file parameters without writing, returning the argv entries
+/// (--flag <path>), temp file paths, and the content that would be written.
+/// Used by the dry-run preview to show temp file details without side effects.
+pub(crate) fn compute_temp_files(
+    spec: &ExecutionSpec,
+    args: &serde_json::Value,
+    allowlist: &Allowlist,
+    skill_dir: Option<&Path>,
+) -> Result<(Vec<String>, Vec<std::path::PathBuf>, Vec<(String, String)>), String> {
+    let obj = match args.as_object() {
+        Some(o) => o,
+        None => return Ok((Vec::new(), Vec::new(), Vec::new())),
+    };
+    let mut argv_entries = Vec::new();
+    let mut temp_paths = Vec::new();
+    let mut temp_file_details = Vec::new();
+    for arg in &spec.args {
+        if arg.kind != ArgKind::TempFile {
+            continue;
+        }
+        let value = match obj.get(arg.param_name()) {
+            Some(v) if !v.is_null() => {
+                match json_value_to_string(v) {
+                    Some(s) => s,
+                    None => {
+                        if arg.optional == Some(true) {
+                            continue;
+                        }
+                        return Err(format!(
+                            "tempfile parameter '{}' must be a string, number, or boolean",
+                            arg.param_name()
+                        ));
+                    }
+                }
+            }
+            _ => {
+                if arg.optional == Some(true) {
+                    continue;
+                }
+                return Err(format!(
+                    "missing required parameter: {}",
+                    arg.param_name()
+                ));
+            }
+        };
+        let resolved = transform_param_value(value, arg, allowlist, skill_dir, args)?;
+
+        let temp_dir = std::env::temp_dir();
+        let file_name = format!("chai_{}_{}", spec.tool, arg.param_name());
+        let temp_path = temp_dir.join(&file_name);
+        let temp_path_str = temp_path.to_string_lossy().into_owned();
+        temp_paths.push(temp_path.clone());
+        temp_file_details.push((temp_path_str.clone(), resolved));
+
+        let flag = arg.flag.as_deref().unwrap_or(arg.param_name());
+        argv_entries.push(format_flag(flag));
+        argv_entries.push(temp_path_str);
+    }
+    Ok((argv_entries, temp_paths, temp_file_details))
+}
+
 /// Write temp-file parameters to temporary files, returning the list of temp file paths
 /// (for cleanup after execution) and the argv entries (--flag <path>) to append to the
 /// command's argument list.

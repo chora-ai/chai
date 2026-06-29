@@ -184,8 +184,8 @@ Bundled skills cover common agent operations with no external binary dependencie
 | `notes-wikilink` | 5 | moderate | Wikilink discovery and rename: backlinks, outlinks, tag search, broken link detection, note rename |
 | `logs` | 2 | minimal | Gateway log access (recent lines, pattern search) |
 | `rss` | 2 | moderate | RSS feed monitoring via curl |
-| `skills` | 9 | full | Skill generation and management (discover, init, write, validate, delete) |
-| `skills-read` | 3 | minimal | Read-only skill inspection (read, list, validate) |
+| `skills` | 12 | full | Skill generation and management (discover, init, write, validate, delete, dry-run) |
+| `skills-read` | 4 | minimal | Read-only skill inspection (read, list, validate, dry-run) |
 | `skills-design` | 0 | minimal | Design principles for skill tools (context-only, no callable tools) |
 | `cargo` | 2 | moderate | Rust compilation and test verification (`cargo check`, `cargo test`) |
 
@@ -207,8 +207,8 @@ Several bundled skills come in **variants** — related skills that provide diff
 | notes | `notes-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
 | notes | `notes-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
 | notes | `notes` | 9 | moderate | Full note CRUD including bulk find-and-replace |
-| Skills | `skills-read` | 3 | minimal | Inspection and validation only |
-| Skills | `skills` | 9 | full | Skill authoring and management |
+| Skills | `skills-read` | 4 | minimal | Inspection, validation, and dry-run preview |
+| Skills | `skills` | 12 | full | Skill authoring and management (includes dry-run) |
 
 Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `notes-wikilink`, `notes-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill. Note that `notes-daily` does declare `variant_of: notes` — co-enabling `notes-daily` with `notes` will trigger a variant overlap warning.
 

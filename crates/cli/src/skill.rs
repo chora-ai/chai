@@ -93,6 +93,20 @@ pub(crate) enum SkillCmd {
         /// Skill directory name to delete (e.g. 'test-skill', 'myfeed')
         skill_name: String,
     },
+    /// Preview what a tool call would execute without running the command
+    DryRun {
+        /// Tool name to preview (e.g. 'git_commit', 'files_write')
+        tool: String,
+        /// Tool call arguments as JSON (e.g. '{"message": "feat: add feature"}')
+        #[arg(long)]
+        args: String,
+        /// Simulated command output for post-execution pipeline preview (postProcess, hintConditions, truncation)
+        #[arg(long)]
+        simulated_output: Option<String>,
+        /// Profile name for sandbox resolution (uses default profile if omitted)
+        #[arg(long)]
+        profile: Option<String>,
+    },
 }
 
 pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
@@ -521,6 +535,71 @@ pub(crate) fn run_skill(cmd: SkillCmd) -> Result<()> {
                 skill_name,
                 skill_dir.display()
             );
+            Ok(())
+        }
+        SkillCmd::DryRun {
+            tool,
+            args,
+            simulated_output,
+            profile,
+        } => {
+            let args_value: serde_json::Value = serde_json::from_str(&args)
+                .map_err(|e| anyhow::anyhow!("invalid JSON in --args: {}", e))?;
+
+            let skills_dir = skill_root()?;
+            if !skills_dir.exists() {
+                anyhow::bail!("skill root not found: {}", skills_dir.display());
+            }
+
+            let all_entries = lib::skills::load_skills(&skills_dir)?;
+            if all_entries.is_empty() {
+                anyhow::bail!("no skills found at {}", skills_dir.display());
+            }
+
+            // Build descriptors and skill dirs for the executor.
+            let mut descriptors: Vec<(String, lib::skills::ToolDescriptor)> = Vec::new();
+            let mut skill_dirs: Vec<(String, std::path::PathBuf)> = Vec::new();
+            for entry in &all_entries {
+                if let Some(ref desc) = entry.tool_descriptor {
+                    descriptors.push((entry.name.clone(), desc.clone()));
+                    skill_dirs.push((entry.name.clone(), entry.path.clone()));
+                }
+            }
+
+            // Resolve the write sandbox from the profile.
+            let sandbox = {
+                let paths = lib::profile::resolve_profile_dir(profile.as_deref())?;
+                let sandbox_dir = paths.sandbox_dir();
+                if sandbox_dir.exists() {
+                    Some(lib::exec::WriteSandbox::new(&sandbox_dir))
+                } else {
+                    None
+                }
+            };
+
+            let executor = lib::tools::GenericToolExecutor::from_descriptors(
+                &descriptors,
+                &skill_dirs,
+                sandbox,
+            );
+
+            if !executor.has_tool(&tool) {
+                // List available tools to help the user.
+                let available: Vec<&String> = executor.tool_names().collect();
+                anyhow::bail!(
+                    "tool '{}' not found in any loaded skill. available tools: {}",
+                    tool,
+                    available.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                );
+            }
+
+            let result = executor
+                .dry_run(&tool, &args_value, simulated_output.as_deref())
+                .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+            let json = serde_json::to_string_pretty(&result)
+                .map_err(|e| anyhow::anyhow!("failed to serialize dry-run result: {}", e))?;
+            println!("{}", json);
             Ok(())
         }
     }

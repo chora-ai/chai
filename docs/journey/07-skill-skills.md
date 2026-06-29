@@ -51,35 +51,39 @@ This journey covers the **`skills`** skill (full read + write + delete for skill
    - Send: "Validate the 'notes' skill."
    - **Expect:** The agent uses `skills_validate` and reports the result. A conformant skill shows "PASS"; errors or warnings are listed if found.
 
-6. **Discover a CLI interface**
+6. **Preview a tool's execution mapping**
+   - Send: "Preview what the files_write tool would execute with args '{\"path\": \"test.txt\", \"content\": \"hello\"}'."
+   - **Expect:** The agent uses `skills_dry_run` with `tool: "files_write"` and the args, and returns a JSON result showing the argv mapping, sandbox validation status, and resolved parameter values. The `binary` should be `"chai"` and `subcommand` should be `"file write"`.
+
+7. **Discover a CLI interface**
    - Send: "Discover the interface of the 'git' binary."
    - **Expect:** The agent uses `skills_discover` with `binary: "git"` and returns the subcommands available. The discover tool runs the binary's `--help` output.
 
-7. **Create a custom skill**
+8. **Create a custom skill**
    - Send: "Initialize a new skill called 'test-skill' with the description 'A test skill for the journey.'"
    - **Expect:** The agent uses `skills_init` and reports success.
    - Verify: `chai skill list` should now show `test-skill`.
 
-8. **Write the skill's tool descriptor files**
+9. **Write the skill's tool descriptor files**
    - Send: "Write the tool descriptor files for 'test-skill': tools.json with a single tool called 'test-skill_echo' with a 'message' parameter, allowlist.json allowing the 'echo' binary with an empty subcommand, and execution.json mapping the tool to echo with a positional argument for the message parameter."
    - **Expect:** The agent uses `skills_write_tools_json`, `skills_write_allowlist_json`, and `skills_write_execution_json` and reports success for each.
    - Then: "Validate the 'test-skill' skill."
    - **Expect:** The agent uses `skills_validate` and reports "PASS" or lists any issues to fix.
 
-9. **Write the skill's SKILL.md**
+10. **Write the skill's SKILL.md**
    - Send: "Write a SKILL.md for 'test-skill' with frontmatter description 'A test skill for the journey.', capability_tier 'minimal', and metadata.requires.bins set to ['echo']. The body should have a heading 'Test Skill' and list the 'test-skill_echo' tool."
    - **Expect:** The agent uses `skills_write_skill_md` and reports success.
 
-10. **Verify the custom skill loads**
+11. **Verify the custom skill loads**
     - Stop the gateway (Ctrl+C), then restart it: `chai gateway`.
     - **Expect:** The gateway starts, and `test-skill` is included in the loaded skill count (if it is also added to `enabledSkills`). Alternatively, confirm the skill exists: `chai skill list` should show `test-skill`.
 
-11. **Clean up: delete the test skill**
+12. **Clean up: delete the test skill**
     - Send: "Delete the 'test-skill' skill."
     - **Expect:** The agent uses `skills_delete` and reports success.
     - Verify: `chai skill list` should no longer show `test-skill`.
 
-12. **Stop the gateway** with Ctrl+C when done.
+13. **Stop the gateway** with Ctrl+C when done.
 
 ## How to Verify the Skills Skill Was Used
 
@@ -113,12 +117,13 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 | 3 | "List installed skills" | Agent returns skill inventory |
 | 4 | "Read notes SKILL.md and tool descriptor files" | Agent returns skill definitions |
 | 5 | "Validate the notes skill" | Agent reports PASS or lists issues |
-| 6 | "Discover the git binary" | Agent returns git subcommands |
-| 7 | "Init test-skill" | Skill directory created |
-| 8 | "Write tool descriptor files for test-skill" | Tool descriptor files written and validated |
-| 9 | "Write SKILL.md for test-skill" | Skill instructions written |
-| 10 | Restart gateway | Custom skill loads (if in enabledSkills) |
-| 11 | "Delete test-skill" | Skill removed |
-| 12 | Ctrl+C | Gateway stops |
+| 6 | "Preview files_write execution mapping" | Agent returns argv, sandbox validation, resolved params |
+| 7 | "Discover the git binary" | Agent returns git subcommands |
+| 8 | "Init test-skill" | Skill directory created |
+| 9 | "Write tool descriptor files for test-skill" | Tool descriptor files written and validated |
+| 10 | "Write SKILL.md for test-skill" | Skill instructions written |
+| 11 | Restart gateway | Custom skill loads (if in enabledSkills) |
+| 12 | "Delete test-skill" | Skill removed |
+| 13 | Ctrl+C | Gateway stops |
 
 **See also:** [05 — Skill: Files](05-skill-files.md) · [06 — Skill: Notes](06-skill-notes.md)

@@ -133,6 +133,28 @@ echo '...' | chai skill write-script <name> <base>
 
 When `--content` is omitted, content is read from stdin. The `--content` flag accepts values that begin with dashes (e.g. YAML frontmatter).
 
+### Dry Run
+
+Preview what a tool call would execute without running the command. This walks the execution pipeline (sandbox validation, deny pattern checks, argv building, stdin extraction, temp file computation, subcommand resolution) and returns the result as JSON. Useful for verifying `execution.json` and `allowlist.json` mappings are correct during skill authoring.
+
+```bash
+chai skill dry-run <tool> --args '<json>' [--simulated-output '<text>'] [--profile <name>]
+```
+
+| Flag | Description |
+|------|-------------|
+| `<TOOL>` | Tool name to preview (e.g. `git_commit`, `files_write`) |
+| `--args <ARGS>` | Tool call arguments as JSON (e.g. `'{"message": "feat: add feature"}'`) |
+| `--simulated-output <TEXT>` | Simulated command output for post-execution pipeline preview (postProcess, hintConditions, truncation) |
+| `--profile <PROFILE>` | Profile name for sandbox resolution (uses default profile if omitted) |
+
+**Pipeline behavior:**
+
+- **Sandbox validation fail** → Returns partial result with `sandbox_validation.status = "fail"` and downstream fields empty (nothing can be computed without valid paths).
+- **Deny pattern fail** → Returns full preview with `deny_patterns.status = "fail"` and argv/subcommand/resolved_params still computed. The deny failure is informational — it shows what *would* be blocked while revealing the argv mapping.
+- **Both pass** → Full preview with argv, stdin_content, temp_files, resolved_params, and post_pipeline metadata.
+- **Simulated output** → When provided and the spec has postProcess/hintConditions/truncation, the actual post-processing pipeline runs on the simulated output.
+
 ### Version Pinning
 
 Skills are shared across profiles. Lockfiles pin active versions for reproducibility.

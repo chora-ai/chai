@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `--agent <id>` flag on `chai sessions clear` — scopes session clearing to a specific orchestrator's session store; without `--agent`, clears the default orchestrator's sessions
 - `chai skill write-allowlist-json` and `chai skill write-execution-json` — new CLI subcommands for writing the companion files independently
 - `chai skill read --file allowlist_json` and `--file execution_json` — new file type values for reading companion files
+- `chai skill dry-run` — preview what a tool call would execute without running the command; shows argv mapping, sandbox validation, deny pattern checks, stdin content, temp files, and post-processing pipeline; optional `--simulated-output` flag previews postProcess, hintConditions, and truncation on provided output
 
 #### Desktop
 
@@ -31,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skills
 
 - `skills_write_allowlist_json` and `skills_write_execution_json` — new skill-authoring tools for writing companion files
+- `skills_dry_run` — preview tool for skill authoring and auditing; available in both `skills` and `skills-read` skills
 
 #### Runtime and Configuration
 
@@ -65,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skill Authoring
 
 - Three-file tool descriptor format — the monolithic `tools.json` (root object with `tools`, `allowlist`, `execution` keys) is split into three independent files: `tools.json` (root array of tool definitions), `allowlist.json` (root object of security grants), and `execution.json` (root array of execution specs). Each file has a single responsibility: communication, security, and implementation respectively. The loader detects the format at load time and supports both the new three-file format and the legacy single-file format (with a deprecation warning)
+- `DryRunResult` and `GenericToolExecutor::dry_run()` — preview the full execution pipeline (argv mapping, sandbox validation, deny pattern checks, stdin content, temp file paths, post-processing) without running the command. Sandbox validation failure short-circuits the preview; deny pattern failure does not, so the author can see what *would* execute even when the deny check would block the real execution. With `--simulated-output`, the dry-run also previews postProcess, hintConditions, and truncation on provided output
 
 ### Fixed
 

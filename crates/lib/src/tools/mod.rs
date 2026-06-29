@@ -4,4 +4,4 @@ mod generic;
 mod post_process;
 
 pub use crate::providers::ToolDefinition;
-pub use generic::GenericToolExecutor;
+pub use generic::{DryRunResult, GenericToolExecutor, PostPipelinePreview, StepResult, TempFilePreview};
