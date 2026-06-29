@@ -67,13 +67,9 @@ For a **new session**, when the user sends a message, the gateway sends the prov
 ```
 ## Workers
 
-You are the orchestrator agent. You have worker agents.
-
 You can call `delegate_task` to delegate a task to a worker agent.
 
 The worker does not share session history — each worker turn begins with no history.
-
-`delegate_task` calls execute sequentially — each worker turn completes before the next begins.
 
 Only delegate a task to a worker if the worker has the relevant skills.
 ```
@@ -97,8 +93,6 @@ The **static** portion is cached at gateway startup.
 <contents of AGENT.md>
 
 ## Workers
-
-You are the orchestrator agent. You have worker agents.
 
 You can call `delegate_task` to delegate a task to a worker agent.
 

@@ -73,10 +73,8 @@ pub fn build_workers_context(
 
     let mut out = String::new();
     out.push_str("## Workers\n\n");
-    out.push_str("You are the orchestrator agent. You have worker agents.\n\n");
     out.push_str("You can call `delegate_task` to delegate a task to a worker agent.\n\n");
     out.push_str("The worker does not share session history — each worker turn begins with no history.\n\n");
-    out.push_str("`delegate_task` calls execute sequentially — each worker turn completes before the next begins.\n\n");
     out.push_str("Only delegate a task to a worker if the worker has the relevant skills.\n\n");
     for w in workers {
         // Filter by enabled_workers: empty list means all workers; non-empty list means only listed ids.
@@ -176,8 +174,9 @@ mod tests {
     fn includes_orchestrator_and_worker() {
         let empty: Vec<String> = vec![];
         let s = build_workers_context(&sample_agents(), &[], Some(&empty));
-        assert!(s.contains("You are the orchestrator agent"));
-        assert!(s.contains("sequentially"));
+        assert!(s.contains("You can call `delegate_task`"));
+        assert!(s.contains("The worker does not share session history"));
+        assert!(s.contains("Only delegate a task to a worker"));
         assert!(s.contains("bob"));
         assert!(s.contains("### bob"));
         assert!(!s.contains("provider"));

@@ -457,11 +457,6 @@ The session module is in...
 - For local providers (Ollama, LM Studio) with limited concurrent request capacity, the provider itself will queue or reject excess requests — the `maxParallelWorkflows` cap prevents the gateway from sending more than the provider can handle.
 - For cloud providers with higher rate limits, users can increase the value.
 
-**System context implication:**
-- Today, **`build_workers_context`** (`crates/lib/src/orchestration/workers_context.rs`) includes the line "`delegate_task` calls execute sequentially — each worker turn completes before the next begins." This line must be removed or made dynamic when this epic is implemented.
-- When `maxParallelWorkflows` is **`1`**, the "sequentially" wording should remain. When it is greater than **`1`**, the context should ommit the not about sequential execution (i.e., "`delegate_task` calls execute sequentially — each worker turn completes before the next begins.").
-- This is a small but important change — the system context is the orchestrator's primary source of truth about its own capabilities, and an incorrect claim about sequential execution would cause the orchestrator to plan suboptimally.
-
 ### Session Consistency
 
 When delegations run concurrently, the orchestrator's message history must remain consistent. Each delegation result becomes a `tool` role message in the orchestrator's transcript. With parallel execution:
