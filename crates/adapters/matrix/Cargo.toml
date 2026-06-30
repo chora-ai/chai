@@ -1,6 +1,6 @@
 [package]
 name = "matrix-channel"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "Matrix channel adapter"
 license = "GPL-3.0"
