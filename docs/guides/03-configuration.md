@@ -355,12 +355,59 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
       "id": "engineer",
       "role": "worker",
       "defaultProvider": "lms",
-      "defaultModel": "openai/gpt-oss-20b",
-      "enabledProviders": ["lms"]
+      "defaultModel": "openai/gpt-oss-20b"
     }
   ]
 }
 ```
+
+
+**Multiple orchestrators with per-orchestrator worker visibility:**
+
+```json
+{
+  "providers": [
+    { "id": "ollama", "endpointType": "ollama" },
+    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+  ],
+  "agents": [
+    {
+      "id": "developer",
+      "role": "orchestrator",
+      "defaultProvider": "ollama",
+      "defaultModel": "qwen3:32b",
+      "enabledProviders": ["ollama", "lms"],
+      "enabledSkills": ["files", "git-read", "git"],
+      "enabledWorkers": ["engineer", "reader"],
+      "contextMode": "readOnDemand"
+    },
+    {
+      "id": "reviewer",
+      "role": "orchestrator",
+      "defaultProvider": "ollama",
+      "defaultModel": "qwen3:32b",
+      "enabledProviders": ["ollama", "lms"],
+      "enabledSkills": ["files", "git-read"],
+      "enabledWorkers": ["reader"],
+      "contextMode": "full"
+    },
+    {
+      "id": "engineer",
+      "role": "worker",
+      "defaultProvider": "lms",
+      "defaultModel": "openai/gpt-oss-20b"
+    },
+    {
+      "id": "reader",
+      "role": "worker",
+      "defaultProvider": "ollama",
+      "defaultModel": "qwen3:8b"
+    }
+  ]
+}
+```
+
+Both orchestrators share the same workers, sandbox, and providers. The developer orchestrator can delegate to both `engineer` and `reader`; the reviewer can only delegate to `reader`. Each orchestrator has its own `AGENT.md`, sessions, and provider/model defaults. See [Agents → Multiple Orchestrators](05-agents.md#multiple-orchestrators) for the full comparison with profile switching.
 
 With workers configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Each agent gets its own `AGENT.md` at `~/.chai/active/agents/<agentId>/AGENT.md`. See [Agents](05-agents.md) for more on orchestration and delegation.
 

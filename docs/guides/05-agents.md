@@ -12,6 +12,48 @@ When workers are configured, the orchestrator can delegate subtasks using the bu
 
 For multi-agent configuration examples, see [Configuration → Configuring Agents](03-configuration.md#configuring-agents).
 
+## Multiple Orchestrators
+
+When you need different agent behaviors for different tasks — for example, a developer orchestrator that writes code and a reviewer orchestrator that audits it — you can configure multiple orchestrators in the same profile. Each orchestrator gets its own `AGENT.md`, provider/model defaults, skill set, and worker visibility, while sharing the same sandbox, providers, and worker definitions.
+
+### Multiple Orchestrators vs. Profile Switching
+
+| Aspect | Profile Switch | Orchestrator Switch |
+|--------|---------------|-------------------|
+| Scope | Everything: config, workers, sandbox, providers, channels, skills | Agent context, skills, worker visibility, provider/model defaults |
+| Workers | Different per profile | Shared (with optional `enabledWorkers` filter) |
+| Sandbox | Isolated per profile | Shared |
+| Sessions | All sessions lost | Per-orchestrator session stores; switching shows the selected orchestrator's sessions |
+| Gateway restart | Required | Not required |
+
+Use multiple orchestrators when you want to change the agent's role and context without changing the entire environment. Use profile switching when you need separate sandboxes, different providers, or different channel configurations.
+
+### Orchestrator Selector
+
+When multiple orchestrators are configured, you select which one to use:
+
+- **Desktop** — An "Agent" ComboBox appears in the sessions sidebar above the session list. Switching updates the sessions list and provider/model defaults.
+- **CLI** — Pass `--agent <id>` to `chai chat`, `chai session list`, or `chai session clear` to select a specific orchestrator.
+- **WebSocket** — Pass `orchestratorId` in the `agent` RPC or `sessions.list` RPC.
+
+When only one orchestrator is configured, the selector is visible but disabled in the desktop; the CLI `--agent` flag defaults to the single orchestrator.
+
+### Per-Orchestrator Worker Visibility
+
+Each orchestrator can restrict which workers it delegates to using `enabledWorkers`:
+
+- **Absent or `null`** — No workers enabled; `delegate_task` is not offered.
+- **Empty array** (`[]`) — All profile workers are available.
+- **Non-empty array** — Only the listed workers are visible and delegatable.
+
+This lets a reviewer orchestrator delegate read-only tasks to a `reader` worker while preventing it from delegating to an `engineer` worker that could modify files.
+
+### Sessions
+
+Each orchestrator has its own session store at `<profile_dir>/agents/<orchestrator_id>/sessions/`. Switching orchestrators switches which sessions are visible. Sessions from one orchestrator are completely separate from another — switching back shows the original sessions.
+
+For a hands-on walkthrough, see [Agent: Multi-Agent Configuration](../journey/11-agent-multi.md).
+
 ## Delegation
 
 When the orchestrator calls `delegate_task`, the gateway:
@@ -42,11 +84,14 @@ For provider configuration, model id conventions, and the full endpoint type ref
 
 Each profile stores per-agent instructions under `agents/<agentId>/`. The file is always `AGENT.md` in that directory. The gateway builds a system message from the `AGENT.md` content (plus the workers roster and skills) at startup and injects it as the first message on every turn — it is never persisted in the session history.
 
-`chai init` creates `agents/orchestrator/AGENT.md` for the default orchestrator id. Edit that file to customize the orchestrator's behavior. For workers, create the directory and file manually:
+`chai init` creates `agents/orchestrator/AGENT.md` for the default orchestrator id. Edit that file to customize the orchestrator's behavior. For additional orchestrators or workers, create the directory and file manually:
 
 ```bash
+mkdir -p ~/.chai/active/agents/reviewer
+# Edit ~/.chai/active/agents/reviewer/AGENT.md with reviewer-specific instructions
+
 mkdir -p ~/.chai/active/agents/engineer
-# Edit ~/.chai/active/agents/engineer/AGENT.md with your instructions
+# Edit ~/.chai/active/agents/engineer/AGENT.md with engineer-specific instructions
 ```
 
 ### What Goes in AGENT.md

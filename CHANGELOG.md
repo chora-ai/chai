@@ -38,19 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - Multiple orchestrator entries in the `agents` array — validation relaxes from "exactly one orchestrator" to "at least one"; each orchestrator has its own provider, model, skills, and delegation policy
 - `enabledWorkers` field on orchestrator entries — optional array of worker ids this orchestrator can delegate to; absent or `null` means no workers enabled (`delegate_task` not offered); empty array means all profile workers; non-empty means only listed workers; unknown worker ids produce a validation error; rejected on worker entries at parse time
-- `OrchestratorConfig` type with accessor methods — `AgentsConfig` now holds `Vec<OrchestratorConfig>` with `default_orchestrator()`, `orchestrator(id)`, and `orchestrator_ids()` instead of flat top-level fields; on-disk `config.json` format is unchanged
-- Per-orchestrator `OrchestratorRuntime` — gateway builds a separate runtime (system context, skills, tools, executor, context mode) for each orchestrator at startup; `GatewayState` replaces flat `system_context`/`skills`/`tools_list`/`tool_executor` fields with `orchestrator_runtimes: HashMap<String, OrchestratorRuntime>`
 - Per-orchestrator session stores — each orchestrator gets its own `SessionStore` at `<profile_dir>/agents/<orchestrator_id>/sessions/`; held in `GatewayState.session_stores: HashMap<String, Arc<SessionStore>>`; sessions from one orchestrator are isolated from another
 - `agent` RPC `orchestratorId` parameter — optional; when omitted, the default (first) orchestrator is used; when provided, the gateway resolves the matching `OrchestratorRuntime` and `SessionStore`; unknown orchestrator IDs return an error
 - `sessions.list` RPC `orchestratorId` parameter — optional; when omitted, the default orchestrator's session store is queried; enables per-orchestrator session listing
 - `sessions.delete_all` RPC `orchestratorId` parameter — optional; when provided, only clears sessions for that orchestrator's session store; when omitted, clears all (backward compatible); `sessions.cleared` event includes `orchestratorId`
-- `sessions.history` and `sessions.delete` search across all session stores — a session can be retrieved or deleted regardless of which orchestrator created it
-- `enabledWorkers` system prompt filtering — `build_workers_context()` only includes workers in the orchestrator's `enabledWorkers` (when set) in the `## Workers` roster; the model never sees excluded workers
-- `enabledWorkers` delegation enforcement — `resolve_delegate_target()` rejects delegation to a worker not in the orchestrator's `enabledWorkers`, mirroring the `enabledProviders` check
-- `enabledProviders` per-orchestrator enforcement — delegation to a worker is rejected when the worker's provider is not in the requesting orchestrator's `enabledProviders`; enforced in `resolve_delegate_target()` against the calling orchestrator's config
-- `agentDetail` RPC per-orchestrator resolution — the handler checks `orchestrator_runtimes` map first, then falls back to `worker_delegate_runtimes`
-- Channel-bound messages always use the default orchestrator — `process_inbound_message` has no `orchestratorId` parameter
-- Gateway broadcast events (`session.message`, `session.deleted`, delegation events) include `orchestratorId` in their payloads — enables clients to filter events by active orchestrator
 
 ### Changed
 
@@ -72,11 +63,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Skill Authoring
 
-- Three-file tool descriptor format — the monolithic `tools.json` (root object with `tools`, `allowlist`, `execution` keys) is split into three independent files: `tools.json` (root array of tool definitions), `allowlist.json` (root object of security grants), and `execution.json` (root array of execution specs). Each file has a single responsibility: communication, security, and implementation respectively. The loader detects the format at load time and supports both the new three-file format and the legacy single-file format (with a deprecation warning)
-- `DryRunResult` and `GenericToolExecutor::dry_run()` — preview the full execution pipeline (argv mapping, sandbox validation, deny pattern checks, stdin content, temp file paths, post-processing) without running the command. Sandbox validation failure short-circuits the preview; deny pattern failure does not, so the author can see what *would* execute even when the deny check would block the real execution. With `--simulated-output`, the dry-run also previews postProcess, hintConditions, and truncation on provided output
+- Three-file tool descriptor format — the monolithic `tools.json` (root object with `tools`, `allowlist`, `execution` keys) is split into three independent files: `tools.json` (root array of tool definitions), `allowlist.json` (root object of security grants), and `execution.json` (root array of execution specs). Each file has a single responsibility: communication, security, and implementation respectively
+
+### Fixed
+
+#### Desktop
+
+- "Clear all sessions" button and per-session "×" delete button for the active session are disabled while the agent is running — previously, these could be clicked during an active turn, deleting the session out from under the running agent
 
 ### Breaking Changes
 
+- CLI subcommand renames — existing scripts using old subcommand will fail:
+  - `chai sessions` → `chai session`
 - CLI flag renames — existing scripts using old flag names will fail:
   - `file patch`: `--original-content` → `--expected-content`, `--original-content-file` → `--expected-content-file`
   - `file replace`: `--max-replacements` removed; use `--dry-run` to preview changes instead
@@ -85,12 +83,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `files_replace` and `notes_replace`: `max_replacements` parameter removed; use `dry_run` to preview changes instead
 - Tool parameter renames — existing tool calls using old parameter names will fail:
   - `files_write_lines` and `notes_write_lines`: `original_content` → `expected_content`
-
-### Fixed
-
-#### Desktop
-
-- "Clear all sessions" button and per-session "×" delete button for the active session are disabled while the agent is running — previously, these could be clicked during an active turn, deleting the session out from under the running agent
 
 ## [0.3.0] - 2026-06-27
 
