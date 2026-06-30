@@ -107,11 +107,6 @@
         "flagIfTrue": "--ignore-case"
       },
       {
-        "param": "files_with_matches",
-        "kind": "flagifboolean",
-        "flagIfTrue": "--files-with-matches"
-      },
-      {
         "param": "pattern",
         "kind": "positional"
       },
@@ -147,7 +142,10 @@
       }
     ],
     "hintConditions": [
-      { "match": "overwriting existing", "hint": "overwrote existing note" }
+      {
+        "match": "overwriting existing",
+        "hint": "overwrote existing note — verify this was intended"
+      }
     ]
   },
   {
@@ -173,9 +171,9 @@
         "optional": true
       },
       {
-        "param": "original_content",
+        "param": "expected_content",
         "kind": "tempfile",
-        "flag": "original-content-file"
+        "flag": "expected-content-file"
       },
       {
         "param": "content",
@@ -198,15 +196,14 @@
       { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
       { "param": "replacement", "kind": "stdin" },
       {
-        "param": "max_replacements",
-        "kind": "flag",
-        "flag": "max-replacements",
-        "optional": true
-      },
-      {
         "param": "literal",
         "kind": "flagifboolean",
         "flagIfTrue": "--literal"
+      },
+      {
+        "param": "dry_run",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--dry-run"
       }
     ],
     "maxOutputLines": 200

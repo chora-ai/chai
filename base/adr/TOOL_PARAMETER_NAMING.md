@@ -40,7 +40,7 @@ Rules:
 | Qualified identifiers | `{domain}_name` — always use a qualified form | `git_branch_create` → `branch_name` |
 | Multi-value | Plural for multi-value, singular for single-value | `git_add` → `paths` (accepts multiple), `git_checkout` → `branch_name` (singular) |
 | Numeric types | `integer` for numeric parameters | `git_log` → `count: integer`, `skip: integer` |
-| External binary flags | Parameter names align to the binary's existing flag names | `--files-with-matches` → `files_with_matches`, `--ignore-case` → `ignore_case` |
+| External binary flags | Parameter names align to the binary's existing flag names | `--ignore-case` → `ignore_case` |
 | Chai binary flags | CLI flags align to the ADR conventions | `--repo` (not `--path` for repo root), `--path` (not `--file-path` for file target), `--scope` (not `--root` for search directory) |
 
 ### Flag-Name Alignment

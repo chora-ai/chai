@@ -80,10 +80,6 @@
         "ignore_case": {
           "type": "boolean",
           "description": "Ignore case when matching"
-        },
-        "files_with_matches": {
-          "type": "boolean",
-          "description": "Show only file names that contain matches, not the matching lines"
         }
       }
     }
@@ -111,7 +107,7 @@
     "description": "Replace a range of lines in a file without rewriting the entire file.",
     "parameters": {
       "type": "object",
-      "required": ["path", "start_line", "original_content", "content"],
+      "required": ["path", "start_line", "expected_content", "content"],
       "properties": {
         "path": {
           "type": "string",
@@ -125,9 +121,9 @@
           "type": "integer",
           "description": "Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement) if omitted."
         },
-        "original_content": {
+        "expected_content": {
           "type": "string",
-          "description": "The content currently at [start_line, end_line]. The tool verifies this matches the file before applying the patch. If the only difference is trailing whitespace, the file's original trailing whitespace is preserved in the replacement. If it doesn't match, the edit is rejected with the expected vs actual content — re-read the file and retry."
+          "description": "The content expected at [start_line, end_line]. Must match the file exactly or the edit is rejected."
         },
         "content": {
           "type": "string",
@@ -138,7 +134,7 @@
   },
   {
     "name": "files_replace",
-    "description": "Replace all occurrences of a pattern in a file. Supports capture groups ($1-$9) in the replacement string. Returns a diff of changes made. The pattern is matched against the full file content with multiline mode enabled (^ and $ match line boundaries).",
+    "description": "Replace all occurrences of a pattern in a file. Returns a diff of changes made.",
     "parameters": {
       "type": "object",
       "required": ["path", "pattern", "replacement"],
@@ -149,20 +145,19 @@
         },
         "pattern": {
           "type": "string",
-          "description": "Search pattern (regex by default, literal when literal: true). Multiline mode: ^ and $ match line boundaries. For multi-line patterns, include actual newlines."
+          "description": "Search pattern (regex by default with multiline mode enabled, literal when literal: true)."
         },
         "replacement": {
           "type": "string",
-          "description": "Replacement string. Supports $1-$9 for capture group references (regex mode with capture groups only). Use $$ for a literal $ when the pattern has capture groups. Use an empty string to delete matches. For multi-line replacements, include actual newlines."
-        },
-        "max_replacements": {
-          "type": "integer",
-          "description": "Maximum number of replacements to apply. 0 (default) means unlimited.",
-          "default": 0
+          "description": "Replacement string. Supports $1-$9 for capture group references (capture groups only in regex mode)."
         },
         "literal": {
           "type": "boolean",
           "description": "Treat the pattern as literal text instead of regex. Default: false."
+        },
+        "dry_run": {
+          "type": "boolean",
+          "description": "Preview the diff without making changes. Default: false."
         }
       }
     }

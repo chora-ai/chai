@@ -394,7 +394,7 @@ pub enum ArgKind {
     /// manages temp file creation and cleanup. Use for content-rich parameters
     /// that cannot use stdin (because stdin is already in use) or that must
     /// match file content byte-for-byte (e.g. verification tokens like
-    /// original_content). No size limits, no encoding issues.
+    /// expected_content). No size limits, no encoding issues.
     TempFile,
     /// A fixed value pushed directly onto argv. No parameter is read from the
     /// tool call JSON. Used for command flags like `--continue` and `--abort`

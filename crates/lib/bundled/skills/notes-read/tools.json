@@ -80,10 +80,6 @@
         "ignore_case": {
           "type": "boolean",
           "description": "Ignore case when matching"
-        },
-        "files_with_matches": {
-          "type": "boolean",
-          "description": "Show only file names that contain matches, not the matching lines"
         }
       }
     }

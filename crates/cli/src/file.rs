@@ -34,16 +34,15 @@ pub(crate) enum FileCmd {
         /// Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement).
         #[arg(long)]
         end_line: Option<usize>,
-        /// The content expected at [start_line, end_line] before the patch. If provided, the tool
-        /// verifies the file matches before applying the patch. Rejects the edit if the expected
-        /// content does not match what is actually in the file.
+        /// The content expected at [start_line, end_line]. Must match the file exactly or the
+        /// edit is rejected.
         #[arg(long, allow_hyphen_values = true)]
-        original_content: Option<String>,
-        /// Read original_content from a file instead of passing it as a CLI flag. Takes precedence
-        /// over --original-content. This avoids CLI argument encoding issues for content that
+        expected_content: Option<String>,
+        /// Read expected_content from a file instead of passing it as a CLI flag. Takes precedence
+        /// over --expected-content. This avoids CLI argument encoding issues for content that
         /// must match file content byte-for-byte.
-        #[arg(long)]
-        original_content_file: Option<String>,
+        #[arg(long = "expected-content-file")]
+        expected_content_file: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
         #[arg(long, allow_hyphen_values = true)]
@@ -70,17 +69,16 @@ pub(crate) enum FileCmd {
         /// Accepts values that begin with dashes (e.g. `- replacement`, `--flag`).
         #[arg(long, allow_hyphen_values = true)]
         replacement: Option<String>,
-        /// Maximum number of replacements to apply. 0 (default) means unlimited.
-        /// Use 1 to replace only the first match and avoid unintended changes
-        /// when the same pattern appears in multiple locations.
-        #[arg(long, default_value_t = 0)]
-        max_replacements: usize,
         /// Treat the pattern as literal text instead of regex. Use this when the
         /// pattern contains regex metacharacters (e.g. source code, markdown tables,
         /// JSON) that should be matched as-is rather than interpreted as regex.
         /// Capture groups ($1-$9) are not supported in literal mode.
         #[arg(long)]
         literal: bool,
+        /// Check the pattern against a file without making changes. Use this before
+        /// making replacements in large files to prevent unintended replacements.
+        #[arg(long)]
+        dry_run: bool,
         /// Show line numbers in the diff output
         #[arg(long)]
         line_number: bool,
@@ -238,16 +236,16 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             }
             Ok(())
         }
-        FileCmd::Patch { path, start_line, end_line, original_content, original_content_file, content } => {
+        FileCmd::Patch { path, start_line, end_line, expected_content, expected_content_file, content } => {
             let content = read_content_from_stdin_or(content)?;
-            // Resolve original_content: --original-content-file takes precedence,
-            // then --original-content. File-based passing avoids CLI argument
+            // Resolve expected_content: --expected-content-file takes precedence,
+            // then --expected-content. File-based passing avoids CLI argument
             // encoding issues for content that must match file content byte-for-byte.
-            let original_content = if let Some(ref file_path) = original_content_file {
+            let expected_content = if let Some(ref file_path) = expected_content_file {
                 Some(std::fs::read_to_string(file_path)
-                    .map_err(|e| anyhow::anyhow!("failed to read original-content-file {}: {}", file_path, e))?)
+                    .map_err(|e| anyhow::anyhow!("failed to read expected-content-file {}: {}", file_path, e))?)
             } else {
-                original_content
+                expected_content
             };
             let target = std::path::Path::new(&path);
             if !target.exists() {
@@ -277,11 +275,11 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             let effective_end = end_line.min(original.lines().count());
 
-            // Verify original_content if provided, and collect trailing whitespace
+            // Verify expected_content if provided, and collect trailing whitespace
             // from the original file if the match succeeded via stage 4 (trailing-
             // whitespace tolerance). This allows us to preserve the file's trailing
             // whitespace in the replacement content.
-            let trailing_ws = if let Some(ref expected) = original_content {
+            let trailing_ws = if let Some(ref expected) = expected_content {
                 verify_original(&original, start_line, effective_end, expected)?
             } else {
                 Vec::new()
@@ -326,7 +324,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             );
             Ok(())
         }
-        FileCmd::Replace { path, pattern_file, pattern, replacement, max_replacements, literal, line_number } => {
+        FileCmd::Replace { path, pattern_file, pattern, replacement, dry_run, literal, line_number } => {
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -362,23 +360,28 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 // gives standard find-and-replace semantics where the
                 // pattern can match as a substring within a line.
                 let literal_match = try_literal_trailing_ws_match(
-                    &original, &pattern, &replacement, max_replacements, false,
+                    &original, &pattern, &replacement, false,
                 );
 
                 match literal_match {
                     LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
                         let new_content = collapse_consecutive_blank_lines(&new_content);
-                        std::fs::write(target, new_content.as_bytes())
-                            .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                         let edits = compute_replace_edits(&original, &match_ranges, &replacement);
                         let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
-                        println!(
-                            "{} replacement(s) in {} (literal match)\n{}",
-                            match_count, path, diff
-                        );
-                        if match_count > 1 && max_replacements == 0 {
-                            println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", match_count);
+
+                        if dry_run {
+                            println!(
+                                "dry run: {} replacement(s) in {} (literal match)\n{}",
+                                match_count, path, diff
+                            );
+                        } else {
+                            std::fs::write(target, new_content.as_bytes())
+                                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+                            println!(
+                                "{} replacement(s) in {} (literal match)\n{}",
+                                match_count, path, diff
+                            );
                         }
                         Ok(())
                     }
@@ -399,8 +402,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 .build()
                 .map_err(|e| anyhow::anyhow!("invalid pattern: {}. If the pattern should be matched as literal text (not regex), use literal: true.", e))?;
 
-            // Collect all captures, then apply up to max_replacements.
-            // max_replacements == 0 means unlimited.
+            // Collect all captures.
             let all_captures: Vec<_> = re.captures_iter(&original).collect();
             let count = all_captures.len();
             let line_count = original.lines().count();
@@ -410,29 +412,34 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             // like `| foo | bar |` matching at every character boundary. In that
             // case, retry as literal before writing anything to disk.
             let match_cap = degenerate_match_cap(line_count);
-            if count > match_cap && max_replacements == 0 {
+            if count > match_cap {
                 // Regex produced an unreasonable number of matches.
                 // Try literal mode — if the pattern contains unintentional
                 // regex metacharacters, literal matching will find the
                 // intended targets. Line-boundary enforcement is on for
                 // this auto-retry path to prevent false positives.
                 let literal_match = try_literal_trailing_ws_match(
-                    &original, &pattern, &replacement, max_replacements, true,
+                    &original, &pattern, &replacement, true,
                 );
                 match literal_match {
                     LiteralMatchResult::Matched { new_content, match_count: literal_count, match_ranges } => {
                         let new_content = collapse_consecutive_blank_lines(&new_content);
-                        std::fs::write(target, new_content.as_bytes())
-                            .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                         let edits = compute_replace_edits(&original, &match_ranges, &replacement);
                         let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
-                        println!(
-                            "{} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
-                            literal_count, path, count, diff
-                        );
-                        if literal_count > 1 && max_replacements == 0 {
-                            println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", literal_count);
+
+                        if dry_run {
+                            println!(
+                                "dry run: {} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
+                                literal_count, path, count, diff
+                            );
+                        } else {
+                            std::fs::write(target, new_content.as_bytes())
+                                .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+                            println!(
+                                "{} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
+                                literal_count, path, count, diff
+                            );
                         }
                         return Ok(());
                     }
@@ -448,12 +455,6 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             }
 
             if count > 0 {
-                let limit = if max_replacements > 0 {
-                    max_replacements.min(count)
-                } else {
-                    count
-                };
-
                 // Only expand capture group references ($1-$9) when the
                 // pattern contains explicit capture groups. When there are
                 // no capture groups, caps.expand() would silently consume
@@ -463,12 +464,12 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 let has_capture_groups = re.captures_len() > 1;
 
                 // Collect match byte-offset ranges for diff generation.
-                let mut match_ranges: Vec<(usize, usize)> = Vec::with_capacity(limit);
-                let mut replacement_texts: Vec<String> = Vec::with_capacity(limit);
+                let mut match_ranges: Vec<(usize, usize)> = Vec::with_capacity(count);
+                let mut replacement_texts: Vec<String> = Vec::with_capacity(count);
                 let mut result = String::with_capacity(original.len());
                 let mut last_end = 0;
 
-                for caps in all_captures.iter().take(limit) {
+                for caps in all_captures.iter() {
                     let mat = caps.get(0).unwrap();
                     result.push_str(&original[last_end..mat.start()]);
                     let expanded = if has_capture_groups {
@@ -487,28 +488,25 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
                 let new_content = collapse_consecutive_blank_lines(&result);
 
-                std::fs::write(target, new_content.as_bytes())
-                    .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
-
                 let edits = if has_capture_groups {
                     compute_replace_edits_with_replacements(&original, &match_ranges, &replacement_texts)
                 } else {
                     compute_replace_edits(&original, &match_ranges, &replacement)
                 };
                 let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
-                if limit < count {
+
+                if dry_run {
                     println!(
-                        "{} of {} match(es) replaced in {}\n{}",
-                        limit, count, path, diff
+                        "dry run: {} replacement(s) in {}\n{}",
+                        count, path, diff
                     );
                 } else {
+                    std::fs::write(target, new_content.as_bytes())
+                        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
                     println!(
                         "{} replacement(s) in {}\n{}",
                         count, path, diff
                     );
-                    if count > 1 && max_replacements == 0 {
-                        println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", count);
-                    }
                 }
                 return Ok(());
             }
@@ -522,23 +520,28 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             // enforcement is on for this auto-retry path to prevent
             // false positives.
             let literal_match = try_literal_trailing_ws_match(
-                &original, &pattern, &replacement, max_replacements, true,
+                &original, &pattern, &replacement, true,
             );
 
             match literal_match {
                 LiteralMatchResult::Matched { new_content, match_count, match_ranges } => {
                     let new_content = collapse_consecutive_blank_lines(&new_content);
-                    std::fs::write(target, new_content.as_bytes())
-                        .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
                     let edits = compute_replace_edits(&original, &match_ranges, &replacement);
                     let diff = format_replace_diff_from_edits(&original, &new_content, &edits, line_number);
-                    println!(
-                        "{} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
-                        match_count, path, diff
-                    );
-                    if match_count > 1 && max_replacements == 0 {
-                        println!("\nhint: {} match(es) replaced — use max_replacements: 1 to limit to first match", match_count);
+
+                    if dry_run {
+                        println!(
+                            "dry run: {} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
+                            match_count, path, diff
+                        );
+                    } else {
+                        std::fs::write(target, new_content.as_bytes())
+                            .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
+                        println!(
+                            "{} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
+                            match_count, path, diff
+                        );
                     }
                     Ok(())
                 }
@@ -1105,7 +1108,6 @@ fn try_literal_trailing_ws_match(
     original: &str,
     pattern: &str,
     replacement: &str,
-    max_replacements: usize,
     enforce_line_boundaries: bool,
 ) -> LiteralMatchResult {
     // Strip trailing whitespace from each line of the pattern and the
@@ -1129,7 +1131,6 @@ fn try_literal_trailing_ws_match(
     // When `enforce_line_boundaries` is false (explicit literal mode),
     // mid-line substring matches are allowed, giving standard find-and-
     // replace semantics.
-    // Respect max_replacements: 0 means unlimited.
     let mut match_ranges: Vec<(usize, usize)> = Vec::new();
     let mut search_start = 0;
     while let Some(pos) = stripped_original[search_start..].find(&stripped_pattern) {
@@ -1146,14 +1147,10 @@ fn try_literal_trailing_ws_match(
 
         if !enforce_line_boundaries || (starts_at_line_boundary && ends_at_line_boundary) {
             match_ranges.push((abs_pos, abs_end));
-            if max_replacements > 0 && match_ranges.len() >= max_replacements {
-                break;
-            }
         }
 
         search_start = abs_pos + 1;
     }
-
     if match_ranges.is_empty() {
         // Check if the pattern would match with leading-whitespace
         // normalization (strip leading whitespace from each line of
@@ -1224,11 +1221,11 @@ fn try_literal_trailing_ws_match(
 }
 
 /// Compute the safety cap for regex match counts. When the number of regex
-/// matches exceeds this value (and `max_replacements` is unlimited), the
-/// pattern is likely degenerate — e.g., an alternation like `| foo | bar |`
-/// matching at every character boundary. The cap is the larger of twice the
-/// file's line count or 10, which accommodates legitimate multi-match
-/// regexes while catching catastrophic single-character matches.
+/// matches exceeds this value, the pattern is likely degenerate — e.g., an
+/// alternation like `| foo | bar |` matching at every character boundary. The
+/// cap is the larger of twice the file's line count or 10, which accommodates
+/// legitimate multi-match regexes while catching catastrophic single-character
+/// matches.
 fn degenerate_match_cap(line_count: usize) -> usize {
     std::cmp::max(line_count * 2, 10)
 }
@@ -1417,7 +1414,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     }
 
     // Stage 5: Blank-line-boundary-tolerant match
-    // When the agent reads a line range and constructs original_content from
+    // When the agent reads a line range and constructs expected_content from
     // what it saw, blank lines at the top or bottom of the range may be
     // included or excluded differently from the actual file. Strip leading
     // and trailing blank lines from both actual and expected before comparing
@@ -1472,7 +1469,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
                 act_line,
             ),
             None if expected_lines.len() != actual_lines.len() => format!(
-                "\nhint: original_content has {} lines, file range lines {}-{} has {} lines",
+                "\nhint: expected_content has {} lines, file range lines {}-{} has {} lines",
                 expected_lines.len(),
                 start_line,
                 effective_end,
@@ -1506,7 +1503,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     };
 
     anyhow::bail!(
-        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
+        "expected_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
         start_line,
         effective_end,
         expected_fmt,
@@ -2390,7 +2387,7 @@ mod tests {
     #[test]
     fn literal_match_single_line() {
         let original = "foo   \nbar\nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
+        let result = try_literal_trailing_ws_match(original, "foo", "FOO", true);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
@@ -2403,7 +2400,7 @@ mod tests {
     #[test]
     fn literal_match_multiline_pattern() {
         let original = "foo   \nbar   \nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo\nbar", "FOO\nBAR", 0, true);
+        let result = try_literal_trailing_ws_match(original, "foo\nbar", "FOO\nBAR", true);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
@@ -2416,7 +2413,7 @@ mod tests {
     #[test]
     fn literal_match_no_match() {
         let original = "foo\nbar\nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "qux", "QUX", 0, true);
+        let result = try_literal_trailing_ws_match(original, "qux", "QUX", true);
         match result {
             LiteralMatchResult::Matched { .. } => panic!("expected no match"),
             LiteralMatchResult::NoMatch { .. } => {}
@@ -2426,7 +2423,7 @@ mod tests {
     #[test]
     fn literal_match_multiple_occurrences() {
         let original = "foo   \nbar   \nfoo\nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
+        let result = try_literal_trailing_ws_match(original, "foo", "FOO", true);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 2);
@@ -2437,23 +2434,9 @@ mod tests {
     }
 
     #[test]
-    fn literal_match_max_replacements() {
-        let original = "foo   \nbar   \nfoo\nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 1, true);
-        match result {
-            LiteralMatchResult::Matched { new_content, match_count, .. } => {
-                assert_eq!(match_count, 1);
-                // Only the first "foo" is replaced; trailing ws preserved
-                assert!(new_content.starts_with("FOO   \nbar   \nfoo\nbaz\n"));
-            }
-            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
-        }
-    }
-
-    #[test]
     fn literal_match_short_pattern_rejected() {
         let original = "a b c\n";
-        let result = try_literal_trailing_ws_match(original, "a", "X", 0, true);
+        let result = try_literal_trailing_ws_match(original, "a", "X", true);
         match result {
             LiteralMatchResult::Matched { .. } => panic!("expected no match for short pattern"),
             LiteralMatchResult::NoMatch { .. } => {}
@@ -2465,7 +2448,7 @@ mod tests {
         // Pattern "foo\nbar" matches "foo   \nbar   " with trailing ws stripped.
         // Replacement "FOO\nBAR" should have original trailing ws reapplied.
         let original = "foo   \nbar   \nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo\nbar", "FOO\nBAR", 0, true);
+        let result = try_literal_trailing_ws_match(original, "foo\nbar", "FOO\nBAR", true);
         match result {
             LiteralMatchResult::Matched { new_content, .. } => {
                 assert_eq!(new_content, "FOO   \nBAR   \nbaz\n");
@@ -2475,22 +2458,9 @@ mod tests {
     }
 
     #[test]
-    fn literal_match_with_max_replacements_replaces_first() {
-        let original = "foo   \nbar\nfoo  \nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 1, true);
-        match result {
-            LiteralMatchResult::Matched { new_content, match_count, .. } => {
-                assert_eq!(match_count, 1);
-                assert_eq!(new_content, "FOO   \nbar\nfoo  \nbaz\n");
-            }
-            LiteralMatchResult::NoMatch { .. } => panic!("expected a match"),
-        }
-    }
-
-    #[test]
     fn literal_match_no_trailing_ws_in_original() {
         let original = "foo\nbar\nbaz\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, true);
+        let result = try_literal_trailing_ws_match(original, "foo", "FOO", true);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
@@ -2506,7 +2476,7 @@ mod tests {
     fn no_match_with_leading_ws_hint() {
         // Pattern lacks indentation that the file has — should get a hint
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "let x = 1;", "let y = 2;", 0, true);
+        let result = try_literal_trailing_ws_match(original, "let x = 1;", "let y = 2;", true);
         match result {
             LiteralMatchResult::NoMatch { leading_ws_hint } => {
                 assert!(leading_ws_hint, "expected leading_ws_hint to be true");
@@ -2519,7 +2489,7 @@ mod tests {
     fn no_match_without_leading_ws_hint() {
         // Pattern doesn't match at all, even with indentation stripped
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "nonexistent content", "replacement", 0, true);
+        let result = try_literal_trailing_ws_match(original, "nonexistent content", "replacement", true);
         match result {
             LiteralMatchResult::NoMatch { leading_ws_hint } => {
                 assert!(!leading_ws_hint, "expected leading_ws_hint to be false");
@@ -2533,7 +2503,7 @@ mod tests {
         // Pattern "x = 1" is a substring of "    let x = 1;" but does not
         // start at a line boundary — should be rejected, with a hint.
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0, true);
+        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", true);
         match result {
             LiteralMatchResult::NoMatch { leading_ws_hint } => {
                 assert!(leading_ws_hint, "expected leading_ws_hint to be true");
@@ -2546,7 +2516,7 @@ mod tests {
     fn literal_match_line_boundary_accepts_full_line() {
         // Pattern "    let x = 1;" matches the complete line including indent
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "    let x = 1;", "    let y = 2;", 0, true);
+        let result = try_literal_trailing_ws_match(original, "    let x = 1;", "    let y = 2;", true);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
@@ -2563,7 +2533,7 @@ mod tests {
         // When enforce_line_boundaries is false (explicit literal mode),
         // a pattern that is a substring of a line should match.
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0, false);
+        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", false);
         match result {
             LiteralMatchResult::Matched { new_content, match_count, .. } => {
                 assert_eq!(match_count, 1);
@@ -2577,7 +2547,7 @@ mod tests {
     fn literal_explicit_mode_mid_line_multiple_matches() {
         // Multiple substring matches within different lines
         let original = "foo = 1;\nbar = foo + foo;\nbaz = 2;\n";
-        let result = try_literal_trailing_ws_match(original, "foo", "FOO", 0, false);
+        let result = try_literal_trailing_ws_match(original, "foo", "FOO", false);
         match result {
             LiteralMatchResult::Matched { match_count, .. } => {
                 assert_eq!(match_count, 3, "should match all 3 occurrences of 'foo'");
@@ -2591,7 +2561,7 @@ mod tests {
         // When a mid-line substring match is replaced, trailing WS on the
         // matched line should still be preserved from the original.
         let original = "    let x = 1;   \n}\n";
-        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0, false);
+        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", false);
         match result {
             LiteralMatchResult::Matched { new_content, .. } => {
                 assert_eq!(new_content, "    let x = 2;   \n}\n");
@@ -2605,7 +2575,7 @@ mod tests {
         // Short patterns (<=1 char) are still rejected even in explicit
         // literal mode to prevent false positives.
         let original = "a b c\n";
-        let result = try_literal_trailing_ws_match(original, "a", "X", 0, false);
+        let result = try_literal_trailing_ws_match(original, "a", "X", false);
         match result {
             LiteralMatchResult::NoMatch { .. } => {}
             LiteralMatchResult::Matched { .. } => panic!("expected no match for short pattern"),
@@ -2617,7 +2587,7 @@ mod tests {
         // When enforce_line_boundaries is true (auto-retry paths), the
         // line-boundary constraint still applies.
         let original = "fn main() {\n    let x = 1;\n}\n";
-        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", 0, true);
+        let result = try_literal_trailing_ws_match(original, "x = 1;", "x = 2;", true);
         match result {
             LiteralMatchResult::NoMatch { leading_ws_hint } => {
                 assert!(leading_ws_hint, "expected leading_ws_hint to be true");
@@ -2673,7 +2643,7 @@ mod tests {
             "alternation pattern should match far more positions than the cap (matched {})", regex_count);
 
         // But as literal, it finds exactly 1 match
-        let result = try_literal_trailing_ws_match(original, pattern, "| 🟢 P2 | Compute thing |", 0, true);
+        let result = try_literal_trailing_ws_match(original, pattern, "| 🟢 P2 | Compute thing |", true);
         match result {
             LiteralMatchResult::Matched { match_count, new_content, .. } => {
                 assert_eq!(match_count, 1);

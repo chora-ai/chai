@@ -107,11 +107,6 @@
         "flagIfTrue": "--ignore-case"
       },
       {
-        "param": "files_with_matches",
-        "kind": "flagifboolean",
-        "flagIfTrue": "--files-with-matches"
-      },
-      {
         "param": "pattern",
         "kind": "positional"
       },

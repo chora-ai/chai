@@ -13,6 +13,6 @@ metadata:
 
 ## Skill Guidelines
 
-- When making targeted edits to large files, use `files_write_lines` instead of `files_write`
+- When making an edit to a large file, use `files_write_lines` instead of `files_write`
 - When making multiple `files_write_lines` edits in the same file, work from bottom to top
-- When using `files_replace`, use `max_replacements: 1` to replace only the first match
+- When using `files_replace` with common patterns, use `dry_run: true` to preview changes

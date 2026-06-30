@@ -65,11 +65,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skills
 
 - All 15 bundled skills with tool descriptors migrated from the legacy single-file `tools.json` format to the three-file format (`tools.json`, `allowlist.json`, `execution.json`)
+- `files_write_lines` and `notes_write_lines` `original_content` parameter renamed to `expected_content` — the new name communicates the verification-guard semantics ("the content I expect at this line range") instead of the ambiguous search-target model; CLI flags `--original-content` → `--expected-content`, `--original-content-file` → `--expected-content-file`
+- `files_search` and `notes_search` `files_with_matches` parameter removed — it returned no line numbers, breaking the search → read-lines feedback loop; one less parameter, one less decision for the agent
+- `files_replace` and `notes_replace` `max_replacements` parameter replaced with `dry_run` boolean — preview the replacement diff without modifying the file; the agent sees what would change and can adjust the pattern before applying; CLI flag `--dry-run`
+- `files_replace` and `notes_replace` tool descriptions simplified — removed verbose regex instructions (`$$` for literal `$`, empty string for deletion, multiline newline instructions); these are standard regex knowledge or discoverable through dry_run
 
 #### Skill Authoring
 
 - Three-file tool descriptor format — the monolithic `tools.json` (root object with `tools`, `allowlist`, `execution` keys) is split into three independent files: `tools.json` (root array of tool definitions), `allowlist.json` (root object of security grants), and `execution.json` (root array of execution specs). Each file has a single responsibility: communication, security, and implementation respectively. The loader detects the format at load time and supports both the new three-file format and the legacy single-file format (with a deprecation warning)
 - `DryRunResult` and `GenericToolExecutor::dry_run()` — preview the full execution pipeline (argv mapping, sandbox validation, deny pattern checks, stdin content, temp file paths, post-processing) without running the command. Sandbox validation failure short-circuits the preview; deny pattern failure does not, so the author can see what *would* execute even when the deny check would block the real execution. With `--simulated-output`, the dry-run also previews postProcess, hintConditions, and truncation on provided output
+
+### Breaking Changes
+
+- CLI flag renames — existing scripts using old flag names will fail:
+  - `file patch`: `--original-content` → `--expected-content`, `--original-content-file` → `--expected-content-file`
+  - `file replace`: `--max-replacements` removed; use `--dry-run` to preview changes instead
+- Tool parameter removals — existing tool calls using removed parameters will fail:
+  - `files_search` and `notes_search`: `files_with_matches` parameter removed
+  - `files_replace` and `notes_replace`: `max_replacements` parameter removed; use `dry_run` to preview changes instead
+- Tool parameter renames — existing tool calls using old parameter names will fail:
+  - `files_write_lines` and `notes_write_lines`: `original_content` → `expected_content`
 
 ### Fixed
 

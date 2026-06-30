@@ -229,15 +229,15 @@ echo '...' | chai file append --path <PATH>
 
 # Replace a range of lines (patch)
 chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
-  --original-content '...' --content '...'
+  --expected-content '...' --content '...'
 ```
 
-The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--original-content` is provided (or `--original-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--original-content-file` to read the expected content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
+The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--expected-content` is provided (or `--expected-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--expected-content-file` to read the expected content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
 
 ### Find and Replace
 
 ```bash
-chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [--replacement <REPLACEMENT>] [--line-number] [--literal] [--max-replacements <N>]
+chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [--replacement <REPLACEMENT>] [--line-number] [--literal] [--dry-run]
 ```
 
 Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
@@ -245,6 +245,12 @@ Replace all occurrences of a regex pattern in a file. The pattern is matched aga
 **Diff line number convention** — Both `patch` and `replace` return diffs with post-edit line numbers: removed lines (`-` prefix) use original-file line numbers; added lines (`+` prefix) and context-after lines use new-file line numbers. This means context lines after an insertion show their shifted positions, not the original numbers.
 
 Either `--pattern` or `--pattern-file` is required. When `--replacement` is omitted, the replacement is read from stdin.
+
+**Dry run** — Preview what would change without modifying the file:
+
+```bash
+chai file replace --path config.toml --pattern 'obsolete_field' --replacement 'new_field' --dry-run
+```
 
 **Line deletion** — Match the line content plus its trailing newline and replace with an empty string to delete the line entirely:
 
@@ -273,7 +279,7 @@ Capture groups (`$1`–`$9`) are not supported in literal mode.
 | `--replacement <REPLACEMENT>` | Replacement string (falls back to stdin when omitted) |
 | `--line-number` | Show line numbers in the diff output (off by default) |
 | `--literal` | Treat the pattern as literal text instead of regex |
-| `--max-replacements <N>` | Maximum number of replacements to apply; `0` (default) means unlimited; use `1` to replace only the first match |
+| `--dry-run` | Preview the replacement diff without modifying the file |
 
 If zero matches are found, exits 0 with a "0 replacements" message.
 
