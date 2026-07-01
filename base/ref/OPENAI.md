@@ -41,7 +41,7 @@ The `"openai-compat"` endpoint type follows the OpenAI API specification. When a
 
 - **`crates/lib/src/providers/openai_compat.rs`** — Shared **`OpenAiCompatClient`** (HTTP, serde types, streaming). Used by **all** `"openai-compat"` providers regardless of hosting service or deployment. Product-specific behaviors (LM Studio model discovery, LM Studio auto-load) are implemented as methods on this client.
 - There is **no separate module per hosting service** — NearAI, NVIDIA NIM, LM Studio, and any other OpenAI-compatible server all share the same `OpenAiCompatClient`. Differentiation comes from `baseUrl`, `apiKey`, and behavior fields in the provider configuration.
-- **Config** — A provider is configured with `endpointType: "openai-compat"` plus optional fields. `agents.defaultProvider` references the provider `id`. `agents.defaultModel` is the model id as expected by the server (e.g. `llama-3.2-3B-instruct` for LM Studio, `zai-org/GLM-5.1-FP8` for NearAI). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
+- **Config** — A provider is configured with `endpointType: "openai-compat"` plus optional fields. `agents.defaultProvider` references the provider `id`. `agents.defaultModel` is the model id as expected by the server (e.g. `llama-3.2-3B-instruct` for LM Studio, `z-ai/glm-5.2` for NearAI). See `resolve_model()` in the gateway and fallback in the agent when the configured value is empty.
 
 ### Endpoints Used
 
@@ -129,7 +129,7 @@ The `staticModels` field is an array of model id strings used when `modelDiscove
 
 ```json
 {
-  "id": "nim",
+  "id": "nvidia",
   "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
   "modelDiscovery": "static",
@@ -152,7 +152,7 @@ Four providers demonstrate the key configuration patterns for `"openai-compat"`.
 The simplest `openai-compat` configuration: no `baseUrl` or `apiKey` needed. LM Studio is the reference local-first option for this endpoint type — the default base URL (`http://127.0.0.1:1234/v1`) is LM Studio's localhost address.
 
 ```json
-{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+{ "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 - **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
@@ -174,7 +174,12 @@ A bare `{ "id": "local", "endpointType": "openai-compat" }` also connects to LM 
 A remote OpenAI-compatible API. Needs `baseUrl` and `apiKey`. NearAI is the reference cloud example for this endpoint type.
 
 ```json
-{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": null }
+{
+  "id": "nearai",
+  "endpointType": "openai-compat",
+  "baseUrl": "https://cloud-api.near.ai/v1",
+  "apiKey": "<NEARAI_API_KEY>"
+}
 ```
 
 - **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
@@ -191,10 +196,10 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 
 ```json
 {
-  "id": "nim",
+  "id": "nvidia",
   "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
-  "apiKey": null,
+  "apiKey": "<NVIDIA_API_KEY>",
   "modelDiscovery": "static",
   "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"]
 }

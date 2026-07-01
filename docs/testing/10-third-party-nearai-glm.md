@@ -11,14 +11,19 @@ Follow the [NearAI setup](PROVIDER_SETUP.md#nearai) instructions, then set `agen
 Example configuration:
 
 ```json
-{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
+{
+  "id": "nearai",
+  "endpointType": "openai-compat",
+  "baseUrl": "https://cloud-api.near.ai/v1",
+  "apiKey": "<NEARAI_API_KEY>"
+}
 ```
 
 ## Models
 
 The following models support tools:
 
-- `zai-org/GLM-5.1-FP8` - [source (NearAI)](https://near.ai)
+- `z-ai/glm-5.2` - [source (NearAI)](https://near.ai)
 
 ## Procedure
 

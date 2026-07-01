@@ -815,18 +815,18 @@ mod tests {
 
     #[test]
     fn resolve_delegate_target_uses_worker_defaults() {
-        let providers = test_providers(&["ollama", "lms"]);
+        let providers = test_providers(&["ollama", "lmstudio"]);
         let orch = OrchestratorConfig {
             id: "orchestrator".to_string(),
             default_provider: Some("ollama".to_string()),
             default_model: Some("global-default".to_string()),
-            enabled_providers: Some(vec!["lms".to_string(), "ollama".to_string()]),
+            enabled_providers: Some(vec!["lmstudio".to_string(), "ollama".to_string()]),
             enabled_workers: Some(vec![]),
             ..Default::default()
         };
         let workers = Some(vec![WorkerConfig {
             id: "fast".to_string(),
-            default_provider: Some("lms".to_string()),
+            default_provider: Some("lmstudio".to_string()),
             default_model: Some("worker-model".to_string()),
             enabled_skills: None,
             context_mode: None,
@@ -838,7 +838,7 @@ mod tests {
         });
 
         let target = resolve_delegate_target(&providers, &orch, &workers, &args).expect("resolved");
-        assert_eq!(target.provider_id, "lms");
+        assert_eq!(target.provider_id, "lmstudio");
         assert_eq!(target.model, "worker-model");
     }
 
@@ -904,7 +904,7 @@ mod tests {
 
     #[test]
     fn resolve_delegate_target_rejects_provider_not_in_enabled_providers() {
-        let providers = test_providers(&["ollama", "lms"]);
+        let providers = test_providers(&["ollama", "lmstudio"]);
         let orch = OrchestratorConfig {
             id: "orchestrator".to_string(),
             default_provider: Some("ollama".to_string()),
@@ -914,7 +914,7 @@ mod tests {
         };
         let workers = Some(vec![WorkerConfig {
             id: "fast".to_string(),
-            default_provider: Some("lms".to_string()),
+            default_provider: Some("lmstudio".to_string()),
             default_model: None,
             enabled_skills: None,
             context_mode: None,
@@ -931,18 +931,18 @@ mod tests {
 
     #[test]
     fn resolve_delegate_target_allows_when_both_filters_pass() {
-        let providers = test_providers(&["ollama", "lms"]);
+        let providers = test_providers(&["ollama", "lmstudio"]);
         let orch = OrchestratorConfig {
             id: "orchestrator".to_string(),
             default_provider: Some("ollama".to_string()),
             default_model: Some("orch-model".to_string()),
-            enabled_providers: Some(vec!["ollama".to_string(), "lms".to_string()]),
+            enabled_providers: Some(vec!["ollama".to_string(), "lmstudio".to_string()]),
             enabled_workers: Some(vec!["fast".to_string()]),
             ..Default::default()
         };
         let workers = Some(vec![WorkerConfig {
             id: "fast".to_string(),
-            default_provider: Some("lms".to_string()),
+            default_provider: Some("lmstudio".to_string()),
             default_model: Some("fast-model".to_string()),
             enabled_skills: None,
             context_mode: None,
@@ -954,7 +954,7 @@ mod tests {
         });
 
         let target = resolve_delegate_target(&providers, &orch, &workers, &args).expect("resolved");
-        assert_eq!(target.provider_id, "lms");
+        assert_eq!(target.provider_id, "lmstudio");
         assert_eq!(target.model, "fast-model");
     }
 

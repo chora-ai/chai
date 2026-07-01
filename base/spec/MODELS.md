@@ -55,7 +55,7 @@ Provider config: `endpointType: "openai-compat"`, `baseUrl: "https://cloud-api.n
 
 | Model | Notes |
 |-------|-------|
-| `zai-org/GLM-5.1-FP8` | Example model id |
+| `z-ai/glm-5.2` | Example model id |
 
 *Model ids depend on the NearAI model catalog. Standard OpenAI-compat discovery (`GET /v1/models`) is used by default.*
 
@@ -81,7 +81,7 @@ For this document, **local** means a model that is **realistic to run on a typic
 | **`qwen3:8b`** | [OLLAMA.md](../ref/OLLAMA.md) |
 | **`openai/gpt-oss-20b`** | [LM Studio](#lm-studio), [LM_STUDIO.md](../ref/LM_STUDIO.md) |
 | **`gpt-4o-mini`**, **`gpt-4o`** | [OPENAI.md](../ref/OPENAI.md), [`crates/lib/src/config.rs`](../../crates/lib/src/config.rs) |
-| **`zai-org/GLM-5.1-FP8`** | NearAI example model id in docs |
+| **`z-ai/glm-5.2`** | NearAI example model id in docs |
 
 ### Master Table: Deployment Category and Chai Fit
 
@@ -94,6 +94,6 @@ For this document, **local** means a model that is **realistic to run on a typic
 | `qwen3:8b` | 8B | Yes | Yes | — | Yes if tool-capable build |
 | `openai/gpt-oss-20b` | 20B | **No** | Yes (LM Studio / openai-compat) | If offered | Depends; test |
 | `gpt-4o-mini`, `gpt-4o` | — | **No** (API-only in repo) | — | Yes (OpenAI) | Yes |
-| `zai-org/GLM-5.1-FP8` | — | **No** | — | Yes (NearAI) | Yes (OpenAI-compat) |
+| `z-ai/glm-5.2` | — | **No** | — | Yes (NearAI) | Yes (OpenAI-compat) |
 | NIM static models: `meta/llama-3.1-8b-instruct` | 8B | Yes *if* you run equivalent locally | Yes | Yes (NIM) | Yes via OpenAI-compat |
 | NIM static models: `meta/llama-3.1-70b-instruct`, etc. | Large | **No** | Yes | Yes (NIM) | Varies; large instruct models usually support tools on NIM |

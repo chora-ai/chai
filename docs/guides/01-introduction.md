@@ -19,9 +19,9 @@ A **provider** is a model backend — where the inference happens. Chai supports
 | Provider | Where it runs | Endpoint Type | Special behavior | Needs API key |
 |----------|---------------|---------------|------------------|---------------|
 | **Ollama** (`ollama`) | Your machine | `"ollama"` | — | No |
-| **LM Studio** (`lms`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"` | No |
+| **LM Studio** (`lmstudio`) | Your machine | `"openai-compat"` | `modelDiscovery: "lmstudio"` | No |
 | **NearAI** (`nearai`) | NearAI cloud | `"openai-compat"` | — | Yes |
-| **NVIDIA NIM** (`nim`) | NVIDIA cloud | `"openai-compat"` | `modelDiscovery: "static"`, `staticModels` | Yes |
+| **NVIDIA NIM** (`nvidia`) | NVIDIA cloud | `"openai-compat"` | `modelDiscovery: "static"`, `staticModels` | Yes |
 
 Any other OpenAI-compatible server (vLLM, Hugging Face TGI, OpenAI, Azure OpenAI, etc.) can be configured as an `"openai-compat"` provider with the appropriate `baseUrl` and `apiKey`.
 
@@ -29,7 +29,7 @@ The default provider is Ollama — local-first, no API key required.
 
 ### Agents
 
-An **agent** is a named configuration entry that ties a provider and model to a role. There is always one **orchestrator** (owns the conversation) and optionally any number of **workers** (handle delegated subtasks). Agents are not separate services; the gateway reads the `agents` block in your config and routes each turn through the appropriate backend.
+An **agent** is a named configuration entry that ties a provider and model to a role. There are **orchestrators** (own the conversation) and **workers** (handle delegated subtasks). The gateway reads the `agents` block in your config and routes each turn through the appropriate backend.
 
 ### Skills
 
@@ -55,9 +55,9 @@ Channels (Telegram, Matrix, Signal, WebSocket, Desktop)
   ▼
 Gateway ─── loads ──→ Config (config.json)
   │                      │
+  │                      ├── Channels (credentials)
   │                      ├── Providers (URLs, API keys)
-  │                      ├── Agents (roles, models, skills)
-  │                      └── Channels (credentials)
+  │                      └── Agents (roles, models, skills)
   │
   ├── Orchestrator turn ──→ Provider API (Ollama, OpenAI, …)
   │     │                        │

@@ -30,14 +30,15 @@ By default, chai runs a single orchestrator agent. The `agents` array supports m
          "defaultProvider": "ollama",
          "defaultModel": "llama3.2:3b",
          "enabledProviders": ["ollama"],
-         "enabledSkills": ["files"],
+         "enabledSkills": ["files", "git"],
          "enabledWorkers": ["engineer"]
        },
        {
          "id": "engineer",
          "role": "worker",
          "defaultProvider": "ollama",
-         "defaultModel": "llama3.2:3b"
+         "defaultModel": "llama3.2:3b",
+         "enabledSkills": ["files"]
        }
      ]
    }
@@ -102,7 +103,7 @@ By default, chai runs a single orchestrator agent. The `agents` array supports m
          "defaultProvider": "ollama",
          "defaultModel": "llama3.2:3b",
          "enabledProviders": ["ollama"],
-         "enabledSkills": ["files"],
+         "enabledSkills": ["files", "git"],
          "enabledWorkers": ["engineer"]
        },
        {
@@ -117,7 +118,8 @@ By default, chai runs a single orchestrator agent. The `agents` array supports m
          "id": "engineer",
          "role": "worker",
          "defaultProvider": "ollama",
-         "defaultModel": "llama3.2:3b"
+         "defaultModel": "llama3.2:3b",
+         "enabledSkills": ["files"]
        }
      ]
    }

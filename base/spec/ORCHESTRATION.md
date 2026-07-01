@@ -15,7 +15,7 @@ This document describes how **orchestrator** and **worker** entries in **`config
 
 ## Configuration Quick Reference
 
-Canonical provider ids used in policy and catalogs: **`ollama`**, **`lms`**, **`nearai`**, **`nim`** (see [README.md](../../README.md), [PROVIDERS.md](PROVIDERS.md), and [MODELS.md](MODELS.md)). Users can configure any other `openai-compat` provider with a custom `id`.
+Canonical provider ids used in policy and catalogs: **`ollama`**, **`lmstudio`**, **`nearai`**, **`nvidia`** (see [README.md](../../README.md), [PROVIDERS.md](PROVIDERS.md), and [MODELS.md](MODELS.md)). Users can configure any other `openai-compat` provider with a custom `id`.
 
 ### Orchestrator entry
 

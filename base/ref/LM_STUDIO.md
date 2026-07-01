@@ -26,12 +26,12 @@ Reference for how the LM Studio API is used in this codebase, what the full API 
 - **LM Studio is configured as an `"openai-compat"` provider** with LM Studio–specific behavior fields. Example:
 
   ```json
-  { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+  { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ```
 
 - **`modelDiscovery: "lmstudio"`** — Uses LM Studio's native `GET /api/v1/models` endpoint to discover models (filters by `type == "llm"`, uses `key` as model id), instead of the standard OpenAI-compat `GET /v1/models`.
 - **Automatic retry on unload** — When `modelDiscovery: "lmstudio"` is set and a chat request returns a 500 "Model is unloaded" error, the client automatically calls `POST /api/v1/models/load` with the model id and retries the chat request once. This behavior is always enabled for LM Studio providers — no separate configuration field is needed.
-- **Config** — A provider with `endpointType: "openai-compat"` and `id` such as `"lms"` (user-chosen). `agents.defaultProvider` references this `id`. `agents.defaultModel` is the model id passed as-is (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`). Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
+- **Config** — A provider with `endpointType: "openai-compat"` and `id` such as `"lmstudio"` (user-chosen). `agents.defaultProvider` references this `id`. `agents.defaultModel` is the model id passed as-is (e.g. `llama-3.2-3B-instruct`, `openai/gpt-oss-20b`). Optional `baseUrl` (default `http://127.0.0.1:1234/v1`).
 - **Client** — Uses `OpenAiCompatClient` (shared with all `"openai-compat"` providers). LM Studio–specific model discovery and retry on unload are implemented as methods on `OpenAiCompatClient`.
 
 ### Base URL

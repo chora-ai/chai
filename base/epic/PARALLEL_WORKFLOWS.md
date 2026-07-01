@@ -13,7 +13,7 @@ status: draft
 When the orchestrator model returns multiple `delegate_task` tool calls in a single response (or across loop iterations), the current tool loop processes them **one at a time**. In **`execute_turn_main`** (`crates/lib/src/agent.rs`), the `for (idx, call) in last_tool_calls.iter().enumerate()` loop awaits each `execute_delegate_task` call sequentially. This means:
 
 1. **Wasted latency** — If the orchestrator delegates to three workers in one response, the total wall-clock time is the **sum** of all three worker turns, not the **maximum**. With parallel execution, the total would be bounded by the slowest worker.
-2. **Underutilized providers** — Workers targeting different providers (e.g., one on `ollama`, one on `nim`) could run simultaneously, but the sequential loop forces them to wait on each other.
+2. **Underutilized providers** — Workers targeting different providers (e.g., one on `ollama`, one on `nvidia`) could run simultaneously, but the sequential loop forces them to wait on each other.
 3. **Same-worker serialization** — Even when delegating to the same worker multiple times (e.g., an orchestrator with one worker handling three independent file reads), the calls are serialized. Parallel execution would allow up to `maxParallelWorkflows` concurrent turns on the same worker's provider.
 4. **No orchestration during delegation** — While a worker turn is in progress, the orchestrator is **blocked**. It cannot make its own tool calls, emit progress, or start additional delegations. The entire agent turn is a single blocking `await`.
 

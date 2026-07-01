@@ -26,12 +26,12 @@ These playbooks use the shared message sequences that exercise tool calls. Only 
 | 01 | local | ollama | llama | A | [01-local-ollama-llama.md](01-local-ollama-llama.md) |
 | 02 | local | ollama | qwen | A | [02-local-ollama-qwen.md](02-local-ollama-qwen.md) |
 | 03 | local | ollama | deepseek | — | [03-local-ollama-deepseek.md](03-local-ollama-deepseek.md) |
-| 04 | local | lms | llama | A | [04-local-lms-llama.md](04-local-lms-llama.md) |
-| 05 | local | lms | qwen | A | [05-local-lms-qwen.md](05-local-lms-qwen.md) |
-| 06 | local | lms | deepseek | A | [06-local-lms-deepseek.md](06-local-lms-deepseek.md) |
-| 07 | third-party | nim | llama | A | [07-third-party-nim-llama.md](07-third-party-nim-llama.md) |
-| 08 | third-party | nim | qwen | A | [08-third-party-nim-qwen.md](08-third-party-nim-qwen.md) |
-| 09 | third-party | nim | deepseek | A | [09-third-party-nim-deepseek.md](09-third-party-nim-deepseek.md) |
+| 04 | local | lmstudio | llama | A | [04-local-lmstudio-llama.md](04-local-lmstudio-llama.md) |
+| 05 | local | lmstudio | qwen | A | [05-local-lmstudio-qwen.md](05-local-lmstudio-qwen.md) |
+| 06 | local | lmstudio | deepseek | A | [06-local-lmstudio-deepseek.md](06-local-lmstudio-deepseek.md) |
+| 07 | third-party | nvidia | llama | A | [07-third-party-nvidia-llama.md](07-third-party-nvidia-llama.md) |
+| 08 | third-party | nvidia | qwen | A | [08-third-party-nvidia-qwen.md](08-third-party-nvidia-qwen.md) |
+| 09 | third-party | nvidia | deepseek | A | [09-third-party-nvidia-deepseek.md](09-third-party-nvidia-deepseek.md) |
 | 10 | third-party | nearai | zai-org | A | [10-third-party-nearai-glm.md](10-third-party-nearai-glm.md) |
 
 ### Non-Tool Playbook

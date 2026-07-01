@@ -18,7 +18,7 @@ The `testing` directory contains repeatable playbooks for systematically evaluat
 
 ### Filename
 
-- **Tool-use playbooks (01–19):** `NN-category-provider-family.md` — number, deployment category (`local` or `third-party`), provider id, model family. Example: `01-local-ollama-llama.md`, `07-third-party-nim-llama.md`.
+- **Tool-use playbooks (01–19):** `NN-category-provider-family.md` — number, deployment category (`local` or `third-party`), provider id, model family. Example: `01-local-ollama-llama.md`, `07-third-party-nvidia-llama.md`.
 - **Special-purpose playbooks (20+):** `NN-category-description.md` — number, category (`conversation`, `multi-tool`, `error-handling`, etc.), short description. Example: `20-conversation-no-tools.md`, `21-multi-tool.md`.
 
 ### Playbook Structure

@@ -57,13 +57,13 @@ Configuration:
 ```json
 {
   "providers": [
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
-      "defaultProvider": "lms",
+      "defaultProvider": "lmstudio",
       "defaultModel": "openai/gpt-oss-20b"
     }
   ]
@@ -87,14 +87,19 @@ Configuration:
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEAR_API_KEY>"
+    }
   ],
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
       "defaultProvider": "nearai",
-      "defaultModel": "zai-org/GLM-5.1-FP8"
+      "defaultModel": "z-ai/glm-5.2"
     }
   ]
 }
@@ -115,18 +120,23 @@ Configuration:
 {
   "providers": [
     {
-      "id": "nim",
+      "id": "nvidia",
       "endpointType": "openai-compat",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKey": "<NVIDIA_API_KEY>",
       "modelDiscovery": "static",
-      "staticModels": ["meta/llama-3.1-8b-instruct", "deepseek-ai/deepseek-v3.1"]
+      "staticModels": [
+        "meta/llama-3.1-8b-instruct",
+        "meta/llama-3.1-70b-instruct",
+        "deepseek-ai/deepseek-v3.1"
+      ]
     }
   ],
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
-      "defaultProvider": "nim",
+      "defaultProvider": "nvidia",
       "defaultModel": "meta/llama-3.1-8b-instruct"
     }
   ]
@@ -168,7 +178,12 @@ You can configure multiple providers and assign different agents to different ba
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEAR_API_KEY>"
+    }
   ],
   "agents": [
     {

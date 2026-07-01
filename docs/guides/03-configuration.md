@@ -49,12 +49,7 @@ Each profile gets its own `config.json`, agent context directories, and local st
 
 ### When to Re-Run
 
-Re-running `chai init` is useful when:
-
-- A new version of chai ships updated bundled skills — the new version snapshots will be created on disk (you can adopt them with `chai skill rollback` or by manually updating the `active` symlink)
-- A `sandbox/` directory was accidentally deleted — the missing directory and template files will be re-created for existing profiles without affecting other profile files
-- A profile directory was deleted — the entire profile will be re-seeded from scratch
-- You want to ensure the default profile scaffold is complete
+Re-running `chai init` is useful when a new version of chai ships updated bundled skills — the new version snapshots will be created on disk (you can adopt them with `chai skill rollback` or by manually updating the `active` symlink)
 
 ## Profiles
 
@@ -128,13 +123,13 @@ The gateway defaults to a single Ollama provider at `http://127.0.0.1:11434` wit
 ```json
 {
   "providers": [
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
-      "defaultProvider": "lms",
+      "defaultProvider": "lmstudio",
       "defaultModel": "openai/gpt-oss-20b"
     }
   ]
@@ -148,20 +143,25 @@ LM Studio uses `modelDiscovery: "lmstudio"` to list models via its native `GET /
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEAR_API_KEY>"
+    }
   ],
   "agents": [
     {
       "id": "orchestrator",
       "role": "orchestrator",
       "defaultProvider": "nearai",
-      "defaultModel": "zai-org/GLM-5.1-FP8"
+      "defaultModel": "z-ai/glm-5.2"
     }
   ]
 }
 ```
 
-Set the API key via the `apiKey` field in the provider object. This same pattern applies to any remote OpenAI-compatible API — OpenAI itself, Azure OpenAI, Together, Groq, etc. — just change the `baseUrl` and model id.
+This same pattern applies to any remote OpenAI-compatible API — OpenAI itself, Azure OpenAI, Together, Groq, etc. — just change the `baseUrl` and model id. Set `"apiKey"` to a literal key string or an environment variable reference like `"<NEAR_API_KEY>"` (the named variable is read from the shell environment or a `.env` file in the profile directory).
 
 **NVIDIA NIM with a static model list:**
 
@@ -169,9 +169,10 @@ Set the API key via the `apiKey` field in the provider object. This same pattern
 {
   "providers": [
     {
-      "id": "nim",
+      "id": "nvidia",
       "endpointType": "openai-compat",
       "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKey": "<NVIDIA_API_KEY>",
       "modelDiscovery": "static",
       "staticModels": [
         "meta/llama-3.1-8b-instruct",
@@ -184,7 +185,7 @@ Set the API key via the `apiKey` field in the provider object. This same pattern
     {
       "id": "orchestrator",
       "role": "orchestrator",
-      "defaultProvider": "nim",
+      "defaultProvider": "nvidia",
       "defaultModel": "meta/llama-3.1-8b-instruct"
     }
   ]
@@ -199,8 +200,13 @@ NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is us
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" },
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" },
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEAR_API_KEY>"
+    }
   ],
   "agents": [
     {
@@ -208,7 +214,7 @@ NIM does not expose a `/v1/models` endpoint, so `modelDiscovery: "static"` is us
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
-      "enabledProviders": ["ollama", "lms", "nearai"]
+      "enabledProviders": ["ollama", "lmstudio", "nearai"]
     }
   ]
 }
@@ -243,9 +249,9 @@ Use the exact model id expected by the selected provider for `defaultModel`:
 | Provider `id` (example) | Endpoint Type | Model id example | Where to find it |
 |-------------------------|---------------|------------------|------------------|
 | `ollama` | `"ollama"` | `llama3.2:3b`, `qwen3:8b` | `ollama list` |
-| `lms` | `"openai-compat"` + `modelDiscovery: "lmstudio"` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
-| `nearai` | `"openai-compat"` | `zai-org/GLM-5.1-FP8` | [NearAI model catalog](https://near.ai) |
-| `nim` | `"openai-compat"` + `modelDiscovery: "static"` | `meta/llama-3.1-8b-instruct` | [NVIDIA LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis) |
+| `lmstudio` | `"openai-compat"` + `modelDiscovery: "lmstudio"` | `llama-3.2-3B-instruct` | LM Studio UI or `GET …/api/v1/models` |
+| `nearai` | `"openai-compat"` | `z-ai/glm-5.2` | [NearAI model catalog](https://near.ai) |
+| `nvidia` | `"openai-compat"` + `modelDiscovery: "static"` | `meta/llama-3.1-8b-instruct` | [NVIDIA LLM APIs](https://docs.api.nvidia.com/nim/reference/llm-apis) |
 
 For other OpenAI-compatible servers, use the model id that the server expects (e.g. the same id you pass to `vllm serve`, your endpoint's Hugging Face model id, etc.).
 
@@ -269,13 +275,13 @@ Add a `channels` block to enable one or more.
 {
   "channels": {
     "telegram": {
-      "botToken": "123456:ABC-DEF..."
+      "botToken": "<TELEGRAM_BOT_TOKEN>"
     }
   }
 }
 ```
 
-Or set `TELEGRAM_BOT_TOKEN` as an environment variable. For webhook mode (better for public gateways), also set `webhookUrl` and optionally `webhookSecret`. See [Connections](04-connections.md) for the full setup walkthrough.
+For webhook mode (better for public gateways), also set `webhookUrl` and optionally `webhookSecret`. See [Connections](04-connections.md) for the full setup walkthrough. Set `"botToken"` to a literal key string or an environment variable reference like `"<TELEGRAM_BOT_TOKEN>"` (the named variable is read from the shell environment or a `.env` file in the profile directory).
 
 **Matrix** (experimental; requires `--features matrix` at build time):
 
@@ -324,12 +330,11 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 {
   "agents": [
     {
-      "id": "orchestrator",
+      "id": "assistant",
       "role": "orchestrator",
-      "defaultProvider": "openai",
-      "defaultModel": "llama-3.2-3B-instruct",
-      "enabledSkills": ["files", "git-read"],
-      "contextMode": "full"
+      "defaultProvider": "lmstudio",
+      "defaultModel": "openai/gpt-oss-20b",
+      "enabledSkills": ["files-read"]
     }
   ]
 }
@@ -341,7 +346,7 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
@@ -349,18 +354,18 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "llama3.2:3b",
-      "enabledProviders": ["ollama", "lms"]
+      "enabledSkills": ["files-read"]
     },
     {
       "id": "engineer",
       "role": "worker",
-      "defaultProvider": "lms",
-      "defaultModel": "openai/gpt-oss-20b"
+      "defaultProvider": "lmstudio",
+      "defaultModel": "openai/gpt-oss-20b",
+      "enabledSkills": ["files", "git"]
     }
   ]
 }
 ```
-
 
 **Multiple orchestrators with per-orchestrator worker visibility:**
 
@@ -368,7 +373,7 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
   ],
   "agents": [
     {
@@ -376,8 +381,8 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "qwen3:32b",
-      "enabledProviders": ["ollama", "lms"],
-      "enabledSkills": ["files", "git-read", "git"],
+      "enabledProviders": ["ollama", "lmstudio"],
+      "enabledSkills": ["files", "cargo", "git"],
       "enabledWorkers": ["engineer", "reader"],
       "contextMode": "readOnDemand"
     },
@@ -386,7 +391,7 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
       "role": "orchestrator",
       "defaultProvider": "ollama",
       "defaultModel": "qwen3:32b",
-      "enabledProviders": ["ollama", "lms"],
+      "enabledProviders": ["ollama", "lmstudio"],
       "enabledSkills": ["files", "git-read"],
       "enabledWorkers": ["reader"],
       "contextMode": "full"
@@ -394,20 +399,22 @@ The `agents` array defines the orchestrator and optional workers. Omit the key e
     {
       "id": "engineer",
       "role": "worker",
-      "defaultProvider": "lms",
-      "defaultModel": "openai/gpt-oss-20b"
+      "defaultProvider": "lmstudio",
+      "defaultModel": "openai/gpt-oss-20b",
+      "enabledSkills": ["files", "cargo"]
     },
     {
       "id": "reader",
       "role": "worker",
       "defaultProvider": "ollama",
-      "defaultModel": "qwen3:8b"
+      "defaultModel": "qwen3:8b",
+      "enabledSkills": ["files-read", "git-read"]
     }
   ]
 }
 ```
 
-Both orchestrators share the same workers, sandbox, and providers. The developer orchestrator can delegate to both `engineer` and `reader`; the reviewer can only delegate to `reader`. Each orchestrator has its own `AGENT.md`, sessions, and provider/model defaults. See [Agents → Multiple Orchestrators](05-agents.md#multiple-orchestrators) for the full comparison with profile switching.
+All agents share the same sandbox. The user can switch between all available models from both providers when interacting with either orchestrator. The developer orchestrator can delegate to both `engineer` and `reader`; the reviewer can only delegate to `reader`. Each orchestrator has its own `AGENT.md` and sessions. See [Agents → Multiple Orchestrators](05-agents.md#multiple-orchestrators) for the full comparison with profile switching.
 
 With workers configured, the orchestrator can delegate subtasks using the built-in `delegate_task` tool. Each agent gets its own `AGENT.md` at `~/.chai/active/agents/<agentId>/AGENT.md`. See [Agents](05-agents.md) for more on orchestration and delegation.
 
@@ -515,9 +522,10 @@ The `providers` array contains provider definitions. Each provider has a unique 
 | Provider `id` | `endpointType` | `baseUrl` | `modelDiscovery` | Notes |
 |---------------|-----------|-----------|-------------------|-------|
 | `ollama` | `"ollama"` | (default) | (default) | Default localhost Ollama |
-| `lms` | `"openai-compat"` | (default) | `"lmstudio"` | LM Studio with automatic retry on unload |
+| `lmstudio` | `"openai-compat"` | (default) | `"lmstudio"` | LM Studio with automatic retry on unload |
 | `nearai` | `"openai-compat"` | `https://cloud-api.near.ai/v1` | (default) | Set `apiKey` |
-| `nim` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | Set `staticModels` with your model list |
+| `nvidia` | `"openai-compat"` | `https://integrate.api.nvidia.com/v1` | `"static"` | Set `staticModels` with your model list |
+
 ### Agents
 
 The `agents` array contains at least one `"role": "orchestrator"` entry (multiple orchestrators are supported) and any number of `"role": "worker"` entries. Omit the `agents` key (or set `"agents": null`) for built-in defaults: a single orchestrator with id `orchestrator`.
@@ -538,6 +546,7 @@ The `agents` array contains at least one `"role": "orchestrator"` entry (multipl
 | `maxDelegationsPerTurn` | No dedicated cap | same | Orchestrator only. Excess `delegate_task` calls error in that turn. |
 | `maxDelegationsPerSession` | No limit | same | Orchestrator only. |
 | `maxDelegationsPerWorker` | No per-worker cap | same | Orchestrator only. Keys are worker ids; values are max successful delegations per session. |
+
 ### Environment Variables
 
 | Variable | Overrides | Description |

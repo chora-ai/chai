@@ -21,12 +21,12 @@ When you need different agent behaviors for different tasks — for example, a d
 | Aspect | Profile Switch | Orchestrator Switch |
 |--------|---------------|-------------------|
 | Scope | Everything: config, workers, sandbox, providers, channels, skills | Agent context, skills, worker visibility, provider/model defaults |
-| Workers | Different per profile | Shared (with optional `enabledWorkers` filter) |
+| Workers | Different per profile | Shared (enabled with `enabledWorkers`) |
 | Sandbox | Isolated per profile | Shared |
 | Sessions | All sessions lost | Per-orchestrator session stores; switching shows the selected orchestrator's sessions |
 | Gateway restart | Required | Not required |
 
-Use multiple orchestrators when you want to change the agent's role and context without changing the entire environment. Use profile switching when you need separate sandboxes, different providers, or different channel configurations.
+Use multiple orchestrators when you want to change the agent's role and context without changing the entire environment. Use profile switching when you need separate sandboxes, different provider configurations, or different channel configurations.
 
 ### Orchestrator Selector
 

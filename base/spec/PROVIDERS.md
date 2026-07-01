@@ -20,12 +20,24 @@ Providers are configured as a **JSON array** of provider objects, each with an `
 {
   "providers": [
     { "id": "ollama", "endpointType": "ollama" },
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
-    { "id": "nim", "endpointType": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"] },
-    { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+    { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" },
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEARAI_API_KEY>"
+    },
+    {
+      "id": "nvidia",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKey": "<NVIDIA_API_KEY>",
+      "modelDiscovery": "static",
+      "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"]
+    }
   ],
   "agents": [
-    { "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" },
+    { "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "z-ai/glm-5.2" },
     { "id": "worker-1", "role": "worker", "defaultProvider": "ollama", "defaultModel": "llama3.2:3b" }
   ]
 }
@@ -92,7 +104,7 @@ The `staticModels` field is an array of model id strings used when `modelDiscove
 
 ```json
 {
-  "id": "nim",
+  "id": "nvidia",
   "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
   "apiKey": "<NVIDIA_API_KEY>",
@@ -112,14 +124,11 @@ This is useful for any provider that lacks a `/v1/models` endpoint or where the 
 When `modelDiscovery: "lmstudio"` is configured, the gateway automatically retries chat requests that fail with an "unloaded" error. On such an error, the client calls `POST /api/v1/models/load` with the model id, then retries the chat request once. This behavior is always enabled for LM Studio providers — there is no separate configuration field.
 
 ```json
-{
-  "id": "lms",
-  "endpointType": "openai-compat",
-  "modelDiscovery": "lmstudio"
-}
+{ "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 The streaming variant retries with a single non-streaming call (to avoid invoking `on_chunk` twice if partial data was already streamed).
+
 ### API Key Resolution
 
 The `apiKey` field supports three forms:
@@ -128,7 +137,7 @@ The `apiKey` field supports three forms:
 |------|---------|----------|
 | Omitted / `null` | `"apiKey": null` | No API key is sent. Use for local providers (Ollama, LM Studio) or when the key is not required. |
 | Literal string | `"apiKey": "sk-abc123"` | The value is sent as-is in the `Authorization: Bearer` header. |
-| Environment variable reference | `"apiKey": "<NEAR_API_KEY>"` | The named environment variable is read at runtime. If set and non-empty, its value is used as the API key; if unset or empty, no key is sent. |
+| Environment variable reference | `"apiKey": "<NEARAI_API_KEY>"` | The named environment variable is read at runtime. If set and non-empty, its value is used as the API key; if unset or empty, no key is sent. |
 
 The `<VAR_NAME>` syntax keeps secrets out of `config.json`. Environment variables can come from the shell environment, or from a `.env` file in the profile directory.
 
@@ -138,7 +147,7 @@ If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assista
 
 ```
 # ~/.chai/profiles/assistant/.env
-NEAR_API_KEY=sk-near-abc123
+NEARAI_API_KEY=sk-near-abc123
 NVIDIA_API_KEY=nvapi-xyz789
 ```
 
@@ -147,8 +156,20 @@ With this `.env` file, the following config resolves both keys without hardcodin
 ```json
 {
   "providers": [
-    { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" },
-    { "id": "nim", "endpointType": "openai-compat", "baseUrl": "https://integrate.api.nvidia.com/v1", "apiKey": "<NVIDIA_API_KEY>", "modelDiscovery": "static", "staticModels": ["meta/llama-3.1-8b-instruct"] }
+    {
+      "id": "nearai",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://cloud-api.near.ai/v1",
+      "apiKey": "<NEARAI_API_KEY>"
+    },
+    {
+      "id": "nvidia",
+      "endpointType": "openai-compat",
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "apiKey": "<NVIDIA_API_KEY>",
+      "modelDiscovery": "static",
+      "staticModels": ["meta/llama-3.1-8b-instruct"]
+    }
   ]
 }
 ```
@@ -236,7 +257,12 @@ The simplest configuration: native Ollama endpoint type, no `baseUrl` or `apiKey
 A remote OpenAI-compatible API. Needs `baseUrl` and `apiKey`.
 
 ```json
-{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }
+{
+  "id": "nearai",
+  "endpointType": "openai-compat",
+  "baseUrl": "https://cloud-api.near.ai/v1",
+  "apiKey": "<NEARAI_API_KEY>"
+}
 ```
 
 - **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol
@@ -253,7 +279,7 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 
 ```json
 {
-  "id": "nim",
+  "id": "nvidia",
   "endpointType": "openai-compat",
   "baseUrl": "https://integrate.api.nvidia.com/v1",
   "apiKey": "<NVIDIA_API_KEY>",
@@ -275,7 +301,7 @@ NIM lacks a `/v1/models` endpoint, so `modelDiscovery: "static"` with a user-cur
 LM Studio uses `modelDiscovery: "lmstudio"` for its native model list. When this is set, the gateway also automatically retries chat requests that fail with an "unloaded" error by loading the model and retrying once.
 
 ```json
-{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+{ "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 - **Endpoint Type:** `"openai-compat"` — OpenAI chat completions protocol

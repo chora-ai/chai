@@ -67,15 +67,15 @@ Additional prerequisites per part:
    {
      "providers": [
        { "id": "ollama", "endpointType": "ollama" },
-       { "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+       { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
      ],
      "agents": [
        {
          "id": "orchestrator",
          "role": "orchestrator",
-         "defaultProvider": "lms",
+         "defaultProvider": "lmstudio",
          "defaultModel": "openai/gpt-oss-20b",
-         "enabledProviders": ["ollama", "lms"]
+         "enabledProviders": ["ollama", "lmstudio"]
        }
      ]
    }
@@ -87,7 +87,7 @@ Additional prerequisites per part:
    ```bash
    chai gateway
    ```
-   - **Expect:** Log lines showing `provider ollama discovered N model(s)` and `provider lms discovered N model(s)`.
+   - **Expect:** Log lines showing `provider ollama discovered N model(s)` and `provider lmstudio discovered N model(s)`.
 
 8. **Chat via LM Studio**
    ```bash
@@ -114,22 +114,27 @@ NearAI provides OpenAI-compatible cloud inference. Unlike the local providers, d
     {
       "providers": [
         { "id": "ollama", "endpointType": "ollama" },
-        { "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "your-key-here" }
+        {
+          "id": "nearai",
+          "endpointType": "openai-compat",
+          "baseUrl": "https://cloud-api.near.ai/v1",
+          "apiKey": "<NEARAI_API_KEY>"
+        }
       ],
       "agents": [
         {
           "id": "orchestrator",
           "role": "orchestrator",
           "defaultProvider": "nearai",
-          "defaultModel": "zai-org/GLM-5.1-FP8",
+          "defaultModel": "z-ai/glm-5.2",
           "enabledProviders": ["ollama", "nearai"]
         }
       ]
     }
     ```
     - `baseUrl` must be set explicitly — the default for `"openai-compat"` is `http://127.0.0.1:1234/v1` (a local address).
-    - `apiKey` can be omitted if you set the `NEARAI_API_KEY` environment variable (though chai doesn't have a provider-specific env var for NearAI — use the config field or a generic env var approach).
-    - `defaultModel` must be a model id from the [NearAI model catalog](https://near.ai). The exact id format differs from Ollama (e.g. `zai-org/GLM-5.1-FP8` instead of `llama3.2:3b`).
+    - `apiKey: "<NEARAI_API_KEY>"` — An environment variable reference. The gateway reads `NEARAI_API_KEY` at startup. You can also use a literal key string instead: `"apiKey": "sk-..."`.
+    - `defaultModel` must be a model id from the [NearAI model catalog](https://near.ai). The exact id format differs from Ollama (e.g. `z-ai/glm-5.2` instead of `llama3.2:3b`).
 
 12. **Start the gateway**
     ```bash
@@ -169,7 +174,7 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
       "providers": [
         { "id": "ollama", "endpointType": "ollama" },
         {
-          "id": "nim",
+          "id": "nvidia",
           "endpointType": "openai-compat",
           "baseUrl": "https://integrate.api.nvidia.com/v1",
           "modelDiscovery": "static",
@@ -185,9 +190,9 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
         {
           "id": "orchestrator",
           "role": "orchestrator",
-          "defaultProvider": "nim",
+          "defaultProvider": "nvidia",
           "defaultModel": "meta/llama-3.1-8b-instruct",
-          "enabledProviders": ["ollama", "nim"]
+          "enabledProviders": ["ollama", "nvidia"]
         }
       ]
     }
@@ -200,7 +205,7 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
     ```bash
     chai gateway
     ```
-    - **Expect:** Log lines showing `provider ollama discovered N model(s)` and `provider nim discovered N model(s)`. For NIM, "discovered" means the static models are loaded from config (no HTTP polling occurs).
+    - **Expect:** Log lines showing `provider ollama discovered N model(s)` and `provider nvidia discovered N model(s)`. For NIM, "discovered" means the static models are loaded from config (no HTTP polling occurs).
     - **Expect:** A startup warning if the NIM provider is the default — this reminds you that data is sent to NVIDIA's servers and the free tier has rate limits.
 
 18. **Chat via NIM**
@@ -225,14 +230,14 @@ NIM does **not** expose a `/v1/models` endpoint, so you must provide a static mo
 
 ### LM Studio
 
-- **"provider lms discovered 0 model(s)"** — LM Studio local server is not running or no model is loaded. Start the server and load a model. Verify: `curl http://127.0.0.1:1234/v1/models`.
+- **"provider lmstudio discovered 0 model(s)"** — LM Studio local server is not running or no model is loaded. Start the server and load a model. Verify: `curl http://127.0.0.1:1234/v1/models`.
 - **Model not found / "unloaded" error** — The `defaultModel` value must match what LM Studio reports. Check `GET /api/v1/models` or the LM Studio UI for the exact model id format. If the model exists but is unloaded, ensure `modelDiscovery: "lmstudio"` is set (the gateway automatically retries on "unloaded" errors).
 
 ### NearAI
 
 - **"provider nearai discovered 0 model(s)"** — The base URL may be wrong. Confirm it is `https://cloud-api.near.ai/v1` (with `/v1` suffix). Check network connectivity: `curl https://cloud-api.near.ai/v1/models`.
-- **401 / authentication error** — The API key is missing or invalid. Ensure `apiKey` references a set environment variable (e.g. `<NEAR_API_KEY>` with `NEAR_API_KEY` exported or in `.env`), or use a literal key. Test: `curl -H "Authorization: Bearer YOUR_KEY" https://cloud-api.near.ai/v1/models`.
-- **Model not found** — The model id must match a model in the NearAI catalog. Check [near.ai](https://near.ai) for the current list. The format uses org/model (e.g. `zai-org/GLM-5.1-FP8`), not the Ollama `model:tag` format.
+- **401 / authentication error** — The API key is missing or invalid. Ensure `apiKey` references a set environment variable (e.g. `<NEARAI_API_KEY>` with `NEARAI_API_KEY` exported or in `.env`), or use a literal key. Test: `curl -H "Authorization: Bearer YOUR_KEY" https://cloud-api.near.ai/v1/models`.
+- **Model not found** — The model id must match a model in the NearAI catalog. Check [near.ai](https://near.ai) for the current list. The format uses org/model (e.g. `z-ai/glm-5.2`), not the Ollama `model:tag` format.
 
 ### NVIDIA NIM
 

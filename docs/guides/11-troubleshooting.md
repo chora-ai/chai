@@ -73,7 +73,7 @@ The requested model isn't loaded in LM Studio. Either:
 - Configure `modelDiscovery: "lmstudio"` so chai uses LM Studio's native model list and automatically retries on "unloaded" errors:
 
 ```json
-{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+{ "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
 ```
 
 ### Cloud Provider: Authentication Failed

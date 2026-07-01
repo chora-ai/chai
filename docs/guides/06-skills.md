@@ -197,18 +197,18 @@ Several bundled skills come in **variants** — related skills that provide diff
 
 | Domain | Variant | Tools | Tier | Best For |
 |--------|---------|-------|------|----------|
-| Files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
-| Files | `files` | 9 | full | Agents that need to write, patch, replace, and delete files |
-| Git | `git-read` | 7 | minimal | Reviewer agents that only need read access (includes line-range inspection) |
-| Git | `git` | 20 | moderate | Local development (commit, branch, merge, rebase, cherry-pick, reset, line-range inspection) |
-| Git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
+| files | `files-read` | 4 | minimal | Inspector agents that only need to read files |
+| files | `files` | 9 | full | Agents that need to write, patch, replace, and delete files |
+| git | `git-read` | 7 | minimal | Reviewer agents that only need read access (includes line-range inspection) |
+| git | `git` | 20 | moderate | Local development (commit, branch, merge, rebase, cherry-pick, reset, line-range inspection) |
+| git | `git-remote` | 4 | minimal | Remote operations (clone, push, pull) — use alongside `git` or independently |
 | notes | `notes-read` | 4 | minimal | Inspector agents that only need to read notes |
 | notes | `notes-daily` | 3 | minimal | Daily note creation and appending |
 | notes | `notes-wikilink` | 5 | moderate | Wikilink discovery and note renaming |
 | notes | `notes-frontmatter` | 3 | moderate | Frontmatter read, edit, and delete |
 | notes | `notes` | 9 | moderate | Full note CRUD including bulk find-and-replace |
-| Skills | `skills-read` | 4 | minimal | Inspection, validation, and dry-run preview |
-| Skills | `skills` | 12 | full | Skill authoring and management (includes dry-run) |
+| skills | `skills-read` | 4 | minimal | Inspection, validation, and dry-run preview |
+| skills | `skills` | 12 | full | Skill authoring and management (includes dry-run) |
 
 Read-only variants (`-read` suffix) declare `variant_of` to indicate their tool surface is a subset of the base skill. The gateway warns at startup when two skills with a `variant_of` relationship are both enabled for the same agent — this usually indicates a configuration error. Extension variants (e.g., `git-remote`, `notes-wikilink`, `notes-frontmatter`) have complementary tools and do not declare `variant_of`, so they can be safely co-enabled with the base skill. Note that `notes-daily` does declare `variant_of: notes` — co-enabling `notes-daily` with `notes` will trigger a variant overlap warning.
 

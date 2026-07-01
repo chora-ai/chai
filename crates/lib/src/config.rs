@@ -1545,7 +1545,7 @@ mod tests {
     fn agents_array_one_orchestrator_and_worker() {
         let j = r#"{"agents":[
             {"id":"main","role":"orchestrator","defaultProvider":"ollama","defaultModel":"m"},
-            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"w"}
+            {"id":"fast","role":"worker","defaultProvider":"lmstudio","defaultModel":"w"}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(c.agents.orchestrators.len(), 1);
@@ -1554,7 +1554,7 @@ mod tests {
         let w = c.agents.workers.as_ref().expect("workers");
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "fast");
-        assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
+        assert_eq!(w[0].default_provider.as_deref(), Some("lmstudio"));
     }
 
     #[test]
@@ -1665,13 +1665,13 @@ mod tests {
     fn agents_worker_with_valid_fields_passes() {
         let j = r#"{"agents":[
             {"id":"main","role":"orchestrator"},
-            {"id":"fast","role":"worker","defaultProvider":"lms","defaultModel":"qwen3:8b","enabledSkills":["files"],"contextMode":"full"}
+            {"id":"fast","role":"worker","defaultProvider":"lmstudio","defaultModel":"qwen3:8b","enabledSkills":["files"],"contextMode":"full"}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         let w = c.agents.workers.as_ref().expect("workers");
         assert_eq!(w.len(), 1);
         assert_eq!(w[0].id, "fast");
-        assert_eq!(w[0].default_provider.as_deref(), Some("lms"));
+        assert_eq!(w[0].default_provider.as_deref(), Some("lmstudio"));
         assert_eq!(w[0].default_model.as_deref(), Some("qwen3:8b"));
     }
 
@@ -1729,7 +1729,7 @@ mod tests {
     fn agents_multi_orchestrator_round_trip() {
         let j = r#"{"agents":[
             {"id":"dev","role":"orchestrator","defaultProvider":"ollama","enabledWorkers":["engineer"]},
-            {"id":"rev","role":"orchestrator","defaultProvider":"lms","enabledWorkers":["reader"]},
+            {"id":"rev","role":"orchestrator","defaultProvider":"lmstudio","enabledWorkers":["reader"]},
             {"id":"engineer","role":"worker"},
             {"id":"reader","role":"worker"}
         ]}"#;
@@ -1749,16 +1749,16 @@ mod tests {
 
     #[test]
     fn providers_array_round_trips() {
-        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lmstudio","endpointType":"openai-compat","modelDiscovery":"lmstudio","baseUrl":"http://127.0.0.1:9999/v1"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        let lms = c.providers.get("lms").expect("lms");
-        assert_eq!(lms.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
-        assert_eq!(lms.endpoint_type, EndpointType::OpenaiCompat);
-        assert_eq!(lms.model_discovery, ModelDiscovery::Lmstudio);
+        let lmstudio = c.providers.get("lmstudio").expect("lmstudio");
+        assert_eq!(lmstudio.base_url.as_deref(), Some("http://127.0.0.1:9999/v1"));
+        assert_eq!(lmstudio.endpoint_type, EndpointType::OpenaiCompat);
+        assert_eq!(lmstudio.model_discovery, ModelDiscovery::Lmstudio);
         let out = serde_json::to_string(&c).expect("serialize");
         assert!(
-            out.contains("\"lms\""),
-            "expected lms id in {}",
+            out.contains("\"lmstudio\""),
+            "expected lmstudio id in {}",
             out
         );
     }
@@ -1808,14 +1808,14 @@ mod tests {
 
     #[test]
     fn providers_default_model_per_endpoint_type() {
-        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lms","endpointType":"openai-compat"}]}"#;
+        let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"},{"id":"lmstudio","endpointType":"openai-compat"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(
             resolve_provider_default_model(&c.providers, "ollama"),
             "llama3.2:3b"
         );
         assert_eq!(
-            resolve_provider_default_model(&c.providers, "lms"),
+            resolve_provider_default_model(&c.providers, "lmstudio"),
             "llama-3.2-3B-instruct"
         );
     }
@@ -1840,9 +1840,9 @@ mod tests {
 
     #[test]
     fn providers_model_discovery_lmstudio() {
-        let j = r#"{"providers":[{"id":"lms","endpointType":"openai-compat","modelDiscovery":"lmstudio"}]}"#;
+        let j = r#"{"providers":[{"id":"lmstudio","endpointType":"openai-compat","modelDiscovery":"lmstudio"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("lms").expect("lms");
+        let def = c.providers.get("lmstudio").expect("lmstudio");
         assert_eq!(def.model_discovery, ModelDiscovery::Lmstudio);
     }
 
@@ -1859,10 +1859,10 @@ mod tests {
     fn providers_nim_like_config() {
         // A NIM-style provider using static model discovery.
         let j = r#"{"providers":[
-            {"id":"nim","endpointType":"openai-compat","baseUrl":"https://integrate.api.nvidia.com/v1","apiKey":null,"modelDiscovery":"static","staticModels":["meta/llama-3.1-8b-instruct","meta/llama-3.1-70b-instruct"]}
+            {"id":"nvidia","endpointType":"openai-compat","baseUrl":"https://integrate.api.nvidia.com/v1","apiKey":null,"modelDiscovery":"static","staticModels":["meta/llama-3.1-8b-instruct","meta/llama-3.1-70b-instruct"]}
         ]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
-        let def = c.providers.get("nim").expect("nim");
+        let def = c.providers.get("nvidia").expect("nvidia");
         assert_eq!(def.endpoint_type, EndpointType::OpenaiCompat);
         assert_eq!(def.model_discovery, ModelDiscovery::Static);
         assert_eq!(def.static_models.len(), 2);
@@ -1876,8 +1876,8 @@ mod tests {
     }
 
     #[test]
-    fn providers_rejects_lms_endpoint_type() {
-        let j = r#"{"providers":[{"id":"x","endpointType":"lms"}]}"#;
+    fn providers_rejects_lmstudio_endpoint_type() {
+        let j = r#"{"providers":[{"id":"x","endpointType":"lmstudio"}]}"#;
         assert!(serde_json::from_str::<Config>(j).is_err());
     }
 

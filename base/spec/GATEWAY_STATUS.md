@@ -66,7 +66,7 @@ Per integration: **`telegram`** (always on), **`matrix`** (requires `matrix` fea
 
 ### `providers`
 
-Keys: provider ids from the `providers` array (e.g. **`ollama`**, **`lms`**, **`nearai`**, **`nim`**). Each value:
+Keys: provider ids from the `providers` array (e.g. **`ollama`**, **`lmstudio`**, **`nearai`**, **`nvidia`**). Each value:
 
 | Field | Meaning |
 |-------|---------|

@@ -29,8 +29,17 @@ Ollama runs locally and requires no API key.
 
    ```json
    {
-     "providers": [{ "id": "ollama", "endpointType": "ollama" }],
-     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "ollama", "defaultModel": "llama3.1:8b" }]
+     "providers": [
+       { "id": "ollama", "endpointType": "ollama" }
+     ],
+     "agents": [
+       {
+         "id": "orchestrator",
+         "role": "orchestrator",
+         "defaultProvider": "ollama",
+         "defaultModel": "llama3.1:8b"
+       }
+     ]
    }
    ```
 
@@ -60,8 +69,17 @@ LM Studio runs locally and uses the `"openai-compat"` endpoint type with LM Stud
 
    ```json
    {
-     "providers": [{ "id": "lms", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }],
-     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "lms", "defaultModel": "llama-3.2-3B-instruct" }]
+     "providers": [
+       { "id": "lmstudio", "endpointType": "openai-compat", "modelDiscovery": "lmstudio" }
+     ],
+     "agents": [
+       {
+         "id": "orchestrator",
+         "role": "orchestrator",
+         "defaultProvider": "lmstudio",
+         "defaultModel": "llama-3.2-3B-instruct"
+       }
+     ]
    }
    ```
 
@@ -84,15 +102,24 @@ NVIDIA NIM is a remote OpenAI-compatible API (free tier) that requires an API ke
 
    ```json
    {
-     "providers": [{
-       "id": "nim",
-       "endpointType": "openai-compat",
-       "baseUrl": "https://integrate.api.nvidia.com/v1",
-       "modelDiscovery": "static",
-       "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
-       "apiKey": "<NVIDIA_API_KEY>"
-     }],
-     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nim", "defaultModel": "meta/llama-3.1-8b-instruct" }]
+     "providers": [
+       {
+         "id": "nvidia",
+         "endpointType": "openai-compat",
+         "baseUrl": "https://integrate.api.nvidia.com/v1",
+         "modelDiscovery": "static",
+         "staticModels": ["meta/llama-3.1-8b-instruct", "meta/llama-3.1-70b-instruct"],
+         "apiKey": "<NVIDIA_API_KEY>"
+       }
+     ],
+     "agents": [
+       {
+         "id": "orchestrator",
+         "role": "orchestrator",
+         "defaultProvider": "nvidia",
+         "defaultModel": "meta/llama-3.1-8b-instruct"
+       }
+     ]
    }
    ```
 
@@ -114,12 +141,26 @@ NearAI is a remote OpenAI-compatible API that requires an API key.
 
    ```json
    {
-     "providers": [{ "id": "nearai", "endpointType": "openai-compat", "baseUrl": "https://cloud-api.near.ai/v1", "apiKey": "<NEAR_API_KEY>" }],
-     "agents": [{ "id": "orchestrator", "role": "orchestrator", "defaultProvider": "nearai", "defaultModel": "zai-org/GLM-5.1-FP8" }]
+     "providers": [
+       {
+         "id": "nearai",
+         "endpointType": "openai-compat",
+         "baseUrl": "https://cloud-api.near.ai/v1",
+         "apiKey": "<NEARAI_API_KEY>"
+       }
+     ],
+     "agents": [
+       {
+         "id": "orchestrator",
+         "role": "orchestrator",
+         "defaultProvider": "nearai",
+         "defaultModel": "z-ai/glm-5.2"
+       }
+     ]
    }
    ```
 
-4. **API key:** The `apiKey` value `<NEAR_API_KEY>` is an environment variable reference — the gateway reads the `NEAR_API_KEY` variable at startup. Set it in your shell environment or in a `.env` file in the profile directory (e.g. `~/.chai/profiles/assistant/.env`). You can also use a literal key string instead: `"apiKey": "sk-..."`.
+4. **API key:** The `apiKey` value `<NEARAI_API_KEY>` is an environment variable reference — the gateway reads the `NEARAI_API_KEY` variable at startup. Set it in your shell environment or in a `.env` file in the profile directory (e.g. `~/.chai/profiles/assistant/.env`). You can also use a literal key string instead: `"apiKey": "sk-..."`.
 5. **Model catalog:** Check [near.ai](https://near.ai) for available models. Auto model discovery uses `GET /v1/models`.
 
 **Notes:**

@@ -16,7 +16,7 @@ The sandbox directory lives under each profile:
 ~/.chai/profiles/<name>/sandbox/
 ```
 
-**`chai init`** creates a `sandbox/` for each default profile, seeded with template files (`AGENTS.md`, `README.md`). The sandbox is per-profile — all agents within a profile share the same sandbox. Re-running `chai init` preserves existing sandbox files.
+**`chai init`** creates a `sandbox/` for each default profile, seeded with a template file (`AGENTS.md`). The sandbox is per-profile — all agents within a profile share the same sandbox. Re-running `chai init` preserves existing sandbox files.
 
 ## Writable Roots
 
@@ -28,8 +28,8 @@ Writable roots are computed at gateway startup from the sandbox directory:
 ```text
 ~/.chai/profiles/assistant/sandbox/    ← writable root #1 (always)
   my-project/                          ← writable (under root #1)
-  linked-repo → ~/Code/my-repo/       ← target becomes writable root #2
-  workspace → ../agents/orchestrator/  ← target becomes writable root #3
+  my-repo → ~/Code/my-repo/            ← target becomes writable root #2
+  context → ../agents/orchestrator/    ← target becomes writable root #3
   notes.txt                            ← writable (under root #1)
 ```
 
@@ -44,7 +44,7 @@ Agents cannot create symlinks — the `ln` binary is never allowlisted in any sk
 ln -s ~/Code/my-repo ~/.chai/profiles/assistant/sandbox/my-repo
 
 # Grant access to the agent's own context directory
-ln -s ~/.chai/profiles/assistant/agents/orchestrator ~/.chai/profiles/assistant/sandbox/workspace
+ln -s ~/.chai/profiles/assistant/agents/orchestrator ~/.chai/profiles/assistant/sandbox/context
 ```
 
 Removing the symlink revokes access. No configuration file, no capability tier — the filesystem is the policy.
