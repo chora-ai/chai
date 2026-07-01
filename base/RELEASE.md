@@ -66,8 +66,8 @@ Each release has a working document in the root of `base/` named `RELEASE_VX_Y_Z
 10. **Commit** — Stage all changes (version bump, lockfile update, tag file, knowledge base index, changelog, doc updates, working document deletion) and commit to `main` with message `vX.Y.Z`.
 11. **Create the release branch** — `git branch release/vX.Y.x` from the release commit (e.g. `git branch release/v0.1.x`).
 12. **Tag** — Create an annotated tag: `git tag -a vX.Y.Z -F base/tag/VX_Y_Z.md --cleanup=verbatim`.
-13. **Push** — Push `main`, the release branch, and the tag to origin.
-14. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
+13. **Build release binaries** — Run `scripts/build-release.sh` for each supported system (see [Build and Distribution](#build-and-distribution)).
+14. **Push** — Push `main`, the release branch, and the tag to origin.
 15. **Publish platform release notes** — Create a release on Codeberg/GitHub using the exact contents of `base/tag/VX_Y_Z.md`. Attach release binaries as assets.
 16. **Review `chai-examples`** — Verify example profiles and skills align with the release. Update as needed.
 17. **Tag `chai-examples`** — Apply the same version tag to `chai-examples`.

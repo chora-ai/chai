@@ -23,7 +23,7 @@ Always read the relevant convention file before adding or modifying a document i
 | **`adr/`** | Architecture Decision Records: why we chose X, alternatives considered. |
 | **`epic/`** | Epics and proposals: significant features and architectural tracking. |
 | **`meta/`** | Conventions for each document type (see **Conventions** above). |
-| **`ref/`** | External systems: summaries of other systems or specs (e.g. OpenClaw, Ollama) for alignment. |
+| **`ref/`** | External systems: summaries of other systems or specs (e.g. Ollama, OpenAI) for alignment. |
 | **`spec/`** | Internal specs and design summaries: how this project works (e.g. context, LLM providers, etc). |
 | **`tag/`** | Release tag files: per-version release notes. Source of truth for git tags and release notes. |
 | **root** | Index and entry points (`README.md`), release process (`RELEASE.md`), security considerations (`SECURITY.md`), project vision (`VISION.md`), and working notes (`AUDIT_*`/`BUG_*`/`FEAT_*`/`RELEASE_*`). |
