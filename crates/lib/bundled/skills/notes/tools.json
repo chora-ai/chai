@@ -104,10 +104,10 @@
   },
   {
     "name": "notes_write_lines",
-    "description": "Replace a range of lines in a note without rewriting the entire note.",
+    "description": "Replace one or more lines in a note without rewriting the entire note.",
     "parameters": {
       "type": "object",
-      "required": ["path", "start_line", "expected_content", "content"],
+      "required": ["path", "start_line", "original_content", "content"],
       "properties": {
         "path": {
           "type": "string",
@@ -115,19 +115,15 @@
         },
         "start_line": {
           "type": "integer",
-          "description": "Line number to start replacing at (1-indexed, inclusive)"
+          "description": "Line number of the first line in original_content (1-indexed, inclusive)"
         },
-        "end_line": {
-          "type": "integer",
-          "description": "Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement) if omitted."
-        },
-        "expected_content": {
+        "original_content": {
           "type": "string",
-          "description": "The content expected at [start_line, end_line]. Must match the note exactly or the edit is rejected."
+          "description": "The original content that will be replaced. The first line must match the content at start_line or the edit is rejected."
         },
         "content": {
           "type": "string",
-          "description": "Replacement content for the specified line range"
+          "description": "The content that will replace original_content"
         }
       }
     }

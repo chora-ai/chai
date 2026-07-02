@@ -171,9 +171,9 @@
         "optional": true
       },
       {
-        "param": "expected_content",
+        "param": "original_content",
         "kind": "tempfile",
-        "flag": "expected-content-file"
+        "flag": "original-content-file"
       },
       {
         "param": "content",

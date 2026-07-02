@@ -14,7 +14,7 @@ During the Round 3 skills audit, two bug fixes in `files_replace` demonstrated a
 
 2. **Regex error suggestion**: When `files_replace` encounters a regex parse error, the error message suggests using `literal: true`. This reduced the need for agents to pre-emptively know about literal mode.
 
-3. **Line-diff hint in `verify_original`**: When `files_write_lines` rejects an `expected_content` mismatch (after all five validation stages fail), the error message includes a line-diff hint identifying the first line that differs between expected and actual content (e.g., `hint: first difference at line 2 of the content (file line 5) — expected: "c", actual: ""`). File line numbers allow the agent to cross-reference with `files_read` output. This replaced the previous byte-offset-only hint, which was difficult to map to line boundaries.
+3. **Line-diff hint in `verify_original`**: When `files_write_lines` rejects an `original_content` mismatch (after all five validation stages fail), the error message includes a line-diff hint identifying the first line that differs between expected and actual content (e.g., `hint: first difference at line 2 of the content (file line 5) — expected: "c", actual: ""`). File line numbers allow the agent to cross-reference with `files_read` output. This replaced the previous byte-offset-only hint, which was difficult to map to line boundaries.
 
 In both cases, the tool teaches the agent at the point of failure, rather than requiring preemptive instruction. The agent receives guidance exactly when needed, at zero cost when the situation doesn't arise.
 

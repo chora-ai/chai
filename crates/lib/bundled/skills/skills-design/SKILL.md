@@ -30,7 +30,7 @@ Concretely: before adding a directive, check whether a tool could enforce it ins
 
 ## Verification Over Instruction
 
-When correctness depends on state (e.g., editing a line range that shifts after each edit), prefer a tool-side verification check over an agent-side instruction. The agent provides a snapshot of the state it expects (like `expected_content`), and the tool rejects the operation if the actual state has diverged. This is more reliable than instructing the agent to "always re-read before editing" because the tool enforces it.
+When correctness depends on state (e.g., editing a line range that shifts after each edit), prefer a tool-side verification check over an agent-side instruction. The agent provides a snapshot of the state it expects (like `original_content`), and the tool rejects the operation if the actual state has diverged. This is more reliable than instructing the agent to "always re-read before editing" because the tool enforces it.
 
 ## Diagnostic Hints Over Directives
 

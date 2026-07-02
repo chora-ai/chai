@@ -118,15 +118,9 @@
       { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
       { "param": "start_line", "kind": "flag", "flag": "start-line" },
       {
-        "param": "end_line",
-        "kind": "flag",
-        "flag": "end-line",
-        "optional": true
-      },
-      {
-        "param": "expected_content",
+        "param": "original_content",
         "kind": "tempfile",
-        "flag": "expected-content-file"
+        "flag": "original-content-file"
       },
       {
         "param": "content",

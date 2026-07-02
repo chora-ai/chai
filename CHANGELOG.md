@@ -7,7 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
 
+#### Skills
+
+- `files_write_lines` and `notes_write_lines` `expected_content` parameter renamed back to `original_content` (reverted change in v0.4.0); CLI flags `--expected-content` → `--original-content`, `--expected-content-file` → `--original-content-file`
+- `files_write_lines` `end_line` parameter removed — the replacement range is inferred from `original_content` line count
+- `notes_write_lines` `end_line` parameter removed — the replacement range is inferred from `original_content` line count
+
+### Fixed
+
+#### Skills
+
+- `files_write_lines` and `notes_write_lines` multi-line `original_content` no longer requires `end_line` — the replacement range is inferred from the number of lines in `original_content`, eliminating the trap where omitting `end_line` defaulted to `start_line` even for multi-line content
+- `files_write_lines` and `notes_write_lines` boundary blank lines are preserved automatically — when `start_line` points at content (not the blank line), the blank line is outside the replacement range and survives
+
+### Breaking Changes
+
+- CLI flag renames — existing scripts using old flag names will fail:
+  - `file patch`: `--expected-content` → `--original-content`, `--expected-content-file` → `--original-content-file`
+- Tool parameter removals — existing tool calls using removed parameters will fail:
+  - `files_write_lines`: `end_line` parameter removed; the replacement range is inferred from `original_content` line count
+  - `notes_write_lines`: `end_line` parameter removed; the replacement range is inferred from `original_content` line count
+- Tool parameter renames — existing tool calls using old parameter names will fail:
+  - `files_write_lines` and `notes_write_lines`: `expected_content` → `original_content`
 
 ## [0.4.0] - 2026-06-30
 

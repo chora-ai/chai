@@ -229,10 +229,10 @@ echo '...' | chai file append --path <PATH>
 
 # Replace a range of lines (patch)
 chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
-  --expected-content '...' --content '...'
+  --original-content '...' --content '...'
 ```
 
-The `patch` command replaces lines `[start_line, end_line]` with new content. If `--end-line` is omitted, only `--start-line` is replaced. When `--expected-content` is provided (or `--expected-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--expected-content-file` to read the expected content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
+The `patch` command replaces lines `[start_line, end_line]` with new content. When `--end-line` is omitted, the replacement range is inferred from the number of lines in `--original-content`. When `--original-content` is provided (or `--original-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--original-content-file` to read the original content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
 
 ### Find and Replace
 

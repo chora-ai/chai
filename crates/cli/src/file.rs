@@ -28,21 +28,26 @@ pub(crate) enum FileCmd {
         /// Absolute file path to patch
         #[arg(long)]
         path: String,
-        /// Line number to start replacing at (1-indexed, inclusive)
+        /// Line number of the first line in original_content (1-indexed, inclusive).
+        /// The replacement range spans from start_line through start_line + lines in
+        /// original_content - 1.
         #[arg(long)]
         start_line: usize,
-        /// Line number to end replacing at (1-indexed, inclusive). Defaults to start_line (single line replacement).
+        /// Line number to end replacing at (1-indexed, inclusive). When omitted,
+        /// the end line is inferred from the number of lines in original_content
+        /// (start_line + original_content lines - 1).
         #[arg(long)]
         end_line: Option<usize>,
-        /// The content expected at [start_line, end_line]. Must match the file exactly or the
-        /// edit is rejected.
+        /// The content expected at the replacement range. The number of lines
+        /// determines the range when --end-line is omitted. Must match the file
+        /// content or the edit is rejected.
         #[arg(long, allow_hyphen_values = true)]
-        expected_content: Option<String>,
-        /// Read expected_content from a file instead of passing it as a CLI flag. Takes precedence
-        /// over --expected-content. This avoids CLI argument encoding issues for content that
+        original_content: Option<String>,
+        /// Read original_content from a file instead of passing it as a CLI flag. Takes precedence
+        /// over --original-content. This avoids CLI argument encoding issues for content that
         /// must match file content byte-for-byte.
-        #[arg(long = "expected-content-file")]
-        expected_content_file: Option<String>,
+        #[arg(long = "original-content-file")]
+        original_content_file: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
         #[arg(long, allow_hyphen_values = true)]
@@ -236,16 +241,16 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             }
             Ok(())
         }
-        FileCmd::Patch { path, start_line, end_line, expected_content, expected_content_file, content } => {
+        FileCmd::Patch { path, start_line, end_line, original_content, original_content_file, content } => {
             let content = read_content_from_stdin_or(content)?;
-            // Resolve expected_content: --expected-content-file takes precedence,
-            // then --expected-content. File-based passing avoids CLI argument
+            // Resolve original_content: --original-content-file takes precedence,
+            // then --original-content. File-based passing avoids CLI argument
             // encoding issues for content that must match file content byte-for-byte.
-            let expected_content = if let Some(ref file_path) = expected_content_file {
+            let original_content = if let Some(ref file_path) = original_content_file {
                 Some(std::fs::read_to_string(file_path)
-                    .map_err(|e| anyhow::anyhow!("failed to read expected-content-file {}: {}", file_path, e))?)
+                    .map_err(|e| anyhow::anyhow!("failed to read original-content-file {}: {}", file_path, e))?)
             } else {
-                expected_content
+                original_content
             };
             let target = std::path::Path::new(&path);
             if !target.exists() {
@@ -257,7 +262,13 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             if start_line == 0 {
                 anyhow::bail!("start_line must be at least 1 (1-indexed)");
             }
-            let end_line = end_line.unwrap_or(start_line);
+
+            // Resolve end_line: when not explicitly provided, infer from the
+            // number of lines in original_content. This makes the replacement
+            // range always match what the agent described, eliminating the trap
+            // where end_line defaulted to start_line (single-line) even when
+            // original_content spanned multiple lines.
+            let end_line = resolve_end_line(start_line, end_line, original_content.as_deref())?;
             if end_line < start_line {
                 anyhow::bail!("end_line ({}) must be >= start_line ({})", end_line, start_line);
             }
@@ -275,11 +286,11 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             let effective_end = end_line.min(original.lines().count());
 
-            // Verify expected_content if provided, and collect trailing whitespace
+            // Verify original_content if provided, and collect trailing whitespace
             // from the original file if the match succeeded via stage 4 (trailing-
             // whitespace tolerance). This allows us to preserve the file's trailing
             // whitespace in the replacement content.
-            let trailing_ws = if let Some(ref expected) = expected_content {
+            let trailing_ws = if let Some(ref expected) = original_content {
                 verify_original(&original, start_line, effective_end, expected)?
             } else {
                 Vec::new()
@@ -737,6 +748,30 @@ pub(crate) fn read_content_from_stdin_or(content: Option<String>) -> Result<Stri
                 .read_to_string(&mut s)
                 .map_err(|e| anyhow::anyhow!("failed to read stdin: {}", e))?;
             Ok(s)
+        }
+    }
+}
+
+/// Resolve the end line for a patch operation. When `end_line` is explicitly
+/// provided, use it. When omitted, infer from the number of lines in
+/// `original_content` so the replacement range matches what the agent
+/// described. Returns the resolved end line (1-indexed, inclusive).
+fn resolve_end_line(start_line: usize, end_line: Option<usize>, original_content: Option<&str>) -> Result<usize> {
+    match end_line {
+        Some(explicit) => Ok(explicit),
+        None => {
+            match original_content {
+                Some(expected) => {
+                    let expected_lines = expected.lines().count();
+                    if expected_lines == 0 {
+                        anyhow::bail!("original_content is empty — cannot infer end_line");
+                    }
+                    Ok(start_line + expected_lines - 1)
+                }
+                None => {
+                    anyhow::bail!("either --end-line or --original-content is required to determine the replacement range");
+                }
+            }
         }
     }
 }
@@ -1414,7 +1449,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     }
 
     // Stage 5: Blank-line-boundary-tolerant match
-    // When the agent reads a line range and constructs expected_content from
+    // When the agent reads a line range and constructs original_content from
     // what it saw, blank lines at the top or bottom of the range may be
     // included or excluded differently from the actual file. Strip leading
     // and trailing blank lines from both actual and expected before comparing
@@ -1469,7 +1504,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
                 act_line,
             ),
             None if expected_lines.len() != actual_lines.len() => format!(
-                "\nhint: expected_content has {} lines, file range lines {}-{} has {} lines",
+                "\nhint: original_content has {} lines, file range lines {}-{} has {} lines",
                 expected_lines.len(),
                 start_line,
                 effective_end,
@@ -1503,7 +1538,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     };
 
     anyhow::bail!(
-        "expected_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
+        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
         start_line,
         effective_end,
         expected_fmt,
@@ -1703,6 +1738,7 @@ mod tests {
     use super::edit_frontmatter;
     use super::delete_frontmatter_key;
     use super::patch_string;
+    use super::resolve_end_line;
     use super::format_patch_diff;
     use super::format_replace_diff_from_edits;
     use super::compute_replace_edits;
@@ -1863,6 +1899,96 @@ mod tests {
         let out = patch_string(input, 2, Some(2), "x\n");
         // The replacement "x\n" already ends with \n, so the trailing \n is not doubled
         assert_eq!(out, "a\nx\nc\n");
+    }
+
+    // --- resolve_end_line tests ---
+
+    #[test]
+    fn resolve_end_line_explicit_value_used() {
+        // When end_line is explicitly provided, use it as-is.
+        assert_eq!(resolve_end_line(3, Some(5), Some("a\nb")).unwrap(), 5);
+    }
+
+    #[test]
+    fn resolve_end_line_inferred_from_single_line_expected() {
+        // Single line original_content: end_line = start_line.
+        assert_eq!(resolve_end_line(3, None, Some("hello")).unwrap(), 3);
+    }
+
+    #[test]
+    fn resolve_end_line_inferred_from_multi_line_expected() {
+        // 3-line original_content starting at line 5: end_line = 7.
+        assert_eq!(resolve_end_line(5, None, Some("a\nb\nc")).unwrap(), 7);
+    }
+
+    #[test]
+    fn resolve_end_line_inferred_from_expected_starting_at_line_1() {
+        assert_eq!(resolve_end_line(1, None, Some("a\nb")).unwrap(), 2);
+    }
+
+    #[test]
+    fn resolve_end_line_rejects_empty_expected_without_explicit_end() {
+        // Empty original_content cannot infer end_line.
+        assert!(resolve_end_line(1, None, Some("")).is_err());
+    }
+
+    #[test]
+    fn resolve_end_line_rejects_no_expected_no_end() {
+        // Neither end_line nor original_content provided.
+        assert!(resolve_end_line(1, None, None).is_err());
+    }
+
+    #[test]
+    fn resolve_end_line_explicit_overrides_inference() {
+        // Even if original_content has 3 lines, explicit end_line wins.
+        assert_eq!(resolve_end_line(1, Some(10), Some("a\nb\nc")).unwrap(), 10);
+    }
+
+    #[test]
+    fn resolve_end_line_trailing_newline_in_expected() {
+        // Rust's .lines() does not include a trailing empty element for a
+        // trailing newline, so "a\nb\n" has 2 lines → end_line = start + 1.
+        assert_eq!(resolve_end_line(3, None, Some("a\nb\n")).unwrap(), 4);
+    }
+
+    #[test]
+    fn patch_string_with_inferred_end_line_multi_line_expected() {
+        // The original bug: agent provides multi-line original_content
+        // without specifying end_line. With inference, the range is
+        // correct and the right lines are replaced.
+        let input = "line1\nline2\nline3\nline4\nline5";
+        // Agent wants to replace lines 2-4 (3 lines of expected content)
+        let original_content = "line2\nline3\nline4";
+        let end_line = resolve_end_line(2, None, Some(original_content)).unwrap();
+        assert_eq!(end_line, 4);
+        let out = patch_string(input, 2, Some(end_line), "new2\nnew3\nnew4");
+        assert_eq!(out, "line1\nnew2\nnew3\nnew4\nline5");
+    }
+
+    #[test]
+    fn patch_string_with_inferred_end_line_single_line() {
+        // Single-line replacement: inferred end_line == start_line.
+        let input = "a\nb\nc";
+        let original_content = "b";
+        let end_line = resolve_end_line(2, None, Some(original_content)).unwrap();
+        assert_eq!(end_line, 2);
+        let out = patch_string(input, 2, Some(end_line), "replaced");
+        assert_eq!(out, "a\nreplaced\nc");
+    }
+
+    #[test]
+    fn patch_string_inferred_end_line_preserves_boundary_blank_lines() {
+        // When the agent points start_line at the content (not the blank
+        // line), boundary blank lines are preserved because they're
+        // outside the replacement range.
+        let input = "a\n\nheading\nbody\n\nc";
+        // Agent targets lines 3-4 (heading + body), blank lines at 2 and 5
+        // are outside the range and preserved.
+        let original_content = "heading\nbody";
+        let end_line = resolve_end_line(3, None, Some(original_content)).unwrap();
+        assert_eq!(end_line, 4);
+        let out = patch_string(input, 3, Some(end_line), "new heading\nnew body");
+        assert_eq!(out, "a\n\nnew heading\nnew body\n\nc");
     }
 
     // --- format_patch_diff tests ---
