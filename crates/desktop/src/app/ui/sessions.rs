@@ -86,8 +86,8 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
     }
 
     // Default selected session to current chat session when none selected
-    if app.gw_ref().selected_session_id.is_none() && app.gw_ref().chat_session_id.is_some() {
-        app.gw().selected_session_id = app.gw_ref().chat_session_id.clone();
+    if app.selected_session_id().is_none() && app.chat_session_id().is_some() {
+        *app.selected_session_id_mut() = app.chat_session_id().cloned();
     }
 
     egui::SidePanel::right("sessions_panel")
@@ -102,28 +102,28 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                     // ── Agent selector ──
                     section_heading(ui, "Agent");
                     let orchestrator_ids: Vec<String> = app
-                        .gateway_status
-                        .as_ref()
+                        .gateway_status()
                         .map(|gs| gs.orchestrators.iter().map(|o| o.id.clone()).collect())
                         .unwrap_or_default();
                     let active_id = app
-                        .active_orchestrator_id
-                        .as_deref()
+                        .active_orchestrator_id()
+                        .map(|s| s.as_str())
                         .or_else(|| orchestrator_ids.first().map(|s| s.as_str()))
-                        .unwrap_or("orchestrator");
+                        .unwrap_or("orchestrator")
+                        .to_string();
                     let single_orchestrator = orchestrator_ids.len() <= 1;
                     // Disable when: not running, only one orchestrator, or a chat turn is in progress.
                     let combo_enabled = running
                         && !single_orchestrator
-                        && app.chat_turn_receiver.is_none()
-                        && !app.chat_stopping;
+                        && app.chat_turn_receiver().is_none()
+                        && !app.chat_stopping();
 
-                    let mut selected_id = active_id.to_string();
+                    let mut selected_id = active_id.clone();
                     ui.add_enabled_ui(combo_enabled, |ui| {
                         let width = ui.available_width() - 18.0;
                         egui::ComboBox::from_id_source("active_orchestrator_select")
                             .width(width)
-                            .selected_text(active_id)
+                            .selected_text(&active_id)
                             .show_ui(ui, |ui| {
                                 for id in &orchestrator_ids {
                                     ui.selectable_value(&mut selected_id, id.clone(), id);
@@ -146,16 +146,20 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                         ui.add_space(12.0);
 
                         // Session list from session_order (all sessions, not just those with loaded messages).
-                        for session_id in app.session_order.iter().cloned().collect::<Vec<_>>() {
+                        let session_order: Vec<String> = app.session_order()
+                            .map(|v| v.clone())
+                            .unwrap_or_default();
+                        for session_id in session_order {
                             let is_selected =
-                                app.selected_session_id.as_deref() == Some(session_id.as_str());
+                                app.selected_session_id().map(|s| s.as_str()) == Some(session_id.as_str());
                             let is_deleting = app
-                                .sessions_delete_receiver
-                                .as_ref()
+                                .sessions_delete_receiver()
                                 .map_or(false, |(id, _)| id == &session_id);
 
-                            let summary = app.session_summaries.get(&session_id);
+                            let summary = app.session_summaries()
+                                .and_then(|m| m.get(&session_id).cloned());
                             let display = summary
+                                .as_ref()
                                 .map(|s| session_label_display(s))
                                 .unwrap_or_else(|| short_session_id(&session_id));
 
@@ -167,12 +171,14 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                 let response = ui.selectable_label(is_selected, display);
                                 if response.clicked() {
                                     // If the session's messages aren't loaded yet, trigger a history fetch.
-                                    if !app.session_messages.contains_key(&session_id)
-                                        && app.loading_session_id.is_none()
-                                        && app.sessions_history_receiver.is_none()
+                                    let has_messages = app.session_messages()
+                                        .map_or(false, |m| m.contains_key(&session_id));
+                                    let is_loading = app.loading_session_id().is_some();
+                                    let has_history_rx = app.sessions_history_receiver().is_some();
+                                    if !has_messages && !is_loading && !has_history_rx
                                     {
-                                        app.loading_session_id = Some(session_id.clone());
-                                        let profile_override = app.cached_profile_override.clone();
+                                        *app.loading_session_id_mut() = Some(session_id.clone());
+                                        let profile_override = app.cached_gateway_profile.clone();
                                         let sid = session_id.clone();
                                         let (tx, rx) = std::sync::mpsc::channel();
                                         std::thread::spawn(move || {
@@ -182,9 +188,9 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                             );
                                             let _ = tx.send(result);
                                         });
-                                        app.sessions_history_receiver = Some((session_id.clone(), rx));
+                                        *app.sessions_history_receiver_mut() = Some((session_id.clone(), rx));
                                     }
-                                    app.selected_session_id = Some(session_id.clone());
+                                    *app.selected_session_id_mut() = Some(session_id.clone());
                                     // Only set chat_session_id for non-channel sessions.
                                     // Channel-bound sessions can only be updated through their
                                     // channel (e.g. Telegram); sending from the desktop would
@@ -195,21 +201,21 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                         .and_then(|s| s.channel_binding.as_ref())
                                         .is_some_and(|b| !b.channel_id.is_empty());
                                     if !is_channel_session {
-                                        app.chat_session_id = Some(session_id.clone());
+                                        app.gw().chat_session_id = Some(session_id.clone());
                                     }
                                 }
 
                                 // Delete button (right-aligned via RTL layout).
                                 // Disable for the active session while the agent is running.
-                                let is_active = app.chat_session_id.as_deref() == Some(session_id.as_str());
-                                let turn_in_progress = app.chat_turn_receiver.is_some() || app.chat_stopping;
+                                let is_active = app.chat_session_id().map(|s| s.as_str()) == Some(session_id.as_str());
+                                let turn_in_progress = app.chat_turn_receiver().is_some() || app.chat_stopping();
                                 let can_delete = !(is_active && turn_in_progress);
                                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                     ui.add_space(18.0);
                                     if !is_deleting {
                                         let delete_button = ui.add_enabled(can_delete, egui::Button::new("×").small());
                                         if delete_button.clicked() {
-                                            let profile_override = app.cached_profile_override.clone();
+                                            let profile_override = app.cached_gateway_profile.clone();
                                             let sid = session_id.clone();
                                             let (tx, rx) = std::sync::mpsc::channel();
                                             std::thread::spawn(move || {
@@ -219,7 +225,7 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                                 );
                                                 let _ = tx.send(result);
                                             });
-                                            app.sessions_delete_receiver = Some((session_id.clone(), rx));
+                                            *app.sessions_delete_receiver_mut() = Some((session_id.clone(), rx));
                                         }
                                     } else {
                                         ui.label(egui::RichText::new("…").weak());
@@ -238,22 +244,24 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                             ui.add_space(4.0);
                         }
 
-                        if app.session_order.is_empty() && app.sessions_list_fetched {
+                        let order_empty = app.session_order().map_or(true, |v| v.is_empty());
+                        if order_empty && app.sessions_list_fetched() {
                             ui.label("No sessions yet. Send a message to start one.");
                         }
 
                         // "Clear all" button at the bottom.
                         // Disable while the agent is running (a turn is in progress).
-                        let turn_in_progress = app.chat_turn_receiver.is_some() || app.chat_stopping;
-                        if !app.session_order.is_empty() {
+                        let turn_in_progress = app.chat_turn_receiver().is_some() || app.chat_stopping();
+                        let has_sessions = app.session_order().map_or(false, |v| !v.is_empty());
+                        if has_sessions {
                             ui.add_space(8.0);
                             if ui.add_enabled(!turn_in_progress, egui::Button::new("Clear all sessions")).clicked() {
-                                app.show_clear_all_confirm = true;
+                                *app.show_clear_all_confirm_mut() = true;
                             }
                         }
 
                         // Confirmation dialog for "Clear all".
-                        if app.show_clear_all_confirm {
+                        if app.show_clear_all_confirm() {
                             ui.add_space(4.0);
                             ui.colored_label(
                                 egui::Color32::from_rgb(255, 165, 0),
@@ -262,9 +270,9 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                             ui.add_space(4.0);
                             ui.horizontal(|ui| {
                                 if ui.button("Yes, clear all").clicked() {
-                                    app.show_clear_all_confirm = false;
-                                    let profile_override = app.cached_profile_override.clone();
-                                    let orchestrator_id = app.active_orchestrator_id.clone();
+                                    *app.show_clear_all_confirm_mut() = false;
+                                    let profile_override = app.cached_gateway_profile.clone();
+                                    let orchestrator_id = app.active_orchestrator_id().cloned();
                                     let (tx, rx) = std::sync::mpsc::channel();
                                     std::thread::spawn(move || {
                                         let result = super::super::state::gateway::fetch_sessions_delete_all(
@@ -273,10 +281,10 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
                                         );
                                         let _ = tx.send(result);
                                     });
-                                    app.sessions_delete_all_receiver = Some(rx);
+                                    *app.sessions_delete_all_receiver_mut() = Some(rx);
                                 }
                                 if ui.button("Cancel").clicked() {
-                                    app.show_clear_all_confirm = false;
+                                    *app.show_clear_all_confirm_mut() = false;
                                 }
                             });
                         }

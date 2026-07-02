@@ -16,23 +16,37 @@ impl ChaiApp {
     /// Call each frame.
     pub(crate) fn poll_gateway_probe(&mut self) {
         // Check for in-flight probe result.
-        let probe_rx = self.gw_ref().probe_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        let probe_rx = self.gw_ref()
+            .and_then(|gw| gw.probe_receiver.as_ref())
+            .and_then(|rx| rx.try_recv().ok());
         if let Some(ok) = probe_rx {
-            let gw = self.gw();
-            gw.probe_completed = true;
-            gw.responds = ok;
-            if !ok {
-                gw.status = None;
+            let need_invalidate;
+            {
+                let gw = self.gw();
+                gw.probe_completed = true;
+                gw.responds = ok;
+                if !ok {
+                    gw.status = None;
+                    need_invalidate = true;
+                } else {
+                    need_invalidate = false;
+                }
+                gw.probe_receiver = None;
+            }
+            if need_invalidate {
                 self.invalidate_agent_detail_cache();
             }
-            gw.probe_receiver = None;
         }
         // Increment frame counter.
         {
-            let next = self.gw_ref().frames_since_probe.saturating_add(1);
+            let next = self.gw_ref().map_or(0, |gw| gw.frames_since_probe).saturating_add(1);
             self.gw().frames_since_probe = next;
         }
-        if self.gw_ref().probe_receiver.is_none() && self.gw_ref().frames_since_probe >= PROBE_INTERVAL_FRAMES {
+        let (probe_rx_none, frames_since_probe) = match self.gw_ref() {
+            Some(gw) => (gw.probe_receiver.is_none(), gw.frames_since_probe),
+            None => (true, 0),
+        };
+        if probe_rx_none && frames_since_probe >= PROBE_INTERVAL_FRAMES {
             self.gw().frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
             let profile_override = self.cached_gateway_profile.clone();
@@ -57,18 +71,22 @@ impl ChaiApp {
 
     /// When gateway status is received, ensure current model is in the available list for the effective provider; if not, switch to gateway default or first available.
     pub(crate) fn reconcile_model_with_status(&mut self) {
-        if self.gw_ref().status.is_none() {
-            return;
-        }
-        let enabled = self.enabled_providers();
-        // Clone the needed data from gw_ref to avoid holding a borrow.
-        let status_data = self.gw_ref().status.clone();
-        let active_orch_id = self.gw_ref().active_orchestrator_id.clone();
+        // Clone the needed data to avoid holding a borrow while calling gw().
+        let (status_data, active_orch_id, current_provider, current_model, default_model) = match self.gw_ref() {
+            Some(gw) => (
+                gw.status.clone(),
+                gw.active_orchestrator_id.clone(),
+                gw.current_provider.clone(),
+                gw.current_model.clone(),
+                gw.default_model.clone(),
+            ),
+            None => return,
+        };
         let Some(ref details) = status_data else {
             return;
         };
-        let provider = self.gw_ref()
-            .current_provider
+        let enabled = self.enabled_providers();
+        let provider = current_provider
             .as_deref()
             .or_else(|| details.default_provider_for(active_orch_id.as_deref()))
             .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
@@ -82,11 +100,10 @@ impl ChaiApp {
         if models.is_empty() {
             return;
         }
-        let effective = self.gw_ref()
-            .current_model
+        let effective = current_model
             .as_deref()
             .or_else(|| details.default_model_for(active_orch_id.as_deref()))
-            .or(self.gw_ref().default_model.as_deref());
+            .or(default_model.as_deref());
         let in_list = effective
             .map(|m| models.iter().any(|x| x == m))
             .unwrap_or(false);
@@ -107,16 +124,24 @@ impl ChaiApp {
     /// Poll for status fetch result and optionally start a new fetch when gateway is running.
     pub(crate) fn poll_status_fetch(&mut self) {
         // Check for in-flight result.
-        let status_rx = self.gw_ref().status_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        let status_rx = self.gw_ref()
+            .and_then(|gw| gw.status_receiver.as_ref())
+            .and_then(|rx| rx.try_recv().ok());
         if let Some(result) = status_rx {
             let prev_status = self.gw().status.take();
             self.gw().status = result.ok();
             self.reconcile_dashboard_agent_selection();
             self.reconcile_model_with_status();
 
+            // Clone status so we don't hold an immutable borrow while calling gw().
+            let curr_status = self.gw_ref().and_then(|gw| gw.status.clone());
+            let cached_agent_ids: Vec<String> = self.gw_ref()
+                .map(|gw| gw.agent_detail_cache.keys().cloned().collect())
+                .unwrap_or_default();
+
             // Only invalidate the agent detail cache when something that
             // affects agent detail data actually changed.
-            let should_invalidate = match (&prev_status, &self.gw_ref().status) {
+            let should_invalidate = match (&prev_status, &curr_status) {
                 (Some(prev), Some(new)) => {
                     // Agent roster changed (ids added or removed).
                     let prev_keys: std::collections::HashSet<_> =
@@ -130,7 +155,7 @@ impl ChaiApp {
                         true
                     } else {
                         // Any cached agent's context mode changed.
-                        self.gw_ref().agent_detail_cache.keys().any(|id| {
+                        cached_agent_ids.iter().any(|id| {
                             prev.agent_skills
                                 .get(id)
                                 .and_then(|r| r.context_mode.as_deref())
@@ -149,25 +174,33 @@ impl ChaiApp {
                 self.invalidate_agent_detail_cache();
             }
             self.gw().status_receiver = None;
-            if self.gw_ref().status.is_none() {
+            let status_is_none = self.gw_ref().map_or(true, |gw| gw.status.is_none());
+            if status_is_none {
                 self.gw().frames_since_status = 0;
                 self.gw().status_fetch_ever_failed = true;
             } else {
                 self.gw().status_fetch_ever_failed = false;
             }
         }
-        if !self.gw_ref().responds || self.gw_ref().status_receiver.is_some() {
+        let (responds, status_rx_is_some) = match self.gw_ref() {
+            Some(gw) => (gw.responds, gw.status_receiver.is_some()),
+            None => (false, false),
+        };
+        if !responds || status_rx_is_some {
             return;
         }
         // Only fetch immediately on the very first detection (gateway_status has never
         // been set AND no previous fetch has failed). Once a fetch has failed, let the
         // normal interval cadence apply to avoid a tight retry loop of WebSocket connects.
-        let need_immediate = self.gw_ref().status.is_none() && !self.gw_ref().status_fetch_ever_failed;
+        let (need_immediate, frames_since_status) = match self.gw_ref() {
+            Some(gw) => (gw.status.is_none() && !gw.status_fetch_ever_failed, gw.frames_since_status),
+            None => (false, 0),
+        };
         {
-            let next = self.gw_ref().frames_since_status.saturating_add(1);
+            let next = frames_since_status.saturating_add(1);
             self.gw().frames_since_status = next;
         }
-        if need_immediate || self.gw_ref().frames_since_status >= STATUS_INTERVAL_FRAMES {
+        if need_immediate || self.gw_ref().map_or(0, |gw| gw.frames_since_status) >= STATUS_INTERVAL_FRAMES {
             self.gw().frames_since_status = 0;
             let (tx, rx) = mpsc::channel();
             let profile_override = self.cached_gateway_profile.clone();
@@ -183,7 +216,9 @@ impl ChaiApp {
     /// Poll for gateway log fetch result and optionally start a new fetch. Call each frame.
     pub(crate) fn poll_gateway_logs_fetch(&mut self, owned: bool) {
         // Check for in-flight result.
-        let logs_rx = self.gw_ref().logs_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        let logs_rx = self.gw_ref()
+            .and_then(|gw| gw.logs_receiver.as_ref())
+            .and_then(|rx| rx.try_recv().ok());
         if let Some(result) = logs_rx {
             if let Ok((lines, max_seq)) = result {
                 for line in lines {
@@ -194,11 +229,15 @@ impl ChaiApp {
             self.gw().logs_receiver = None;
         }
         // Only fetch logs from external gateways.
-        if owned || !self.gw_ref().responds || self.gw_ref().logs_receiver.is_some() {
+        let (responds, logs_rx_is_some) = match self.gw_ref() {
+            Some(gw) => (gw.responds, gw.logs_receiver.is_some()),
+            None => (false, false),
+        };
+        if owned || !responds || logs_rx_is_some {
             // When the gateway is owned or not responding, reset the cursor,
             // frame counter, and any in-flight receiver so the next external
             // gateway starts fresh.
-            if owned || !self.gw_ref().responds {
+            if owned || !responds {
                 self.gw().logs_cursor = 0;
                 self.gw().frames_since_logs = 0;
                 self.gw().logs_receiver = None;
@@ -206,14 +245,14 @@ impl ChaiApp {
             return;
         }
         {
-            let next = self.gw_ref().frames_since_logs.saturating_add(1);
+            let next = self.gw_ref().map_or(0, |gw| gw.frames_since_logs).saturating_add(1);
             self.gw().frames_since_logs = next;
         }
-        if self.gw_ref().frames_since_logs >= STATUS_INTERVAL_FRAMES {
+        if self.gw_ref().map_or(0, |gw| gw.frames_since_logs) >= STATUS_INTERVAL_FRAMES {
             self.gw().frames_since_logs = 0;
             let (tx, rx) = mpsc::channel();
             let profile_override = self.cached_gateway_profile.clone();
-            let after_seq = self.gw_ref().logs_cursor;
+            let after_seq = self.gw_ref().map_or(0, |gw| gw.logs_cursor);
             std::thread::spawn(move || {
                 let result = fetch_gateway_logs(profile_override.as_deref(), after_seq);
                 let _ = tx.send(result);
@@ -225,11 +264,16 @@ impl ChaiApp {
     /// Poll for in-flight `agentDetail` fetch result and optionally start a new fetch.
     pub(crate) fn poll_agent_detail(&mut self) {
         // Check for in-flight result.
-        let detail_rx = self.gw_ref().agent_detail_receiver.as_ref()
-            .map(|(_, rx)| rx.try_recv().ok())
-            .flatten();
-        let in_flight_id = self.gw_ref().agent_detail_receiver.as_ref()
-            .map(|(id, _)| id.clone());
+        let (detail_rx, in_flight_id) = match self.gw_ref() {
+            Some(gw) => {
+                let rx = gw.agent_detail_receiver.as_ref()
+                    .and_then(|(_, rx)| rx.try_recv().ok());
+                let id = gw.agent_detail_receiver.as_ref()
+                    .map(|(id, _)| id.clone());
+                (rx, id)
+            }
+            None => (None, None),
+        };
         if let Some(result) = detail_rx {
             let gw = self.gw();
             match result {
@@ -249,21 +293,30 @@ impl ChaiApp {
         }
 
         // Don't fetch if gateway isn't running or a fetch is already in flight.
-        if !self.gw_ref().responds || self.gw_ref().agent_detail_receiver.is_some() {
+        let (responds, agent_detail_rx_is_some) = match self.gw_ref() {
+            Some(gw) => (gw.responds, gw.agent_detail_receiver.is_some()),
+            None => (false, false),
+        };
+        if !responds || agent_detail_rx_is_some {
             return;
         }
 
         // Determine the selected agent id from the dashboard picker.
-        let selected_id = self.gw_ref().dashboard_agent_id.clone().or_else(|| {
-            self.gw_ref().status.as_ref().and_then(|gs| gs.orchestrator_id().map(String::from))
-        });
+        let selected_id = match self.gw_ref() {
+            Some(gw) => gw.dashboard_agent_id.clone().or_else(|| {
+                gw.status.as_ref().and_then(|gs| gs.orchestrator_id().map(String::from))
+            }),
+            None => None,
+        };
 
         let Some(ref target_id) = selected_id else {
             return;
         };
 
         // Only fetch if this agent isn't cached yet.
-        if self.gw_ref().agent_detail_cache.contains_key(target_id) {
+        let is_cached = self.gw_ref()
+            .map_or(false, |gw| gw.agent_detail_cache.contains_key(target_id));
+        if is_cached {
             return;
         }
 

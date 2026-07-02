@@ -23,8 +23,8 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
     };
     crate::app::ui_screen(ui, "Chat", subtitle, |ui| {
         let can_send_base = running
-            && (app.chat_session_id.is_some()
-                || (app.selected_session_id.is_none() && app.chat_session_id.is_none()));
+            && (app.chat_session_id().is_some()
+                || (app.selected_session_id().is_none() && app.chat_session_id().is_none()));
         let mut can_send = can_send_base;
 
         let row_height = ui.spacing().interact_size.y + 8.0;
@@ -41,10 +41,10 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             .0;
         let mut messages_ui = ui.child_ui(messages_rect, egui::Layout::top_down(egui::Align::Min));
         // Always use session_messages for the selected session when present to avoid duplicates from chat_messages diverging.
-        let messages_to_show: Vec<ChatMessage> = if let Some(ref id) = app.selected_session_id {
-            app.session_messages.get(id).cloned().unwrap_or_default()
+        let messages_to_show: Vec<ChatMessage> = if let Some(ref id) = app.selected_session_id() {
+            app.session_messages().and_then(|m| m.get(id.as_str())).cloned().unwrap_or_default()
         } else {
-            app.chat_messages.clone()
+            app.chat_messages().cloned().unwrap_or_default()
         };
         egui::ScrollArea::vertical()
             .stick_to_bottom(true)
@@ -54,8 +54,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 ui.allocate_exact_size(egui::vec2(content_width, 0.0), egui::Sense::hover());
                 let user_display = local_user_display_name();
                 let orchestrator_id = app
-                    .gateway_status
-                    .as_ref()
+                    .gateway_status()
                     .and_then(|s| s.orchestrator_id())
                     .unwrap_or("orchestrator");
                 for (idx, m) in messages_to_show.iter().enumerate() {
@@ -63,7 +62,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     ui.add_space(8.0);
                 }
                 // Show loading indicator when session history is being fetched.
-                if app.loading_session_id.is_some() {
+                if app.loading_session_id().is_some() {
                     ui.add_space(12.0);
                     ui.label(egui::RichText::new("Loading session history…").weak());
                 }
@@ -101,17 +100,15 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 // Compute enabled providers list first so it can inform the effective provider fallback.
                 let enabled_providers_list = app.enabled_providers();
                 let effective_provider = app
-                    .current_provider
-                    .as_deref()
+                    .current_provider()
+                    .map(|s| s.as_str())
                     .or_else(|| {
-                        let orch_id = app.active_orchestrator_id.as_deref();
-                        app.gateway_status
-                            .as_ref()
+                        let orch_id = app.active_orchestrator_id().map(|s| s.as_str());
+                        app.gateway_status()
                             .and_then(|s| s.default_provider_for(orch_id))
                     })
                     .or_else(|| {
-                        app.gateway_status
-                            .as_ref()
+                        app.gateway_status()
                             .and_then(|s| s.provider_info.keys().next().map(|k| k.as_str()))
                     })
                     .or_else(|| enabled_providers_list.first().map(|s| s.as_str()))
@@ -119,26 +116,23 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     .to_string();
                 // Only models for the selected provider (from dynamic provider_info).
                 let gateway_models: Vec<String> = app
-                    .gateway_status
-                    .as_ref()
+                    .gateway_status()
                     .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.models.clone()))
                     .unwrap_or_default();
                 let effective_default_model = app
-                    .gateway_status
-                    .as_ref()
+                    .gateway_status()
                     .and_then(|s| {
-                        let orch_id = app.active_orchestrator_id.as_deref();
+                        let orch_id = app.active_orchestrator_id().map(|s| s.as_str());
                         s.default_model_for(orch_id).map(String::from)
                     })
-                    .or_else(|| app.default_model.clone());
+                    .or_else(|| app.default_model().cloned());
 
                 // Determine if this provider is a hosted API (remote endpoint that may not support
                 // model discovery but still has models available). Local providers (ollama,
                 // openai-compat with local base URL) require a model list before sending; remote
                 // providers can be sent to with a default.
                 let endpoint_type = app
-                    .gateway_status
-                    .as_ref()
+                    .gateway_status()
                     .and_then(|s| s.provider_info.get(&effective_provider).map(|p| p.endpoint_type.as_str()));
                 // OpenAI-compat providers with a remote base URL are also treated as hosted.
                 // Since we don't have the base URL here, check if the endpoint type is openai-compat
@@ -157,10 +151,10 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 };
                 // For hosted API providers, allow send even when the gateway has not yet returned a model list.
                 let model_available = !model_options.is_empty() || treat_as_hosted;
-                can_send = can_send && model_available && !app.chat_turn_receiver.is_some();
+                can_send = can_send && model_available && app.chat_turn_receiver().is_none();
 
                 let mut send_now = false;
-                let turn_in_progress = app.chat_turn_receiver.is_some();
+                let turn_in_progress = app.chat_turn_receiver().is_some();
 
                 let send_button = ui
                     .add_enabled(can_send, egui::Button::new("Send"))
@@ -168,7 +162,7 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
                 // Stop button: shows "Stopping…" while a stop request is in progress.
                 ui.add_space(4.0);
-                let stopping = app.chat_stopping;
+                let stopping = app.chat_stopping();
                 let can_stop = turn_in_progress && !stopping;
                 let stop_label = if stopping { "Stopping…" } else { "Stop" };
                 let stop_hover = if stopping {
@@ -186,8 +180,8 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 if !model_options.is_empty() {
                     ui.add_space(8.0);
                     let current_label = app
-                        .current_model
-                        .as_deref()
+                        .current_model()
+                        .map(|s| s.as_str())
                         .or(effective_default_model.as_deref())
                         .unwrap_or("—")
                         .to_string();
@@ -197,12 +191,11 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                             .show_ui(ui, |ui| {
                                 for m in &model_options {
                                     let selected = app
-                                        .current_model
-                                        .as_deref()
+                                        .current_model()
                                         .map(|cm| cm == m.as_str())
                                         .unwrap_or(false);
                                     if ui.selectable_label(selected, m).clicked() {
-                                        app.current_model = Some(m.clone());
+                                        *app.current_model_mut() = Some(m.clone());
                                     }
                                 }
                             });
@@ -229,8 +222,8 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                         .selectable_label(effective_provider == b.as_str(), b)
                                         .clicked()
                                     {
-                                        app.current_provider = Some(b.clone());
-                                        app.current_model = None;
+                                        *app.current_provider_mut() = Some(b.clone());
+                                        *app.current_model_mut() = None;
                                         app.request_status_refetch();
                                     }
                                 }

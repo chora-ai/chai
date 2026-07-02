@@ -35,7 +35,7 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     }
 
                     if app.status_view_mode == StatusViewMode::RawJson {
-                        if let Some(ref s) = app.gateway_status {
+                        if let Some(s) = app.gateway_status() {
                             if let Some(ref j) = s.status_response_json {
                                 let mut buf = j.clone();
                                 readonly_code::read_only_code_block(
@@ -62,7 +62,7 @@ pub fn ui_gateway_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
                     status_summary_dashboard(
                         ui,
-                        app.gateway_status.as_ref(),
+                        app.gateway_status(),
                     );
                 });
         },

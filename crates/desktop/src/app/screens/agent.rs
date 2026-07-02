@@ -19,9 +19,13 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
             let total_height = ui.available_height();
 
-            let Some(ref gs) = app.gateway_status else {
-                ui.label("Loading from gateway status...");
-                return;
+            // Clone the needed gateway status data so we don't hold an immutable borrow of `app`.
+            let gs = match app.gateway_status() {
+                Some(g) => g.clone(),
+                None => {
+                    ui.label("Loading from gateway status...");
+                    return;
+                }
             };
 
             let orch_ids: std::collections::HashSet<&str> = gs
@@ -32,8 +36,8 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let orch_id = gs.orchestrator_id().unwrap_or("orchestrator");
             let orch_owned = orch_id.to_string();
             let selected_id = app
-                .dashboard_agent_id
-                .clone()
+                .dashboard_agent_id()
+                .cloned()
                 .unwrap_or_else(|| orch_owned.clone());
             let is_orchestrator_view =
                 gs.agent_skills.is_empty() || orch_ids.contains(selected_id.as_str());
@@ -55,7 +59,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                 .selectable_label(selected_id == id.as_str(), label)
                                 .clicked()
                             {
-                                app.dashboard_agent_id = Some(id.clone());
+                                *app.dashboard_agent_id_mut() = Some(id.clone());
                             }
                         }
                     });
@@ -70,7 +74,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 == Some("readOnDemand");
 
             // Get on-demand agent detail (system context + skills context).
-            let agent_detail = app.agent_detail_cache.get(&selected_id).cloned();
+            let agent_detail = app.agent_detail_cache().and_then(|c| c.get(&selected_id)).cloned();
             let context_text = agent_detail.as_ref().and_then(|d| d.system_context.as_deref());
             let status_bodies = agent_detail
                 .as_ref()
@@ -79,7 +83,7 @@ pub fn ui_agent_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
             // If agent detail is not yet loaded, show loading or error state.
             if agent_detail.is_none() {
-                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error {
+                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error() {
                     if err_id == &selected_id {
                         ui.colored_label(egui::Color32::RED, err_msg);
                     } else {

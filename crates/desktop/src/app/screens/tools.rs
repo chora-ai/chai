@@ -18,12 +18,14 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                 return;
             }
 
-            if app.gateway_status.is_none() {
-                ui.label("Loading from gateway status...");
-                return;
-            }
-
-            let gs = app.gateway_status.as_ref().unwrap();
+            // Clone the needed gateway status data so we don't hold an immutable borrow of `app`.
+            let gs = match app.gateway_status() {
+                Some(g) => g.clone(),
+                None => {
+                    ui.label("Loading from gateway status...");
+                    return;
+                }
+            };
             let orch_ids: std::collections::HashSet<&str> = gs
                 .orchestrators
                 .iter()
@@ -32,8 +34,8 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
             let orch_id = gs.orchestrator_id().unwrap_or("orchestrator");
             let orch_owned = orch_id.to_string();
             let selected_id = app
-                .dashboard_agent_id
-                .clone()
+                .dashboard_agent_id()
+                .cloned()
                 .unwrap_or_else(|| orch_owned.clone());
 
             ui.horizontal(|ui| {
@@ -53,7 +55,7 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                 .selectable_label(selected_id == id.as_str(), label)
                                 .clicked()
                             {
-                                app.dashboard_agent_id = Some(id.clone());
+                                *app.dashboard_agent_id_mut() = Some(id.clone());
                             }
                         }
                     });
@@ -62,8 +64,8 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
 
             // Get tools from on-demand agent detail cache.
             let tools_str = app
-                .agent_detail_cache
-                .get(&selected_id)
+                .agent_detail_cache()
+                .and_then(|c| c.get(&selected_id))
                 .and_then(|d| d.tools.as_deref());
 
             if let Some(t) = tools_str {
@@ -79,13 +81,13 @@ pub fn ui_tools_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                     &mut app.tools_display_buffer,
                     20,
                 );
-            } else if app.agent_detail_cache.contains_key(&selected_id) {
+            } else if app.agent_detail_cache().map_or(false, |c| c.contains_key(&selected_id)) {
                 // Detail is loaded but this agent has no tools.
                 app.tools_display_buffer.clear();
                 ui.label(egui::RichText::new("No tools reported for this agent.").weak());
             } else {
                 // Agent detail not yet loaded — show error or loading state.
-                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error {
+                if let Some((ref err_id, ref err_msg)) = app.agent_detail_fetch_error() {
                     if err_id == &selected_id {
                         ui.colored_label(egui::Color32::RED, err_msg);
                     } else {

@@ -40,7 +40,7 @@ pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
 
     skills.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let skill_agent_map = build_skill_agent_map(&config, app.gateway_status.as_ref());
+    let skill_agent_map = build_skill_agent_map(&config, app.gateway_status());
 
     let subtitle = format!(
         "Skill packages loaded from {}.",

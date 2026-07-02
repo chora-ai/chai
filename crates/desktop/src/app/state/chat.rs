@@ -174,7 +174,10 @@ impl ChaiApp {
     pub(crate) fn poll_session_events(&mut self) {
         loop {
             let ev = {
-                let gw = self.gw_ref();
+                let gw = match self.gw_ref() {
+                    Some(g) => g,
+                    None => break,
+                };
                 match &gw.session_events_receiver {
                     Some(rx) => match rx.try_recv() {
                         Ok(e) => Some(e),
@@ -199,7 +202,8 @@ impl ChaiApp {
             }
             // Handle session deletion events.
             if ev.role == "session_deleted" {
-                let should_handle = ev.orchestrator_id.as_deref() == self.gw_ref().active_orchestrator_id.as_deref()
+                let active_orch = self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_deref());
+                let should_handle = ev.orchestrator_id.as_deref() == active_orch
                     || ev.orchestrator_id.is_none();
                 if should_handle {
                     let sid = ev.session_id.clone();
@@ -211,21 +215,25 @@ impl ChaiApp {
             }
             // Handle sessions-cleared events.
             if ev.role == "sessions_cleared" {
-                let should_clear = ev.orchestrator_id.as_deref() == self.gw_ref().active_orchestrator_id.as_deref()
+                let active_orch = self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_deref());
+                let should_clear = ev.orchestrator_id.as_deref() == active_orch
                     || ev.orchestrator_id.is_none();
                 if should_clear {
-                    let gw = self.gw();
-                    gw.session_messages.clear();
-                    gw.session_summaries.clear();
-                    gw.session_order.clear();
+                    {
+                        let gw = self.gw();
+                        gw.session_messages.clear();
+                        gw.session_summaries.clear();
+                        gw.session_order.clear();
+                    }
                     self.start_new_session();
-                    gw.chat_session_id = None;
+                    self.gw().chat_session_id = None;
                 }
                 continue;
             }
             // Filter session events by active orchestrator.
             if let Some(ref ev_oid) = ev.orchestrator_id {
-                if Some(ev_oid.as_str()) != self.gw_ref().active_orchestrator_id.as_deref() {
+                let active_orch = self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_deref());
+                if Some(ev_oid.as_str()) != active_orch {
                     continue;
                 }
             }
@@ -351,8 +359,8 @@ impl ChaiApp {
                 if !already_has_banner {
                     entry.push(crate::app::ChatMessage::turn_stopped());
                 }
-                self.gw().chat_stopping = false;
                 drop(gw);
+                self.gw().chat_stopping = false;
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
@@ -443,7 +451,7 @@ impl ChaiApp {
             return;
         }
         // Only start listener if gateway is actually responding (not just starting)
-        let should_start = self.gw_ref().session_events_receiver.is_none() && self.gw_ref().responds;
+        let should_start = self.gw_ref().map_or(false, |gw| gw.session_events_receiver.is_none() && gw.responds);
         if should_start {
             let (tx, rx) = mpsc::channel();
             let tx_clone = tx.clone();

@@ -186,7 +186,7 @@ fn set_active_symlink(chai_home: &Path, profile_name: &str) -> Result<()> {
 fn set_active_symlink(chai_home: &Path, profile_name: &str) -> Result<()> {
     let link = active_symlink_path(chai_home);
     let target = profiles_dir(chai_home).join(profile_name);
-    if link.exists() || std::fs::symlink_metadata().is_ok() {
+    if link.exists() || std::fs::symlink_metadata(&link).is_ok() {
         std::fs::remove_file(&link).with_context(|| format!("remove {}", link.display()))?;
     }
     std::os::windows::fs::symlink_dir(&target, &link)
