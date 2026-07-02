@@ -1,5 +1,5 @@
 ---
-status: draft
+status: ready-for-testing
 ---
 
 # FEAT: Multi-Gateway Desktop (Per-Profile Gateway Management)
@@ -12,10 +12,11 @@ The desktop app was designed around a single-gateway assumption. Even with the p
 
 ### Core Change: `GatewayState` Struct
 
-All per-gateway state was extracted from `ChaiApp` into a new `GatewayState` struct (defined in `app.rs`). A `HashMap<String, GatewayState>` keyed by profile name lives on `ChaiApp`. Two accessor methods delegate to the active profile's entry:
+All per-gateway state was extracted from `ChaiApp` into a new `GatewayState` struct (defined in `app.rs`). A `HashMap<String, GatewayState>` keyed by profile name lives on `ChaiApp`. Three accessor methods delegate to the active profile's entry:
 
+- `fn gw_key(&self) -> &str` — returns the key used to look up the active profile's GatewayState (`env_profile` or `profile_active`)
 - `fn gw(&mut self) -> &mut GatewayState` — returns mutable reference, creates entry with `or_default()` if missing
-- `fn gw_ref(&self) -> &GatewayState` — returns immutable reference (currently has a compile bug, see below)
+- `fn gw_ref(&self) -> Option<&GatewayState>` — returns immutable reference to the active profile's GatewayState, or `None` if no entry exists yet
 
 The active profile is determined by `env_profile` (if `CHAI_PROFILE` is set) or `profile_active` (from `~/.chai/active`).
 
@@ -38,223 +39,26 @@ Replaced the old singular `gateway_lock_profile: Option<String>` (which used `re
 
 ## Implementation Status
 
-### Files Modified (all uncommitted on `feat/multi-gateway-desktop`)
+### All Files — ✅ COMPLETE
 
-#### 1. `crates/lib/src/profile.rs` — ✅ COMPLETE
+All compile errors fixed. `cargo_check` and `cargo_test` pass for both `lib` and `desktop` packages.
 
-- Lock path moved from `~/.chai/gateway.lock` to `~/.chai/profiles/<name>/gateway.lock`
-- `gateway_is_running(chai_home, profile_name)` — takes profile name parameter
-- `find_running_gateway_profiles(chai_home) -> Vec<String>` — new function, scans all profiles
-- Removed `read_gateway_lock_profile()` (dead code with per-profile locks)
-- `acquire_gateway_lock` error message now includes profile name
-- Tests updated for per-profile lock semantics + new `find_running_gateway_profiles` test
-- **Known bug**: Windows `set_active_symlink` has a broken `std::fs::symlink_metadata()` call on line 189 — missing the `&link` argument. Should be `std::fs::symlink_metadata(&link).is_ok()`
+#### Summary of Changes
 
-#### 2. `crates/cli/src/profile.rs` — ✅ COMPLETE
+1. **`crates/lib/src/profile.rs`** — Per-profile locks. `gw_ref()` returns `Option`. Windows `symlink_metadata` bug fixed.
+2. **`crates/cli/src/profile.rs`** — Updated `gateway_is_running` call to pass profile name.
+3. **`crates/desktop/src/app.rs`** — `GatewayState` struct, `HashMap<String, GatewayState>`, accessor methods returning `Option`/defaults, all methods updated for borrow-safe `gw()`/`gw_ref()` usage.
+4. **`crates/desktop/src/app/state/gateway.rs`** — All `gw_ref()` calls updated to handle `Option`, borrow conflicts resolved.
+5. **`crates/desktop/src/app/state/chat.rs`** — All `gw_ref()` calls updated to handle `Option`, borrow conflicts resolved.
+6. **`crates/desktop/src/app/state/skills.rs`** — Uses `cached_gateway_profile`.
+7. **`crates/desktop/src/app/ui/header.rs`** — Dropdown always enabled, mismatch hint informational.
+8. **`crates/desktop/src/app/ui/sessions.rs`** — All 25 stale field accesses replaced with accessor methods.
+9. **Screen files** (`chat.rs`, `gateway.rs`, `tools.rs`, `agent.rs`, `skills.rs`, `config.rs`) — All stale field accesses replaced with accessor methods.
 
-- `gateway_is_running` call updated to pass profile name
-- Error message updated
+### Remaining Warnings (non-blocking)
 
-#### 3. `crates/desktop/src/app.rs` — ⚠️ PARTIALLY COMPLETE
-
-**What's done:**
-- `GatewayState` struct defined with all per-gateway fields (~50 fields)
-- `Default for GatewayState` implemented
-- `ChaiApp` struct refactored — singular gateway fields removed, `gateways: HashMap<String, GatewayState>` added
-- `cached_gateway_profile` field added alongside `cached_profile_override`
-- `running_profiles: Vec<String>` replaced `gateway_lock_profile: Option<String>`
-- `effective_profile_override()` — returns `env_profile` only (for UI/config)
-- `gateway_profile_override()` — returns `env_profile` > active profile (if running) > first running profile (for WS)
-- `refresh_cached_profile_override()` — updates both cached overrides
-- `gw()` / `gw_ref()` accessor methods
-- `gateway_owned()`, `gateway_running()`, `gateway_probe_completed()`, `gateway_is_owned()`, `gateway_responds()` — delegate to `gw_ref()`
-- ~30 forwarding accessor methods added (lines 545–722) to expose GatewayState fields through method calls (e.g., `gateway_status()`, `chat_session_id()`, `session_messages()`, etc.) — these exist so screen files can call methods instead of accessing fields directly
-- `switch_profile_to()` — no longer blocks when a gateway is running (per-profile locks make blocking unnecessary)
-- `start_gateway()`, `stop_gateway()` — updated to use `gw()` for process handle
-- `start_new_session()`, `remove_session_local()`, `clear_session_and_messages()` — updated to use `gw()`
-- `start_chat_turn()`, `stop_chat_turn()`, `poll_stop()`, `poll_chat_turn()` — updated to use `gw()` and `cached_gateway_profile` for WS calls
-- `poll_sessions_list()`, `poll_sessions_history()`, `poll_sessions_delete()`, `poll_sessions_delete_all()` — updated to use `gw()` and `cached_gateway_profile`
-- `reconcile_dashboard_agent_selection()`, `reconcile_model_with_status()` — updated
-- `eframe::App::update()` — updated with per-profile gateway stop detection, `running_profiles` refresh, profile dropdown always enabled, mismatch hint for multi-gateway scenarios
-
-**Known compile errors in `app.rs`:**
-
-1. **`gw_ref()` static DEFAULT is not `Sync`** (lines 451–497): `GatewayState` contains `mpsc::Receiver` types which are not `Sync`, so `static DEFAULT: GatewayState` is invalid. **Fix**: Change `gw_ref` to not use a static. Instead, have it return `Option<&GatewayState>` or use a different pattern. The simplest fix is to change all accessor methods that use `gw_ref()` to handle the `None` case:
-   ```rust
-   pub fn gateway_status(&self) -> Option<&GatewayStatusDetails> {
-       let key = self.env_profile.as_deref().unwrap_or(&self.profile_active);
-       self.gateways.get(key).and_then(|gw| gw.status.as_ref())
-   }
-   ```
-   For non-Option fields (like `responds`, `chat_stopping`, `sessions_list_fetched`), return a default value:
-   ```rust
-   pub fn gateway_responds(&self) -> bool {
-       let key = self.env_profile.as_deref().unwrap_or(&self.profile_active);
-       self.gateways.get(key).map_or(false, |gw| gw.responds)
-   }
-   ```
-   Remove the `static DEFAULT` entirely from `gw_ref()` — either make `gw_ref` return `Option<&GatewayState>` or inline the `self.gateways.get(key)` pattern in each accessor.
-
-2. **`app.rs` line 882** (`new()` method): `desktop_config.appearance.theme.trim().to_lowercase().str()` — the `.str()` call is wrong. **Already fixed** to `.as_str()` in the current working tree (line 882 should now read `.as_str()`).
-
-#### 4. `crates/desktop/src/app/state/gateway.rs` — ⚠️ PARTIALLY COMPLETE
-
-**What's done:**
-- `poll_gateway_probe()` — restructured to extract `probe_rx` result first, then write via `gw()` (avoids borrow conflicts)
-- `reconcile_model_with_status()` — clones status data to avoid holding borrow
-- `poll_status_fetch()` — restructured for borrow safety
-- `poll_gateway_logs_fetch()` — restructured
-- `poll_agent_detail()` — restructured
-- `invalidate_agent_detail_cache()` — uses `gw()`
-- All WS thread spawns use `self.cached_gateway_profile.clone()` instead of `self.cached_profile_override.clone()`
-- All the free-standing WS functions (`fetch_gateway_status`, `fetch_gateway_logs`, `fetch_agent_detail`, `run_agent_turn`, `send_stop`, `fetch_sessions_list`, `fetch_sessions_history`, `fetch_sessions_delete`, `fetch_sessions_delete_all`) are unchanged (they take `profile_override: Option<&str>` as a parameter)
-
-**Known issue**: The `reconcile_model_with_status()` method references `self.gw_ref().status`, `self.gw_ref().current_provider`, etc. which will have the same `static DEFAULT` `Sync` issue as `app.rs`.
-
-#### 5. `crates/desktop/src/app/state/chat.rs` — ⚠️ PARTIALLY COMPLETE
-
-**What's done:**
-- `move_session_to_front()` — uses `gw()`
-- `update_session_channel_meta()` — uses `gw()`
-- `poll_session_events()` — fully rewritten to use `gw()`/`gw_ref()` with careful borrow management (extracting `ev` from receiver before mutating)
-- `ensure_session_events_listener()` — uses `gw_ref()` and `gw()`, `cached_gateway_profile`
-- `run_session_events_loop()` free function — unchanged
-
-**Known issue**: Same `gw_ref()` `Sync` issue.
-
-#### 6. `crates/desktop/src/app/state/skills.rs` — ✅ COMPLETE
-
-- `cached_profile_override` changed to `cached_gateway_profile` for the WS fetch thread
-
-#### 7. `crates/desktop/src/app/ui/header.rs` — ✅ COMPLETE
-
-- Dropdown always enabled (`profile_dropdown_enabled` is always `true` from `update()`)
-- Mismatch hint is informational only, does not disable dropdown
-- Doc comments updated
-
-#### 8. `crates/desktop/src/app/ui/sessions.rs` — ⚠️ PARTIALLY COMPLETE
-
-**What's done:**
-- Line 89–90: `app.gw_ref().selected_session_id` / `app.gw().selected_session_id` — updated
-
-**Not done (25 stale field accesses):**
-- Lines 118–119: `app.chat_turn_receiver` / `app.chat_stopping` — need `app.chat_turn_receiver()` / `app.chat_stopping()`
-- Line 149: `app.session_order` — needs `app.session_order()`
-- Line 151: `app.selected_session_id` — needs `app.selected_session_id()`
-- Line 153: `app.sessions_delete_receiver` — needs `app.sessions_delete_receiver()`
-- Line 157: `app.session_summaries` — needs `app.session_summaries()`
-- Line 170: `app.session_messages` — needs `app.session_messages()`
-- Line 171: `app.loading_session_id` — needs `app.loading_session_id()`
-- Line 172: `app.sessions_history_receiver` — needs `app.sessions_history_receiver()`
-- Line 174: `app.loading_session_id = Some(...)` — needs `app.loading_session_id_mut()` or `app.gw().loading_session_id`
-- Line 175: `app.cached_profile_override` — needs `app.cached_gateway_profile`
-- Line 185: `app.sessions_history_receiver = Some(...)` — needs `app.gw().sessions_history_receiver`
-- Line 187: `app.selected_session_id = Some(...)` — needs `app.gw().selected_session_id`
-- Line 198: `app.chat_session_id = Some(...)` — needs `app.gw().chat_session_id`
-- Line 204: `app.chat_session_id` — needs `app.chat_session_id()`
-- Line 205: `app.chat_turn_receiver` / `app.chat_stopping` — needs method calls
-- Line 212: `app.cached_profile_override` — needs `app.cached_gateway_profile`
-- Line 222: `app.sessions_delete_receiver = Some(...)` — needs `app.gw().sessions_delete_receiver`
-- Line 241: `app.session_order` / `app.sessions_list_fetched` — needs method calls
-- Lines 247–251: `app.chat_turn_receiver` / `app.chat_stopping` / `app.session_order` / `app.show_clear_all_confirm` — need method calls / mutators
-- Lines 256–279: `app.show_clear_all_confirm` (read + writes) / `app.cached_profile_override` / `app.active_orchestrator_id` / `app.sessions_delete_all_receiver` — need method calls / mutators / `app.cached_gateway_profile` / `app.gw()` writes
-
-#### 9. Screen files — ❌ NOT UPDATED (34 stale field accesses each)
-
-The following screen files still use direct field access (`app.gateway_status`, `app.chat_session_id`, etc.) but those fields no longer exist on `ChaiApp`. They need to be updated to use the accessor methods (e.g., `app.gateway_status()`, `app.chat_session_id()`).
-
-**`screens/chat.rs`** (18 stale accesses):
-- `app.chat_session_id` → `app.chat_session_id()` (lines 26, 27)
-- `app.selected_session_id` → `app.selected_session_id()` (lines 27, 44)
-- `app.session_messages` → `app.session_messages()` (line 45)
-- `app.chat_messages` → `app.chat_messages()` (line 47)
-- `app.loading_session_id` → `app.loading_session_id()` (line 66)
-- `app.gateway_status` → `app.gateway_status()` (lines 108, 113, 121, 127, 139)
-- `app.active_orchestrator_id` → `app.active_orchestrator_id()` (lines 107, 130)
-- `app.default_model` → `app.default_model()` (line 133)
-- `app.chat_turn_receiver` → `app.chat_turn_receiver()` (lines 160, 163)
-- `app.chat_stopping` → `app.chat_stopping()` (line 171)
-- `app.current_model` (read) → `app.current_model()` (line 200)
-- `app.current_model` (write) → `app.current_model_mut()` or `*app.current_model_mut() = Some(...)` (line 205)
-- `app.current_provider` (write) → `app.current_provider_mut()` (line 232)
-- `app.current_model = None` → `*app.current_model_mut() = None` (line 233)
-
-**`screens/gateway.rs`** (2 stale accesses):
-- `app.gateway_status` (read) → `app.gateway_status()` (lines 38, 65)
-
-**`screens/tools.rs`** (6 stale accesses):
-- `app.gateway_status` → `app.gateway_status()` (lines 21, 26)
-- `app.dashboard_agent_id` (write) → `app.dashboard_agent_id_mut()` (line 56)
-- `app.agent_detail_cache` → `app.agent_detail_cache()` (lines 65, 82)
-- `app.agent_detail_fetch_error` → `app.agent_detail_fetch_error()` (line 88)
-- `app.tools_display_buffer` — **no change needed** (still on ChaiApp)
-
-**`screens/agent.rs`** (5 stale accesses):
-- `app.gateway_status` → `app.gateway_status()` (line 22)
-- `app.dashboard_agent_id` (read) → `app.dashboard_agent_id()` (line 35)
-- `app.dashboard_agent_id` (write) → `app.dashboard_agent_id_mut()` (line 58)
-- `app.agent_detail_cache` → `app.agent_detail_cache()` (line 73)
-- `app.agent_detail_fetch_error` → `app.agent_detail_fetch_error()` (line 82)
-
-**`screens/skills.rs`** (1 stale access):
-- `app.gateway_status` → `app.gateway_status()` (line 43)
-
-**`screens/config.rs`** (2 stale accesses):
-- `app.default_model` (read) → `app.default_model()` (line 18)
-- `app.default_model` (write) → `app.default_model_mut()` (line 20)
-
-## Remaining Work (Ordered)
-
-### 1. Fix `gw_ref()` — Remove `static DEFAULT` (CRITICAL, blocks all compilation)
-
-The `static DEFAULT: GatewayState` in `gw_ref()` (app.rs ~line 452) fails because `GatewayState` contains `mpsc::Receiver` which is not `Sync`. **Fix**: Eliminate `gw_ref()` entirely. Instead, inline the `self.gateways.get(key)` pattern in each accessor method. For `Option` fields, use `and_then`:
-
-```rust
-pub fn gateway_status(&self) -> Option<&GatewayStatusDetails> {
-    let key = self.env_profile.as_deref().unwrap_or(&self.profile_active);
-    self.gateways.get(key).and_then(|gw| gw.status.as_ref())
-}
-```
-
-For non-`Option` fields, use `map_or`:
-
-```rust
-pub fn gateway_responds(&self) -> bool {
-    let key = self.env_profile.as_deref().unwrap_or(&self.profile_active);
-    self.gateways.get(key).map_or(false, |gw| gw.responds)
-}
-```
-
-Also update `gateway_probe_completed()`, `gateway_is_owned()`, `chat_stopping()`, `sessions_list_fetched()`, `show_clear_all_confirm()`.
-
-In `state/gateway.rs` and `state/chat.rs`, the `self.gw_ref()` calls that read fields need the same treatment — either inline `self.gateways.get(key)` or restructure the methods to take `&mut self` and use `gw()`.
-
-### 2. Fix `profile.rs` Windows `set_active_symlink` (line 189)
-
-Change `std::fs::symlink_metadata().is_ok()` to `std::fs::symlink_metadata(&link).is_ok()`.
-
-### 3. Update `sessions.rs` (25 stale field accesses)
-
-Replace all direct field accesses with accessor method calls. For writes, use `app.gw().field_name = value` or the `_mut()` accessor methods. For WS thread spawns, change `app.cached_profile_override` to `app.cached_gateway_profile`.
-
-### 4. Update screen files (34 stale field accesses)
-
-Update `screens/chat.rs`, `screens/gateway.rs`, `screens/tools.rs`, `screens/agent.rs`, `screens/skills.rs`, `screens/config.rs` to use accessor methods instead of direct field access.
-
-### 5. Run `cargo_check` and fix remaining errors
-
-After the above changes, run `cargo_check` with `path: "chai"` and `package: "desktop"` to find any remaining compile errors. Common patterns to watch for:
-- Borrow conflicts where `gw()` is called multiple times in the same scope
-- Missing accessor methods for fields not yet covered
-- `cached_profile_override` used where `cached_gateway_profile` is needed (for WS calls)
-
-### 6. Run `cargo_test`
-
-Run `cargo_test` with `path: "chai"` to verify the `profile.rs` lock tests and `find_running_gateway_profiles` test pass.
-
-### 7. Run `cargo_check` for `lib` package
-
-Verify the `lib` package compiles with the per-profile lock changes.
+- `drop(gw)` calls on `&mut`/`&` references in `app.rs` and `state/chat.rs` — these are no-ops (dropping a reference does nothing). The borrow checker handles the lifetimes correctly via NLL.
+- Some unused accessor methods (`gateway_is_owned`, `gateway_responds`, `chat_messages_mut`, `session_messages_mut`, `session_summaries_mut`, `sessions_delete_all_receiver`) — these are public API methods that may be used by future code or are kept for API completeness.
 
 ## Key Design Decisions
 
@@ -264,6 +68,7 @@ Verify the `lib` package compiles with the per-profile lock changes.
 - **UI/config loading uses `cached_profile_override`**: Config loading, skills loading, and provider resolution use `cached_profile_override` to follow the desktop's active profile.
 - **Probe loop probes the active profile's gateway**: The TCP probe in `poll_gateway_probe()` uses `cached_gateway_profile` to determine which address to probe. This means only the active profile's gateway is probed for `responds` status — other profiles' gateways are tracked via `running_profiles` (lock file scan).
 - **`running_profiles` replaces `gateway_lock_profile`**: Instead of discovering one running gateway profile, the desktop now discovers all running profiles via `find_running_gateway_profiles()`.
+- **`gw_ref()` returns `Option<&GatewayState>`**: The original design used a `static DEFAULT` fallback, but `GatewayState` contains `mpsc::Receiver` which is not `Sync`, making a `static` impossible. All callers now handle `None` (returning `None` for `Option` fields, `false` for `bool` fields, empty collections for map fields).
 
 ## Manual Testing Instructions
 
