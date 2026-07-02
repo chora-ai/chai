@@ -7,7 +7,7 @@ pub(crate) enum ProfileCmd {
     List,
     /// Show persistent profile (~/.chai/active) and effective profile if CHAI_PROFILE differs
     Current,
-    /// Set ~/.chai/active to profiles/<name> (gateway must not be running)
+    /// Set ~/.chai/active to profiles/<name> (gateway must not be running for that profile)
     Switch {
         /// Profile name
         name: String,
@@ -37,11 +37,12 @@ pub(crate) fn run_profile(cmd: ProfileCmd) -> Result<()> {
             }
         }
         ProfileCmd::Switch { name } => {
-            if lib::profile::gateway_is_running(&chai_home) {
-                anyhow::bail!("gateway is running; stop it before switching profile");
+            let profile_name = name.trim();
+            if lib::profile::gateway_is_running(&chai_home, profile_name) {
+                anyhow::bail!("gateway is running for profile {:?}; stop it before switching", profile_name);
             }
-            lib::profile::switch_active_profile(&chai_home, name.trim())?;
-            println!("active profile is now {}", name.trim());
+            lib::profile::switch_active_profile(&chai_home, profile_name)?;
+            println!("active profile is now {}", profile_name);
         }
     }
     Ok(())

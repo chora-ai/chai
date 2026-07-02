@@ -86,8 +86,8 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
     }
 
     // Default selected session to current chat session when none selected
-    if app.selected_session_id.is_none() && app.chat_session_id.is_some() {
-        app.selected_session_id = app.chat_session_id.clone();
+    if app.gw_ref().selected_session_id.is_none() && app.gw_ref().chat_session_id.is_some() {
+        app.gw().selected_session_id = app.gw_ref().chat_session_id.clone();
     }
 
     egui::SidePanel::right("sessions_panel")

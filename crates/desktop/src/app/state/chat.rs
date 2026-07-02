@@ -19,8 +19,6 @@ pub(crate) fn last_non_delegation(messages: &[ChatMessage]) -> Option<&ChatMessa
 }
 
 /// Same assistant turn as already shown (same content), ignoring delegation rows in between.
-/// Tool calls are not compared because one side may have cleared them when streamed
-/// tool_call entries exist. Content alone is sufficient to identify a duplicate.
 pub(crate) fn is_duplicate_assistant_row(
     prev: &ChatMessage,
     role: &str,
@@ -131,8 +129,6 @@ fn turn_start_index(entry: &[ChatMessage]) -> usize {
 }
 
 /// Check whether any streamed `tool_call` entries exist in the current turn.
-/// Used to decide whether the assistant message's inline `tool_calls`/`tool_results`
-/// should be cleared to avoid duplicating what streamed events already display.
 pub(crate) fn has_streamed_tools_this_turn(entry: &[ChatMessage]) -> bool {
     let turn_start = turn_start_index(entry);
     entry[turn_start..].iter().any(|m| m.role == "tool_call")
@@ -141,20 +137,20 @@ pub(crate) fn has_streamed_tools_this_turn(entry: &[ChatMessage]) -> bool {
 impl ChaiApp {
     /// Move a session to the front of session_order (most recently active first).
     pub(crate) fn move_session_to_front(&mut self, session_id: &str) {
-        self.session_order.retain(|id| id != session_id);
-        self.session_order.insert(0, session_id.to_string());
+        let gw = self.gw();
+        gw.session_order.retain(|id| id != session_id);
+        gw.session_order.insert(0, session_id.to_string());
     }
 
     /// Update channel metadata for a session in `session_summaries`.
-    /// If the session has no summary yet, creates one with the current time
-    /// as `created_at`/`updated_at` so the sidebar shows a timestamp.
     pub(crate) fn update_session_channel_meta(
         &mut self,
         session_id: &str,
         channel_id: Option<String>,
         conversation_id: Option<String>,
     ) {
-        let summary = self
+        let gw = self.gw();
+        let summary = gw
             .session_summaries
             .entry(session_id.to_string())
             .or_insert_with(|| {
@@ -175,36 +171,35 @@ impl ChaiApp {
     }
 
     /// Poll for session.message events from the gateway and update local session timelines.
-    /// For all events we add them in gateway order (user → assistant); if the last message in the session has the same role and
-    /// content (e.g. echo of our own turn from start_chat_turn + poll_chat_turn), we skip to avoid duplicate.
     pub(crate) fn poll_session_events(&mut self) {
         loop {
-            let ev = match &self.session_events_receiver {
-                Some(rx) => match rx.try_recv() {
-                    Ok(e) => Some(e),
-                    Err(mpsc::TryRecvError::Empty) => break,
-                    Err(mpsc::TryRecvError::Disconnected) => {
-                        self.session_events_receiver = None;
-                        break;
-                    }
-                },
-                None => break,
+            let ev = {
+                let gw = self.gw_ref();
+                match &gw.session_events_receiver {
+                    Some(rx) => match rx.try_recv() {
+                        Ok(e) => Some(e),
+                        Err(mpsc::TryRecvError::Empty) => break,
+                        Err(mpsc::TryRecvError::Disconnected) => {
+                            drop(gw);
+                            self.gw().session_events_receiver = None;
+                            break;
+                        }
+                    },
+                    None => break,
+                }
             };
             let ev = match ev {
                 Some(e) => e,
                 None => break,
             };
-            // Handle gateway config-changed events by triggering an immediate
-            // status refetch, then skip — these are not chat messages.
+            // Handle gateway config-changed events.
             if ev.role == "config_changed" {
                 self.request_status_refetch();
                 continue;
             }
-            // Handle session deletion events — remove local state for the deleted session.
+            // Handle session deletion events.
             if ev.role == "session_deleted" {
-                // When orchestrator_id is set, only handle if it matches the active orchestrator.
-                // When None (backward compat), always handle.
-                let should_handle = ev.orchestrator_id.as_deref() == self.active_orchestrator_id.as_deref()
+                let should_handle = ev.orchestrator_id.as_deref() == self.gw_ref().active_orchestrator_id.as_deref()
                     || ev.orchestrator_id.is_none();
                 if should_handle {
                     let sid = ev.session_id.clone();
@@ -214,45 +209,38 @@ impl ChaiApp {
                 }
                 continue;
             }
-            // Handle sessions-cleared events — remove local session state.
+            // Handle sessions-cleared events.
             if ev.role == "sessions_cleared" {
-                // When orchestrator_id is set, only clear if it matches the active orchestrator.
-                // When None (backward compat), all orchestrators were cleared.
-                let should_clear = ev.orchestrator_id.as_deref() == self.active_orchestrator_id.as_deref()
+                let should_clear = ev.orchestrator_id.as_deref() == self.gw_ref().active_orchestrator_id.as_deref()
                     || ev.orchestrator_id.is_none();
                 if should_clear {
-                    self.session_messages.clear();
-                    self.session_summaries.clear();
-                    self.session_order.clear();
+                    let gw = self.gw();
+                    gw.session_messages.clear();
+                    gw.session_summaries.clear();
+                    gw.session_order.clear();
                     self.start_new_session();
-                    self.chat_session_id = None;
+                    gw.chat_session_id = None;
                 }
                 continue;
             }
-            // Filter session events by active orchestrator. When the event carries an
-            // orchestrator_id, skip it if it doesn't match the active orchestrator.
-            // This prevents sessions from other orchestrators from appearing in the sidebar.
-            // Events without orchestrator_id (backward compat) are always processed.
+            // Filter session events by active orchestrator.
             if let Some(ref ev_oid) = ev.orchestrator_id {
-                if Some(ev_oid.as_str()) != self.active_orchestrator_id.as_deref() {
+                if Some(ev_oid.as_str()) != self.gw_ref().active_orchestrator_id.as_deref() {
                     continue;
                 }
             }
             let session_id = ev.session_id.clone();
-            let entry = self
+            let gw = self.gw();
+            let entry = gw
                 .session_messages
                 .entry(session_id.clone())
                 .or_insert_with(Vec::new);
             // When the first streamed event arrives for a new session while the RPC is
-            // still in flight, bind chat_session_id and selected_session_id immediately
-            // so the UI renders from session_messages (where tool calls are stored)
-            // instead of the fallback chat_messages buffer.
-            if self.chat_session_id.is_none() && self.pending_user_message.is_some() {
-                self.chat_session_id = Some(session_id.clone());
-                self.selected_session_id = Some(session_id.clone());
-                // Ensure the pending user message is present in the session entry
-                // (start_chat_turn only adds it to chat_messages when session_id is None).
-                if let Some(ref user_content) = self.pending_user_message {
+            // still in flight, bind chat_session_id and selected_session_id immediately.
+            if gw.chat_session_id.is_none() && gw.pending_user_message.is_some() {
+                gw.chat_session_id = Some(session_id.clone());
+                gw.selected_session_id = Some(session_id.clone());
+                if let Some(ref user_content) = gw.pending_user_message {
                     let already = entry
                         .iter()
                         .any(|m| m.role == "user" && m.content == *user_content);
@@ -260,31 +248,27 @@ impl ChaiApp {
                         entry.insert(0, crate::app::ChatMessage::user(user_content.clone()));
                     }
                 }
-                // Sync chat_messages so the fallback buffer matches.
-                self.chat_messages = entry.clone();
+                gw.chat_messages = entry.clone();
                 log::debug!(
                     "poll_session_events: bound new session_id={}, selected_session_id={}",
                     session_id,
                     session_id
                 );
             }
-            // Skip duplicate user line (gateway echo after poll_chat_turn already prepended the same user for a new session).
+            // Skip duplicate user line.
             if ev.role == "user"
                 && ev.delegation_event.is_none()
                 && entry
                     .iter()
                     .any(|m| m.role == "user" && m.content == ev.content)
             {
+                drop(gw);
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
-            // Handle streamed tool events: tool_call adds a new row, tool_result
-            // updates the matching tool_call row with the result.
+            // Handle streamed tool events.
             if ev.role == "tool_call" {
-                // Check for duplicate tool_call within the current turn (can happen on reconnect).
-                // Only check entries after the last user message, since tool_index resets
-                // per turn and would falsely match entries from previous turns.
                 let turn_start = turn_start_index(entry);
                 let is_dup = entry[turn_start..].iter().any(|m| {
                     m.role == "tool_call"
@@ -292,10 +276,6 @@ impl ChaiApp {
                         && m.tool_name == ev.tool_name
                         && m.source == ev.source
                 });
-                log::debug!(
-                    "tool_call event: session={}, name={:?}, index={:?}, is_dup={}, entry_len={}",
-                    session_id, ev.tool_name, ev.tool_index, is_dup, entry.len()
-                );
                 if !is_dup {
                     entry.push(crate::app::ChatMessage {
                         role: ev.role.clone(),
@@ -311,20 +291,12 @@ impl ChaiApp {
                         pending_tool_calls: ev.pending_tool_calls.clone(),
                     });
                 }
+                drop(gw);
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
             if ev.role == "tool_result" {
-                // Find the matching tool_call entry by index and fill in the result.
-                // Search only within the current turn so that a tool_result doesn't
-                // match a tool_call from a previous turn that happens to share the
-                // same (index, name, source). Use rev().find() to match the most
-                // recent entry with a given index within the turn.
-                log::debug!(
-                    "tool_result event: session={}, name={:?}, index={:?}, has_result={}, entry_len={}",
-                    session_id, ev.tool_name, ev.tool_index, ev.tool_result.is_some(), entry.len()
-                );
                 if let Some(idx) = ev.tool_index {
                     let turn_start = turn_start_index(entry);
                     let found = entry[turn_start..].iter_mut().rev().find(|m| {
@@ -334,27 +306,13 @@ impl ChaiApp {
                             && m.source == ev.source
                     });
                     if let Some(tc) = found {
-                        log::debug!(
-                            "tool_result MATCHED: index={}, name={:?}",
-                            idx, tc.tool_name
-                        );
                         tc.tool_result = ev.tool_result.clone();
+                        drop(gw);
                         self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                         self.move_session_to_front(&session_id);
                         continue;
-                    } else {
-                        log::debug!(
-                            "tool_result NO MATCH: index={}, tool_call entries: {:?}",
-                            idx,
-                            entry[turn_start..].iter()
-                                .filter(|m| m.role == "tool_call")
-                                .map(|m| (m.tool_index, m.tool_name.clone()))
-                                .collect::<Vec<_>>()
-                        );
                     }
                 }
-                // No matching tool_call found — push as standalone result entry.
-                log::debug!("tool_result pushing standalone entry");
                 entry.push(crate::app::ChatMessage {
                     role: ev.role.clone(),
                     content: ev.content.clone(),
@@ -368,11 +326,12 @@ impl ChaiApp {
                     source: ev.source.clone(),
                     pending_tool_calls: ev.pending_tool_calls.clone(),
                 });
+                drop(gw);
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
-            // Handle tool loop limit event: add a banner message to the session.
+            // Handle tool loop limit event.
             if ev.role == "tool_loop_limit" {
                 let pending = ev.pending_tool_calls.clone().unwrap_or_default();
                 let msg = crate::app::ChatMessage::tool_loop_limit(
@@ -380,40 +339,34 @@ impl ChaiApp {
                     pending,
                 );
                 entry.push(msg);
+                drop(gw);
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
-            // Handle turn stopped event: add a banner message to the session.
-            // Only check for an existing banner in recent messages (since the last
-            // user message) so that multiple stops in the same session each get
-            // their own banner.
+            // Handle turn stopped event.
             if ev.role == "turn_stopped" {
                 let last_user_idx = entry.iter().rposition(|m| m.role == "user");
                 let already_has_banner = entry.iter().skip(last_user_idx.unwrap_or(0)).any(|m| m.role == "turn_stopped");
                 if !already_has_banner {
                     entry.push(crate::app::ChatMessage::turn_stopped());
                 }
-                // The agent has finished its current iteration — clear the
-                // stopping flag so the Stop button reverts to its idle state.
-                self.chat_stopping = false;
+                self.gw().chat_stopping = false;
+                drop(gw);
                 self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                 self.move_session_to_front(&session_id);
                 continue;
             }
-            // Skip if this is a duplicate of the last message (e.g. echo of our own turn from start_chat_turn + poll_chat_turn).
+            // Skip if this is a duplicate of the last message.
             if let Some(last) = entry.last() {
                 if last.role == ev.role && last.content == ev.content {
+                    drop(gw);
                     self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                     self.move_session_to_front(&session_id);
                     continue;
                 }
             }
-            // Assistant from session.message broadcast can duplicate the RPC reply when delegation
-            // rows were appended in between (last != assistant). Also skip when the tool loop
-            // limit was reached or the turn was stopped and an assistant_progress with matching
-            // content already shows the intermediate text — the banner explains the interruption
-            // and a duplicate assistant frame would be redundant.
+            // Assistant dedup logic.
             if ev.role == "assistant" && ev.delegation_event.is_none() {
                 let has_loop_limit = entry.iter().any(|m| m.role == "tool_loop_limit");
                 let has_turn_stopped = entry.iter().any(|m| m.role == "turn_stopped");
@@ -422,17 +375,14 @@ impl ChaiApp {
                         m.role == "assistant_progress" && m.content == ev.content
                     })
                 {
+                    drop(gw);
                     self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                     self.move_session_to_front(&session_id);
                     continue;
                 }
-                // If streamed tool_call entries already exist for this turn,
-                // clear tool_calls/tool_results so the inline fallback doesn't duplicate.
                 let has_streamed_tools = has_streamed_tools_this_turn(entry);
                 if let Some(prev) = last_non_delegation(entry.as_slice()) {
                     if is_duplicate_assistant_row(prev, &ev.role, &ev.content, &ev.tool_calls) {
-                        // Find by content only (tool_calls may have been cleared on the
-                        // existing entry when streamed tool events are present).
                         if let Some(existing) = entry.iter_mut().find(|m| {
                             m.role == "assistant"
                                 && m.content == ev.content
@@ -449,20 +399,19 @@ impl ChaiApp {
                                     }
                                 }
                             }
-                            // Clear inline tool calls when streamed events exist.
                             if has_streamed_tools {
                                 existing.tool_calls = None;
                                 existing.tool_results = None;
                             }
                         }
+                        drop(gw);
                         self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
                         self.move_session_to_front(&session_id);
                         continue;
                     }
                 }
             }
-            // When pushing any non-tool-event message, clear tool_calls/tool_results
-            // on assistant messages if streamed tool events already exist.
+            // Push the event as a chat message.
             let mut ev_msg = crate::app::ChatMessage {
                 role: ev.role.clone(),
                 content: ev.content.clone(),
@@ -481,23 +430,24 @@ impl ChaiApp {
                 ev_msg.tool_results = None;
             }
             entry.push(ev_msg);
+            drop(gw);
             self.update_session_channel_meta(&session_id, ev.channel_id.clone(), ev.conversation_id.clone());
             self.move_session_to_front(&session_id);
         }
     }
 
     /// Ensure the background session.events listener is running when the gateway is up.
-    /// The `ctx` is used to request repaints when events arrive, so the UI updates immediately.
     pub(crate) fn ensure_session_events_listener(&mut self, running: bool, ctx: egui::Context) {
         if !running {
-            self.session_events_receiver = None;
+            self.gw().session_events_receiver = None;
             return;
         }
         // Only start listener if gateway is actually responding (not just starting)
-        if self.session_events_receiver.is_none() && self.gateway_responds {
+        let should_start = self.gw_ref().session_events_receiver.is_none() && self.gw_ref().responds;
+        if should_start {
             let (tx, rx) = mpsc::channel();
             let tx_clone = tx.clone();
-            let profile_override = self.cached_profile_override.clone();
+            let profile_override = self.cached_gateway_profile.clone();
             std::thread::spawn(move || {
                 // Wait a bit for gateway to be fully ready
                 std::thread::sleep(Duration::from_secs(1));
@@ -507,9 +457,7 @@ impl ChaiApp {
                     match run_session_events_loop(tx_clone.clone(), ctx.clone(), profile_override.as_deref()) {
                         Err(e) => {
                             retry_count += 1;
-                            // Exponential backoff, max 10 seconds
                             let delay = std::cmp::min(2_u64.pow(retry_count.min(3)), 10);
-                            // Only log errors occasionally to avoid spam
                             if retry_count <= 3 || retry_count % 10 == 0 {
                                 log::error!(
                                     "session events listener error: {}, retrying in {}s (attempt {})",
@@ -519,20 +467,18 @@ impl ChaiApp {
                             std::thread::sleep(Duration::from_secs(delay));
                         }
                         Ok(()) => {
-                            // Normal exit (connection closed), reset retry count and wait before retry
                             retry_count = 0;
                             std::thread::sleep(Duration::from_secs(2));
                         }
                     }
                 }
             });
-            self.session_events_receiver = Some(rx);
+            self.gw().session_events_receiver = Some(rx);
         }
     }
 }
 
 /// Listen for session.message events from the gateway and forward them via an mpsc channel.
-/// After forwarding each event, requests a UI repaint via `ctx` so the desktop shows updates immediately.
 fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, profile_override: Option<&str>) -> Result<(), String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
@@ -574,7 +520,7 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
             .await
             .map_err(|e| e.to_string())?;
 
-        // Wait for hello-ok with a timeout to avoid hanging indefinitely.
+        // Wait for hello-ok with a timeout.
         let hello = tokio::select! {
             msg = ws.next() => msg,
             _ = tokio::time::sleep(Duration::from_secs(5)) => {
@@ -598,15 +544,11 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                 .get("error")
                 .and_then(|v| v.as_str())
                 .unwrap_or("hello-ok not ok");
-            // If the device token was rejected, delete it so the next attempt
-            // falls back to device identity + signature.
             if err == "invalid device token" {
                 let _ = std::fs::remove_file(paths.device_token_path());
             }
             return Err(err.to_string());
         }
-        // Persist device token from hello-ok, if provided, so future connects can
-        // reuse it instead of regenerating device identity every time.
         if let Some(auth) = hello_val.get("payload").and_then(|p| p.get("auth")) {
             if let Some(dt) = auth.get("deviceToken").and_then(|v| v.as_str()) {
                 let _ = lib::device::save_device_token_to(&paths.device_token_path(), dt);
@@ -627,14 +569,11 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                     };
                     if event_name == "session.message" {
                         if let Some(payload) = val.get("payload") {
-                            // Session fields are in payload; support optional nested `data` for
-                            // compatibility with older formats.
                             let data = payload.get("data").unwrap_or(payload);
                             let session_id_opt = data.get("sessionId").and_then(|v| v.as_str());
                             let role_opt = data.get("role").and_then(|v| v.as_str());
                             let content_opt = data.get("content").and_then(|v| v.as_str());
 
-                            // Skip events missing any required field or with empty/whitespace-only values.
                             let (session_id, role, content) =
                                 if let (Some(session_id), Some(role), Some(content)) =
                                     (session_id_opt, role_opt, content_opt)
@@ -722,9 +661,6 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                                 .map(|s| s.to_string());
                             let content = format_delegation_line(event_name, data);
 
-                            // When delegation completes with a reply, emit the worker message
-                            // row *before* the delegation event so the worker response appears
-                            // above the "Delegation finished" system line in the chat timeline.
                             if event_name == EVENT_DELEGATE_COMPLETE {
                                 if let Some(reply) = data
                                     .get("reply")
@@ -958,8 +894,6 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             ctx.request_repaint();
                         }
                     } else if event_name == "session.deleted" {
-                        // Gateway reports a session was deleted. Forward the session id
-                        // so poll_session_events can clean up local state.
                         if let Some(payload) = val.get("payload") {
                             let data = payload.get("data").unwrap_or(payload);
                             let session_id = data
@@ -994,8 +928,6 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                             ctx.request_repaint();
                         }
                     } else if event_name == "sessions.cleared" {
-                        // Gateway reports sessions were deleted.
-                        // Extract orchestratorId from payload to determine scope.
                         let cleared_orchestrator_id = val
                             .get("payload")
                             .and_then(|p| p.get("orchestratorId"))
@@ -1021,10 +953,6 @@ fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, p
                         let _ = tx.send(ev);
                         ctx.request_repaint();
                     } else if event_name == "gateway.config.changed" {
-                        // Gateway reports a config change (e.g. model discovery updated
-                        // provider models). Send a lightweight signal so the desktop
-                        // triggers an immediate status refetch instead of waiting for
-                        // the next poll interval.
                         let ev = SessionEvent {
                             session_id: String::new(),
                             role: "config_changed".to_string(),

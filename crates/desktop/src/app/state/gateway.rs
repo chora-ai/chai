@@ -12,24 +12,30 @@ use super::super::{
 };
 
 impl ChaiApp {
-    /// Poll for probe result and optionally start a new probe. Call each frame.
+    /// Poll for probe result and optionally start a new probe for the active profile's gateway.
+    /// Call each frame.
     pub(crate) fn poll_gateway_probe(&mut self) {
-        if let Some(rx) = &self.probe_receiver {
-            if let Ok(ok) = rx.try_recv() {
-                self.gateway_probe_completed = true;
-                self.gateway_responds = ok;
-                if !ok {
-                    self.gateway_status = None;
-                    self.invalidate_agent_detail_cache();
-                }
-                self.probe_receiver = None;
+        // Check for in-flight probe result.
+        let probe_rx = self.gw_ref().probe_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        if let Some(ok) = probe_rx {
+            let gw = self.gw();
+            gw.probe_completed = true;
+            gw.responds = ok;
+            if !ok {
+                gw.status = None;
+                self.invalidate_agent_detail_cache();
             }
+            gw.probe_receiver = None;
         }
-        self.frames_since_probe = self.frames_since_probe.saturating_add(1);
-        if self.probe_receiver.is_none() && self.frames_since_probe >= PROBE_INTERVAL_FRAMES {
-            self.frames_since_probe = 0;
+        // Increment frame counter.
+        {
+            let next = self.gw_ref().frames_since_probe.saturating_add(1);
+            self.gw().frames_since_probe = next;
+        }
+        if self.gw_ref().probe_receiver.is_none() && self.gw_ref().frames_since_probe >= PROBE_INTERVAL_FRAMES {
+            self.gw().frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.cached_profile_override.clone();
+            let profile_override = self.cached_gateway_profile.clone();
             std::thread::spawn(move || {
                 let Ok((config, _paths)) = lib::config::load_config(profile_override.as_deref()) else {
                     let _ = tx.send(false);
@@ -45,24 +51,26 @@ impl ChaiApp {
                     .is_some();
                 let _ = tx.send(ok);
             });
-            self.probe_receiver = Some(rx);
+            self.gw().probe_receiver = Some(rx);
         }
     }
 
     /// When gateway status is received, ensure current model is in the available list for the effective provider; if not, switch to gateway default or first available.
     pub(crate) fn reconcile_model_with_status(&mut self) {
-        if self.gateway_status.is_none() {
+        if self.gw_ref().status.is_none() {
             return;
         }
         let enabled = self.enabled_providers();
-        let Some(ref details) = self.gateway_status else {
+        // Clone the needed data from gw_ref to avoid holding a borrow.
+        let status_data = self.gw_ref().status.clone();
+        let active_orch_id = self.gw_ref().active_orchestrator_id.clone();
+        let Some(ref details) = status_data else {
             return;
         };
-        let active_orch_id = self.active_orchestrator_id.as_deref();
-        let provider = self
+        let provider = self.gw_ref()
             .current_provider
             .as_deref()
-            .or_else(|| details.default_provider_for(active_orch_id))
+            .or_else(|| details.default_provider_for(active_orch_id.as_deref()))
             .or_else(|| details.provider_info.keys().next().map(|s| s.as_str()))
             .or_else(|| enabled.first().map(|s| s.as_str()))
             .unwrap_or("ollama");
@@ -74,17 +82,17 @@ impl ChaiApp {
         if models.is_empty() {
             return;
         }
-        let effective = self
+        let effective = self.gw_ref()
             .current_model
             .as_deref()
-            .or_else(|| details.default_model_for(active_orch_id))
-            .or(self.default_model.as_deref());
+            .or_else(|| details.default_model_for(active_orch_id.as_deref()))
+            .or(self.gw_ref().default_model.as_deref());
         let in_list = effective
             .map(|m| models.iter().any(|x| x == m))
             .unwrap_or(false);
         if !in_list {
-            self.current_model = details
-                .default_model_for(active_orch_id)
+            self.gw().current_model = details
+                .default_model_for(active_orch_id.as_deref())
                 .map(String::from)
                 .filter(|m| models.contains(m))
                 .or_else(|| models.first().cloned());
@@ -93,170 +101,161 @@ impl ChaiApp {
 
     /// Request that the next status poll performs an immediate fetch (e.g. after switching provider so the model list is up to date).
     pub(crate) fn request_status_refetch(&mut self) {
-        self.frames_since_status = STATUS_INTERVAL_FRAMES;
+        self.gw().frames_since_status = STATUS_INTERVAL_FRAMES;
     }
 
     /// Poll for status fetch result and optionally start a new fetch when gateway is running.
-    /// When the gateway has just come back up (responding but no status yet), fetch immediately so the context layout updates without delay.
-    /// When the previous fetch failed (gateway_status is None but a fetch already completed this
-    /// session), wait for the normal STATUS_INTERVAL_FRAMES cadence instead of retrying
-    /// every frame to avoid a tight reconnect loop.
     pub(crate) fn poll_status_fetch(&mut self) {
-        if let Some(rx) = &self.status_receiver {
-            if let Ok(result) = rx.try_recv() {
-                let prev_status = self.gateway_status.take();
-                self.gateway_status = result.ok();
-                self.reconcile_dashboard_agent_selection();
-                self.reconcile_model_with_status();
+        // Check for in-flight result.
+        let status_rx = self.gw_ref().status_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        if let Some(result) = status_rx {
+            let prev_status = self.gw().status.take();
+            self.gw().status = result.ok();
+            self.reconcile_dashboard_agent_selection();
+            self.reconcile_model_with_status();
 
-                // Only invalidate the agent detail cache when something that
-                // affects agent detail data actually changed. Unconditional
-                // invalidation on every status poll caused the Agent and Tools
-                // screens to flicker "Loading agent detail..." every ~2 seconds.
-                let should_invalidate = match (&prev_status, &self.gateway_status) {
-                    (Some(prev), Some(new)) => {
-                        // Agent roster changed (ids added or removed).
-                        let prev_keys: std::collections::HashSet<_> =
-                            prev.agent_skills.keys().collect();
-                        let new_keys: std::collections::HashSet<_> =
-                            new.agent_skills.keys().collect();
-                        if prev_keys != new_keys {
-                            true
-                        } else if prev.skills_lock_generation != new.skills_lock_generation {
-                            // Skill lock generation changed (packages re-resolved).
-                            true
-                        } else {
-                            // Any cached agent's context mode changed.
-                            self.agent_detail_cache.keys().any(|id| {
-                                prev.agent_skills
+            // Only invalidate the agent detail cache when something that
+            // affects agent detail data actually changed.
+            let should_invalidate = match (&prev_status, &self.gw_ref().status) {
+                (Some(prev), Some(new)) => {
+                    // Agent roster changed (ids added or removed).
+                    let prev_keys: std::collections::HashSet<_> =
+                        prev.agent_skills.keys().collect();
+                    let new_keys: std::collections::HashSet<_> =
+                        new.agent_skills.keys().collect();
+                    if prev_keys != new_keys {
+                        true
+                    } else if prev.skills_lock_generation != new.skills_lock_generation {
+                        // Skill lock generation changed (packages re-resolved).
+                        true
+                    } else {
+                        // Any cached agent's context mode changed.
+                        self.gw_ref().agent_detail_cache.keys().any(|id| {
+                            prev.agent_skills
+                                .get(id)
+                                .and_then(|r| r.context_mode.as_deref())
+                                != new
+                                    .agent_skills
                                     .get(id)
                                     .and_then(|r| r.context_mode.as_deref())
-                                    != new
-                                        .agent_skills
-                                        .get(id)
-                                        .and_then(|r| r.context_mode.as_deref())
-                            })
-                        }
+                        })
                     }
-                    (None, Some(_)) => true, // First status after gateway starts.
-                    _ => false,              // Gateway went down — already handled by probe.
-                };
+                }
+                (None, Some(_)) => true, // First status after gateway starts.
+                _ => false,              // Gateway went down — already handled by probe.
+            };
 
-                if should_invalidate {
-                    self.invalidate_agent_detail_cache();
-                }
-                self.status_receiver = None;
-                if self.gateway_status.is_none() {
-                    // Previous fetch failed — reset the frame counter so the next
-                    // attempt waits for the full interval rather than retrying
-                    // immediately (which would create a tight loop of WS connects).
-                    self.frames_since_status = 0;
-                    self.status_fetch_ever_failed = true;
-                } else {
-                    self.status_fetch_ever_failed = false;
-                }
+            if should_invalidate {
+                self.invalidate_agent_detail_cache();
+            }
+            self.gw().status_receiver = None;
+            if self.gw_ref().status.is_none() {
+                self.gw().frames_since_status = 0;
+                self.gw().status_fetch_ever_failed = true;
+            } else {
+                self.gw().status_fetch_ever_failed = false;
             }
         }
-        if !self.gateway_responds || self.status_receiver.is_some() {
+        if !self.gw_ref().responds || self.gw_ref().status_receiver.is_some() {
             return;
         }
         // Only fetch immediately on the very first detection (gateway_status has never
         // been set AND no previous fetch has failed). Once a fetch has failed, let the
         // normal interval cadence apply to avoid a tight retry loop of WebSocket connects.
-        let need_immediate = self.gateway_status.is_none() && !self.status_fetch_ever_failed;
-        self.frames_since_status = self.frames_since_status.saturating_add(1);
-        if need_immediate || self.frames_since_status >= STATUS_INTERVAL_FRAMES {
-            self.frames_since_status = 0;
+        let need_immediate = self.gw_ref().status.is_none() && !self.gw_ref().status_fetch_ever_failed;
+        {
+            let next = self.gw_ref().frames_since_status.saturating_add(1);
+            self.gw().frames_since_status = next;
+        }
+        if need_immediate || self.gw_ref().frames_since_status >= STATUS_INTERVAL_FRAMES {
+            self.gw().frames_since_status = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.cached_profile_override.clone();
+            let profile_override = self.cached_gateway_profile.clone();
             let needs_raw_json = self.status_view_mode == StatusViewMode::RawJson;
             std::thread::spawn(move || {
                 let result = fetch_gateway_status(profile_override.as_deref(), needs_raw_json);
                 let _ = tx.send(result);
             });
-            self.status_receiver = Some(rx);
+            self.gw().status_receiver = Some(rx);
         }
     }
 
     /// Poll for gateway log fetch result and optionally start a new fetch. Call each frame.
-    ///
-    /// Only fetches logs from the gateway when the gateway is **external** (not owned
-    /// by the desktop). When the desktop spawns the gateway itself, it already captures
-    /// the gateway's stderr/stdout directly, so the WS method is unnecessary.
-    ///
-    /// Uses `gateway_logs_cursor` (a sequence number) to skip lines already ingested,
-    /// avoiding duplicates.
     pub(crate) fn poll_gateway_logs_fetch(&mut self, owned: bool) {
-        if let Some(rx) = &self.gateway_logs_receiver {
-            if let Ok(result) = rx.try_recv() {
-                if let Ok((lines, max_seq)) = result {
-                    for line in lines {
-                        crate::app::state::logs::push_gateway_log_line(line);
-                    }
-                    self.gateway_logs_cursor = max_seq;
+        // Check for in-flight result.
+        let logs_rx = self.gw_ref().logs_receiver.as_ref().map(|rx| rx.try_recv().ok()).flatten();
+        if let Some(result) = logs_rx {
+            if let Ok((lines, max_seq)) = result {
+                for line in lines {
+                    crate::app::state::logs::push_gateway_log_line(line);
                 }
-                self.gateway_logs_receiver = None;
+                self.gw().logs_cursor = max_seq;
             }
+            self.gw().logs_receiver = None;
         }
         // Only fetch logs from external gateways.
-        if owned || !self.gateway_responds || self.gateway_logs_receiver.is_some() {
+        if owned || !self.gw_ref().responds || self.gw_ref().logs_receiver.is_some() {
             // When the gateway is owned or not responding, reset the cursor,
             // frame counter, and any in-flight receiver so the next external
             // gateway starts fresh.
-            if owned || !self.gateway_responds {
-                self.gateway_logs_cursor = 0;
-                self.frames_since_gateway_logs = 0;
-                self.gateway_logs_receiver = None;
+            if owned || !self.gw_ref().responds {
+                self.gw().logs_cursor = 0;
+                self.gw().frames_since_logs = 0;
+                self.gw().logs_receiver = None;
             }
             return;
         }
-        self.frames_since_gateway_logs = self.frames_since_gateway_logs.saturating_add(1);
-        if self.frames_since_gateway_logs >= STATUS_INTERVAL_FRAMES {
-            self.frames_since_gateway_logs = 0;
+        {
+            let next = self.gw_ref().frames_since_logs.saturating_add(1);
+            self.gw().frames_since_logs = next;
+        }
+        if self.gw_ref().frames_since_logs >= STATUS_INTERVAL_FRAMES {
+            self.gw().frames_since_logs = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.cached_profile_override.clone();
-            let after_seq = self.gateway_logs_cursor;
+            let profile_override = self.cached_gateway_profile.clone();
+            let after_seq = self.gw_ref().logs_cursor;
             std::thread::spawn(move || {
                 let result = fetch_gateway_logs(profile_override.as_deref(), after_seq);
                 let _ = tx.send(result);
             });
-            self.gateway_logs_receiver = Some(rx);
+            self.gw().logs_receiver = Some(rx);
         }
     }
 
     /// Poll for in-flight `agentDetail` fetch result and optionally start a new fetch.
-    /// Called each frame. Fetches agent detail on-demand when the Agent or Tools
-    /// screen is active and the selected agent's detail is not yet cached (or the
-    /// user switched to a different agent).
     pub(crate) fn poll_agent_detail(&mut self) {
         // Check for in-flight result.
-        if let Some((ref in_flight_id, ref rx)) = self.agent_detail_receiver {
-            if let Ok(result) = rx.try_recv() {
-                match result {
-                    Ok(detail) => {
-                        self.agent_detail_cache.insert(detail.agent_id.clone(), detail);
-                        self.agent_detail_fetch_error = None;
-                    }
-                    Err(e) => {
-                        if !self.agent_detail_cache.contains_key(in_flight_id) {
-                            // Only store the error when there is no cached data
-                            // to fall back on for this agent.
-                            self.agent_detail_fetch_error = Some((in_flight_id.clone(), e));
+        let detail_rx = self.gw_ref().agent_detail_receiver.as_ref()
+            .map(|(_, rx)| rx.try_recv().ok())
+            .flatten();
+        let in_flight_id = self.gw_ref().agent_detail_receiver.as_ref()
+            .map(|(id, _)| id.clone());
+        if let Some(result) = detail_rx {
+            let gw = self.gw();
+            match result {
+                Ok(detail) => {
+                    gw.agent_detail_cache.insert(detail.agent_id.clone(), detail);
+                    gw.agent_detail_fetch_error = None;
+                }
+                Err(e) => {
+                    if let Some(ref in_flight_id) = in_flight_id {
+                        if !gw.agent_detail_cache.contains_key(in_flight_id) {
+                            gw.agent_detail_fetch_error = Some((in_flight_id.clone(), e));
                         }
                     }
                 }
-                self.agent_detail_receiver = None;
             }
+            gw.agent_detail_receiver = None;
         }
 
         // Don't fetch if gateway isn't running or a fetch is already in flight.
-        if !self.gateway_responds || self.agent_detail_receiver.is_some() {
+        if !self.gw_ref().responds || self.gw_ref().agent_detail_receiver.is_some() {
             return;
         }
 
         // Determine the selected agent id from the dashboard picker.
-        let selected_id = self.dashboard_agent_id.clone().or_else(|| {
-            self.gateway_status.as_ref().and_then(|gs| gs.orchestrator_id().map(String::from))
+        let selected_id = self.gw_ref().dashboard_agent_id.clone().or_else(|| {
+            self.gw_ref().status.as_ref().and_then(|gs| gs.orchestrator_id().map(String::from))
         });
 
         let Some(ref target_id) = selected_id else {
@@ -264,36 +263,33 @@ impl ChaiApp {
         };
 
         // Only fetch if this agent isn't cached yet.
-        if self.agent_detail_cache.contains_key(target_id) {
+        if self.gw_ref().agent_detail_cache.contains_key(target_id) {
             return;
         }
 
-        self.agent_detail_requested_id = Some(target_id.clone());
+        self.gw().agent_detail_requested_id = Some(target_id.clone());
         let (tx, rx) = mpsc::channel();
-        let profile_override = self.cached_profile_override.clone();
+        let profile_override = self.cached_gateway_profile.clone();
         let agent_id = target_id.clone();
         let agent_id_clone = agent_id.clone();
         std::thread::spawn(move || {
             let result = fetch_agent_detail(profile_override.as_deref(), &agent_id_clone);
             let _ = tx.send(result);
         });
-        self.agent_detail_receiver = Some((agent_id, rx));
+        self.gw().agent_detail_receiver = Some((agent_id, rx));
     }
 
-    /// Invalidate the agent detail cache. Called when a status refresh detects a
-    /// material change (agent roster, skill lock generation, or context mode), or
-    /// when the gateway stops.
+    /// Invalidate the agent detail cache for the active profile.
     pub(crate) fn invalidate_agent_detail_cache(&mut self) {
-        self.agent_detail_cache.clear();
-        self.agent_detail_fetch_error = None;
-        self.agent_detail_receiver = None;
-        self.agent_detail_requested_id = None;
+        let gw = self.gw();
+        gw.agent_detail_cache.clear();
+        gw.agent_detail_fetch_error = None;
+        gw.agent_detail_receiver = None;
+        gw.agent_detail_requested_id = None;
     }
 }
 
 /// Parse the `providers` block from gateway status into per-provider info.
-/// The gateway now sends each provider as `{ "endpointType": "...", "modelDiscovery": "...", "models": [string, ...] }`
-/// keyed by provider id, instead of the old fixed-field format with `{"name": "..."}` model objects.
 fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collections::HashMap<String, super::super::ProviderStatusInfo> {
     let Some(obj) = providers.and_then(|p| p.as_object()) else {
         return std::collections::HashMap::new();
@@ -308,7 +304,6 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
             .and_then(|v| v.as_str())
             .unwrap_or("auto")
             .to_string();
-        // Models are flat strings (not {"name": "..."} objects).
         let models = val.get("models")
             .and_then(|v| v.as_array())
             .map(|arr| {
@@ -383,9 +378,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                         .get("error")
                         .and_then(|v| v.as_str())
                         .unwrap_or("connect failed");
-                    // If the device token was rejected, delete it and retry with
-                    // device identity + signature so the next attempt doesn't loop
-                    // on the same stale token.
                     if err == "invalid device token" {
                         let _ = std::fs::remove_file(paths.device_token_path());
                     }
@@ -491,8 +483,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                         let id = id.to_string();
                         let role = entry.get("role").and_then(|v| v.as_str()).unwrap_or("");
 
-                        // Parse per-agent skill runtime data (lightweight fields only;
-                        // systemContext, tools, skillsContext are fetched on-demand via agentDetail).
                         let mut agent_rt = AgentSkillsRuntime::default();
                         agent_rt.enabled_skills = entry
                             .get("enabledSkills")
@@ -500,6 +490,7 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                             .map(|arr| {
                                 arr.iter()
                                     .filter_map(|v| v.as_str().map(String::from))
+                                    .filter(|s| !s.is_empty())
                                     .collect()
                             })
                             .unwrap_or_default();
@@ -509,7 +500,6 @@ pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_jso
                             .map(String::from);
                         details.agent_skills.insert(id.clone(), agent_rt);
 
-                        // Backfill agent_context_modes from per-agent runtime data.
                         if let Some(mode) = details
                             .agent_skills
                             .get(&id)
@@ -694,13 +684,6 @@ pub(crate) fn build_connect_params(
 }
 
 /// Fetch new gateway log lines via the `logs` WebSocket method.
-///
-/// Connects to the gateway, authenticates, sends a `logs` request with
-/// `afterSeq`, and returns the new lines plus the max sequence number.
-/// Used by the desktop to display gateway logs when connected to an
-/// external (non-owned) gateway.
-///
-/// Returns `(new_lines, max_seq)`.
 pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64) -> Result<(Vec<String>, u64), String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
@@ -823,8 +806,6 @@ pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64)
 }
 
 /// Fetch per-agent detail via the `agentDetail` WebSocket method.
-/// Returns the heavy fields (systemContext, tools, skillsContext) for a single agent,
-/// fetched on-demand when the Agent or Tools screen is active.
 pub(crate) fn fetch_agent_detail(
     profile_override: Option<&str>,
     agent_id: &str,
@@ -1020,8 +1001,13 @@ pub(crate) fn run_agent_turn(
             .await
             .map_err(|e| e.to_string())?;
 
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        // Wait for connect response
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
@@ -1047,21 +1033,23 @@ pub(crate) fn run_agent_turn(
             }
         }
 
+        // Build agent turn request
         let mut agent_params = serde_json::json!({
             "message": message,
         });
-        if let Some(id) = session_id {
-            agent_params["sessionId"] = serde_json::Value::String(id);
+        if let Some(sid) = &session_id {
+            agent_params["sessionId"] = serde_json::Value::String(sid.clone());
         }
-        if let Some(b) = &provider {
-            agent_params["provider"] = serde_json::Value::String(b.clone());
+        if let Some(p) = provider {
+            agent_params["provider"] = serde_json::Value::String(p);
         }
-        if let Some(m) = &model {
-            agent_params["model"] = serde_json::Value::String(m.clone());
+        if let Some(m) = model {
+            agent_params["model"] = serde_json::Value::String(m);
         }
-        if let Some(id) = &orchestrator_id {
-            agent_params["orchestratorId"] = serde_json::Value::String(id.clone());
+        if let Some(oid) = orchestrator_id {
+            agent_params["orchestratorId"] = serde_json::Value::String(oid);
         }
+
         let agent_req = serde_json::json!({
             "type": "req",
             "id": "2",
@@ -1072,6 +1060,7 @@ pub(crate) fn run_agent_turn(
             .await
             .map_err(|e| e.to_string())?;
 
+        // Read agent response
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
@@ -1084,42 +1073,42 @@ pub(crate) fn run_agent_turn(
                     let err = res
                         .get("error")
                         .and_then(|v| v.as_str())
-                        .unwrap_or("agent failed");
+                        .unwrap_or("agent turn failed");
                     return Err(err.to_string());
                 }
                 let payload = res.get("payload").ok_or("missing payload")?;
-                let session_id = payload
-                    .get("sessionId")
-                    .and_then(|v| v.as_str())
-                    .ok_or("missing sessionId in agent response")?
-                    .to_string();
                 let reply = payload
                     .get("reply")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let tool_calls = payload
+                let session_id = payload
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let tool_calls: Vec<serde_json::Value> = payload
                     .get("toolCalls")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
+                    .cloned()
                     .unwrap_or_default();
-                let tool_results = payload
+                let tool_results: Vec<String> = payload
                     .get("toolResults")
                     .and_then(|v| v.as_array())
                     .map(|arr| {
                         arr.iter()
-                            .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                            .collect::<Vec<_>>()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect()
                     })
                     .unwrap_or_default();
                 let loop_limit_reached = payload
                     .get("loopLimitReached")
                     .and_then(|v| v.as_bool())
                     .unwrap_or(false);
-                let pending_tool_calls = payload
+                let pending_tool_calls: Vec<serde_json::Value> = payload
                     .get("pendingToolCalls")
                     .and_then(|v| v.as_array())
-                    .map(|arr| arr.clone())
+                    .cloned()
                     .unwrap_or_default();
                 let stopped = payload
                     .get("stopped")
@@ -1140,10 +1129,11 @@ pub(crate) fn run_agent_turn(
     })
 }
 
-/// Send a stop signal to the gateway for the specified session.
-/// The agent turn will pause after the current iteration completes.
-/// This is idempotent — stopping an idle session is a no-op.
-pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Result<bool, String> {
+/// Send a `stop` request to the gateway for the given session.
+pub(crate) fn send_stop(
+    profile_override: Option<&str>,
+    session_id: &str,
+) -> Result<bool, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1184,9 +1174,13 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
             .await
             .map_err(|e| e.to_string())?;
 
-        // Wait for hello-ok
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        // Wait for connect response
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
             if res.get("type").and_then(|v| v.as_str()) != Some("res") {
@@ -1230,29 +1224,19 @@ pub(crate) fn send_stop(profile_override: Option<&str>, session_id: &str) -> Res
                 continue;
             }
             if res.get("id").and_then(|v| v.as_str()) == Some("2") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res
-                        .get("error")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("stop failed");
-                    return Err(err.to_string());
-                }
-                let stopped = res
-                    .get("payload")
-                    .and_then(|p| p.get("stopped"))
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(true);
-                return Ok(stopped);
+                let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                return Ok(ok);
             }
         }
         Err("no stop response".to_string())
     })
 }
 
-/// Fetch the session list from the gateway via `sessions.list` WebSocket method.
-/// Returns summary metadata for all sessions (id, timestamps, message count, channel binding).
-/// When `orchestrator_id` is `Some`, scopes the request to that orchestrator's session store.
-pub(crate) fn fetch_sessions_list(profile_override: Option<&str>, orchestrator_id: Option<&str>) -> Result<Vec<crate::app::SessionSummary>, String> {
+/// Fetch the session list from the gateway via `sessions.list` WS method.
+pub(crate) fn fetch_sessions_list(
+    profile_override: Option<&str>,
+    orchestrator_id: Option<&str>,
+) -> Result<Vec<super::super::SessionSummary>, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1264,27 +1248,55 @@ pub(crate) fn fetch_sessions_list(profile_override: Option<&str>, orchestrator_i
         let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
             .await
             .map_err(|e| e.to_string())?;
-        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
+
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
         let Message::Text(challenge_text) = first else {
             return Err("expected text challenge frame".to_string());
         };
-        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
         let nonce = challenge
-            .get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
             .ok_or("expected connect.challenge event with nonce")?
             .to_string();
+
         let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
-        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
-        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for connect response.
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("1") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
-                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -1295,37 +1307,80 @@ pub(crate) fn fetch_sessions_list(profile_override: Option<&str>, orchestrator_i
                 break;
             }
         }
-        let mut params = serde_json::json!({});
-        if let Some(id) = orchestrator_id {
-            params["orchestratorId"] = serde_json::Value::String(id.to_string());
+
+        // Build sessions.list request.
+        let mut list_params = serde_json::json!({});
+        if let Some(oid) = orchestrator_id {
+            list_params["orchestratorId"] = serde_json::Value::String(oid.to_string());
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.list", "params": params });
-        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+
+        let list_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "sessions.list",
+            "params": list_params
+        });
+        ws.send(Message::Text(list_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("2") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.list failed").to_string());
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sessions.list failed");
+                    return Err(err.to_string());
                 }
                 let payload = res.get("payload").ok_or("missing payload")?;
-                let sessions_arr = payload.get("sessions").and_then(|v| v.as_array()).ok_or("missing sessions array")?;
+                let sessions_arr = payload
+                    .get("sessions")
+                    .and_then(|v| v.as_array())
+                    .ok_or("missing sessions array")?;
                 let mut summaries = Vec::new();
                 for entry in sessions_arr {
-                    let id = entry.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let created_at = entry.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let updated_at = entry.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let message_count = entry.get("messageCount").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
-                    let channel_binding = entry.get("channelBinding").and_then(|b| {
-                        let cid = b.get("channelId").and_then(|v| v.as_str()).unwrap_or("");
-                        let conv = b.get("conversationId").and_then(|v| v.as_str()).unwrap_or("");
-                        if cid.is_empty() && conv.is_empty() { None } else {
-                            Some(crate::app::ChannelBinding { channel_id: cid.to_string(), conversation_id: conv.to_string() })
+                    let id = entry
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let created_at = entry
+                        .get("createdAt")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let updated_at = entry
+                        .get("updatedAt")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let message_count = entry
+                        .get("messageCount")
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as usize;
+                    let channel_binding = entry.get("channelBinding").and_then(|cb| {
+                        let channel_id = cb.get("channelId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let conversation_id = cb.get("conversationId").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        if channel_id.is_empty() && conversation_id.is_empty() {
+                            None
+                        } else {
+                            Some(super::super::ChannelBinding { channel_id, conversation_id })
                         }
                     });
-                    summaries.push(crate::app::SessionSummary { id, created_at, updated_at, message_count, channel_binding });
+                    summaries.push(super::super::SessionSummary {
+                        id,
+                        created_at,
+                        updated_at,
+                        message_count,
+                        channel_binding,
+                    });
                 }
                 return Ok(summaries);
             }
@@ -1334,8 +1389,11 @@ pub(crate) fn fetch_sessions_list(profile_override: Option<&str>, orchestrator_i
     })
 }
 
-/// Fetch session history from the gateway via `sessions.history` WebSocket method.
-pub(crate) fn fetch_sessions_history(profile_override: Option<&str>, session_id: &str) -> Result<crate::app::SessionHistory, String> {
+/// Fetch the session history from the gateway via `sessions.history` WS method.
+pub(crate) fn fetch_sessions_history(
+    profile_override: Option<&str>,
+    session_id: &str,
+) -> Result<super::super::SessionHistory, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1344,23 +1402,58 @@ pub(crate) fn fetch_sessions_history(profile_override: Option<&str>, session_id:
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
-        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
-        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
-        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
-        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
         let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
-        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
-        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for connect response.
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("1") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
-                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -1371,155 +1464,108 @@ pub(crate) fn fetch_sessions_history(profile_override: Option<&str>, session_id:
                 break;
             }
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.history", "params": { "sessionId": session_id } });
-        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+
+        let hist_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "sessions.history",
+            "params": { "sessionId": session_id }
+        });
+        ws.send(Message::Text(hist_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("2") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.history failed").to_string());
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sessions.history failed");
+                    return Err(err.to_string());
                 }
                 let payload = res.get("payload").ok_or("missing payload")?;
-                let id = payload.get("id").and_then(|v| v.as_str()).unwrap_or(session_id).to_string();
-                let created_at = payload.get("createdAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let updated_at = payload.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                let messages_arr = payload.get("messages").and_then(|v| v.as_array()).ok_or("missing messages array")?;
+                let id = payload
+                    .get("sessionId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(session_id)
+                    .to_string();
+                let created_at = payload
+                    .get("createdAt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let updated_at = payload
+                    .get("updatedAt")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                let messages_arr = payload
+                    .get("messages")
+                    .and_then(|v| v.as_array())
+                    .ok_or("missing messages array")?;
                 let mut messages = Vec::new();
-                // The gateway stores tool calls and results differently from the live
-                // event stream. In the session file:
-                //   - assistant messages carry toolCalls[{function:{name, arguments, index}}]
-                //   - tool results are separate "tool" messages with toolName and content
-                // We need to reconstruct the desktop timeline: individual tool_call
-                // entries with matched tool_result fields, followed by the assistant text.
-                //
-                // First pass: collect "tool" messages in order so we can match them
-                // sequentially to their corresponding tool calls.
-                let mut tool_result_entries: Vec<(String, String)> = Vec::new();
-                for m in messages_arr {
-                    let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("");
-                    if role == "tool" {
-                        let tool_name = m.get("toolName").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                        tool_result_entries.push((tool_name, content));
-                    }
+                for entry in messages_arr {
+                    let role = entry
+                        .get("role")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let content = entry
+                        .get("content")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let tool_calls = entry
+                        .get("toolCalls")
+                        .and_then(|v| v.as_array())
+                        .cloned();
+                    let tool_results = entry
+                        .get("toolResults")
+                        .and_then(|v| v.as_array())
+                        .map(|arr| {
+                            arr.iter()
+                                .filter_map(|v| v.as_str().map(String::from))
+                                .collect::<Vec<_>>()
+                        })
+                        .filter(|v: &Vec<String>| !v.is_empty());
+                    messages.push(super::super::ChatMessage {
+                        role,
+                        content,
+                        tool_calls,
+                        tool_results,
+                        delegation_event: None,
+                        tool_name: None,
+                        tool_args: None,
+                        tool_result: None,
+                        tool_index: None,
+                        source: None,
+                        pending_tool_calls: None,
+                    });
                 }
-                // Second pass: build the chat timeline.
-                // Use a cursor into tool_result_entries to match results to tool calls
-                // in sequential order (the gateway stores them in the same order as the
-                // tool calls that triggered them).
-                let mut tool_result_cursor: usize = 0;
-                for m in messages_arr {
-                    let role = m.get("role").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let content = m.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    match role.as_str() {
-                        "user" => { messages.push(crate::app::ChatMessage::user(content)); }
-                        "system" => { messages.push(crate::app::ChatMessage::system(content)); }
-	                        "assistant" => {
-	                            let tool_calls = m.get("toolCalls").and_then(|v| v.as_array());
-
-	                            if let Some(calls) = tool_calls {
-	                                if !calls.is_empty() {
-	                                    // Emit the assistant progress text before tool_call
-	                                    // entries, matching the live event stream order where
-	                                    // session.assistant_progress arrives before
-	                                    // session.tool_call. Skip empty assistant messages —
-	                                    // the live event stream drops session.message events
-	                                    // with empty content, so including them in history
-	                                    // would cause extra spacing (the render function skips
-	                                    // them but the layout still adds inter-message spacing).
-	                                    if !content.trim().is_empty() {
-	                                        messages.push(crate::app::ChatMessage {
-	                                            role: "assistant_progress".to_string(),
-	                                            content: content.clone(),
-	                                            tool_calls: None,
-	                                            tool_results: None,
-	                                            delegation_event: None,
-	                                            tool_name: None,
-	                                            tool_args: None,
-	                                            tool_result: None,
-	                                            tool_index: None,
-	                                            source: None,
-	                                            pending_tool_calls: None,
-	                                        });
-	                                    }
-	                                    // Emit individual tool_call entries for each tool call,
-	                                    // matching the live event stream structure. Try to match
-	                                    // stored "tool" results to these tool_call entries by
-	                                    // advancing the cursor sequentially.
-	                                    for call in calls.iter() {
-	                                        let tool_name = call.get("function")
-	                                            .and_then(|f| f.get("name"))
-	                                            .and_then(|n| n.as_str())
-	                                            .unwrap_or("unknown")
-	                                            .to_string();
-	                                        let tool_args = call.get("function")
-	                                            .and_then(|f| f.get("arguments"))
-	                                            .cloned();
-	                                        let tool_index = call.get("function")
-	                                            .and_then(|f| f.get("index"))
-	                                            .and_then(|v| v.as_u64())
-	                                            .map(|v| v as usize);
-
-	                                        // Match the tool result by advancing the cursor.
-	                                        // The gateway stores tool results in the same order
-	                                        // as the tool calls that triggered them.
-	                                        let tool_result = if tool_result_cursor < tool_result_entries.len() {
-	                                            let (ref name, ref result) = tool_result_entries[tool_result_cursor];
-	                                            if name == &tool_name {
-	                                                tool_result_cursor += 1;
-	                                                Some(result.clone())
-	                                            } else {
-	                                                // Name mismatch — still try advancing in case
-	                                                // there are unmatched entries.
-	                                                None
-	                                            }
-	                                        } else {
-	                                            None
-	                                        };
-
-	                                        messages.push(crate::app::ChatMessage {
-	                                            role: "tool_call".to_string(),
-	                                            content: String::new(),
-	                                            tool_calls: None,
-	                                            tool_results: None,
-	                                            delegation_event: None,
-	                                            tool_name: Some(tool_name),
-	                                            tool_args,
-	                                            tool_result,
-	                                            tool_index,
-	                                            source: None,
-	                                            pending_tool_calls: None,
-	                                        });
-	                                    }
-	                                    continue;
-	                                }
-                            }
-                            // No tool calls — emit the assistant message as-is.
-                            let tool_calls_val = tool_calls.map(|arr| arr.clone());
-                            let tool_results = m.get("toolResults").and_then(|v| v.as_array()).map(|arr| {
-                                arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect::<Vec<_>>()
-                            });
-                            let tool_results = tool_results.filter(|v| !v.is_empty());
-                            messages.push(crate::app::ChatMessage::assistant(content, tool_calls_val, tool_results));
-                        }
-                        // "tool" messages are handled above by matching them to their
-                        // tool_call entries. Skip them here to avoid duplicate entries.
-                        "tool" => {}
-                        _ => {}
-                    }
-                }
-                return Ok(crate::app::SessionHistory { id, messages, created_at, updated_at });
+                return Ok(super::super::SessionHistory {
+                    id,
+                    messages,
+                    created_at,
+                    updated_at,
+                });
             }
         }
         Err("no sessions.history response".to_string())
     })
 }
 
-/// Delete a session via the `sessions.delete` WebSocket method.
-pub(crate) fn fetch_sessions_delete(profile_override: Option<&str>, session_id: &str) -> Result<bool, String> {
+/// Delete a session via `sessions.delete` WS method.
+pub(crate) fn fetch_sessions_delete(
+    profile_override: Option<&str>,
+    session_id: &str,
+) -> Result<bool, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1528,23 +1574,58 @@ pub(crate) fn fetch_sessions_delete(profile_override: Option<&str>, session_id: 
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
-        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
-        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
-        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
-        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
         let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
-        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
-        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for connect response.
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("1") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
-                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -1555,28 +1636,38 @@ pub(crate) fn fetch_sessions_delete(profile_override: Option<&str>, session_id: 
                 break;
             }
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete", "params": { "sessionId": session_id } });
-        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+
+        let del_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "sessions.delete",
+            "params": { "sessionId": session_id }
+        });
+        ws.send(Message::Text(del_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("2") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.delete failed").to_string());
-                }
-                return Ok(true);
+                let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                return Ok(ok);
             }
         }
         Err("no sessions.delete response".to_string())
     })
 }
 
-/// Delete all sessions via the `sessions.delete_all` WebSocket method.
-/// When `orchestrator_id` is Some, only deletes sessions for that orchestrator.
-/// When None, deletes sessions for all orchestrators.
-pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>, orchestrator_id: Option<&str>) -> Result<usize, String> {
+/// Delete all sessions via `sessions.delete_all` WS method.
+pub(crate) fn fetch_sessions_delete_all(
+    profile_override: Option<&str>,
+    orchestrator_id: Option<&str>,
+) -> Result<usize, String> {
     let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
     let bind = config.gateway.bind.trim();
     let port = config.gateway.port;
@@ -1585,23 +1676,58 @@ pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>, orchestr
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
-        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.map_err(|e| e.to_string())?;
-        let first = ws.next().await.ok_or("no first frame")?.map_err(|e| e.to_string())?;
-        let Message::Text(challenge_text) = first else { return Err("expected text challenge frame".to_string()); };
-        let challenge: serde_json::Value = serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
-        let nonce = challenge.get("payload").and_then(|p| p.get("nonce").and_then(|n| n.as_str())).ok_or("expected connect.challenge event with nonce")?.to_string();
+        let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let first = ws
+            .next()
+            .await
+            .ok_or("no first frame")?
+            .map_err(|e| e.to_string())?;
+        let Message::Text(challenge_text) = first else {
+            return Err("expected text challenge frame".to_string());
+        };
+        let challenge: serde_json::Value =
+            serde_json::from_str(&challenge_text).map_err(|e| e.to_string())?;
+        let nonce = challenge
+            .get("payload")
+            .and_then(|p| p.get("nonce").and_then(|n| n.as_str()))
+            .ok_or("expected connect.challenge event with nonce")?
+            .to_string();
+
         let connect_params = build_connect_params(&paths, token.as_deref(), &nonce)?;
-        let connect_req = serde_json::json!({ "type": "req", "id": "1", "method": "connect", "params": connect_params });
-        ws.send(Message::Text(connect_req.to_string().into())).await.map_err(|e| e.to_string())?;
-        while let Some(msg) = ws.next().await {
-            let msg = msg.map_err(|e| e.to_string())?;
+        let connect_req = serde_json::json!({
+            "type": "req",
+            "id": "1",
+            "method": "connect",
+            "params": connect_params
+        });
+        ws.send(Message::Text(connect_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Wait for connect response.
+        loop {
+            let msg = ws
+                .next()
+                .await
+                .ok_or("no connect response")?
+                .map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("1") {
                 if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    let err = res.get("error").and_then(|v| v.as_str()).unwrap_or("connect failed");
-                    if err == "invalid device token" { let _ = std::fs::remove_file(paths.device_token_path()); }
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("connect failed");
+                    if err == "invalid device token" {
+                        let _ = std::fs::remove_file(paths.device_token_path());
+                    }
                     return Err(err.to_string());
                 }
                 if let Some(auth) = res.get("payload").and_then(|p| p.get("auth")) {
@@ -1612,22 +1738,42 @@ pub(crate) fn fetch_sessions_delete_all(profile_override: Option<&str>, orchestr
                 break;
             }
         }
+
         let mut params = serde_json::json!({});
-        if let Some(id) = orchestrator_id {
-            params["orchestratorId"] = serde_json::Value::String(id.to_string());
+        if let Some(oid) = orchestrator_id {
+            params["orchestratorId"] = serde_json::Value::String(oid.to_string());
         }
-        let req = serde_json::json!({ "type": "req", "id": "2", "method": "sessions.delete_all", "params": params });
-        ws.send(Message::Text(req.to_string().into())).await.map_err(|e| e.to_string())?;
+        let del_req = serde_json::json!({
+            "type": "req",
+            "id": "2",
+            "method": "sessions.delete_all",
+            "params": params
+        });
+        ws.send(Message::Text(del_req.to_string().into()))
+            .await
+            .map_err(|e| e.to_string())?;
+
         while let Some(msg) = ws.next().await {
             let msg = msg.map_err(|e| e.to_string())?;
             let Message::Text(text) = msg else { continue };
             let res: serde_json::Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
-            if res.get("type").and_then(|v| v.as_str()) != Some("res") { continue; }
+            if res.get("type").and_then(|v| v.as_str()) != Some("res") {
+                continue;
+            }
             if res.get("id").and_then(|v| v.as_str()) == Some("2") {
-                if !res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    return Err(res.get("error").and_then(|v| v.as_str()).unwrap_or("sessions.delete_all failed").to_string());
+                let ok = res.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+                if !ok {
+                    let err = res
+                        .get("error")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("sessions.delete_all failed");
+                    return Err(err.to_string());
                 }
-                let count = res.get("payload").and_then(|p| p.get("deletedCount")).and_then(|v| v.as_u64()).unwrap_or(0) as usize;
+                let count = res
+                    .get("payload")
+                    .and_then(|p| p.get("count"))
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0) as usize;
                 return Ok(count);
             }
         }

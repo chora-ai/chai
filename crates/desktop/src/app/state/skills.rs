@@ -48,7 +48,7 @@ impl ChaiApp {
         if need_immediate || self.frames_since_skills_fetch >= STATUS_INTERVAL_FRAMES {
             self.frames_since_skills_fetch = 0;
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.cached_profile_override.clone();
+            let profile_override = self.cached_gateway_profile.clone();
             std::thread::spawn(move || {
                 let result = fetch_skills(profile_override.as_deref());
                 let _ = tx.send(result);
