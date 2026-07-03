@@ -23,14 +23,13 @@ A periodic **TCP probe** (~1 Hz) to `gateway.bind`:`gateway.port` detects livene
 
 ### Runtime Profiles
 
-The header shows the **persistent** active profile (from `~/.chai/active`). A **ComboBox** rewrites the symlink when the gateway is **not** running. Profile switching is disabled while the gateway is up (same rule as `chai profile switch`).
+The header shows the **active** profile (from `~/.chai/active`). A **ComboBox** rewrites the symlink to switch the active profile. Profile switching is always allowed regardless of whether a gateway is running.
 
-When the gateway is running, the desktop resolves an **effective profile** that may differ from the persistent symlink:
+When the gateway is running on a different profile than the active one (detected by scanning per-profile lock files for a held lock):
 
-- **Resolution order**: `CHAI_PROFILE` environment variable → `gateway.lock` profile → `~/.chai/active` symlink.
-- **Profile mismatch hint**: when the effective profile differs from the persistent one (because `CHAI_PROFILE` is set or the gateway was started with a different profile), the ComboBox is disabled and an amber label below the header indicates which profile the gateway is using.
-- **Spawn propagation**: when the desktop starts the gateway, the effective profile is passed via `--profile` so the subprocess uses the same profile.
-- All `load_config` calls use `effective_profile_override()` to load the correct per-profile configuration (port, token, skills, etc.).
+- **Profile mismatch hint**: when a gateway is running on a different profile than the active one, an amber label indicates which profile the gateway is using.
+- **Spawn propagation**: when the desktop starts the gateway, the active profile is passed via `--profile` so the subprocess uses the same profile.
+- All `load_config` calls use the active profile (from `~/.chai/active`) to load the correct per-profile configuration (port, token, skills, etc.).
 
 ### WebSocket Protocol
 
@@ -212,7 +211,6 @@ Profile switch errors are shown in the header as right-aligned red text, matchin
 
 | Condition | Error Message |
 |-----------|---------------|
-| Gateway is running | `"gateway is running; stop it before switching profile"` |
 | `switch_active_profile()` fails | Propagated error string |
 
 These are also truncated in the header with a hover tooltip (same 80-character limit as gateway errors).
@@ -239,7 +237,7 @@ Chat turn errors are rendered inline in the chat message stream as `ChatMessage:
 
 ### Profile Mismatch Warnings
 
-Profile mismatch warnings (from `CHAI_PROFILE` or gateway lock profile ≠ active symlink) are shown as right-aligned amber text in the header, matching the position and size of error labels but in amber color. These are truncated in the header with a hover tooltip (same 80-character limit).
+Profile mismatch warnings (from gateway lock profile ≠ active symlink) are shown as right-aligned amber text in the header, matching the position and size of error labels but in amber color. These are truncated in the header with a hover tooltip (same 80-character limit).
 
 ## Known Gaps
 

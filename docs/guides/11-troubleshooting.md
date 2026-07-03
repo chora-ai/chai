@@ -178,12 +178,12 @@ Run `chai skill validate <name>` to check tool descriptor files for schema error
 
 ### Profile Switch Fails
 
-The gateway must be stopped before switching profiles. The advisory lock at `~/.chai/gateway.lock` prevents concurrent access.
+Profile switching is always allowed — it only updates the `~/.chai/active` symlink and does not affect running gateways. The per-profile advisory lock at `~/.chai/profiles/<name>/gateway.lock` prevents starting a second gateway on the same profile, but does not restrict which profile is active.
 
-If the gateway crashed and the lock file is stale (no gateway process running but the lock exists), delete it:
+If a gateway fails to start because the per-profile lock is held (e.g. after a crash where the OS released the advisory lock but the file remains), remove the stale lock:
 
 ```bash
-rm ~/.chai/gateway.lock
+rm ~/.chai/profiles/<name>/gateway.lock
 ```
 
 ### Wrong Profile Active After `chai init`

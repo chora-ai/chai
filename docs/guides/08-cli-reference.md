@@ -37,10 +37,10 @@ chai gateway --port 8080            # Override the port
 
 | Flag | Description |
 |------|-------------|
-| `--profile <NAME>` | Override the active profile for this process (alternative to `CHAI_PROFILE`) |
+| `--profile <NAME>` | Override the active profile for this command |
 | `--port <PORT>` | Override `gateway.port` for this run |
 
-The gateway holds an advisory lock at `~/.chai/gateway.lock` while running. Only one gateway can run at a time for a given configuration directory.
+The gateway holds a per-profile advisory lock at `~/.chai/profiles/<name>/gateway.lock` while running. Multiple gateways can run simultaneously on different profiles; only one gateway is allowed per profile.
 
 Log output uses the `RUST_LOG` environment variable. The default level for `chai gateway` is `info`; for all other commands it is `warn`.
 
@@ -79,16 +79,14 @@ Manage profiles — independent configuration trees under `~/.chai/profiles/<nam
 ```bash
 chai profile list                   # List all profile names
 chai profile current                # Show persistent and effective profile
-chai profile switch <name>          # Change the active symlink (gateway must be stopped)
+chai profile switch <name>          # Change the active symlink (always allowed)
 ```
 
 | Subcommand | Description |
 |-----------|-------------|
 | `list` | Print all profile directories under `~/.chai/profiles/` |
-| `current` | Print the persistent profile from `~/.chai/active`. If `CHAI_PROFILE` is set and differs, also shows the effective override. |
-| `switch <name>` | Repoint `~/.chai/active` to `profiles/<name>/`. Fails if the gateway is running. |
-
-The `CHAI_PROFILE` environment variable overrides `~/.chai/active` for a single process without changing the symlink.
+| `current` | Print the active profile from `~/.chai/active`. |
+| `switch <name>` | Repoint `~/.chai/active` to `profiles/<name>/`. Always succeeds — switching is independent of running gateways. |
 
 ## `chai session`
 

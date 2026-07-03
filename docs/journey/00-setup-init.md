@@ -39,7 +39,7 @@
      ```bash
      ls ~/.chai/
      ```
-   - **Expect:** `active` (symlink), `profiles/`, `skills/`, and `gateway.lock` (may be absent until the gateway runs).
+   - **Expect:** `active` (symlink), `profiles/`, `skills/`, and `profiles/<name>/gateway.lock` (may be absent until the gateway runs).
 
 3. **Review the default profile**
 
@@ -101,7 +101,7 @@
 - **`chai: command not found`** — The CLI is not installed or not on your PATH. Re-run `cargo install --path crates/cli` and check your Cargo bin directory is on PATH.
 - **`chai init` errors** — Ensure `~/.chai/` is writable and not locked by another process. If the directory exists and is in a bad state, you can remove it and re-run `chai init` (this destroys all profiles and skills).
 - **`ollama list` is empty or model missing** — Pull the model: `ollama pull llama3.2:3b`. Ensure Ollama is running: `ollama serve` (or the system tray app).
-- **Gateway exits immediately** — Check the error output. Common causes: Ollama not running, another gateway already running (the advisory lock at `~/.chai/gateway.lock` prevents duplicates), or a config error.
+- **Gateway exits immediately** — Check the error output. Common causes: Ollama not running, another gateway already running on the same profile (the per-profile advisory lock at `~/.chai/profiles/<name>/gateway.lock` prevents duplicates), or a config error.
 - **`curl` returns "connection refused"** — The gateway is not running or is on a different port. Check the gateway terminal for the actual port, or set `gateway.port` in config (see [Configuration](../guides/03-configuration.md)).
 - **`chai chat` returns no reply or errors** — Ensure Ollama is running and the model is available. Check the gateway terminal for error lines like `agent turn failed`.
 - **`curl` returns `"status": "running"` but `chai chat` hangs** — The gateway is up but the model may be slow to respond (first inference can take time while the model loads into memory). Wait 30–60 s; if still no reply, check gateway logs for errors.

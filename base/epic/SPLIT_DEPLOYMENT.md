@@ -8,7 +8,7 @@ status: draft
 
 **Prerequisite** — The `desktop.json` file (appearance and logs blocks) is already implemented. This epic adds a `remote` array to `desktop.json` so the desktop can connect to remote gateways, with the active profile symlink pointing at the selected target (local or remote) so device identity storage is reused.
 
-**Status** — **Draft (not implemented).** The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no Connect/Disconnect mode, and no documentation for the scenario.
+**Status** — **Draft (not implemented).** The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no Connect/Disconnect mode, and no documentation for the scenario. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
 
 ## Problem Statement
 
@@ -55,9 +55,9 @@ The challenge-response pairing protocol (Ed25519 signatures + device token issua
 
 ### Profile ComboBox
 
-The header shows the persistent active profile (from `~/.chai/active`). A ComboBox rewrites the symlink when the gateway is **not** running. Profile switching is disabled while the gateway is up (enforced by the advisory lock on `~/.chai/gateway.lock` — see [PROFILES.md](../spec/PROFILES.md)).
+The header shows the persistent active profile (from `~/.chai/active`). A ComboBox allows switching the active profile at any time — profile switching is always allowed regardless of whether any gateway is running. Per-profile gateway locks allow multiple gateways to run simultaneously on different profiles, and the desktop stores per-profile gateway state so switching between running gateways is seamless.
 
-This epic extends the ComboBox to include remote profiles alongside local profiles. The switching constraint applies to both, but for different reasons: local profiles are blocked by the advisory lock (a server-side gateway is running), while remote profiles are blocked by the need to swap the active WebSocket connection and cached state. In both cases the UX is the same — disconnect/stop before switching.
+This epic extends the ComboBox to include remote profiles alongside local profiles. For remote profiles, switching requires disconnecting first (the desktop must swap its WebSocket connection and cached state). For local profiles, switching is always allowed — the desktop can switch between profiles with running gateways without stop/restart.
 
 ### Currently Implemented `desktop.json` Schema
 
@@ -71,9 +71,9 @@ In a split deployment, the two `~/.chai` directories serve different purposes:
 ```
 ~/.chai/
 ├── active → profiles/assistant/
-├── gateway.lock              ← PID + profile name
 ├── profiles/assistant/
 │   ├── config.json           ← authoritative: providers, channels, agents, auth
+│   ├── gateway.lock          ← per-profile advisory lock (PID + profile name)
 │   ├── paired.json           ← device trust store (gateway reads this)
 │   ├── agents/orchestrator/
 │   ├── sandbox/              ← tool execution happens here
@@ -113,7 +113,7 @@ The gateway does enforce token auth for non-loopback bindings — it refuses to 
 | No remote address config | 🟠 High | `gateway.bind` repurposed as connect-to address; semantically wrong and confusing |
 | No Connect/Disconnect mode | 🟠 High | Desktop can still spawn a local gateway; no way to disable this |
 | No origin validation | 🟡 Medium | Cross-site WebSocket hijacking possible on non-loopback |
-| `gateway.lock` is local-only | 🟡 Medium | Desktop can't detect remote gateway via lock file; relies on TCP probe |
+| `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented at `~/.chai/profiles/<name>/gateway.lock`; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles still skip lock detection and rely on TCP probe (by design). |
 | No documentation | 🟡 Medium | Zero guidance for split deployment setup or operation |
 | Status shows server paths | 🟢 Low | Gateway status returns server-local absolute paths; confusing but not breaking |
 
@@ -180,14 +180,11 @@ This approach unifies local and remote profiles in the ComboBox: the user sees t
 
 **Startup directory creation:** When `desktop.json` is loaded at startup, the desktop iterates the `remote` array and creates `~/.chai/profiles/<id>/` for each entry that does not already exist. This is a `mkdir -p` operation — no files are written, just the directory. The directory is empty until the user selects the remote profile and clicks Connect, at which point `device.json` is generated and `device_token` is issued by the gateway.
 
-**Active symlink and profile switching:** The active symlink is updated when selecting a remote profile, same as for local profiles. This is consistent: the symlink always points at whichever profile directory the desktop is using, and `ChaiPaths` resolves device identity from there. Switching profiles requires disconnecting/stopping the gateway first.
+**Active symlink and profile switching:** The active symlink is updated when selecting a remote profile, same as for local profiles. This is consistent: the symlink always points at whichever profile directory the desktop is using, and `ChaiPaths` resolves device identity from there. Profile switching is always allowed for local profiles — per-profile locks allow the symlink to be freely rewritten regardless of running gateways.
 
-There are two distinct reasons for this constraint, and they apply differently to local and remote profiles:
+For remote profiles, switching is connection-based: the desktop's WebSocket connection, cached status, session lists, and agent details are all tied to the current remote gateway. Switching to a different remote entry (or a local profile) means abandoning that connection and re-establishing a new one. The desktop enforces disconnect-before-switch for remote profiles to manage this state swap cleanly.
 
-- **Local profiles** — The advisory lock on `~/.chai/gateway.lock` prevents `switch_active_profile()` from rewriting the symlink while a gateway holds the lock. This is a hard server-side constraint: a second `chai gateway` invocation on a different profile is refused until the first stops.
-- **Remote profiles** — There is no local lock involved. The constraint is connection-based: the desktop's WebSocket connection, cached status, session lists, and agent details are all tied to the current remote gateway. Switching to a different remote entry (or a local profile) means abandoning that connection and re-establishing a new one. The desktop enforces disconnect-before-switch to manage this state swap cleanly.
-
-Under the current root-level lock, both constraints produce the same UX (stop/disconnect before switching). A future per-profile lock direction (see Follow-ups) would relax the local lock constraint but the remote connection-based constraint would remain — the desktop would still need to swap its WebSocket connection when switching between remote gateways.
+Local profiles no longer have a lock-based switching constraint. Per-profile locks allow multiple gateways to run simultaneously, and the desktop stores per-profile gateway state so switching between local profiles with running gateways is seamless.
 
 ### Distinguishing Local and Remote Profiles
 
@@ -210,7 +207,7 @@ When the selected profile is remote, the desktop operates in connect-only mode:
 - The header shows **Connect/Disconnect** controls instead of Start/Stop.
 - The desktop does not attempt to spawn `chai gateway` as a subprocess.
 - The desktop probes the remote URL for liveness (TCP connect to the host:port extracted from the URL).
-- Profile switching is disabled while connected (the desktop must disconnect before selecting a different profile — see Active Symlink and Switching below).
+- Switching to a different remote profile requires disconnecting first (the desktop must swap its WebSocket connection and cached state — see Active Symlink and Switching below). Local profile switching is always allowed.
 - When the user clicks **Connect**, the desktop opens a WebSocket connection to the remote URL and authenticates via the device pairing protocol.
 - When the user clicks **Disconnect**, the desktop closes the WebSocket connection.
 
@@ -234,11 +231,11 @@ Check for the presence of an `Origin` header (browser WebSocket APIs always send
 
 ### `gateway.lock` and Remote Gateway Detection
 
-In split deployment, the desktop's local `gateway.lock` doesn't exist (the gateway is on a different machine). The desktop currently uses `gateway.lock` to detect a running gateway and determine its profile.
+In split deployment, the desktop's local `gateway.lock` doesn't exist (the gateway is on a different machine). The desktop detects running local gateways via per-profile lock files at `~/.chai/profiles/<name>/gateway.lock` (using `find_running_gateway_profiles()`).
 
-**Decision:** When the selected profile is remote, the desktop skips `gateway.lock` detection entirely and relies on the TCP probe against the remote URL. The profile is determined from the selected remote entry `id` (not from `gateway.lock` or `config.json`). The remote gateway's own profile name (returned in `status`) may differ from the local `id` — this is not a mismatch; the `id` is the client-side label, and the remote gateway's profile name is a server-side detail that is not surfaced as a warning.
+**Decision:** When the selected profile is remote, the desktop skips lock file detection entirely and relies on the TCP probe against the remote URL. The profile is determined from the selected remote entry `id` (not from lock files or `config.json`). The remote gateway's own profile name (returned in `status`) may differ from the local `id` — this is not a mismatch; the `id` is the client-side label, and the remote gateway's profile name is a server-side detail that is not surfaced as a warning.
 
-**Future direction — per-profile `gateway.lock`:** The current lock lives at `~/.chai/gateway.lock` (installation root) and enforces one gateway per Chai installation. A future direction moves the lock to `~/.chai/profiles/<name>/gateway.lock`, allowing multiple gateways to run on different profiles simultaneously. This would let the desktop switch between running local gateways without stop/restart. This epic does not implement per-profile locks, but its design is compatible with them: remote profiles already skip lock detection, startup directory creation does not create lock files, and device identity resolution from `ChaiPaths` works regardless of lock placement. See Follow-ups for details.
+When the selected profile is local, the desktop uses per-profile lock file scanning to discover all running local gateway profiles, and uses the TCP probe to determine whether the active profile's gateway is responding.
 
 ### Config Screen Visibility
 
@@ -253,7 +250,7 @@ The desktop config screen currently shows `config.json` contents (bind, port, pr
 - [ ] **`remote` array in `desktop.json`** — Add a `remote` array to the `DesktopConfig` struct in `crates/lib/src/config.rs`. Each entry has `id` (string), `url` (string, must start with `ws://` or `wss://`), and `token` (string). Invalid entries are rejected at load time. When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged.
 - [ ] **Remote profile directories created at startup** — When `desktop.json` is loaded at startup, the desktop creates `~/.chai/profiles/<id>/` for each remote entry that does not already exist (`mkdir -p`, no files written). This ensures remote entries appear in the ComboBox before the user has ever connected.
 - [ ] **Remote profile in ComboBox** — Remote entry `id`s appear alongside local profile names in the header ComboBox. The ComboBox is populated from `~/.chai/profiles/` directory names. Selecting a remote profile updates the active symlink to point at the remote profile's directory, same as selecting a local profile.
-- [ ] **Connect/Disconnect mode** — When the selected profile is remote (the `id` matches a `remote` entry in `desktop.json`), the header shows Connect/Disconnect instead of Start/Stop. The desktop does not spawn a local gateway. Clicking Connect opens a WebSocket connection to the remote `url`. Clicking Disconnect closes it. Profile switching is disabled while connected (same lock rule as local).
+- [ ] **Connect/Disconnect mode** — When the selected profile is remote (the `id` matches a `remote` entry in `desktop.json`), the header shows Connect/Disconnect instead of Start/Stop. The desktop does not spawn a local gateway. Clicking Connect opens a WebSocket connection to the remote `url`. Clicking Disconnect closes it. Switching to a different remote profile requires disconnecting first; local profile switching is always allowed.
 - [ ] **Device identity for remote profiles** — When connecting to a remote profile, the desktop loads/creates `device.json` and `device_token` under `~/.chai/profiles/<remote-id>/` (the directory already exists from startup creation). The `token` from the remote entry is used for the pairing protocol instead of `config.json` `gateway.auth.token`.
 - [ ] **WebSocket URL from remote entry** — When the selected profile is remote, the desktop uses the `url` from the remote entry for the WebSocket connection and TCP probe instead of deriving from `config.json` `gateway.bind:port`.
 - [ ] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when a remote entry's `url` specifies `wss://`. Local profiles always use `ws://` (derived from `bind:port`).
@@ -296,18 +293,13 @@ A step-by-step guide for setting up common reverse proxies (nginx, Caddy, Traefi
 
 The `/status` endpoint previously returned server-local absolute paths (`discoveryRoot`, `contextDirectory`), which were meaningless for remote clients. These fields have been removed from the status payload. No further normalization is needed for this concern.
 
-### Per-Profile Gateway Lock (Multi-Gateway Switching)
+### Per-Profile Gateway Lock (Multi-Gateway Switching) — Implemented
 
-The current `gateway.lock` lives at `~/.chai/gateway.lock` (the installation root) and enforces a single gateway per Chai installation. A future direction is to move the lock to `~/.chai/profiles/<name>/gateway.lock`, allowing multiple gateways to run simultaneously on different profiles. This would enable the desktop to switch between running gateways (local or remote) by changing the active symlink and swapping the WebSocket connection — no stop/restart needed for local gateways.
+Per-profile gateway locks have been implemented. The lock lives at `~/.chai/profiles/<name>/gateway.lock` (one per profile) instead of `~/.chai/gateway.lock` (installation root). Multiple gateways can now run simultaneously on different profiles, each holding its own independent lock. The desktop stores per-profile gateway state (`GatewayState`) in a `HashMap<String, GatewayState>` keyed by profile name, enabling the user to switch between running gateways without stop/restart.
 
-This epic does not implement per-profile locks, but it avoids design decisions that would block them:
+The desktop's profile ComboBox is always enabled — profile switching is always allowed regardless of whether any gateway is running. When a gateway is running on a different profile than the active one, an amber label indicates which profile the gateway is using. The desktop discovers all running profiles via `find_running_gateway_profiles()` (scanning per-profile lock files).
 
-- Remote profiles already skip `gateway.lock` detection entirely (TCP probe only).
-- Startup directory creation does not create lock files — the profile directory is empty until first connect.
-- The ComboBox is populated from profile directories, not from a central registry — adding per-profile locks would not change this.
-- Device identity is resolved from the profile directory via `ChaiPaths`, which works the same whether the lock is at the root or per-profile.
-
-The one assumption this epic *does* carry forward is that switching the active symlink requires disconnecting/stopping first. This is correct today because the root-level lock prevents symlink rewriting while any gateway runs. Under per-profile locks, this prevention goes away — the symlink can be freely rewritten, and the desktop's constraint becomes purely about swapping its WebSocket connection and cached state. See the design section on active symlink and switching for the distinction.
+This eliminates the disconnect/stop-before-switch constraint for local profiles described in earlier design sections. The only remaining switching constraint is for remote profiles (connection-based: the desktop must swap its WebSocket connection and cached state). See the design section on active symlink and switching for the updated distinction.
 
 ### Multi-Client Observability
 

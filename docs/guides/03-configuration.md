@@ -57,10 +57,10 @@ Each profile is an independent configuration tree under `~/.chai/profiles/<name>
 
 - **List profiles** — `chai profile list`
 - **Show current profile** — `chai profile current`
-- **Switch profiles** — `chai profile switch <name>` (the gateway must be stopped)
-- **Override per process** — Set `CHAI_PROFILE` or run `chai gateway --profile <name>`
+- **Switch profiles** — `chai profile switch <name>` (always allowed — switching is independent of running gateways)
+- **Override per command** — Run `chai gateway --profile <name>`
 
-The gateway refuses profile switches while it is running (it holds an advisory lock at `~/.chai/gateway.lock`).
+The gateway uses per-profile advisory locks at `~/.chai/profiles/<name>/gateway.lock`. Multiple gateways can run simultaneously on different profiles; profile switching is always allowed.
 
 ### Creating a New Profile
 
@@ -457,7 +457,7 @@ The `~/.chai/` directory structure:
 | `profiles/<name>/paired.json` | Desktop pairing state |
 | `active` | Symlink to the active profile |
 | `skills/` | Shared on-disk skills tree |
-| `gateway.lock` | Advisory lock while gateway runs (profile + PID) |
+| `profiles/<name>/gateway.lock` | Advisory lock while gateway runs on that profile (profile + PID) |
 | `desktop.json` | Desktop appearance and log settings (see [Desktop Settings](09-desktop.md)) |
 
 ---
@@ -551,7 +551,6 @@ The `agents` array contains at least one `"role": "orchestrator"` entry (multipl
 
 | Variable | Overrides | Description |
 |----------|-----------|-------------|
-| `CHAI_PROFILE` | Active profile | Profile name; overrides `~/.chai/active` for that process. |
 | `CHAI_GATEWAY_TOKEN` | `gateway.auth.token` | Shared secret when auth mode is `token`. |
 | `TELEGRAM_BOT_TOKEN` | `channels.telegram.botToken` | Telegram bot token from BotFather. |
 | `TELEGRAM_WEBHOOK_SECRET` | `channels.telegram.webhookSecret` | Webhook verification secret. |

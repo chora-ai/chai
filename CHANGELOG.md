@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+#### Desktop
+
+- Per-profile gateway state — each profile has its own `GatewayState` (sessions, chat, status, process handle) stored in a `HashMap<String, GatewayState>` on `ChaiApp`, enabling multiple simultaneous gateways and seamless profile switching with preserved state
+- `running_profiles` discovery — the desktop scans all per-profile lock files via `find_running_gateway_profiles()` to discover which profiles have running gateways (replaces the old single `gateway_lock_profile`)
+- Pre-flight port conflict check in `start_gateway()` — before spawning the gateway child process, the desktop attempts a `TcpListener::bind` on the configured port and produces a clear error identifying which running profile holds the port
+- Gateway error suppression of profile-mismatch hint — when a `gateway_error` is set, the amber profile-mismatch hint is suppressed to avoid stacking redundant messages
+- Gateway error clearing on profile switch — `gateway_error` is specific to the profile that was active when the start was attempted and is cleared on profile switch
+
 ### Changed
+
+#### Desktop
+
+- Profile ComboBox is always enabled — profile switching is always allowed regardless of whether any gateway is running (previously disabled while a gateway was running)
+- All WebSocket operations use the active profile directly — removed `cached_gateway_profile`, `gateway_profile()`, `refresh_cached_gateway_profile()`, and the entire override system (`env_profile`, `cached_profile_override`, `effective_profile_override()`, `gw_key()`)
+- `start_gateway()` always passes `--profile` to the child process
+- Session id resolution reads `"id"` instead of `"sessionId"` from `sessions.list` responses (matching the gateway's response format)
+
+#### CLI
+
+- `chai profile switch` always succeeds — no longer checks `gateway_is_running()` before switching (switching only updates the `~/.chai/active` symlink)
+- `chai profile current` no longer displays `CHAI_PROFILE` (the environment variable has been removed)
+
+#### Runtime and Configuration
+
+- Per-profile gateway locks — lock files moved from `~/.chai/gateway.lock` (shared across all profiles) to `~/.chai/profiles/<name>/gateway.lock` (one per profile), allowing multiple gateways to run simultaneously on different profiles
+- Lock acquisition moved to the beginning of `run_gateway()` — same-profile conflicts now produce immediate errors instead of being buried after startup logs
+- `CHAI_PROFILE` environment variable removed — profile resolution is now 2-tier: CLI `--profile` (per-command) → `~/.chai/active` (persistent default)
+- `read_gateway_lock_profile()` removed as dead code — with per-profile locks, the profile is implicit from the lock file's path
 
 #### Skills
 
@@ -17,6 +46,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+#### Desktop
+
+- Cross-profile session contamination — `cached_gateway_profile` no longer falls back to the first running profile, preventing sessions from one profile appearing under another
+- ComboBox reverting to gateway profile after switch — the header now uses `profile_active` directly instead of `effective_profile`
+- UI not updating after profile switch — all config loading, skills, and providers now use the active profile instead of an override chain
+- Port conflict produces clear error — cross-profile port conflicts are detected before spawning the gateway and the error identifies which running profile holds the port
+
 #### Skills
 
 - `files_write_lines` and `notes_write_lines` multi-line `original_content` no longer requires `end_line` — the replacement range is inferred from the number of lines in `original_content`, eliminating the trap where omitting `end_line` defaulted to `start_line` even for multi-line content
@@ -24,6 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Breaking Changes
 
+- `CHAI_PROFILE` environment variable removed — existing setups using `CHAI_PROFILE` must switch to `--profile` (per-command) or `~/.chai/active` (persistent default)
+- `~/.chai/gateway.lock` moved to `~/.chai/profiles/<name>/gateway.lock` — scripts or tooling checking the old lock path must be updated
 - CLI flag renames — existing scripts using old flag names will fail:
   - `file patch`: `--expected-content` → `--original-content`, `--expected-content-file` → `--original-content-file`
 - Tool parameter removals — existing tool calls using removed parameters will fail:

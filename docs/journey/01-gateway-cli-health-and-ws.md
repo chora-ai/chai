@@ -7,7 +7,7 @@
 ## Prerequisites
 
 - **Setup complete** — You have installed chai, run `chai init`, and verified Ollama is available (see [00-setup-init.md](00-setup-init.md)).
-- **Gateway not already running** — Only one gateway can run at a time (advisory lock at `~/.chai/gateway.lock`).
+- **Gateway not already running** — Only one gateway can run per profile (advisory lock at `~/.chai/profiles/<name>/gateway.lock`). Multiple gateways can run simultaneously on different profiles.
 
 ## Steps
 
@@ -41,11 +41,11 @@
 
 ## If Something Fails
 
-- **Gateway exits immediately** — Check the error output. Common causes: Ollama not running (start `ollama serve`), another gateway already running (remove `~/.chai/gateway.lock` if stale), or a config error in `config.json`.
+- **Gateway exits immediately** — Check the error output. Common causes: Ollama not running (start `ollama serve`), another gateway already running on the same profile (remove `~/.chai/profiles/<name>/gateway.lock` if stale), or a config error in `config.json`.
 - **`curl` returns "connection refused"** — Gateway not running or wrong port. Check the gateway terminal for the actual port, or set `gateway.port` in config (see [Configuration](../guides/03-configuration.md)).
 - **WebSocket connect returns `"ok":false`** — If token auth is enabled (`gateway.auth.mode` is `"token"`), include the token in the connect params: `"params":{"auth":{"token":"YOUR_TOKEN"}}`.
 - **`status` response missing expected keys** — The protocol or version may differ. Check the gateway version with `chai version` and verify the response includes at least `gateway`, `channels`, `providers`, `agents`, `skills`.
-- **Ctrl+C does not stop the gateway** — The process may be stuck. Use `kill` or `killall chai` from another terminal. Remove the stale lock file at `~/.chai/gateway.lock` if needed.
+- **Ctrl+C does not stop the gateway** — The process may be stuck. Use `kill` or `killall chai` from another terminal. Remove the stale lock file at `~/.chai/profiles/<name>/gateway.lock` if needed.
 
 ## Token Auth (Optional)
 

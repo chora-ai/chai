@@ -40,7 +40,7 @@ The sidebar provides navigation between screens:
 
 ## Profile Management
 
-The header includes a profile selector dropdown. Switching profiles stops the gateway (if running), changes the `~/.chai/active` symlink, and restarts with the new configuration. Available profiles are listed from `~/.chai/profiles/`.
+The header includes a profile selector dropdown. Switching profiles changes the `~/.chai/active` symlink and updates all UI screens to reflect the new profile's configuration. Profile switching is always allowed regardless of whether a gateway is running. The desktop stores per-profile gateway state, so switching between profiles with running gateways preserves session state and chat history. Available profiles are listed from `~/.chai/profiles/`.
 
 ## Session Management
 

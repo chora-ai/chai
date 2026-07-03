@@ -1267,7 +1267,7 @@ pub fn load_profile_env(cli_profile: Option<&str>) {
     });
 }
 
-/// Load config for the resolved profile (`CHAI_PROFILE`, `chai gateway --profile`, or `~/.chai/active`).
+/// Load config for the resolved profile (`chai gateway --profile` or `~/.chai/active`).
 /// Missing `config.json` in the profile => default config.
 ///
 /// Also loads the profile's `.env` file (via [`load_profile_env`]) if not already loaded.

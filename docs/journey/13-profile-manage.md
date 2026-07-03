@@ -9,7 +9,7 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
 ## Prerequisites
 
 - **Setup complete** — You have installed chai, run `chai init`, and verified the gateway works with defaults (see [00-setup-init.md](00-setup-init.md)).
-- **Gateway not running** — Profile switching requires the gateway to be stopped (it holds an advisory lock at `~/.chai/gateway.lock`).
+- **Gateway not running on the target profile** — If a gateway is already running on the target profile, the per-profile advisory lock (`~/.chai/profiles/<name>/gateway.lock`) prevents starting a second one. Profile switching itself is always allowed.
 
 ## Steps
 
@@ -75,12 +75,12 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
    - **Expect:** A reply. The model used depends on the `testing` profile's `defaultModel` setting.
    - Check gateway logs for the model being used with `RUST_LOG=info`.
 
-8. **Test per-process profile override (optional)**
+8. **Test per-command profile override (optional)**
    - With the gateway still running on the `testing` profile, try:
    ```bash
-   CHAI_PROFILE=assistant chai chat
+   chai chat --profile assistant
    ```
-   - **Expect:** This connects to the running gateway (which is on the `testing` profile). The `--profile` flag and `CHAI_PROFILE` control which gateway process to connect to; if a single gateway is running, all chat clients connect to it regardless of the flag.
+   - **Expect:** This connects to the running gateway (which is on the `testing` profile). The `--profile` flag controls which profile's configuration is used; if a single gateway is running, all chat clients connect to it regardless of the flag.
 
 9. **Stop the gateway and switch back**
    - Ctrl+C the gateway.
@@ -106,12 +106,12 @@ Profiles are independent configuration trees under `~/.chai/profiles/<name>/`. T
 
 ## If Something Fails
 
-- **`chai profile switch` fails with "gateway is running"** — The gateway must be stopped before switching. Stop it with Ctrl+C or kill the process. If the gateway crashed and the lock is stale, remove it: `rm ~/.chai/gateway.lock`.
+- **`chai profile switch` fails with "gateway is running"** — Profile switching is always allowed and does not check for running gateways. If you see this error, you may be running an older version of chai. If a gateway fails to start because a per-profile lock is held after a crash, remove the stale lock: `rm ~/.chai/profiles/<name>/gateway.lock`.
 - **New profile not visible in `chai profile list`** — The profile directory must exist under `~/.chai/profiles/`. Ensure the directory was created correctly: `ls ~/.chai/profiles/`.
 - **Gateway fails to start after switching** — The new profile's `config.json` may be invalid. Check the JSON: `cat ~/.chai/profiles/testing/config.json | python3 -m json.tool`. Common issues: missing commas, invalid field names.
 - **Chat uses wrong model** — The model is determined by the active profile's `config.json`. Ensure the `defaultModel` field is set correctly in the profile you switched to, and that the model exists in Ollama (`ollama list`).
 - **`~/.chai/active` symlink is broken** — If the symlink points to a profile directory that was deleted, commands will fail. Fix it by switching to an existing profile: `chai profile switch assistant`.
-- **Cannot delete a profile while gateway is running** — The gateway holds a lock on the active profile. Stop the gateway, then delete the profile directory.
+- **Cannot delete a profile while its gateway is running** — The per-profile gateway lock prevents deleting a profile directory while a gateway holds it. Stop the gateway on that profile, then delete the profile directory.
 
 ## Summary
 

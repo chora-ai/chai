@@ -58,84 +58,158 @@ const PROBE_INTERVAL_FRAMES: u32 = 60;
 /// Frames between WebSocket status fetches when gateway is running (~0.5 Hz).
 const STATUS_INTERVAL_FRAMES: u32 = 120;
 
-pub struct ChaiApp {
-    /// When Some, the gateway subprocess is running. Cleared when process exits or we stop it.
-    gateway_process: Option<Child>,
-    /// Last error from start gateway (e.g. spawn failed).
-    gateway_error: Option<String>,
-    /// True if the configured gateway address:port accepted a TCP connection (we or someone else).
-    gateway_responds: bool,
-    /// True once we have received at least one probe result (so we don't show "Gateway running" before probing).
-    gateway_probe_completed: bool,
-    /// When Some, a probe is in flight; we read the result here.
-    probe_receiver: Option<mpsc::Receiver<bool>>,
-    /// Frames since we last started a probe.
-    frames_since_probe: u32,
-    /// When Some, a status fetch is in flight; we read the result here.
-    status_receiver: Option<mpsc::Receiver<Result<GatewayStatusDetails, String>>>,
-    /// Frames since we last started a status fetch.
-    frames_since_status: u32,
-    /// Last successful gateway status (protocol, port, bind, auth). Cleared when gateway stops responding.
-    gateway_status: Option<GatewayStatusDetails>,
+/// Per-profile gateway state. Stored in `ChaiApp::gateways` keyed by profile name.
+/// When the user switches profiles, the current gateway state is saved to the map
+/// and the new profile's state is loaded. This allows multiple gateways to run
+/// simultaneously on different profiles with independent session state.
+struct GatewayState {
+    /// When Some, the gateway subprocess owned by the desktop for this profile.
+    process: Option<Child>,
+    /// Whether this profile's gateway responded to the last TCP probe.
+    responds: bool,
+    /// Last gateway status fetched via WebSocket for this profile.
+    status: Option<GatewayStatusDetails>,
     /// True once a status fetch has completed with an error since the gateway was last detected.
-    /// Used to suppress `need_immediate` so failed fetches don't trigger a tight retry loop.
     status_fetch_ever_failed: bool,
-    /// True when the user explicitly stopped the gateway via the Stop button.
-    /// Used to distinguish a user-initiated stop from an unexpected gateway exit/crash.
-    gateway_was_stopped_by_user: bool,
-    /// Current chat session id (created on first agent call).
+    /// When Some, a status fetch is in flight for this profile's gateway.
+    status_receiver: Option<mpsc::Receiver<Result<GatewayStatusDetails, String>>>,
+    /// Frames since we last started a status fetch for this profile.
+    frames_since_status: u32,
+    /// When Some, a probe is in flight for this profile's gateway.
+    probe_receiver: Option<mpsc::Receiver<bool>>,
+    /// Frames since we last started a probe for this profile.
+    frames_since_probe: u32,
+    /// True once we have received at least one probe result for this profile.
+    probe_completed: bool,
+    /// When Some, a gateway log fetch is in flight for this profile's gateway.
+    logs_receiver: Option<mpsc::Receiver<Result<(Vec<String>, u64), String>>>,
+    /// Frames since we last started a gateway log fetch for this profile.
+    frames_since_logs: u32,
+    /// Sequence cursor for gateway log deduplication for this profile.
+    logs_cursor: u64,
+    /// When Some, a session events stream is in flight for this profile's gateway.
+    session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
+    /// Current chat session id for this profile (created on first agent call).
     chat_session_id: Option<String>,
-    /// In-memory chat transcript for the current session.
+    /// In-memory chat transcript for the current session in this profile.
     chat_messages: Vec<ChatMessage>,
-    /// Current input text for the chat box.
-    chat_input: String,
-    /// When Some, a chat turn is in flight; we read the result here.
+    /// When Some, a chat turn is in flight for this profile's gateway.
     chat_turn_receiver: Option<mpsc::Receiver<Result<AgentReply, String>>>,
-    /// When Some, a stop request is in flight; we read the result here.
+    /// When Some, a stop request is in flight for this profile's gateway.
     stop_receiver: Option<mpsc::Receiver<Result<bool, String>>>,
     /// True after the user requests a stop, until the chat turn actually completes.
-    /// Persists across frames even after the stop RPC completes so the UI shows "Stopping…".
     chat_stopping: bool,
     /// User message we sent for the in-flight turn (used when reply creates a new session).
     pending_user_message: Option<String>,
     /// True when the in-flight turn was started for a new (previously unbound) session.
-    /// Set in start_chat_turn when chat_session_id is None; read in poll_chat_turn.
     chat_turn_is_new_session: bool,
+    /// Session messages for this profile's gateway, keyed by session id.
     session_messages: BTreeMap<String, Vec<ChatMessage>>,
-    /// Summary metadata for each session (id, timestamps, message count, channel binding).
-    /// Populated from `sessions.list` on gateway connect and updated via session events.
+    /// Summary metadata for each session in this profile.
     session_summaries: HashMap<String, SessionSummary>,
-    /// When Some, a session events stream is in flight; we read gateway session.message events here.
-    session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
-    /// Currently selected provider override (None = use gateway default).
+    /// Session IDs in most-recently-active order for this profile.
+    session_order: Vec<String>,
+    /// When Some, a `sessions.list` fetch is in flight for this profile.
+    sessions_list_receiver: Option<mpsc::Receiver<Result<Vec<SessionSummary>, String>>>,
+    /// True once the session list has been fetched for this profile's gateway.
+    sessions_list_fetched: bool,
+    /// When Some, a `sessions.history` fetch is in flight for this profile.
+    sessions_history_receiver: Option<(String, mpsc::Receiver<Result<SessionHistory, String>>)>,
+    /// Session id whose history is currently loading for this profile.
+    loading_session_id: Option<String>,
+    /// When Some, a `sessions.delete` fetch is in flight for this profile.
+    sessions_delete_receiver: Option<(String, mpsc::Receiver<Result<bool, String>>)>,
+    /// When Some, a `sessions.delete_all` fetch is in flight for this profile.
+    sessions_delete_all_receiver: Option<mpsc::Receiver<Result<usize, String>>>,
+    /// Whether the "Clear all" confirmation dialog is showing for this profile.
+    show_clear_all_confirm: bool,
+    /// Session whose messages are shown in the chat area for this profile.
+    selected_session_id: Option<String>,
+    /// Currently selected provider override for this profile.
     current_provider: Option<String>,
-    /// Currently selected model override (None = use gateway default).
+    /// Currently selected model override for this profile.
     current_model: Option<String>,
-    /// Default model from config (cached for display / fallback).
+    /// Default model from config for this profile.
     default_model: Option<String>,
+    /// Active orchestrator id for this profile's chat screen.
+    active_orchestrator_id: Option<String>,
+    /// Whether the gateway was running last frame (per-profile, used to detect stop).
+    was_running: bool,
+    /// True when the user explicitly stopped this profile's gateway via the Stop button.
+    was_stopped_by_user: bool,
+    /// On-demand per-agent detail cache for this profile's gateway.
+    agent_detail_cache: BTreeMap<String, crate::app::types::AgentDetail>,
+    /// Last error from an agent detail fetch for this profile.
+    agent_detail_fetch_error: Option<(String, String)>,
+    /// When Some, an `agentDetail` WS fetch is in flight for this profile.
+    agent_detail_receiver: Option<(String, mpsc::Receiver<Result<crate::app::types::AgentDetail, String>>)>,
+    /// Agent id that was last requested for detail fetch for this profile.
+    agent_detail_requested_id: Option<String>,
+    /// **Agent**, **Tools**, and **Skills**: which agent id is selected for this profile.
+    dashboard_agent_id: Option<String>,
+}
+
+impl Default for GatewayState {
+    fn default() -> Self {
+        Self {
+            process: None,
+            responds: false,
+            status: None,
+            status_fetch_ever_failed: false,
+            status_receiver: None,
+            frames_since_status: 0,
+            probe_receiver: None,
+            frames_since_probe: 0,
+            probe_completed: false,
+            logs_receiver: None,
+            frames_since_logs: 0,
+            logs_cursor: 0,
+            session_events_receiver: None,
+            chat_session_id: None,
+            chat_messages: Vec::new(),
+            chat_turn_receiver: None,
+            stop_receiver: None,
+            chat_stopping: false,
+            pending_user_message: None,
+            chat_turn_is_new_session: false,
+            session_messages: BTreeMap::new(),
+            session_summaries: HashMap::new(),
+            session_order: Vec::new(),
+            sessions_list_receiver: None,
+            sessions_list_fetched: false,
+            sessions_history_receiver: None,
+            loading_session_id: None,
+            sessions_delete_receiver: None,
+            sessions_delete_all_receiver: None,
+            show_clear_all_confirm: false,
+            selected_session_id: None,
+            current_provider: None,
+            current_model: None,
+            default_model: None,
+            active_orchestrator_id: None,
+            was_running: false,
+            was_stopped_by_user: false,
+            agent_detail_cache: BTreeMap::new(),
+            agent_detail_fetch_error: None,
+            agent_detail_receiver: None,
+            agent_detail_requested_id: None,
+            dashboard_agent_id: None,
+        }
+    }
+}
+
+pub struct ChaiApp {
+    /// Per-profile gateway state. Keyed by profile name.
+    /// The active profile's GatewayState is the source of truth for all
+    /// UI fields that were previously singular (gateway_status, chat_session_id, etc.).
+    gateways: HashMap<String, GatewayState>,
+    /// Last error from start gateway (e.g. spawn failed). Not per-profile — only
+    /// the most recent start attempt can fail.
+    gateway_error: Option<String>,
+    /// Current input text for the chat box (not per-profile — it's the user's draft).
+    chat_input: String,
     /// Current screen (Chat, Gateway, Agent, Tools, Config, Skills, Logging).
     current_screen: Screen,
-    /// Session whose messages are shown in the chat area (None = "New session" / desktop buffer).
-    selected_session_id: Option<String>,
-    /// Session IDs in most-recently-active order (latest first) for the sidebar list.
-    session_order: Vec<String>,
-    /// When Some, a `sessions.list` fetch is in flight.
-    sessions_list_receiver: Option<mpsc::Receiver<Result<Vec<SessionSummary>, String>>>,
-    /// True once the session list has been fetched after the gateway was detected.
-    /// Reset to false when the gateway stops so a fresh fetch occurs on reconnect.
-    sessions_list_fetched: bool,
-    /// When Some, a `sessions.history` fetch is in flight for the given session id.
-    sessions_history_receiver: Option<(String, mpsc::Receiver<Result<SessionHistory, String>>)>,
-    /// Session id whose history is currently loading (shown as a loading indicator in the chat area).
-    loading_session_id: Option<String>,
-    /// When Some, a `sessions.delete` fetch is in flight for the given session id.
-    sessions_delete_receiver: Option<(String, mpsc::Receiver<Result<bool, String>>)>,
-    /// When Some, a `sessions.delete_all` fetch is in flight.
-    sessions_delete_all_receiver: Option<mpsc::Receiver<Result<usize, String>>>,
-    /// Whether the "Clear all" confirmation dialog is showing.
-    show_clear_all_confirm: bool,
-    /// Whether the gateway was running last frame (used to detect stop and clear messages).
-    was_gateway_running: bool,
     /// Currently selected skill on the Skills screen (by name).
     selected_skill_name: Option<String>,
     /// Cached list of enabled providers for the chat provider dropdown (invalidated when Config screen is shown).
@@ -144,8 +218,6 @@ pub struct ChaiApp {
     status_view_mode: StatusViewMode,
     /// Stable buffer for **Tools** screen `TextEdit` (updated when the effective tools JSON changes).
     tools_display_buffer: String,
-    /// **Agent**, **Tools**, and **Skills**: which agent id is selected (orchestrator or worker).
-    dashboard_agent_id: Option<String>,
     /// Config screen: dashboard vs raw file.
     config_view_mode: ConfigViewMode,
     /// **Config** raw view: file text (synced when content changes; avoids `TextEdit` flicker).
@@ -162,19 +234,14 @@ pub struct ChaiApp {
     profile_switch_error: Option<String>,
     /// When true, next frame reloads profile list and active name from disk.
     profiles_need_refresh: bool,
-    /// `CHAI_PROFILE` environment variable value (set once at startup). When present, the profile
-    /// selector is disabled and the header shows an amber hint.
-    env_profile: Option<String>,
-    /// Profile name read from `gateway.lock` while a gateway is running (refreshed on probe cadence).
-    gateway_lock_profile: Option<String>,
-    /// Previous frame's `gateway_lock_profile`; used to detect when the effective profile changes
+    /// Profile names discovered from per-profile gateway.lock scan while gateways are running
+    /// (refreshed on probe cadence). Replaces the old singular `gateway_lock_profile`.
+    running_profiles: Vec<String>,
+    /// Previous frame's `running_profiles`; used to detect when the effective profile changes
     /// so config-dependent caches (providers, model) can be invalidated.
-    prev_gateway_lock_profile: Option<String>,
-    /// Cached owned copy of the effective profile override. Updated whenever `env_profile` or
-    /// `gateway_lock_profile` changes, so background thread spawns can clone this instead of
-    /// calling `effective_profile_override().map(String::from)` every frame.
-    cached_profile_override: Option<String>,
-    /// Frames since we last refreshed `gateway_lock_profile` from disk.
+    prev_running_profiles: Vec<String>,
+
+    /// Frames since we last refreshed `running_profiles` from disk.
     frames_since_lock_profile: u32,
     /// Cached config loaded from disk. Invalidated when the file's mtime changes.
     cached_config: Option<(lib::config::Config, lib::profile::ChaiPaths)>,
@@ -192,31 +259,8 @@ pub struct ChaiApp {
     skills_fetch_receiver: Option<mpsc::Receiver<Result<Vec<lib::skills::SkillEntry>, String>>>,
     /// Frames since we last started a skills fetch.
     frames_since_skills_fetch: u32,
-    /// When Some, a gateway log fetch is in flight; we read the result here.
-    /// Used for external (non-owned) gateways to pull logs via the `logs` WS method.
-    gateway_logs_receiver: Option<mpsc::Receiver<Result<(Vec<String>, u64), String>>>,
-    /// Frames since we last started a gateway log fetch.
-    frames_since_gateway_logs: u32,
-    /// Sequence cursor for gateway log deduplication. Tracks the `maxSeq` from
-    /// the last successful `logs` WS response so subsequent fetches only get new lines.
-    gateway_logs_cursor: u64,
-    /// On-demand per-agent detail cache, keyed by agent id. Populated when the
-    /// Agent or Tools screen is active via the `agentDetail` WS method. Cleared
-    /// when the gateway stops, or when a status refresh detects that the agent
-    /// roster, skill lock generation, or a cached agent's context mode has changed.
-    agent_detail_cache: BTreeMap<String, crate::app::types::AgentDetail>,
-    /// Last error from an agent detail fetch, shown on the Agent/Tools screen.
-    /// Stores (agent_id, error_message).
-    agent_detail_fetch_error: Option<(String, String)>,
-    /// When Some, an `agentDetail` WS fetch is in flight for the given agent id.
-    agent_detail_receiver: Option<(String, mpsc::Receiver<Result<crate::app::types::AgentDetail, String>>)>,
-    /// Agent id that was last requested for detail fetch. Used to detect when the
-    /// user switches agents so a new fetch can be triggered.
-    agent_detail_requested_id: Option<String>,
-    /// Active orchestrator id for the chat screen. Defaults to the first orchestrator.
-    /// When only one orchestrator is configured, the ComboBox is disabled.
-    active_orchestrator_id: Option<String>,
 }
+
 /// Return the current time as an ISO 8601 string (e.g. "2025-06-10T12:34:56Z").
 /// Used for session timestamps when a session is created locally (before the
 /// gateway provides authoritative timestamps via `sessions.list`).
@@ -299,47 +343,14 @@ pub fn ui_screen(
 impl Default for ChaiApp {
     fn default() -> Self {
         Self {
-            gateway_process: None,
+            gateways: HashMap::new(),
             gateway_error: None,
-            gateway_responds: false,
-            gateway_probe_completed: false,
-            probe_receiver: None,
-            frames_since_probe: 0,
-            status_receiver: None,
-            frames_since_status: 0,
-            gateway_status: None,
-            status_fetch_ever_failed: false,
-            gateway_was_stopped_by_user: false,
-            chat_session_id: None,
-            chat_messages: Vec::new(),
             chat_input: String::new(),
-            chat_turn_receiver: None,
-            stop_receiver: None,
-            chat_stopping: false,
-            pending_user_message: None,
-            chat_turn_is_new_session: false,
-            session_messages: BTreeMap::new(),
-            session_summaries: HashMap::new(),
-            session_events_receiver: None,
-            current_provider: None,
-            current_model: None,
-            default_model: None,
             current_screen: Screen::default(),
-            selected_session_id: None,
-            session_order: Vec::new(),
-            sessions_list_receiver: None,
-            sessions_list_fetched: false,
-            sessions_history_receiver: None,
-            loading_session_id: None,
-            sessions_delete_receiver: None,
-            sessions_delete_all_receiver: None,
-            show_clear_all_confirm: false,
-            was_gateway_running: false,
             selected_skill_name: None,
             cached_enabled_providers: None,
             status_view_mode: StatusViewMode::default(),
             tools_display_buffer: String::new(),
-            dashboard_agent_id: None,
             config_view_mode: ConfigViewMode::default(),
             config_raw_display_buffer: String::new(),
             settings_view_mode: SettingsViewMode::default(),
@@ -348,10 +359,8 @@ impl Default for ChaiApp {
             profile_active: String::new(),
             profile_switch_error: None,
             profiles_need_refresh: true,
-            env_profile: std::env::var("CHAI_PROFILE").ok().filter(|s| !s.trim().is_empty()),
-            gateway_lock_profile: None,
-            prev_gateway_lock_profile: None,
-            cached_profile_override: std::env::var("CHAI_PROFILE").ok().filter(|s| !s.trim().is_empty()),
+            running_profiles: Vec::new(),
+            prev_running_profiles: Vec::new(),
             frames_since_lock_profile: 0,
             cached_config: None,
             cached_config_mtime: None,
@@ -361,14 +370,6 @@ impl Default for ChaiApp {
             skills_fetch_error: None,
             skills_fetch_receiver: None,
             frames_since_skills_fetch: 0,
-            gateway_logs_receiver: None,
-            frames_since_gateway_logs: 0,
-            gateway_logs_cursor: 0,
-            agent_detail_cache: BTreeMap::new(),
-            agent_detail_fetch_error: None,
-            agent_detail_receiver: None,
-            agent_detail_requested_id: None,
-            active_orchestrator_id: None,
         }
     }
 }
@@ -379,39 +380,217 @@ impl ChaiApp {
     /// Space between the bottom of the content and the window edge on full‑screen panels.
     const SCREEN_FOOTER_SPACING: f32 = 48.0;
 
-    /// Returns the CLI profile override that should be passed to `load_config` so the desktop
-    /// connects to the same profile the gateway is using. Resolution order:
-    /// 1. `CHAI_PROFILE` env var (set at desktop startup)
-    /// 2. Profile from `gateway.lock` (when an external gateway is detected)
-    /// 3. `None` (use `~/.chai/active` symlink)
-    fn effective_profile_override(&self) -> Option<&str> {
-        if let Some(ref env) = self.env_profile {
-            Some(env.as_str())
-        } else if let Some(ref gw) = self.gateway_lock_profile {
-            Some(gw.as_str())
-        } else {
-            None
+    // ── Profile helpers ──
+
+    /// The name of the currently active profile.
+    pub fn active_profile(&self) -> &str {
+        &self.profile_active
+    }
+
+    // ── GatewayState accessors (delegate to the active profile's entry) ──
+
+    /// Get a mutable reference to the active profile's `GatewayState`, creating it if needed.
+    fn gw(&mut self) -> &mut GatewayState {
+        self.gateways.entry(self.profile_active.clone()).or_default()
+    }
+
+    /// Get a reference to the active profile's `GatewayState`, if one exists.
+    fn gw_ref(&self) -> Option<&GatewayState> {
+        self.gateways.get(&self.profile_active)
+    }
+
+    /// True if we started the gateway for the active profile and it is still running (we can stop it).
+    fn gateway_owned(&mut self) -> bool {
+        let Some(gw) = self.gateways.get_mut(&self.profile_active) else {
+            return false;
+        };
+        if let Some(ref mut child) = gw.process {
+            if child.try_wait().ok().flatten().is_some() {
+                gw.process = None;
+                return false;
+            }
+            return true;
         }
+        false
     }
 
-    /// Recompute `cached_profile_override` from the current `env_profile` and
-    /// `gateway_lock_profile`. Call after either field changes.
-    fn refresh_cached_profile_override(&mut self) {
-        self.cached_profile_override = self.effective_profile_override().map(String::from);
+    /// Whether the active profile's gateway is running (owned or external).
+    fn gateway_running(&self) -> bool {
+        self.running_profiles.iter().any(|p| *p == self.profile_active)
     }
 
+    /// Whether the active profile's gateway has completed at least one probe.
+    fn gateway_probe_completed(&self) -> bool {
+        self.gw_ref().map_or(false, |gw| gw.probe_completed)
+    }
+
+    // ── GatewayState forwarding accessors ──
+    // These methods expose the active profile's GatewayState fields through
+    // method calls so screen files use `app.method()` instead of direct field access.
+    // When the active profile has no GatewayState entry yet, Option fields return
+    // None and scalar fields return their default (false).
+
+    /// Active profile's gateway status.
+    pub fn gateway_status(&self) -> Option<&GatewayStatusDetails> {
+        self.gw_ref().and_then(|gw| gw.status.as_ref())
+    }
+
+    /// Active profile's chat session id.
+    pub fn chat_session_id(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.chat_session_id.as_ref())
+    }
+
+    /// Active profile's chat messages buffer.
+    pub fn chat_messages(&self) -> Option<&Vec<ChatMessage>> {
+        self.gw_ref().map(|gw| &gw.chat_messages)
+    }
+
+    /// Active profile's session messages.
+    pub fn session_messages(&self) -> Option<&BTreeMap<String, Vec<ChatMessage>>> {
+        self.gw_ref().map(|gw| &gw.session_messages)
+    }
+
+    /// Active profile's session summaries.
+    pub fn session_summaries(&self) -> Option<&HashMap<String, SessionSummary>> {
+        self.gw_ref().map(|gw| &gw.session_summaries)
+    }
+
+    /// Active profile's session order.
+    pub fn session_order(&self) -> Option<&Vec<String>> {
+        self.gw_ref().map(|gw| &gw.session_order)
+    }
+
+    /// Active profile's selected session id.
+    pub fn selected_session_id(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.selected_session_id.as_ref())
+    }
+
+    /// Active profile's loading session id.
+    pub fn loading_session_id(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.loading_session_id.as_ref())
+    }
+
+    /// Active profile's chat turn receiver.
+    pub fn chat_turn_receiver(&self) -> Option<&mpsc::Receiver<Result<AgentReply, String>>> {
+        self.gw_ref().and_then(|gw| gw.chat_turn_receiver.as_ref())
+    }
+
+    /// Active profile's chat stopping flag.
+    pub fn chat_stopping(&self) -> bool {
+        self.gw_ref().map_or(false, |gw| gw.chat_stopping)
+    }
+
+    /// Active profile's current provider.
+    pub fn current_provider(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.current_provider.as_ref())
+    }
+
+    /// Active profile's current model.
+    pub fn current_model(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.current_model.as_ref())
+    }
+
+    /// Active profile's current model (mutable).
+    pub fn current_model_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().current_model
+    }
+
+    /// Active profile's default model.
+    pub fn default_model(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.default_model.as_ref())
+    }
+
+    /// Active profile's default model (mutable).
+    pub fn default_model_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().default_model
+    }
+
+    /// Active profile's active orchestrator id.
+    pub fn active_orchestrator_id(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_ref())
+    }
+
+    /// Active profile's dashboard agent id.
+    pub fn dashboard_agent_id(&self) -> Option<&String> {
+        self.gw_ref().and_then(|gw| gw.dashboard_agent_id.as_ref())
+    }
+
+    /// Active profile's agent detail cache.
+    pub fn agent_detail_cache(&self) -> Option<&BTreeMap<String, crate::app::types::AgentDetail>> {
+        self.gw_ref().map(|gw| &gw.agent_detail_cache)
+    }
+
+    /// Active profile's agent detail fetch error.
+    pub fn agent_detail_fetch_error(&self) -> Option<&(String, String)> {
+        self.gw_ref().and_then(|gw| gw.agent_detail_fetch_error.as_ref())
+    }
+
+    /// Active profile's sessions list fetched flag.
+    pub fn sessions_list_fetched(&self) -> bool {
+        self.gw_ref().map_or(false, |gw| gw.sessions_list_fetched)
+    }
+
+    /// Active profile's show clear all confirm flag.
+    pub fn show_clear_all_confirm(&self) -> bool {
+        self.gw_ref().map_or(false, |gw| gw.show_clear_all_confirm)
+    }
+
+    /// Active profile's show clear all confirm flag (mutable).
+    pub fn show_clear_all_confirm_mut(&mut self) -> &mut bool {
+        &mut self.gw().show_clear_all_confirm
+    }
+
+    /// Active profile's current provider (mutable).
+    pub fn current_provider_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().current_provider
+    }
+
+    /// Active profile's selected session id (mutable).
+    pub fn selected_session_id_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().selected_session_id
+    }
+
+    /// Active profile's loading session id (mutable).
+    pub fn loading_session_id_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().loading_session_id
+    }
+
+    /// Active profile's dashboard agent id (mutable).
+    pub fn dashboard_agent_id_mut(&mut self) -> &mut Option<String> {
+        &mut self.gw().dashboard_agent_id
+    }
+
+    /// Active profile's sessions history receiver.
+    pub fn sessions_history_receiver(&self) -> Option<&(String, mpsc::Receiver<Result<SessionHistory, String>>)> {
+        self.gw_ref().and_then(|gw| gw.sessions_history_receiver.as_ref())
+    }
+
+    /// Active profile's sessions history receiver (mutable).
+    pub fn sessions_history_receiver_mut(&mut self) -> &mut Option<(String, mpsc::Receiver<Result<SessionHistory, String>>)> {
+        &mut self.gw().sessions_history_receiver
+    }
+
+    /// Active profile's sessions delete receiver.
+    pub fn sessions_delete_receiver(&self) -> Option<&(String, mpsc::Receiver<Result<bool, String>>)> {
+        self.gw_ref().and_then(|gw| gw.sessions_delete_receiver.as_ref())
+    }
+
+    /// Active profile's sessions delete receiver (mutable).
+    pub fn sessions_delete_receiver_mut(&mut self) -> &mut Option<(String, mpsc::Receiver<Result<bool, String>>)> {
+        &mut self.gw().sessions_delete_receiver
+    }
+
+    /// Active profile's sessions delete all receiver (mutable).
+    pub fn sessions_delete_all_receiver_mut(&mut self) -> &mut Option<mpsc::Receiver<Result<usize, String>>> {
+        &mut self.gw().sessions_delete_all_receiver
+    }
     /// Load config from disk with mtime-based caching. Returns a reference to the
     /// cached `(Config, ChaiPaths)` pair, re-reading only when the file has changed.
     /// If the file doesn't exist, returns defaults (matching `load_config` behaviour).
     pub fn load_config_cached(&mut self) -> Result<&(lib::config::Config, lib::profile::ChaiPaths), String> {
-        // Resolve paths first, then release the borrow before any &mut self writes.
-        let (paths, profile_override_owned) = {
-            let profile_override = self.effective_profile_override();
-            let paths = lib::profile::resolve_profile_dir(profile_override)
-                .map_err(|e| e.to_string())?;
-            let profile_owned = self.cached_profile_override.clone();
-            (paths, profile_owned)
-        };
+        // Resolve paths for the active profile (no override — always use ~/.chai/active).
+        let paths = lib::profile::resolve_profile_dir(None)
+            .map_err(|e| e.to_string())?;
         let config_path = paths.config_path.clone();
 
         // Check mtime to decide whether the cache is still valid.
@@ -425,7 +604,7 @@ impl ChaiApp {
             _ => false,
         };
 
-        // Also check that the profile override hasn't changed (paths could differ).
+        // Also check that the active profile hasn't changed (paths could differ).
         let profile_matches = self.cached_config.as_ref().map_or(false, |(_, p)| p.config_path == config_path);
 
         if cache_valid && profile_matches {
@@ -434,7 +613,7 @@ impl ChaiApp {
 
         // Cache miss or stale — load from disk.
         // Ensure .env is loaded (no-op if already loaded), matching load_config behaviour.
-        lib::config::load_profile_env(profile_override_owned.as_deref());
+        lib::config::load_profile_env(None);
         let config = if !config_path.exists() {
             lib::config::Config::default()
         } else {
@@ -498,8 +677,8 @@ impl ChaiApp {
             .map(|(c, _)| c.clone())
             .unwrap_or_default();
         // Resolve the active orchestrator from state or fall back to default.
-        let active_orch_id = self.active_orchestrator_id
-            .as_deref()
+        let active_orch_id = self.gw_ref()
+            .and_then(|gw| gw.active_orchestrator_id.as_deref())
             .or_else(|| config.agents.orchestrators.first().map(|o| o.id.as_str()))
             .unwrap_or("orchestrator");
         let orch = config.agents.orchestrator(Some(active_orch_id))
@@ -557,21 +736,22 @@ impl ChaiApp {
     /// caches, resets the session list, and clears the chat view so it reloads from
     /// the new orchestrator's data.
     pub(crate) fn switch_active_orchestrator(&mut self, new_id: String) {
-        if self.active_orchestrator_id.as_deref() == Some(new_id.as_str()) {
+        if self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_deref()) == Some(new_id.as_str()) {
             return;
         }
-        self.active_orchestrator_id = Some(new_id);
         self.cached_enabled_providers = None;
-        self.current_provider = None;
-        self.current_model = None;
-        self.sessions_list_fetched = false;
-        self.session_order.clear();
-        self.session_summaries.clear();
-        self.session_messages.clear();
-        self.chat_session_id = None;
-        self.selected_session_id = None;
-        self.chat_messages.clear();
-        self.chat_messages.push(ChatMessage::system(
+        let gw = self.gw();
+        gw.active_orchestrator_id = Some(new_id);
+        gw.current_provider = None;
+        gw.current_model = None;
+        gw.sessions_list_fetched = false;
+        gw.session_order.clear();
+        gw.session_summaries.clear();
+        gw.session_messages.clear();
+        gw.chat_session_id = None;
+        gw.selected_session_id = None;
+        gw.chat_messages.clear();
+        gw.chat_messages.push(ChatMessage::system(
             "New Session. Next message will start with a clean history.".to_string(),
         ));
     }
@@ -579,32 +759,36 @@ impl ChaiApp {
     /// After **`status`** refresh, keep **Agent** / **Tools** / **Skills** agent selection valid.
     /// Also initializes `active_orchestrator_id` from the gateway status when not yet set.
     pub(crate) fn reconcile_dashboard_agent_selection(&mut self) {
-        let Some(details) = self.gateway_status.as_ref() else {
-            self.dashboard_agent_id = None;
+        let details = self.gw_ref().and_then(|gw| gw.status.as_ref()).cloned();
+        let Some(details) = details else {
+            let gw = self.gw();
+            gw.dashboard_agent_id = None;
             return;
         };
         if details.agent_skills.is_empty() {
-            self.dashboard_agent_id = None;
+            let gw = self.gw();
+            gw.dashboard_agent_id = None;
             return;
         }
         let orch = details.orchestrator_id().unwrap_or("orchestrator");
-        let valid = self
-            .dashboard_agent_id
-            .as_ref()
+        let valid = self.gw_ref()
+            .and_then(|gw| gw.dashboard_agent_id.as_ref())
             .map(|id| details.agent_skills.contains_key(id))
             .unwrap_or(false);
         if !valid {
-            self.dashboard_agent_id = Some(orch.to_string());
+            let gw = self.gw();
+            gw.dashboard_agent_id = Some(orch.to_string());
         }
         // Initialize active_orchestrator_id from gateway status when not yet set
         // (first status response after gateway starts).
-        if self.active_orchestrator_id.is_none() {
-            self.active_orchestrator_id = Some(orch.to_string());
+        let gw = self.gw();
+        if gw.active_orchestrator_id.is_none() {
+            gw.active_orchestrator_id = Some(orch.to_string());
         }
         // If the active orchestrator no longer exists in the gateway, fall back to default.
-        if let Some(ref active) = self.active_orchestrator_id {
+        if let Some(ref active) = gw.active_orchestrator_id {
             if !details.orchestrators.iter().any(|o| o.id == *active) {
-                self.active_orchestrator_id = Some(orch.to_string());
+                gw.active_orchestrator_id = Some(orch.to_string());
                 self.invalidate_enabled_providers_cache();
             }
         }
@@ -627,15 +811,20 @@ impl ChaiApp {
 
     fn switch_profile_to(&mut self, name: String) {
         self.profile_switch_error = None;
+        // Clear gateway error on profile switch — it's specific to the
+        // previous profile's start attempt (e.g. port conflict) and would
+        // be confusing when shown for the new profile.
+        self.gateway_error = None;
         let Ok(chai_home) = lib::profile::chai_home() else {
             self.profile_switch_error = Some("could not resolve ~/.chai".to_string());
             return;
         };
-        if lib::profile::gateway_is_running(&chai_home) {
-            self.profile_switch_error =
-                Some("gateway is running; stop it before switching profile".to_string());
-            return;
-        }
+        // With per-profile locks, switching the persistent profile is always
+        // allowed — it just updates the ~/.chai/active symlink and reloads
+        // config. The per-profile gateway lock already prevents starting a
+        // second gateway on the same profile; there is no reason to block the
+        // desktop from pointing at a profile with a running gateway (e.g. to
+        // return to the profile where an agent is working).
         if let Err(e) = lib::profile::switch_active_profile(&chai_home, &name) {
             self.profile_switch_error = Some(e.to_string());
             return;
@@ -657,17 +846,18 @@ impl ChaiApp {
     }
 
     fn start_new_session(&mut self) {
-        self.chat_session_id = None;
-        self.selected_session_id = None;
+        let gw = self.gw();
+        gw.chat_session_id = None;
+        gw.selected_session_id = None;
         // Drop any in-flight agent RPC so a late reply cannot re-bind `chat_session_id` to the
         // previous server session (which would make the next send continue that history).
-        self.chat_turn_receiver = None;
-        self.stop_receiver = None;
-        self.chat_stopping = false;
-        self.pending_user_message = None;
-        self.chat_turn_is_new_session = false;
-        self.chat_messages.clear();
-        self.chat_messages.push(ChatMessage::system(
+        gw.chat_turn_receiver = None;
+        gw.stop_receiver = None;
+        gw.chat_stopping = false;
+        gw.pending_user_message = None;
+        gw.chat_turn_is_new_session = false;
+        gw.chat_messages.clear();
+        gw.chat_messages.push(ChatMessage::system(
             "New Session. Next message will start with a clean history.".to_string(),
         ));
     }
@@ -676,40 +866,49 @@ impl ChaiApp {
     /// updates immediately. Idempotent — safe to call even if the session
     /// is already absent from one or more structures.
     fn remove_session_local(&mut self, sid: &str) {
-        self.session_messages.remove(sid);
-        self.session_summaries.remove(sid);
-        self.session_order.retain(|id| id != sid);
-        if self.selected_session_id.as_deref() == Some(sid) {
+        let need_new_session;
+        let need_clear_chat_session;
+        {
+            let gw = self.gw();
+            gw.session_messages.remove(sid);
+            gw.session_summaries.remove(sid);
+            gw.session_order.retain(|id| id != sid);
+            need_new_session = gw.selected_session_id.as_deref() == Some(sid);
+            need_clear_chat_session = gw.chat_session_id.as_deref() == Some(sid);
+        }
+        if need_new_session {
             self.start_new_session();
         }
-        if self.chat_session_id.as_deref() == Some(sid) {
-            self.chat_session_id = None;
+        if need_clear_chat_session {
+            self.gw().chat_session_id = None;
         }
     }
 
-    /// Clear all session and message state when the gateway stops (it does not persist sessions).
+    /// Clear all session and message state for the active profile when the gateway stops.
     fn clear_session_and_messages(&mut self) {
-        self.chat_session_id = None;
-        self.chat_messages.clear();
-        self.chat_turn_receiver = None;
-        self.stop_receiver = None;
-        self.chat_stopping = false;
-        self.pending_user_message = None;
-        self.chat_turn_is_new_session = false;
-        self.session_messages.clear();
-        self.session_summaries.clear();
-        self.session_order.clear();
-        self.selected_session_id = None;
-        self.session_events_receiver = None;
-        self.sessions_list_fetched = false;
-        self.sessions_list_receiver = None;
-        self.sessions_history_receiver = None;
-        self.loading_session_id = None;
-        self.sessions_delete_receiver = None;
-        self.sessions_delete_all_receiver = None;
-        self.show_clear_all_confirm = false;
-        self.active_orchestrator_id = None;
+        let gw = self.gw();
+        gw.chat_session_id = None;
+        gw.chat_messages.clear();
+        gw.chat_turn_receiver = None;
+        gw.stop_receiver = None;
+        gw.chat_stopping = false;
+        gw.pending_user_message = None;
+        gw.chat_turn_is_new_session = false;
+        gw.session_messages.clear();
+        gw.session_summaries.clear();
+        gw.session_order.clear();
+        gw.selected_session_id = None;
+        gw.session_events_receiver = None;
+        gw.sessions_list_fetched = false;
+        gw.sessions_list_receiver = None;
+        gw.sessions_history_receiver = None;
+        gw.loading_session_id = None;
+        gw.sessions_delete_receiver = None;
+        gw.sessions_delete_all_receiver = None;
+        gw.show_clear_all_confirm = false;
+        gw.active_orchestrator_id = None;
     }
+
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         state::logs::init_logging();
 
@@ -748,16 +947,17 @@ impl ChaiApp {
 
     /// Poll for chat turn result and clear receiver when done. Call each frame.
     fn poll_chat_turn(&mut self) {
-        if let Some(rx) = &self.chat_turn_receiver {
+        let gw = self.gw();
+        if let Some(rx) = &gw.chat_turn_receiver {
             if let Ok(result) = rx.try_recv() {
-                self.chat_turn_receiver = None;
+                gw.chat_turn_receiver = None;
                 // When the turn was stopped, keep chat_stopping true until the
                 // turn_stopped banner appears via session events — the stop RPC
                 // returns immediately but the agent is still finishing its
                 // current iteration.
                 let was_stopped = matches!(&result, Ok(r) if r.stopped);
                 if !was_stopped {
-                    self.chat_stopping = false;
+                    gw.chat_stopping = false;
                 }
                 match result {
                     Ok(reply) => {
@@ -765,15 +965,15 @@ impl ChaiApp {
                         // chat_session_id was None) instead of checking chat_session_id
                         // here, because poll_session_events may have already bound it
                         // from the first streamed event.
-                        let was_new_session = self.chat_turn_is_new_session;
-                        self.chat_turn_is_new_session = false;
-                        if self.chat_session_id.is_none() {
-                            self.chat_session_id = Some(reply.session_id.clone());
+                        let was_new_session = gw.chat_turn_is_new_session;
+                        gw.chat_turn_is_new_session = false;
+                        if gw.chat_session_id.is_none() {
+                            gw.chat_session_id = Some(reply.session_id.clone());
                         }
 
                         // Collect pre-session error before borrowing session_messages.
                         let pre_session_error: Option<ChatMessage> = if was_new_session {
-                            self.chat_messages
+                            gw.chat_messages
                                 .iter()
                                 .rev()
                                 .find(|m| m.role == "error")
@@ -782,13 +982,13 @@ impl ChaiApp {
                             None
                         };
 
-                        let entry = self
+                        let entry = gw
                             .session_messages
                             .entry(reply.session_id.clone())
                             .or_insert_with(Vec::new);
                         // Deduplicate: broadcast session events may have already added these messages.
                         if was_new_session {
-                            if let Some(ref user_content) = self.pending_user_message {
+                            if let Some(ref user_content) = gw.pending_user_message {
                                 let already = entry
                                     .iter()
                                     .any(|m| m.role == "user" && m.content == *user_content);
@@ -844,26 +1044,12 @@ impl ChaiApp {
                                     )
                                 })
                                 .unwrap_or(false);
-                            log::debug!(
-                                "poll_chat_turn: session={}, was_new_session={}, last_is_same={}, entry_len={}, last_role={:?}, last_non_del_role={:?}",
-                                reply.session_id,
-                                was_new_session,
-                                last_is_same,
-                                entry.len(),
-                                entry.last().map(|m| m.role.as_str()),
-                                state::chat::last_non_delegation(entry.as_slice()).map(|m| m.role.as_str()),
-                            );
                             if last_is_same {
                                 // Find the actual assistant entry (not necessarily last — a
                                 // tool_loop_limit banner or delegation row may have been appended after it).
                                 if let Some(existing) = entry.iter_mut().find(|m| {
                                     m.role == "assistant" && m.content == assistant_msg.content
                                 }) {
-                                    log::debug!(
-                                        "poll_chat_turn dedup: overwriting assistant entry tool_calls={:?}, tool_results={:?}",
-                                        existing.tool_calls.as_ref().map(|v| v.len()),
-                                        existing.tool_results.as_ref().map(|v| v.len()),
-                                    );
                                     existing.tool_calls = assistant_msg.tool_calls;
                                     existing.tool_results = assistant_msg.tool_results;
                                     // Clear inline tool calls when streamed events exist.
@@ -883,10 +1069,7 @@ impl ChaiApp {
                             }
                         }
                         // When the tool loop iteration limit was reached, add a banner
-                        // message so the user knows what happened. The WebSocket event
-                        // may have already added one, but dedup is handled by the
-                        // tool_loop_limit event handler; the RPC fallback ensures the
-                        // banner appears even when the event was missed or arrived early.
+                        // message so the user knows what happened.
                         if reply.loop_limit_reached {
                             let already_has_banner = entry.iter().any(|m| m.role == "tool_loop_limit");
                             if !already_has_banner {
@@ -898,9 +1081,6 @@ impl ChaiApp {
                         }
                         // When the turn was stopped by the user, add a banner so the
                         // user knows the turn was paused and can send a new message.
-                        // Only check for an existing banner in recent messages (since
-                        // the last user message) so that multiple stops in the same
-                        // session each get their own banner.
                         if reply.stopped {
                             let last_user_idx = entry.iter().rposition(|m| m.role == "user");
                             let already_has_banner = entry.iter().skip(last_user_idx.unwrap_or(0)).any(|m| m.role == "turn_stopped");
@@ -911,20 +1091,20 @@ impl ChaiApp {
                             // stopping flag so the Stop button reverts to its idle state.
                             // This handles the RPC fallback path when the WebSocket
                             // turn_stopped event hasn't arrived yet.
-                            self.chat_stopping = false;
+                            gw.chat_stopping = false;
                         }
                         // Retain only the most recent pre-session error so it doesn't disappear
                         // when we switch to the new session, without piling every past failure
                         // onto the new session. Inserted after entry work is done to avoid a
                         // second mutable borrow of session_messages.
                         if let Some(err_msg) = pre_session_error {
-                            let entry = self
+                            let entry = gw
                                 .session_messages
                                 .get_mut(&reply.session_id)
                                 .expect("entry exists");
                             entry.insert(0, err_msg);
                         }
-                        self.session_summaries
+                        gw.session_summaries
                             .entry(reply.session_id.clone())
                             .or_insert_with(|| {
                                 let now = now_iso8601();
@@ -936,28 +1116,30 @@ impl ChaiApp {
                                 }
                             });
 
-                        self.pending_user_message = None;
-                        self.chat_messages = self
+                        gw.pending_user_message = None;
+                        gw.chat_messages = gw
                             .session_messages
                             .get(&reply.session_id)
                             .cloned()
                             .unwrap_or_default();
-                        self.move_session_to_front(&reply.session_id);
-                        if was_new_session && self.selected_session_id.is_none() {
-                            self.selected_session_id = Some(reply.session_id);
+                        let should_set_selected = was_new_session && gw.selected_session_id.is_none();
+                        let reply_sid = reply.session_id.clone();
+                        self.move_session_to_front(&reply_sid);
+                        if should_set_selected {
+                            self.gw().selected_session_id = Some(reply_sid);
                         }
                     }
                     Err(e) => {
-                        self.chat_stopping = false;
-                        self.pending_user_message = None;
-                        self.chat_turn_is_new_session = false;
+                        gw.chat_stopping = false;
+                        gw.pending_user_message = None;
+                        gw.chat_turn_is_new_session = false;
                         let err_text = e.clone();
                         // Show the full error as an in-stream chat message.
-                        self.chat_messages
+                        gw.chat_messages
                             .push(ChatMessage::error(err_text.clone()));
                         // Also attach to the current session's messages when we know the id.
-                        if let Some(ref sid) = self.chat_session_id {
-                            let entry = self
+                        if let Some(ref sid) = gw.chat_session_id {
+                            let entry = gw
                                 .session_messages
                                 .entry(sid.clone())
                                 .or_insert_with(Vec::new);
@@ -969,28 +1151,48 @@ impl ChaiApp {
         }
     }
 
-    /// True if we started the gateway and it is still running (we can stop it).
-    fn gateway_owned(&mut self) -> bool {
-        if let Some(ref mut child) = self.gateway_process {
-            if child.try_wait().ok().flatten().is_some() {
-                self.gateway_process = None;
-                return false;
-            }
-            return true;
-        }
-        false
-    }
-
     fn start_gateway(&mut self) {
         self.gateway_error = None;
-        let (config, paths) = match lib::config::load_config(self.effective_profile_override()) {
+        let (config, paths) = match lib::config::load_config(None) {
             Ok(pair) => pair,
             Err(e) => {
                 self.gateway_error = Some(format!("failed to load config: {}", e));
                 return;
             }
         };
+        let bind = config.gateway.bind.trim();
         let port = config.gateway.port;
+        let bind_addr = format!("{}:{}", bind, port);
+
+        // Pre-flight: check that the configured port is available before
+        // spawning the gateway child process. This catches cross-profile
+        // port conflicts (e.g. profile A is running on port 15151 and
+        // profile B also defaults to 15151) and produces a clear error
+        // instead of letting the child process fail with an opaque
+        // "address already in use" error after expensive startup work.
+        if let Ok(addr) = bind_addr.parse::<std::net::SocketAddr>() {
+            if std::net::TcpListener::bind(addr).is_err() {
+                // Port is already in use. Identify which running profile
+                // holds it (if any) for a more helpful error message.
+                let using_profile = self.running_profiles.iter().find(|p| **p != self.profile_active).and_then(|p| {
+                    let Ok((c, _)) = lib::config::load_config(Some(p)) else { return None };
+                    if c.gateway.port == port { Some(p.clone()) } else { None }
+                });
+                self.gateway_error = if let Some(other) = using_profile {
+                    Some(format!(
+                        "port {} already in use by gateway running profile \"{}\" — configure a different port for profile {} to run gateways for both profiles simultaneously",
+                        port, other, self.profile_active
+                    ))
+                } else {
+                    Some(format!(
+                        "port {} is already in use — configure a different port for profile \"{}\"",
+                        port, self.profile_active
+                    ))
+                };
+                return;
+            }
+        }
+
         let binary = match state::gateway::resolve_chai_binary() {
             Some(p) => p,
             None => {
@@ -1000,7 +1202,7 @@ impl ChaiApp {
         };
 
         // Build a clean environment for the gateway child process based on the
-        // effective profile's .env. This prevents stale .env variables from a
+        // active profile's .env. This prevents stale .env variables from a
         // previous profile from leaking into the gateway. The gateway will also
         // load its own .env via lib::config::load_profile_env, but that function
         // won't override variables already present in the inherited environment.
@@ -1033,12 +1235,9 @@ impl ChaiApp {
         if !env_map.contains_key("RUST_LOG") {
             cmd.env("RUST_LOG", "lib=info,cli=info");
         }
-        // Propagate the effective profile override so the spawned gateway uses the
-        // same profile as the desktop. Use --profile flag which is unambiguous (vs
-        // env var which may affect child processes differently).
-        if let Some(profile) = self.effective_profile_override() {
-            cmd.arg("--profile").arg(profile);
-        }
+        // Propagate the active profile so the spawned gateway uses the
+        // same profile as the desktop. Use --profile flag which is unambiguous.
+        cmd.arg("--profile").arg(&self.profile_active);
         let child = cmd.spawn();
         match child {
             Ok(mut c) => {
@@ -1064,7 +1263,8 @@ impl ChaiApp {
                         }
                     });
                 }
-                self.gateway_process = Some(c);
+                let gw = self.gw();
+                gw.process = Some(c);
             }
             Err(e) => {
                 self.gateway_error = Some(format!("failed to start gateway: {}", e));
@@ -1073,8 +1273,9 @@ impl ChaiApp {
     }
 
     fn stop_gateway(&mut self) {
-        self.gateway_was_stopped_by_user = true;
-        if let Some(mut child) = self.gateway_process.take() {
+        let gw = self.gw();
+        gw.was_stopped_by_user = true;
+        if let Some(mut child) = gw.process.take() {
             let _ = child.kill();
             // Reap the child to avoid zombies; the gateway releases `gateway.lock` on exit (advisory lock).
             let _ = child.wait();
@@ -1087,24 +1288,32 @@ impl ChaiApp {
     pub(crate) fn show_chat_help(&mut self) {
         const TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
         let msg = ChatMessage::system(TEXT.to_string());
-        if let Some(sid) = self.chat_session_id.clone() {
-            self.session_messages
-                .entry(sid.clone())
-                .or_default()
-                .push(msg);
+        let sid = self.gw_ref().and_then(|gw| gw.chat_session_id.clone());
+        if let Some(sid) = sid {
+            {
+                let gw = self.gw();
+                gw.session_messages
+                    .entry(sid.clone())
+                    .or_default()
+                    .push(msg);
+            }
             self.move_session_to_front(&sid);
             // Keep the visible transcript in sync when the active session is also selected.
-            if self.selected_session_id.as_deref() == Some(sid.as_str()) {
-                self.chat_messages = self.session_messages.get(&sid).cloned().unwrap_or_default();
+            let selected = self.gw_ref().and_then(|gw| gw.selected_session_id.clone());
+            if selected.as_deref() == Some(sid.as_str()) {
+                let msgs = self.gw_ref().and_then(|gw| gw.session_messages.get(&sid).cloned()).unwrap_or_default();
+                self.gw().chat_messages = msgs;
             }
         } else {
-            self.chat_messages.push(msg);
+            self.gw().chat_messages.push(msg);
         }
     }
 
     /// Start a chat turn in a background thread if possible.
     fn start_chat_turn(&mut self) {
-        if self.chat_turn_receiver.is_some() {
+        // Check for in-flight turn and extract message before borrowing gw.
+        let has_receiver = self.gw_ref().map_or(false, |gw| gw.chat_turn_receiver.is_some());
+        if has_receiver {
             return;
         }
         let message = self.chat_input.trim().to_string();
@@ -1112,93 +1321,124 @@ impl ChaiApp {
             return;
         }
         self.chat_input.clear();
-        self.pending_user_message = Some(message.clone());
-        self.chat_turn_is_new_session = self.chat_session_id.is_none();
+
+        // Extract needed state from gw, then set pending_user_message.
+        let (chat_session_id, active_orchestrator_id, current_provider, current_model, status) = {
+            let gw = self.gw_ref();
+            gw.map(|gw| (
+                gw.chat_session_id.clone(),
+                gw.active_orchestrator_id.clone(),
+                gw.current_provider.clone(),
+                gw.current_model.clone(),
+                gw.status.clone(),
+            )).unwrap_or_default()
+        };
+        let is_new_session = chat_session_id.is_none();
+
+        {
+            let gw = self.gw();
+            gw.pending_user_message = Some(message.clone());
+            gw.chat_turn_is_new_session = is_new_session;
+        }
 
         // Handle special commands
         if message.eq_ignore_ascii_case("/new") {
-            self.pending_user_message = None;
+            self.gw().pending_user_message = None;
             self.start_new_session();
             return;
         }
 
         if message.eq_ignore_ascii_case("/help") {
-            self.pending_user_message = None;
+            self.gw().pending_user_message = None;
             self.show_chat_help();
             return;
         }
 
         // Send to the current conversation session (chat_session_id), not the merely selected one.
         // None = new session; reply will set chat_session_id.
-        let session_id = self.chat_session_id.clone();
+        let session_id = chat_session_id;
         if let Some(ref sid) = session_id {
-            let entry = self
-                .session_messages
-                .entry(sid.clone())
-                .or_insert_with(Vec::new);
-            entry.push(ChatMessage::user(message.clone()));
-            self.session_summaries.entry(sid.clone()).or_insert_with(|| {
-                let now = now_iso8601();
-                SessionSummary {
-                    id: sid.clone(),
-                    created_at: now.clone(),
-                    updated_at: now,
-                    ..Default::default()
+            {
+                let gw = self.gw();
+                let entry = gw
+                    .session_messages
+                    .entry(sid.clone())
+                    .or_insert_with(Vec::new);
+                entry.push(ChatMessage::user(message.clone()));
+                gw.session_summaries.entry(sid.clone()).or_insert_with(|| {
+                    let now = now_iso8601();
+                    SessionSummary {
+                        id: sid.clone(),
+                        created_at: now.clone(),
+                        updated_at: now,
+                        ..Default::default()
+                    }
+                });
+                // Switch view to the session we're sending to so the message is visible (ui_chat shows selected_session_id).
+                gw.selected_session_id = Some(sid.clone());
+                // Keep chat_messages in sync when we're already viewing this session (e.g. for empty selected_session_id path).
+                if gw.selected_session_id == gw.chat_session_id {
+                    gw.chat_messages.push(ChatMessage::user(message.clone()));
                 }
-            });
+            }
             self.move_session_to_front(sid);
-            // Switch view to the session we're sending to so the message is visible (ui_chat shows selected_session_id).
-            self.selected_session_id = Some(sid.clone());
-        }
-        // Keep chat_messages in sync when we're already viewing this session (e.g. for empty selected_session_id path).
-        if self.selected_session_id == self.chat_session_id {
-            self.chat_messages.push(ChatMessage::user(message.clone()));
+        } else {
+            // No session id — just sync chat_messages.
+            let gw = self.gw();
+            if gw.selected_session_id == gw.chat_session_id {
+                gw.chat_messages.push(ChatMessage::user(message.clone()));
+            }
         }
         // Send provider only when we know it (from UI override or gateway status). Do not hardcode
         // a fallback (e.g. "ollama") when status is unavailable—let the gateway use its config.
-        let active_orch = self.active_orchestrator_id.as_deref();
-        let provider = self.current_provider.clone().or_else(|| {
-            self.gateway_status
+        let active_orch = active_orchestrator_id.as_deref();
+        let provider = current_provider.or_else(|| {
+            status
                 .as_ref()
                 .and_then(|s| s.default_provider_for(active_orch).map(String::from))
         });
-        let model = self.current_model.clone();
-        let orchestrator_id = self.active_orchestrator_id.clone();
-        let profile_override = self.cached_profile_override.clone();
+        let model = current_model;
+        let orchestrator_id = active_orchestrator_id;
+        let profile_override = Some(self.profile_active.clone());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = state::gateway::run_agent_turn(profile_override.as_deref(), session_id, message, provider, model, orchestrator_id);
             let _ = tx.send(result);
         });
-        self.chat_turn_receiver = Some(rx);
+        self.gw().chat_turn_receiver = Some(rx);
     }
 
     /// Signal the gateway to stop the current agent turn for the active session.
     /// The agent finishes the current iteration, then pauses. The session transcript
     /// is preserved and the user can send a new message to continue.
     fn stop_chat_turn(&mut self) {
-        let session_id = match self.chat_session_id {
-            Some(ref id) => id.clone(),
-            None => return,
+        let session_id = {
+            let gw = self.gw();
+            match &gw.chat_session_id {
+                Some(id) => id.clone(),
+                None => return,
+            }
         };
-        if self.chat_stopping {
+        if self.gw().chat_stopping {
             return;
         }
-        let profile_override = self.cached_profile_override.clone();
+        let profile_override = Some(self.profile_active.clone());
         let (tx, rx) = mpsc::channel();
         std::thread::spawn(move || {
             let result = state::gateway::send_stop(profile_override.as_deref(), &session_id);
             let _ = tx.send(result);
         });
-        self.stop_receiver = Some(rx);
-        self.chat_stopping = true;
+        let gw = self.gw();
+        gw.stop_receiver = Some(rx);
+        gw.chat_stopping = true;
     }
 
     /// Poll for the stop request result. Call each frame.
     fn poll_stop(&mut self) {
-        if let Some(rx) = &self.stop_receiver {
+        let gw = self.gw();
+        if let Some(rx) = &gw.stop_receiver {
             if let Ok(_result) = rx.try_recv() {
-                self.stop_receiver = None;
+                gw.stop_receiver = None;
             }
         }
     }
@@ -1206,22 +1446,23 @@ impl ChaiApp {
     /// Poll for `sessions.list` fetch result and trigger a fetch on gateway connect.
     /// Call each frame.
     fn poll_sessions_list(&mut self) {
-        if let Some(rx) = &self.sessions_list_receiver {
+        let gw = self.gw();
+        if let Some(rx) = &gw.sessions_list_receiver {
             if let Ok(result) = rx.try_recv() {
                 match result {
                     Ok(summaries) => {
                         // Populate session_order from the response (already sorted by updatedAt desc).
-                        self.session_order = summaries.iter().map(|s| s.id.clone()).collect();
-                        self.session_summaries.clear();
+                        gw.session_order = summaries.iter().map(|s| s.id.clone()).collect();
+                        gw.session_summaries.clear();
                         for s in summaries {
-                            self.session_summaries.insert(s.id.clone(), s);
+                            gw.session_summaries.insert(s.id.clone(), s);
                         }
                         // Ensure sessions already in session_messages are in session_order
                         // (they may have been created during the current app session before
                         // the list fetch completed).
-                        for sid in self.session_messages.keys() {
-                            if !self.session_order.contains(sid) {
-                                self.session_order.push(sid.clone());
+                        for sid in gw.session_messages.keys() {
+                            if !gw.session_order.contains(sid) {
+                                gw.session_order.push(sid.clone());
                             }
                         }
                     }
@@ -1229,37 +1470,41 @@ impl ChaiApp {
                         log::warn!("sessions.list fetch failed: {}", e);
                     }
                 }
-                self.sessions_list_fetched = true;
-                self.sessions_list_receiver = None;
+                gw.sessions_list_fetched = true;
+                gw.sessions_list_receiver = None;
             }
         }
 
         // Trigger a fetch when the gateway is running and we haven't fetched yet.
-        if self.gateway_responds
-            && !self.sessions_list_fetched
-            && self.sessions_list_receiver.is_none()
-        {
+        let should_fetch = {
+            let gw = self.gw();
+            gw.responds
+                && !gw.sessions_list_fetched
+                && gw.sessions_list_receiver.is_none()
+        };
+        if should_fetch {
             let (tx, rx) = mpsc::channel();
-            let profile_override = self.cached_profile_override.clone();
-            let orchestrator_id = self.active_orchestrator_id.clone();
+            let profile_override = Some(self.profile_active.clone());
+            let orchestrator_id = self.gw().active_orchestrator_id.clone();
             std::thread::spawn(move || {
                 let result = state::gateway::fetch_sessions_list(profile_override.as_deref(), orchestrator_id.as_deref());
                 let _ = tx.send(result);
             });
-            self.sessions_list_receiver = Some(rx);
+            self.gw().sessions_list_receiver = Some(rx);
         }
     }
 
     /// Poll for `sessions.history` fetch result. Call each frame.
     fn poll_sessions_history(&mut self) {
-        if let Some((ref sid, ref rx)) = self.sessions_history_receiver {
+        let gw = self.gw();
+        if let Some((ref sid, ref rx)) = gw.sessions_history_receiver {
             if let Ok(result) = rx.try_recv() {
                 match result {
                     Ok(history) => {
                         // Populate session_messages with the loaded history.
-                        self.session_messages.insert(history.id.clone(), history.messages);
+                        gw.session_messages.insert(history.id.clone(), history.messages);
                         // Also update the summary with timestamps from the history response.
-                        if let Some(summary) = self.session_summaries.get_mut(&history.id) {
+                        if let Some(summary) = gw.session_summaries.get_mut(&history.id) {
                             if !history.created_at.is_empty() {
                                 summary.created_at = history.created_at;
                             }
@@ -1268,9 +1513,9 @@ impl ChaiApp {
                             }
                         }
                         // Sync chat_messages if this is the currently selected session.
-                        if self.selected_session_id.as_deref() == Some(history.id.as_str()) {
-                            if let Some(msgs) = self.session_messages.get(&history.id) {
-                                self.chat_messages = msgs.clone();
+                        if gw.selected_session_id.as_deref() == Some(history.id.as_str()) {
+                            if let Some(msgs) = gw.session_messages.get(&history.id) {
+                                gw.chat_messages = msgs.clone();
                             }
                         }
                     }
@@ -1278,34 +1523,34 @@ impl ChaiApp {
                         log::warn!("sessions.history fetch failed for {}: {}", sid, e);
                     }
                 }
-                self.loading_session_id = None;
-                self.sessions_history_receiver = None;
+                gw.loading_session_id = None;
+                gw.sessions_history_receiver = None;
             }
         }
     }
 
     /// Poll for `sessions.delete` fetch result. Call each frame.
-    /// On successful RPC result, removes the session from local state immediately
-    /// so the sidebar updates without waiting for the `session.deleted` broadcast.
-    /// The broadcast handler in `poll_session_events` is idempotent — if the
-    /// broadcast arrives after local cleanup, the redundant removal is a no-op.
     fn poll_sessions_delete(&mut self) {
-        let result = self
-            .sessions_delete_receiver
-            .as_ref()
-            .and_then(|(_, rx)| rx.try_recv().ok());
-        if let Some(result) = result {
-            let sid = self
+        let (result, sid_opt) = {
+            let gw = self.gw();
+            let result = gw
+                .sessions_delete_receiver
+                .as_ref()
+                .and_then(|(_, rx)| rx.try_recv().ok());
+            let sid = gw
                 .sessions_delete_receiver
                 .as_ref()
                 .map(|(id, _)| id.clone());
-            self.sessions_delete_receiver = None;
-            if let Some(sid) = sid {
+            (result, sid)
+        };
+        if let Some(result) = result {
+            if let Some(sid) = &sid_opt {
+                self.gw().sessions_delete_receiver = None;
                 match &result {
                     Ok(true) => {
                         // Immediately remove from local state so the sidebar
                         // updates without waiting for the broadcast event.
-                        self.remove_session_local(&sid);
+                        self.remove_session_local(sid);
                     }
                     Ok(false) => {
                         log::warn!("sessions.delete returned false for {}", sid);
@@ -1315,7 +1560,7 @@ impl ChaiApp {
                         // If the gateway says the session doesn't exist, clean up
                         // local state — the session is already gone server-side.
                         if e.contains("session not found") {
-                            self.remove_session_local(&sid);
+                            self.remove_session_local(sid);
                         }
                     }
                 }
@@ -1324,29 +1569,31 @@ impl ChaiApp {
     }
 
     /// Poll for `sessions.delete_all` fetch result. Call each frame.
-    /// On successful RPC result, clears all session state immediately
-    /// so the sidebar updates without waiting for the `sessions.cleared` broadcast.
-    /// The broadcast handler in `poll_session_events` is idempotent — if the
-    /// broadcast arrives after local cleanup, the redundant clear is a no-op.
     fn poll_sessions_delete_all(&mut self) {
-        let result = self
-            .sessions_delete_all_receiver
-            .as_ref()
-            .and_then(|rx| rx.try_recv().ok());
+        let result = {
+            let gw = self.gw();
+            gw.sessions_delete_all_receiver
+                .as_ref()
+                .and_then(|rx| rx.try_recv().ok())
+        };
         if let Some(result) = result {
-            self.sessions_delete_all_receiver = None;
             match result {
                 Ok(count) => {
                     // Immediately clear all session state so the sidebar
                     // updates without waiting for the broadcast event.
-                    self.session_messages.clear();
-                    self.session_summaries.clear();
-                    self.session_order.clear();
+                    {
+                        let gw = self.gw();
+                        gw.sessions_delete_all_receiver = None;
+                        gw.session_messages.clear();
+                        gw.session_summaries.clear();
+                        gw.session_order.clear();
+                    }
                     self.start_new_session();
-                    self.chat_session_id = None;
+                    self.gw().chat_session_id = None;
                     log::debug!("sessions.delete_all removed {} session(s)", count);
                 }
                 Err(e) => {
+                    self.gw().sessions_delete_all_receiver = None;
                     log::warn!("sessions.delete_all failed: {}", e);
                 }
             }
@@ -1358,94 +1605,78 @@ impl ChaiApp {
 
 impl eframe::App for ChaiApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll all running gateways.
         self.poll_gateway_probe();
 
-        // Resolve running state and gateway profile before any fetch/listener
-        // that uses effective_profile_override(), so they get the correct profile
-        // on the same frame where the gateway is first detected.
         let owned = self.gateway_owned();
-        let running = owned || self.gateway_responds;
-        if self.was_gateway_running && !running {
+        let running = owned || self.gateway_running();
+
+        // Detect gateway stop for the active profile.
+        let was_running = self.gw_ref().map_or(false, |gw| gw.was_running);
+        if was_running && !running {
             // If the gateway was not stopped by the user, it exited unexpectedly.
-            // Extract the actual error message from the gateway log buffer (e.g.
-            // "sandbox directory not found at...") rather than showing raw log
-            // lines, which belong on the Logging screen.
-            if !self.gateway_was_stopped_by_user && self.gateway_error.is_none() {
+            let was_stopped_by_user = self.gw_ref().map_or(false, |gw| gw.was_stopped_by_user);
+            if !was_stopped_by_user && self.gateway_error.is_none() {
                 if let Some(msg) = state::logs::extract_gateway_error_message(10) {
                     self.gateway_error = Some(msg);
                 } else {
                     self.gateway_error = Some("gateway exited unexpectedly (no log output captured)".to_string());
                 }
             }
-            self.gateway_was_stopped_by_user = false;
+            self.gw().was_stopped_by_user = false;
             self.clear_session_and_messages();
             self.invalidate_skills_cache();
             self.skills_fetch_error = None;
-            self.agent_detail_fetch_error = None;
+            self.gw().agent_detail_fetch_error = None;
             self.invalidate_config_cache();
             self.invalidate_desktop_config_cache();
             self.profile_switch_error = None;
             self.profiles_need_refresh = true;
-            self.status_fetch_ever_failed = false;
-            // Remove stale gateway.lock if present. When the gateway is killed
-            // (e.g. user clicks Stop) the OS releases the advisory lock but the
-            // gateway process may not clean up the file. A stale file with the
-            // previous profile name causes a spurious profile-mismatch hint on
-            // the next gateway start, before the new gateway acquires the lock
-            // and overwrites the file.
+            self.gw().status_fetch_ever_failed = false;
+            // Remove stale per-profile gateway.lock if present.
             if let Ok(chai_home) = lib::profile::chai_home() {
-                let lock_path = chai_home.join("gateway.lock");
+                let lock_path = lib::profile::profile_dir(&chai_home, &self.profile_active)
+                    .join("gateway.lock");
                 // Only remove if no process holds the lock (advisory flock check).
-                if !lib::profile::gateway_is_running(&chai_home) {
+                if !lib::profile::gateway_is_running(&chai_home, &self.profile_active) {
                     let _ = std::fs::remove_file(&lock_path);
                 }
             }
         }
         // Clear gateway error when the gateway starts running (either owned or
-        // external). This handles the case where an external gateway comes online
-        // after a previous crash, and also ensures the error from start_gateway()
-        // failures is cleared once the gateway is actually running.
-        if running && !self.was_gateway_running {
+        // external).
+        if running && !was_running {
             self.gateway_error = None;
         }
-        self.was_gateway_running = running;
+        let gw = self.gw();
+        gw.was_running = running;
 
-        // Resolve the gateway's profile from gateway.lock when a gateway is running.
-        // Must happen before poll_status_fetch / poll_skills_fetch / ensure_session_events_listener
-        // so that effective_profile_override() returns the correct profile on the same frame.
+        // Resolve running profiles from per-profile gateway.lock files.
         // Refreshed on probe cadence (~1 Hz) instead of every frame to avoid 60 disk reads/sec.
         self.frames_since_lock_profile = self.frames_since_lock_profile.saturating_add(1);
-        if !running {
-            if self.gateway_lock_profile.is_some() {
-                self.gateway_lock_profile = None;
-                self.refresh_cached_profile_override();
+        if self.frames_since_lock_profile >= PROBE_INTERVAL_FRAMES {
+            self.frames_since_lock_profile = 0;
+            if let Ok(chai_home) = lib::profile::chai_home() {
+                self.running_profiles = lib::profile::find_running_gateway_profiles(&chai_home);
             }
-            self.frames_since_lock_profile = 0;
-        } else if self.frames_since_lock_profile >= PROBE_INTERVAL_FRAMES {
-            self.frames_since_lock_profile = 0;
-            self.gateway_lock_profile = lib::profile::chai_home()
-                .ok()
-                .and_then(|h| lib::profile::read_gateway_lock_profile(&h));
         }
 
-        // Invalidate config-dependent caches when the effective profile changes
-        // (e.g. gateway started externally with CHAI_PROFILE and we now detect it
-        // via gateway.lock, or gateway stopped and profile reverts to persistent).
-        if self.gateway_lock_profile != self.prev_gateway_lock_profile {
+        // Invalidate config-dependent caches when the running profiles change
+        // (e.g. gateway started externally and we now detect it, or gateway stopped).
+        if self.running_profiles != self.prev_running_profiles {
             self.invalidate_enabled_providers_cache();
             self.invalidate_config_cache();
             self.invalidate_desktop_config_cache();
             self.invalidate_skills_cache();
-            self.default_model = None;
-            self.refresh_cached_profile_override();
-            self.prev_gateway_lock_profile = self.gateway_lock_profile.clone();
+            self.gw().default_model = None;
+            self.prev_running_profiles = self.running_profiles.clone();
         }
 
         if self.profiles_need_refresh {
             self.refresh_profiles_from_disk();
         }
 
-        // Now that gateway_lock_profile is up-to-date, poll for status and events.
+        // Now that running_profiles is up-to-date, poll for status and events.
         self.poll_status_fetch();
         self.poll_skills_fetch();
         self.poll_gateway_logs_fetch(owned);
@@ -1466,60 +1697,22 @@ impl eframe::App for ChaiApp {
         let mut start_gateway = false;
         let mut stop_gateway = false;
         let mut switch_profile_to: Option<String> = None;
-        // Use the already-computed `running` state instead of a separate flock()
-        // syscall every frame. The `running` boolean is derived from gateway_owned() and
-        // gateway_responds (probe result), which is sufficient to determine whether the
-        // profile dropdown should be locked.
-        let profile_switch_locked = running;
-        let profile_dropdown_enabled = !profile_switch_locked;
-        // The effective profile is: env override > gateway lock profile > persistent symlink.
-        let effective_profile = self
-            .env_profile
-            .as_deref()
-            .or(self.gateway_lock_profile.as_deref())
-            .unwrap_or(self.profile_active.as_str());
-        // Compute a profile-mismatch hint label when the running gateway uses a
-        // different profile than the desktop's effective profile.
-        let profile_mismatch_label = if self.env_profile.is_some() {
-            // CHAI_PROFILE is set in the desktop's environment.
-            if let Some(ref gw_profile) = self.gateway_lock_profile {
-                if gw_profile != effective_profile {
-                    Some(format!(
-                        "gateway using profile {} (CHAI_PROFILE={})",
-                        gw_profile, effective_profile
-                    ))
-                } else {
-                    Some(format!("gateway using CHAI_PROFILE={}", effective_profile))
-                }
-            } else {
-                Some(format!("gateway using CHAI_PROFILE={}", effective_profile))
-            }
-        } else if let Some(ref gw_profile) = self.gateway_lock_profile {
-            // Gateway lock profile differs from the persistent symlink.
-            if *gw_profile != self.profile_active {
-                Some(format!(
-                    "gateway using profile {} (CHAI_PROFILE={})",
-                    gw_profile, gw_profile
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        // With per-profile locks, the profile dropdown is always enabled.
+        // switch_profile_to() updates the persistent symlink and reloads
+        // config for any profile.
+        let profile_dropdown_enabled = true;
         let profile_error = self.profile_switch_error.clone();
         let gateway_error = self.gateway_error.clone();
         ui::header::header(
             ctx,
             running,
             owned,
-            self.gateway_probe_completed,
+            self.gateway_probe_completed(),
             &self.profile_names,
-            effective_profile,
+            &self.profile_active,
             profile_dropdown_enabled,
             profile_error.as_deref(),
             gateway_error.as_deref(),
-            profile_mismatch_label.as_deref(),
             |name| {
                 switch_profile_to = Some(name);
             },

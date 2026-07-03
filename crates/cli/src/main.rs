@@ -28,9 +28,9 @@ enum Commands {
     /// Create ~/.chai with default profiles, active symlink, bundled skills, and skills.lock for new profiles
     Init,
 
-    /// Run the gateway (HTTP + WebSocket control plane). Uses CHAI_PROFILE or ~/.chai/active unless --profile is set.
+    /// Run the gateway (HTTP + WebSocket control plane). Uses ~/.chai/active unless --profile is set.
     Gateway {
-        /// Profile name (overrides CHAI_PROFILE and ~/.chai/active for this process)
+        /// Profile name (overrides ~/.chai/active for this process)
         #[arg(long, value_name = "NAME")]
         profile: Option<String>,
 
@@ -136,7 +136,7 @@ async fn main() {
         }
         Some(Commands::Gateway { profile, port }) => {
             if let Err(e) = gateway::run_gateway(profile.as_deref(), port).await {
-                log::error!("gateway failed: {}", e);
+                eprintln!("gateway failed: {e:#}");
                 std::process::exit(1);
             }
         }

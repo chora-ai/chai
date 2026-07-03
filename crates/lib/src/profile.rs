@@ -1,6 +1,7 @@
 //! Runtime profile layout under `~/.chai`: `profiles/<name>/`, `active` symlink, shared `skills/`.
-//! Gateway lock at `~/.chai/gateway.lock` (profile name + PID) so `chai profile switch` can refuse while any gateway is up.
+//! Per-profile gateway lock at `~/.chai/profiles/<name>/gateway.lock` (PID) so `chai profile switch` can refuse while that profile's gateway is up.
 //! The running gateway holds an **advisory exclusive lock** (`flock` / `LockFileEx`) on that file so concurrent starts and stale-PID races are avoided.
+//! Each profile has its own lock, allowing multiple gateways to run on different profiles simultaneously.
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -66,8 +67,9 @@ fn active_symlink_path(chai_home: &Path) -> PathBuf {
     chai_home.join("active")
 }
 
-fn gateway_lock_path(chai_home: &Path) -> PathBuf {
-    chai_home.join("gateway.lock")
+/// Per-profile gateway lock path: `~/.chai/profiles/<name>/gateway.lock`.
+fn gateway_lock_path(chai_home: &Path, profile_name: &str) -> PathBuf {
+    profile_dir(chai_home, profile_name).join("gateway.lock")
 }
 
 /// Profile directory `~/.chai/profiles/<name>`.
@@ -123,7 +125,7 @@ fn profile_name_from_dir(profile_dir: &Path) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("invalid profile directory path"))
 }
 
-/// Resolve which profile to use: CLI override > `CHAI_PROFILE` > `~/.chai/active`.
+/// Resolve which profile to use: CLI override > `~/.chai/active`.
 pub fn resolve_profile_dir(cli_profile: Option<&str>) -> Result<ChaiPaths> {
     let chai_home = chai_home()?;
 
@@ -133,13 +135,6 @@ pub fn resolve_profile_dir(cli_profile: Option<&str>) -> Result<ChaiPaths> {
             anyhow::bail!("profile name must not be empty");
         }
         name.to_string()
-    } else if let Ok(env_name) = std::env::var("CHAI_PROFILE") {
-        let name = env_name.trim();
-        if name.is_empty() {
-            read_persistent_profile_dir(&chai_home).and_then(|d| profile_name_from_dir(&d))?
-        } else {
-            name.to_string()
-        }
     } else {
         let dir = read_persistent_profile_dir(&chai_home)?;
         profile_name_from_dir(&dir)?
@@ -192,7 +187,8 @@ fn set_active_symlink(chai_home: &Path, profile_name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Point `~/.chai/active` at `profiles/<name>`. Caller must ensure gateway is not running.
+/// Point `~/.chai/active` at `profiles/<name>`. Caller must ensure gateway is not running
+/// for the target profile (with per-profile locks, other profiles' gateways are independent).
 pub fn switch_active_profile(chai_home: &Path, profile_name: &str) -> Result<()> {
     let dir = profile_dir(chai_home, profile_name);
     if !dir.is_dir() {
@@ -201,22 +197,10 @@ pub fn switch_active_profile(chai_home: &Path, profile_name: &str) -> Result<()>
     set_active_symlink(chai_home, profile_name)
 }
 
-/// Read the profile name from `gateway.lock` without acquiring the lock.
-/// Returns `None` if the file doesn't exist, can't be read, or has unexpected content.
-pub fn read_gateway_lock_profile(chai_home: &Path) -> Option<String> {
-    let path = gateway_lock_path(chai_home);
-    let content = std::fs::read_to_string(&path).ok()?;
-    let name = content.lines().next()?.trim().to_string();
-    if name.is_empty() {
-        None
-    } else {
-        Some(name)
-    }
-}
-
-/// True if another process holds an exclusive lock on `gateway.lock` (a gateway is running).
-pub fn gateway_is_running(chai_home: &Path) -> bool {
-    let path = gateway_lock_path(chai_home);
+/// True if another process holds an exclusive lock on the per-profile `gateway.lock`
+/// (a gateway is running for this profile).
+pub fn gateway_is_running(chai_home: &Path, profile_name: &str) -> bool {
+    let path = gateway_lock_path(chai_home, profile_name);
     let Ok(file) = OpenOptions::new().read(true).write(true).open(&path) else {
         return false;
     };
@@ -231,6 +215,19 @@ pub fn gateway_is_running(chai_home: &Path) -> bool {
             false
         }
     }
+}
+
+/// Scan all profile directories for gateways that are currently running (hold an exclusive lock).
+/// Returns all profile names with a held lock, in sorted order.
+/// Used by the desktop to discover which profiles have running gateways.
+pub fn find_running_gateway_profiles(chai_home: &Path) -> Vec<String> {
+    let Ok(names) = list_profile_names(chai_home) else {
+        return Vec::new();
+    };
+    names
+        .into_iter()
+        .filter(|name| gateway_is_running(chai_home, name))
+        .collect()
 }
 
 /// Holds `gateway.lock` open with an exclusive advisory lock until dropped; then removes the file.
@@ -248,10 +245,10 @@ impl Drop for GatewayLockGuard {
     }
 }
 
-/// Create `gateway.lock`, take an exclusive non-blocking advisory lock, and write profile name + PID.
+/// Create the per-profile `gateway.lock`, take an exclusive non-blocking advisory lock, and write PID.
 /// Another process holding the lock causes an error (atomic vs TOCTOU on a plain PID file).
 pub fn acquire_gateway_lock(chai_home: &Path, profile_name: &str) -> Result<GatewayLockGuard> {
-    let path = gateway_lock_path(chai_home);
+    let path = gateway_lock_path(chai_home, profile_name);
     let mut file = OpenOptions::new()
         .read(true)
         .write(true)
@@ -261,7 +258,8 @@ pub fn acquire_gateway_lock(chai_home: &Path, profile_name: &str) -> Result<Gate
     file.try_lock_exclusive().map_err(|e| {
         if e.kind() == io::ErrorKind::WouldBlock {
             anyhow::anyhow!(
-                "another chai gateway is already running (stop it before starting another)"
+                "a chai gateway is already running for profile {:?} (stop it before starting another)",
+                profile_name
             )
         } else {
             anyhow::Error::from(e).context(format!("lock {}", path.display()))
@@ -292,14 +290,53 @@ mod lock_tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
 
+        // Create profile directories so gateway_lock_path resolves correctly.
+        std::fs::create_dir_all(dir.join("profiles/assistant")).expect("mkdir assistant");
+        std::fs::create_dir_all(dir.join("profiles/other")).expect("mkdir other");
+        std::fs::create_dir_all(dir.join("profiles/developer")).expect("mkdir developer");
+
         let g1 = acquire_gateway_lock(&dir, "assistant").expect("first acquire");
         assert!(
-            acquire_gateway_lock(&dir, "other").is_err(),
-            "second acquire should fail while lock held"
+            acquire_gateway_lock(&dir, "assistant").is_err(),
+            "second acquire on same profile should fail while lock held"
         );
-        assert!(gateway_is_running(&dir));
+        assert!(gateway_is_running(&dir, "assistant"));
+        // Different profile should be able to acquire its own lock.
+        let g2 = acquire_gateway_lock(&dir, "other").expect("acquire on different profile");
+        assert!(gateway_is_running(&dir, "other"));
         drop(g1);
-        assert!(!gateway_is_running(&dir));
-        let _g2 = acquire_gateway_lock(&dir, "developer").expect("acquire after release");
+        assert!(!gateway_is_running(&dir, "assistant"));
+        assert!(gateway_is_running(&dir, "other"));
+        drop(g2);
+        assert!(!gateway_is_running(&dir, "other"));
+        let _g3 = acquire_gateway_lock(&dir, "developer").expect("acquire after release");
+    }
+
+    #[test]
+    fn find_running_gateway_profiles_returns_all() {
+        let dir = std::env::temp_dir().join(format!(
+            "chai-find-running-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+
+        std::fs::create_dir_all(dir.join("profiles/alpha")).expect("mkdir alpha");
+        std::fs::create_dir_all(dir.join("profiles/beta")).expect("mkdir beta");
+        std::fs::create_dir_all(dir.join("profiles/gamma")).expect("mkdir gamma");
+
+        assert!(find_running_gateway_profiles(&dir).is_empty());
+
+        let g1 = acquire_gateway_lock(&dir, "alpha").expect("acquire alpha");
+        let g2 = acquire_gateway_lock(&dir, "gamma").expect("acquire gamma");
+        let running = find_running_gateway_profiles(&dir);
+        assert_eq!(running, vec!["alpha", "gamma"]);
+
+        drop(g1);
+        let running = find_running_gateway_profiles(&dir);
+        assert_eq!(running, vec!["gamma"]);
+
+        drop(g2);
+        assert!(find_running_gateway_profiles(&dir).is_empty());
     }
 }

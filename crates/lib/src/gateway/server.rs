@@ -802,6 +802,13 @@ async fn process_inbound_message(state: GatewayState, msg: InboundMessage) {
 /// Requires `chai init` so the profile config and shared `~/.chai/skills` exist.
 pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     init::require_initialized(&paths)?;
+
+    // Acquire the per-profile gateway lock before any startup work so that a
+    // same-profile second start fails immediately with a clear error instead of
+    // after expensive provider/skill/channel setup.
+    let _gateway_lock = profile::acquire_gateway_lock(&paths.chai_home, &paths.profile_name)
+        .context("acquire gateway lock")?;
+
     let bind = config.gateway.bind.trim();
     if !config::is_loopback_bind(bind) {
         let token = config::resolve_gateway_token(&config);
@@ -1401,8 +1408,6 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
     let app = app.with_state(state);
 
     let bind_addr = format!("{}:{}", bind, config.gateway.port);
-    let _gateway_lock = profile::acquire_gateway_lock(&paths.chai_home, &paths.profile_name)
-        .context("acquire gateway lock")?;
     let listener = tokio::net::TcpListener::bind(&bind_addr)
         .await
         .with_context(|| format!("binding to {}", bind_addr))?;

@@ -22,7 +22,7 @@ Today, tool calls are executed immediately after the model returns them — ther
 
 ### Runtime and configuration
 
-- **Profiles** — The gateway loads **`config.json`** from the **active runtime profile** (`~/.chai/profiles/<name>/`, resolved via `~/.chai/active`, **`CHAI_PROFILE`**, or CLI override; see [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)). Code: [`profile.rs`](../../crates/lib/src/profile.rs) (**`ChaiPaths`**), [`config.rs`](../../crates/lib/src/config.rs).
+- **Profiles** — The gateway loads **`config.json`** from the **active runtime profile** (`~/.chai/profiles/<name>/`, resolved via `~/.chai/active` or CLI `--profile` override; see [RUNTIME_PROFILES.md](RUNTIME_PROFILES.md)). Code: [`profile.rs`](../../crates/lib/src/profile.rs) (**`ChaiPaths`**), [`config.rs`](../../crates/lib/src/config.rs).
 - **Future approval config** — When human-in-the-loop approval exists, its policy fields should live in **that profile’s** `config.json` (and optionally per-agent entries), not in a separate global file—so an **assistant** profile can stay strict and a **developer** profile more permissive without sharing state. No schema or fields exist for this yet.
 
 ### Tool execution (no human gate)

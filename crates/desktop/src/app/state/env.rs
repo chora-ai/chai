@@ -109,7 +109,7 @@ fn clear_tracked() {
 /// This constructs a clean environment for the child process:
 /// 1. Starts with the **launch environment** (the environment as it was before
 ///    any `.env` variables were loaded by the desktop). This includes shell variables,
-///    system variables, and `CHAI_PROFILE` set at desktop startup.
+///    system variables from when the desktop was launched.
 /// 2. Overlays the profile's `.env` variables on top.
 ///
 /// This is a defense-in-depth measure: even if the desktop process's own environment

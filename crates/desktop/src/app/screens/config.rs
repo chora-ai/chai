@@ -15,9 +15,9 @@ pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
         }
     };
     let config_path = paths.config_path.clone();
-    if app.default_model.is_none() {
+    if app.default_model().is_none() {
         let (_, model) = lib::config::resolve_effective_provider_and_model(&config.providers, &config.agents);
-        app.default_model = Some(model);
+        *app.default_model_mut() = Some(model);
     }
 
     let subtitle = if !config_path.as_os_str().is_empty() {

@@ -18,12 +18,13 @@ Each profile is a directory under `~/.chai/profiles/<name>/` containing all trus
 │   │   ├── agents/
 │   │   │   └── orchestrator/
 │   │   │       ├── AGENT.md
-│   │   │       └── sessions/        # persisted sessions and bindings
+│   │   │       └── sessions/         # persisted sessions and bindings
 │   │   ├── sandbox/
 │   │   ├── .env
 │   │   ├── config.json
 │   │   ├── device.json
 │   │   ├── device_token
+│   │   ├── gateway.lock              # per-profile advisory lock
 │   │   ├── paired.json
 │   │   └── skills.lock
 │   └── developer/                    # profile directory
@@ -36,7 +37,9 @@ Each profile is a directory under `~/.chai/profiles/<name>/` containing all trus
 │       ├── config.json
 │       ├── device.json
 │       ├── device_token
-│       └── paired.json
+│       ├── gateway.lock              # per-profile advisory lock
+│       ├── paired.json
+│       └── skills.lock
 └── skills/                           # shared skill package store
 ```
 
@@ -53,6 +56,7 @@ The following resources are **isolated per profile** — each profile has its ow
 | Configuration | `config.json` | Agent entries, providers, channels, gateway settings |
 | Device identity | `device.json`, `device_token` | Signing keys and device material |
 | Channel stores | (varies by channel) | Matrix store default, etc. |
+| Gateway lock | `gateway.lock` | Advisory lock file (see Gateway Lock below) |
 | Pairing | `paired.json` | Pairing state for this profile's trust domain |
 | Skill lockfile | `skills.lock` | Pinned skill versions for reproducible restarts (see Skill Lockfile below) |
 
@@ -64,7 +68,6 @@ The following resources are **shared across all profiles**:
 |----------|----------|-------|
 | Active symlink | `~/.chai/active` | Points to the persistent default profile |
 | Skill packages | `~/.chai/skills/` | Only package store; per-agent enablement selects subsets (see [AGENTS.md](AGENTS.md)) |
-| Gateway lock | `~/.chai/gateway.lock` | Advisory lock file (see Gateway Lock below) |
 | Desktop config | `~/.chai/desktop.json` | Desktop appearance and log settings (see [DESKTOP.md](DESKTOP.md)) |
 
 ## Active Profile Resolution
@@ -74,29 +77,28 @@ The **active profile** determines which profile directory the gateway loads at s
 | Precedence | Source | Scope | Updates `active`? |
 |------------|--------|-------|-------------------|
 | 1 | CLI `--profile` flag (`chai gateway --profile <name>`, `chai chat --profile <name>`) | Current process only | No |
-| 2 | `CHAI_PROFILE` environment variable (profile name, e.g. `assistant`) | Current process only | No |
-| 3 | `~/.chai/active` symlink → `profiles/<name>/` | Persistent default | Set by `chai profile switch` |
+| 2 | `~/.chai/active` symlink → `profiles/<name>/` | Persistent default | Set by `chai profile switch` |
 
 ### Error Rules
 
-- When resolution falls through to the symlink (no CLI override and no `CHAI_PROFILE`): if `active` is **missing**, **broken**, or points at a **non-existent or invalid** profile path, the runtime **fails** — it does not silently default to `assistant`.
-- When the profile name comes from CLI or `CHAI_PROFILE`, the runtime validates that `~/.chai/profiles/<name>/` exists. Invalid name produces the same class of error.
-- One-shot invocations that fully specify the profile via CLI or `CHAI_PROFILE` need not read `active`; they still require a valid `profiles/<name>/` on disk.
+- When resolution falls through to the symlink (no CLI override): if `active` is **missing**, **broken**, or points at a **non-existent or invalid** profile path, the runtime **fails** — it does not silently default to `assistant`.
+- When the profile name comes from CLI `--profile`, the runtime validates that `~/.chai/profiles/<name>/` exists. Invalid name produces the same class of error.
 
 ## Gateway Lock
 
-A single gateway process is allowed per Chai installation. This is enforced via an **advisory exclusive lock** on `~/.chai/gateway.lock`:
+One gateway process is allowed **per profile**. This is enforced via **per-profile advisory exclusive locks** on `~/.chai/profiles/<name>/gateway.lock`:
 
+- Each profile has its own `gateway.lock` file inside its profile directory.
 - The file holds the profile name and PID for human inspection.
-- The gateway takes a non-blocking advisory exclusive lock using `fs2` (portable `flock` / `LockFileEx` semantics) at startup. If the lock is already held, the gateway fails to start.
-- A second `chai gateway` invocation checks the same lock and fails if a gateway is already running.
+- The gateway takes a non-blocking advisory exclusive lock using `fs2` (portable `flock` / `LockFileEx` semantics) at startup. If the lock for that profile is already held, the gateway fails to start.
+- A second `chai gateway --profile <name>` invocation checks the same per-profile lock and fails if a gateway is already running for that profile.
 - The lock releases when the gateway process exits (including `kill -9` on Unix once the fd closes).
+- Multiple gateways can run simultaneously on different profiles, each holding its own independent lock.
 
 This lock prevents:
-- Concurrent gateway starts racing a check-then-write pattern
-This lock prevents:
-- Concurrent gateway starts racing a check-then-write pattern
-- Profile switching while a gateway is running (see Switching below)
+- Concurrent gateway starts on the same profile racing a check-then-write pattern
+
+Profile switching is always allowed — it only updates the `~/.chai/active` symlink. The per-profile gateway lock prevents starting a second gateway on the same profile, but does not restrict which profile is active.
 
 ## Skill Lockfile
 
@@ -145,21 +147,21 @@ Developer → assistant promotion: both profiles reference the same `versions/<h
 
 ## Profile Switching
 
-Switching the active profile requires **stopping the gateway** and **restarting** it under the new profile.
+Switching the active profile updates the `~/.chai/active` symlink. Profile switching is always allowed regardless of whether a gateway is running on any profile — the per-profile gateway lock prevents starting a second gateway on the same profile, but does not restrict which profile is active.
 
 ### `chai profile` Subcommands
 
 | Subcommand | Behavior |
 |------------|----------|
 | `list` | Lists profile directories found under `~/.chai/profiles/` |
-| `current` | Shows the persistent profile name from `~/.chai/active`. If `CHAI_PROFILE` is set and selects a different profile, prints both persistent and effective, labeling effective as coming from `CHAI_PROFILE`. When they match, one line is sufficient. |
-| `switch <name>` | Rewrites `~/.chai/active` to point at `profiles/<name>/`. **Fails if the gateway is running** (checks the advisory lock on `gateway.lock`). |
+| `current` | Shows the persistent profile name from `~/.chai/active`. |
+| `switch <name>` | Rewrites `~/.chai/active` to point at `profiles/<name>/`. Always succeeds (no gateway running check). |
 
 ### Desktop
 
-The desktop header shows the persistent active profile name. A ComboBox allows switching `~/.chai/active` when the gateway is **not** running (same lock rule as CLI). Profile switching is **disabled** when the gateway is running.
+The desktop header shows the persistent active profile name. A ComboBox allows switching `~/.chai/active` — the switch is always allowed regardless of whether any gateway is running.
 
-When the gateway is running, the desktop resolves the **effective profile** using the same precedence as CLI (`CHAI_PROFILE` → `gateway.lock` → `~/.chai/active`). If the effective profile differs from the persistent symlink, the ComboBox is disabled and an amber label indicates which profile the gateway is using. When the desktop spawns the gateway, the effective profile is passed via `--profile` so both use the same configuration.
+When the gateway is running on a different profile than the active one (detected by scanning per-profile lock files), an amber label indicates which profile the gateway is using. When the desktop spawns the gateway, the active profile is passed via `--profile` so both use the same configuration.
 
 ## Initialization
 

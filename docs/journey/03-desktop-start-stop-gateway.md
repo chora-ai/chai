@@ -36,7 +36,7 @@
 ## If Something Fails
 
 - **Desktop window does not open** — Check that the desktop binary is built (`cargo build -p desktop`) and your display is available (Wayland/X11). Run from a terminal to see error output.
-- **"Start gateway" shows an error** — The gateway spawn may have failed. Common causes: Ollama not running, config error in `config.json`, or another gateway already running (stale `~/.chai/gateway.lock`). Check the desktop error text and the config file.
+- **"Start gateway" shows an error** — The gateway spawn may have failed. Common causes: Ollama not running, config error in `config.json`, or another gateway already running on the same profile (stale `~/.chai/profiles/<name>/gateway.lock`). Check the desktop error text and the config file.
 - **Status stays "stopped" after clicking "Start"** — The gateway process may have exited immediately. Run `chai gateway` from a terminal to see the error output directly.
 - **"Stop gateway" does not stop it** — The desktop can only stop the gateway process it started. If the gateway was started externally (CLI), use the CLI terminal's Ctrl+C.
 - **Desktop does not detect an external gateway** — The detection probes the configured `gateway.bind`:`gateway.port` (default `127.0.0.1:15151`) at ~1 s intervals. If the external gateway uses a different port or bind, the desktop will not detect it.
