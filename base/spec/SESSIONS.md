@@ -338,7 +338,7 @@ When the user clicks a persisted session not in the local `session_messages` map
 
 1. Sets `loading_session_id` and triggers a `sessions.history` RPC.
 2. Shows "Loading session history…" in the chat area while the fetch is in flight.
-3. Converts the returned `SessionMessage` array to desktop `ChatMessage` objects — empty assistant messages are skipped, and assistant progress text is emitted before tool call entries (matching live event stream order).
+3. Converts the returned `SessionMessage` array to desktop `ChatMessage` objects — assistant messages with `toolCalls` are decomposed: text content is emitted as one `ChatMessage`, each tool call is emitted as a separate `tool_call` entry, and tool result messages are emitted as `tool_result` entries. A merge pass matches each `tool_result` to the next unmatched `tool_call` by tool name and merges the result into the call entry; merged `tool_result` entries are removed. This produces the same granular format as live sessions (🔧 icons, tool names, collapsible arguments and results). Empty assistant messages are skipped, and assistant progress text is emitted before tool call entries (matching live event stream order).
 4. Populates `session_messages[session_id]` with the converted messages.
 
 This is a lazy-load pattern: sessions are listed with metadata only, and full history is loaded on demand.

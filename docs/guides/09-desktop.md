@@ -40,7 +40,7 @@ The sidebar provides navigation between screens:
 
 ## Profile Management
 
-The header includes a profile selector dropdown. Switching profiles changes the `~/.chai/active` symlink and updates all UI screens to reflect the new profile's configuration. Profile switching is always allowed regardless of whether a gateway is running. The desktop stores per-profile gateway state, so switching between profiles with running gateways preserves session state and chat history. Available profiles are listed from `~/.chai/profiles/`.
+The header includes a profile selector dropdown. Switching profiles changes the `~/.chai/active` symlink and updates all UI screens to reflect the new profile's configuration. Profile switching is always allowed regardless of whether a gateway is running. When switching, the desktop resets the new profile's gateway state (sessions, chat messages, orchestrator selection) to prevent stale data from leaking across profiles — only the owned gateway subprocess is preserved. Available profiles are listed from `~/.chai/profiles/`.
 
 ## Session Management
 
@@ -59,7 +59,7 @@ The right-side sessions panel lists all persisted sessions for the active profil
 
 | Action | How |
 |--------|-----|
-| **Resume a session** | Click the session in the sidebar. Its full history loads on demand. |
+| **Resume a session** | Click the session in the sidebar. Its full history loads on demand, including tool calls rendered with 🔧 icons, tool names, and collapsible arguments/results — the same rendering as live sessions. |
 | **Delete a session** | Click the "×" button on the right side of the session row. The session is removed from the sidebar immediately. |
 | **Clear all sessions** | Click **Clear all sessions** at the bottom of the sidebar, then confirm. |
 | **Start a new session** | Click **New session** at the top of the sidebar (always visible, regardless of whether a session is active). |
@@ -68,7 +68,7 @@ Channel-bound sessions (e.g. from Telegram) are read-only from the desktop — y
 
 ### Agent Selector
 
-When multiple orchestrators are configured, the right sidebar shows an "Agent" ComboBox above the session list. Selecting a different orchestrator updates the sessions list and the provider/model defaults. The ComboBox is disabled when only one orchestrator is configured or during an active agent turn.
+When multiple orchestrators are configured, the right sidebar shows an "Agent" ComboBox above the session list. Selecting a different orchestrator updates the sessions list and the provider/model defaults. The ComboBox is disabled when only one orchestrator is configured, during an active agent turn, or while the gateway is starting up (before status is received). During the loading state, the agent, provider, and model selectors show config-based defaults and are all disabled — they become enabled once the gateway status is available.
 
 ### Model and Provider Selection
 

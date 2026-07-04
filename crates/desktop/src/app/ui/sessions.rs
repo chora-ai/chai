@@ -101,20 +101,14 @@ pub fn sessions_panel(app: &mut ChaiApp, ctx: &egui::Context, running: bool) {
 
                     // ── Agent selector ──
                     section_heading(ui, "Agent");
-                    let orchestrator_ids: Vec<String> = app
-                        .gateway_status()
-                        .map(|gs| gs.orchestrators.iter().map(|o| o.id.clone()).collect())
-                        .unwrap_or_default();
-                    let active_id = app
-                        .active_orchestrator_id()
-                        .map(|s| s.as_str())
-                        .or_else(|| orchestrator_ids.first().map(|s| s.as_str()))
-                        .unwrap_or("orchestrator")
-                        .to_string();
-                    // Disable when: not running or a chat turn is in progress.
+                    let orchestrator_ids = app.effective_orchestrator_ids();
+                    let active_id = app.effective_active_orchestrator_id();
+                    // Disable when: not running, a chat turn is in progress, or no
+                    // orchestrator options are available (empty config + no status).
                     let combo_enabled = running
                         && app.chat_turn_receiver().is_none()
-                        && !app.chat_stopping();
+                        && !app.chat_stopping()
+                        && !orchestrator_ids.is_empty();
 
                     let mut selected_id = active_id.clone();
                     ui.add_enabled_ui(combo_enabled, |ui| {

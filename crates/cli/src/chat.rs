@@ -9,7 +9,7 @@ struct AgentReply {
 }
 
 /// Same copy as desktop chat **`/help`** (see `crates/desktop/src/app.rs`).
-const CHAT_HELP_TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
+const CHAT_HELP_TEXT: &str = "Available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
 
 /// Same acknowledgment as desktop **`/new`** (see `crates/desktop/src/app.rs`).
 const CHAT_NEW_SESSION_ACK: &str =

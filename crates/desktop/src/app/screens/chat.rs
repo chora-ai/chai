@@ -125,7 +125,17 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                         let orch_id = app.active_orchestrator_id().map(|s| s.as_str());
                         s.default_model_for(orch_id).map(String::from)
                     })
-                    .or_else(|| app.default_model().cloned());
+                    .or_else(|| app.default_model().cloned())
+                    .or_else(|| {
+                        // Config-based fallback: default model for the first orchestrator
+                        // (same source as the provider combobox's config-based default).
+                        app.load_config_cached().ok().map(|(c, _)| {
+                            let (_, model) = lib::config::resolve_effective_provider_and_model(
+                                &c.providers, &c.agents,
+                            );
+                            model
+                        })
+                    });
 
                 // Determine if this provider is a hosted API (remote endpoint that may not support
                 // model discovery but still has models available). Local providers (ollama,
@@ -199,6 +209,21 @@ pub fn ui_chat_screen(app: &mut ChaiApp, ui: &mut egui::Ui, running: bool) {
                                     }
                                 }
                             });
+                    });
+                } else {
+                    // Show disabled model combobox with config-based default when no
+                    // models are available yet (e.g. gateway running but status not
+                    // received). This keeps all three comboboxes (agent, provider, model)
+                    // visible and consistently disabled during the loading state, and
+                    // shows the config-based default model to match the provider combobox.
+                    let placeholder_model = effective_default_model
+                        .as_deref()
+                        .unwrap_or("—");
+                    ui.add_space(8.0);
+                    ui.add_enabled_ui(false, |ui| {
+                        egui::ComboBox::from_id_source("model_select")
+                            .selected_text(placeholder_model)
+                            .show_ui(ui, |_ui| {});
                     });
                 }
 

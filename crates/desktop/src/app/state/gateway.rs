@@ -20,6 +20,13 @@ impl ChaiApp {
             .and_then(|gw| gw.probe_receiver.as_ref())
             .and_then(|rx| rx.try_recv().ok());
         if let Some(ok) = probe_rx {
+            // When the TCP probe succeeds, verify the active profile actually
+            // has a running gateway. If two profiles share the same port
+            // (e.g. both default to 15151), a probe for profile B would
+            // succeed because profile A's gateway is bound to that port.
+            // Without this check, the desktop would treat profile A's gateway
+            // as profile B's, showing the wrong agents and sessions.
+            let ok = ok && self.running_profiles.iter().any(|p| *p == self.profile_active);
             let need_invalidate;
             {
                 let gw = self.gw();
@@ -1575,33 +1582,111 @@ pub(crate) fn fetch_sessions_history(
                         .and_then(|v| v.as_str())
                         .unwrap_or("")
                         .to_string();
-                    let tool_calls = entry
-                        .get("toolCalls")
-                        .and_then(|v| v.as_array())
-                        .cloned();
-                    let tool_results = entry
-                        .get("toolResults")
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter()
-                                .filter_map(|v| v.as_str().map(String::from))
-                                .collect::<Vec<_>>()
-                        })
-                        .filter(|v: &Vec<String>| !v.is_empty());
-                    messages.push(super::super::ChatMessage {
-                        role,
-                        content,
-                        tool_calls,
-                        tool_results,
-                        delegation_event: None,
-                        tool_name: None,
-                        tool_args: None,
-                        tool_result: None,
-                        tool_index: None,
-                        source: None,
-                        pending_tool_calls: None,
-                    });
+
+                    if role == "assistant" {
+                        // Assistant message: emit the text content, then decompose
+                        // inline toolCalls into separate tool_call entries so the
+                        // chat renderer shows collapsible tool entries with name,
+                        // args, and results — matching the live session experience.
+                        let tool_calls_arr = entry
+                            .get("toolCalls")
+                            .and_then(|v| v.as_array());
+                        let has_tool_calls = tool_calls_arr
+                            .map(|a| !a.is_empty())
+                            .unwrap_or(false);
+                        // Emit assistant text message (skip if content is empty and
+                        // there are tool calls — the renderer skips empty assistant
+                        // frames anyway, and an empty frame with tool_calls that
+                        // aren't rendered inline adds no value).
+                        if !content.trim().is_empty() || !has_tool_calls {
+                            messages.push(super::super::ChatMessage {
+                                role: role.clone(),
+                                content,
+                                tool_calls: None, // cleared: tool calls are separate entries
+                                tool_results: None,
+                                delegation_event: None,
+                                tool_name: None,
+                                tool_args: None,
+                                tool_result: None,
+                                tool_index: None,
+                                source: None,
+                                pending_tool_calls: None,
+                            });
+                        }
+                        if has_tool_calls {
+                            if let Some(calls) = tool_calls_arr {
+                                for (idx, call) in calls.iter().enumerate() {
+                                    let fn_obj = call.get("function");
+                                    let tool_name = fn_obj
+                                        .and_then(|f| f.get("name"))
+                                        .and_then(|n| n.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string();
+                                    let tool_args = fn_obj
+                                        .and_then(|f| f.get("arguments"))
+                                        .cloned();
+                                    messages.push(super::super::ChatMessage {
+                                        role: "tool_call".to_string(),
+                                        content: String::new(),
+                                        tool_calls: None,
+                                        tool_results: None,
+                                        delegation_event: None,
+                                        tool_name: Some(tool_name),
+                                        tool_args: tool_args,
+                                        tool_result: None,
+                                        tool_index: Some(idx),
+                                        source: None,
+                                        pending_tool_calls: None,
+                                    });
+                                }
+                            }
+                        }
+                    } else if role == "tool" {
+                        // Tool result message: read toolName from the server
+                        // response and emit as a tool_result entry so the
+                        // renderer can merge it into the matching tool_call.
+                        let tool_name = entry
+                            .get("toolName")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown")
+                            .to_string();
+                        messages.push(super::super::ChatMessage {
+                            role: "tool_result".to_string(),
+                            content: String::new(),
+                            tool_calls: None,
+                            tool_results: None,
+                            delegation_event: None,
+                            tool_name: Some(tool_name),
+                            tool_args: None,
+                            tool_result: Some(content),
+                            tool_index: None, // resolved below
+                            source: None,
+                            pending_tool_calls: None,
+                        });
+                    } else {
+                        // User, system, or other roles — pass through as-is.
+                        messages.push(super::super::ChatMessage {
+                            role,
+                            content,
+                            tool_calls: None,
+                            tool_results: None,
+                            delegation_event: None,
+                            tool_name: None,
+                            tool_args: None,
+                            tool_result: None,
+                            tool_index: None,
+                            source: None,
+                            pending_tool_calls: None,
+                        });
+                    }
                 }
+
+                // Merge tool results into their corresponding tool_call entries.
+                // Walk the message list: for each tool_result, find the most
+                // recent unmatched tool_call (same tool_name, no result yet) in
+                // the current turn (after the last user message).
+                merge_tool_results_into_calls(&mut messages);
+
                 return Ok(super::super::SessionHistory {
                     id,
                     messages,
@@ -1832,4 +1917,65 @@ pub(crate) fn fetch_sessions_delete_all(
         }
         Err("no sessions.delete_all response".to_string())
     })
+}
+
+/// Merge tool results into their corresponding tool_call entries for historical
+/// session display. The server stores tool calls and results as separate messages
+/// (assistant with toolCalls, then tool with toolName + content). After
+/// decomposing them into `tool_call` and `tool_result` ChatMessage entries, this
+/// function matches each tool_result to the next unmatched tool_call with the
+/// same tool_name in the current turn, and moves the result into the tool_call
+/// entry — matching the live session event merge logic in `poll_session_events`.
+/// Merged tool_result entries are removed from the message list.
+fn merge_tool_results_into_calls(messages: &mut Vec<super::super::ChatMessage>) {
+    // Collect tool_call positions per tool_name, in document order.
+    let tool_calls_by_name: std::collections::HashMap<String, Vec<usize>> = {
+        let mut map: std::collections::HashMap<String, Vec<usize>> =
+            std::collections::HashMap::new();
+        for (i, m) in messages.iter().enumerate() {
+            if m.role == "tool_call" {
+                if let Some(ref name) = m.tool_name {
+                    map.entry(name.clone()).or_default().push(i);
+                }
+            }
+        }
+        map
+    };
+
+    // Collect merge operations: (tool_result_position, tool_call_position, result_content).
+    let mut merges: Vec<(usize, usize, String)> = Vec::new();
+    let mut next_call_idx: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for (i, m) in messages.iter().enumerate() {
+        if m.role != "tool_result" {
+            continue;
+        }
+        let tool_name = match m.tool_name.as_ref() {
+            Some(n) => n.clone(),
+            None => continue,
+        };
+        let result_content = m.tool_result.clone().unwrap_or_default();
+        let call_positions = match tool_calls_by_name.get(&tool_name) {
+            Some(p) => p,
+            None => continue,
+        };
+        let idx = next_call_idx.entry(tool_name.clone()).or_insert(0);
+        if *idx < call_positions.len() {
+            let call_pos = call_positions[*idx];
+            merges.push((i, call_pos, result_content));
+            *idx += 1;
+        }
+    }
+
+    // Apply merges: write results into tool_call entries.
+    for (_, call_pos, result_content) in &merges {
+        messages[*call_pos].tool_result = Some(result_content.clone());
+    }
+
+    // Remove merged tool_result entries (reverse order to preserve indices).
+    let mut to_remove: Vec<usize> = merges.iter().map(|(pos, _, _)| *pos).collect();
+    to_remove.sort_unstable();
+    for &pos in to_remove.iter().rev() {
+        messages.remove(pos);
+    }
 }

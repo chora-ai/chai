@@ -510,6 +510,39 @@ impl ChaiApp {
         self.gw_ref().and_then(|gw| gw.active_orchestrator_id.as_ref())
     }
 
+    /// Effective orchestrator IDs: from gateway status when available, otherwise from config.
+    /// Used by the agent combobox to show meaningful options even before the status response
+    /// arrives (e.g. after gateway restart).
+    pub fn effective_orchestrator_ids(&mut self) -> Vec<String> {
+        // Prefer live gateway status when available.
+        if let Some(gs) = self.gateway_status() {
+            if !gs.orchestrators.is_empty() {
+                return gs.orchestrators.iter().map(|o| o.id.clone()).collect();
+            }
+        }
+        // Fall back to config-based orchestrator IDs.
+        self.load_config_cached()
+            .map(|(c, _)| c.agents.orchestrators.iter().map(|o| o.id.clone()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Effective active orchestrator id: from runtime state, then status, then config default.
+    /// Provides a consistent display label for the agent combobox regardless of loading state.
+    pub fn effective_active_orchestrator_id(&mut self) -> String {
+        // 1. Runtime state (set by user selection or reconcile_dashboard_agent_selection).
+        if let Some(id) = self.active_orchestrator_id() {
+            return id.clone();
+        }
+        // 2. Gateway status (first orchestrator from running gateway).
+        if let Some(id) = self.gateway_status().and_then(|s| s.orchestrator_id()) {
+            return id.to_string();
+        }
+        // 3. Config default (first orchestrator in config).
+        self.load_config_cached()
+            .map(|(c, _)| c.agents.default_orchestrator().id.clone())
+            .unwrap_or_else(|_| "orchestrator".to_string())
+    }
+
     /// Active profile's dashboard agent id.
     pub fn dashboard_agent_id(&self) -> Option<&String> {
         self.gw_ref().and_then(|gw| gw.dashboard_agent_id.as_ref())
@@ -751,9 +784,6 @@ impl ChaiApp {
         gw.chat_session_id = None;
         gw.selected_session_id = None;
         gw.chat_messages.clear();
-        gw.chat_messages.push(ChatMessage::system(
-            "New Session. Next message will start with a clean history.".to_string(),
-        ));
     }
 
     /// After **`status`** refresh, keep **Agent** / **Tools** / **Skills** agent selection valid.
@@ -838,6 +868,59 @@ impl ChaiApp {
         }
 
         self.profile_active = name;
+
+        // Reset the new profile's gateway runtime state so that stale data
+        // from a previous visit does not leak across profile switches.
+        // In particular, if two profiles share the same port and the desktop
+        // previously connected to the wrong gateway, the old status and
+        // orchestrator ids would persist and show incorrect agents.
+        // The only field intentionally preserved is `process` (the owned
+        // gateway subprocess) — that is real infrastructure state, not
+        // derived from the gateway connection.
+        if let Some(gw) = self.gateways.get_mut(&self.profile_active) {
+            gw.responds = false;
+            gw.probe_completed = false;
+            gw.probe_receiver = None;
+            gw.frames_since_probe = 0;
+            gw.status = None;
+            gw.status_fetch_ever_failed = false;
+            gw.status_receiver = None;
+            gw.frames_since_status = 0;
+            gw.logs_receiver = None;
+            gw.frames_since_logs = 0;
+            gw.logs_cursor = 0;
+            gw.active_orchestrator_id = None;
+            gw.dashboard_agent_id = None;
+            gw.agent_detail_cache.clear();
+            gw.agent_detail_fetch_error = None;
+            gw.agent_detail_receiver = None;
+            gw.agent_detail_requested_id = None;
+            gw.was_running = false;
+            gw.was_stopped_by_user = false;
+            gw.current_provider = None;
+            gw.current_model = None;
+            gw.default_model = None;
+            gw.session_events_receiver = None;
+            gw.sessions_list_fetched = false;
+            gw.sessions_list_receiver = None;
+            gw.sessions_delete_receiver = None;
+            gw.sessions_delete_all_receiver = None;
+            gw.sessions_history_receiver = None;
+            gw.loading_session_id = None;
+            gw.chat_session_id = None;
+            gw.chat_messages.clear();
+            gw.chat_turn_receiver = None;
+            gw.chat_stopping = false;
+            gw.pending_user_message = None;
+            gw.chat_turn_is_new_session = false;
+            gw.stop_receiver = None;
+            gw.session_messages.clear();
+            gw.session_summaries.clear();
+            gw.session_order.clear();
+            gw.selected_session_id = None;
+            gw.show_clear_all_confirm = false;
+        }
+
         self.invalidate_enabled_providers_cache();
         self.invalidate_config_cache();
         self.invalidate_desktop_config_cache();
@@ -1286,7 +1369,7 @@ impl ChaiApp {
 
     /// Append the same text as the **`/help`** command to the active chat session.
     pub(crate) fn show_chat_help(&mut self) {
-        const TEXT: &str = "available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
+        const TEXT: &str = "Available commands:\n\n/new - start a new session (clear conversation history)\n/help - show this help message";
         let msg = ChatMessage::system(TEXT.to_string());
         let sid = self.gw_ref().and_then(|gw| gw.chat_session_id.clone());
         if let Some(sid) = sid {
@@ -1475,12 +1558,17 @@ impl ChaiApp {
             }
         }
 
-        // Trigger a fetch when the gateway is running and we haven't fetched yet.
+        // Trigger a fetch when the gateway is running, we haven't fetched yet, and
+        // we know the active orchestrator (resolved from the status response). Without
+        // this guard, the fetch fires before active_orchestrator_id is set after a
+        // gateway restart, sending sessions.list with no orchestratorId and returning
+        // sessions for the wrong (default) orchestrator.
         let should_fetch = {
             let gw = self.gw();
             gw.responds
                 && !gw.sessions_list_fetched
                 && gw.sessions_list_receiver.is_none()
+                && gw.active_orchestrator_id.is_some()
         };
         if should_fetch {
             let (tx, rx) = mpsc::channel();
