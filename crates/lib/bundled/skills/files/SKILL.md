@@ -13,6 +13,6 @@ metadata:
 
 ## Skill Guidelines
 
-- When making an edit to a large file, use `files_write_lines` instead of `files_write`
-- When making multiple `files_write_lines` edits in the same file, work from bottom to top
-- When using `files_replace` with common patterns, use `dry_run: true` to preview changes
+- When making an edit to a file, use `files_write` with `start_line` and `original_content`
+- When making multiple edits in the same file with `files_write`, work from bottom to top
+- When using `files_replace` with a common pattern, use `dry_run: true` to preview changes

@@ -614,7 +614,13 @@ mod tests {
                 "tool": "files_read",
                 "binary": "cat",
                 "subcommand": "",
-                "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+                "args": [
+                    {
+                        "param": "path",
+                        "kind": "positional",
+                        "readPath": true
+                    }
+                ],
                 "successExitCodes": [1]
             }
         ]"#;

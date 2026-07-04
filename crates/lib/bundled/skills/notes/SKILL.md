@@ -12,6 +12,6 @@ metadata:
 
 ## Skill Guidelines
 
-- When making an edit to a large note, use `notes_write_lines` instead of `notes_write`
-- When making multiple `notes_write_lines` edits in the same note, work from bottom to top
-- When using `notes_replace` with common patterns, use `dry_run: true` to preview changes
+- When making an edit to a note, use `notes_write` with `start_line` and `original_content`
+- When making multiple edits in the same note with `notes_write`, work from bottom to top
+- When using `notes_replace` with a common pattern, use `dry_run: true` to preview changes

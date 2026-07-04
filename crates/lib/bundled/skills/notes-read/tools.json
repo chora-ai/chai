@@ -9,20 +9,6 @@
         "path": {
           "type": "string",
           "description": "Note path relative to the sandbox root"
-        }
-      }
-    }
-  },
-  {
-    "name": "notes_read_lines",
-    "description": "Read a range of lines from a note.",
-    "parameters": {
-      "type": "object",
-      "required": ["path", "start_line"],
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "Note path relative to the sandbox root"
         },
         "start_line": {
           "type": "integer",
@@ -30,7 +16,7 @@
         },
         "end_line": {
           "type": "integer",
-          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
+          "description": "Line number to end reading at (1-indexed, inclusive)."
         }
       }
     }

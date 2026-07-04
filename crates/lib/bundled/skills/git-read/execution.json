@@ -35,7 +35,12 @@
         "optional": true,
         "absentDefault": "10"
       },
-      { "param": "skip", "kind": "flag", "flag": "skip", "optional": true },
+      {
+        "param": "skip",
+        "kind": "flag",
+        "flag": "skip",
+        "optional": true
+      },
       {
         "param": "oneline",
         "kind": "flagifboolean",
@@ -71,7 +76,11 @@
         "kind": "flagifboolean",
         "flagIfTrue": "--cached"
       },
-      { "param": "ref", "kind": "positional", "optional": true },
+      {
+        "param": "ref",
+        "kind": "positional",
+        "optional": true
+      },
       {
         "param": "path",
         "kind": "positional",
@@ -103,7 +112,11 @@
     "binary": "chai",
     "subcommand": "git diff-lines",
     "args": [
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line"
+      },
       {
         "param": "end_line",
         "kind": "flag",
@@ -115,8 +128,18 @@
         "kind": "flagifboolean",
         "flagIfTrue": "--staged"
       },
-      { "param": "ref", "kind": "flag", "flag": "ref", "optional": true },
-      { "param": "path", "kind": "flag", "flag": "path", "optional": true },
+      {
+        "param": "ref",
+        "kind": "flag",
+        "flag": "ref",
+        "optional": true
+      },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "optional": true
+      },
       {
         "param": "repo",
         "kind": "flag",
@@ -131,7 +154,10 @@
     "binary": "git",
     "subcommand": "show",
     "args": [
-      { "param": "ref", "kind": "positional" },
+      {
+        "param": "ref",
+        "kind": "positional"
+      },
       {
         "param": "repo",
         "kind": "workingdir",
@@ -151,14 +177,22 @@
     "binary": "chai",
     "subcommand": "git show-lines",
     "args": [
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line"
+      },
       {
         "param": "end_line",
         "kind": "flag",
         "flag": "end-line",
         "optional": true
       },
-      { "param": "ref", "kind": "flag", "flag": "ref" },
+      {
+        "param": "ref",
+        "kind": "flag",
+        "flag": "ref"
+      },
       {
         "param": "repo",
         "kind": "flag",
@@ -173,7 +207,11 @@
     "binary": "git",
     "subcommand": "branch",
     "args": [
-      { "param": "all", "kind": "flagifboolean", "flagIfTrue": "--all" },
+      {
+        "param": "all",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--all"
+      },
       {
         "param": "repo",
         "kind": "workingdir",

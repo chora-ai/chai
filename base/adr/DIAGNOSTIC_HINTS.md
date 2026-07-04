@@ -14,7 +14,7 @@ During the Round 3 skills audit, two bug fixes in `files_replace` demonstrated a
 
 2. **Regex error suggestion**: When `files_replace` encounters a regex parse error, the error message suggests using `literal: true`. This reduced the need for agents to pre-emptively know about literal mode.
 
-3. **Line-diff hint in `verify_original`**: When `files_write_lines` rejects an `original_content` mismatch (after all five validation stages fail), the error message includes a line-diff hint identifying the first line that differs between expected and actual content (e.g., `hint: first difference at line 2 of the content (file line 5) — expected: "c", actual: ""`). File line numbers allow the agent to cross-reference with `files_read` output. This replaced the previous byte-offset-only hint, which was difficult to map to line boundaries.
+3. **Line-diff hint in `verify_original`**: When `files_write` (surgical edit mode) rejects an `original_content` mismatch (after all five validation stages fail), the error message includes a line-diff hint identifying the first line that differs between expected and actual content (e.g., `hint: first difference at line 2 of the content (file line 5) — expected: "c", actual: ""`). File line numbers allow the agent to cross-reference with `files_read` output. This replaced the previous byte-offset-only hint, which was difficult to map to line boundaries.
 
 In both cases, the tool teaches the agent at the point of failure, rather than requiring preemptive instruction. The agent receives guidance exactly when needed, at zero cost when the situation doesn't arise.
 
@@ -73,14 +73,14 @@ Binary-level hints are not acceptable when:
 |-----------|-----------|---------|
 | Output contains a known error string | `hintConditions` `match` | git's "not a git repository" → hint about specifying a valid repo path |
 | Command exits with a specific code | `hintConditions` `exitCode` + `successExitCodes` | grep exit 1 (no matches) → hint about broader pattern |
-| Output is non-empty (search results) | `hintConditions` `notEmpty` | `files_search` has matches → hint about using `files_read_lines` |
+| Output is non-empty (search results) | `hintConditions` `notEmpty` | `files_search` has matches → hint about using `files_read` with `start_line` |
 | Hint depends on a parameter value | `hintConditions` `whenArg` | `git_diff` with `ref: "main"` → hint about changes since diverging |
 | Hint text includes a parameter value | `hintConditions` `{param}` template | `git_reset` → "reset to {ref} — use git_status" |
 | Hint requires output transformation | `postProcess` script | cargo check filtering progress lines, classifying errors |
 | Hint runs an external command | `postProcess` script | `skills_validate` running `chai skill validate` |
 | Hint requires comparing data not in output | Binary-level | `files_replace` leading-whitespace normalization check |
 | Hint is embedded in the binary's error message | Binary-level | `files_replace` regex error suggesting `literal: true` |
-| Hint requires comparing expected vs actual content line-by-line | Binary-level | `files_write_lines` line-diff hint in `verify_original` error |
+| Hint requires comparing expected vs actual content line-by-line | Binary-level | `files_write` (surgical edit mode) line-diff hint in `verify_original` error |
 
 When in doubt, start with `hintConditions`. Only escalate to `postProcess` when the condition cannot be expressed as a simple declarative entry, and to binary-level when the script cannot access the information it needs.
 
@@ -120,7 +120,7 @@ When a tool's output exceeds `maxOutputLines`, the executor truncates the non-hi
 | `{kept}` | Number of lines retained after truncation |
 | `{total}` | Total lines before truncation |
 | `{omitted}` | Number of lines omitted (`{total}` − `{kept}`) |
-| `{next_start}` | The 1-indexed line number of the first omitted line (for tools with a continuation tool like `files_read_lines`) |
+| `{next_start}` | The 1-indexed line number of the first omitted line. When output lines are prefixed with line numbers in the format `{number}\t{content}` (e.g. `files_read`), `{next_start}` is derived from the last kept line number + 1. Otherwise, `{next_start}` = `kept + 1` (output-line numbering). |
 
 **Philosophy**: The purpose of truncation is to provide a preview, not to make the agent follow up with another tool call to read the full content. The truncation notice should tell the agent there is more content and how to read it *if necessary*, not imply the agent must read the rest.
 
@@ -128,7 +128,7 @@ When a tool's output exceeds `maxOutputLines`, the executor truncates the non-hi
 
 | Phrasing | Style | Example |
 |----------|-------|---------|
-| ✅ Informational + optional | `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}; omit end_line to read the rest."` | States fact neutrally; "to continue reading" is optional framing |
+| ✅ Informational + optional | `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}."` | States fact neutrally; "to continue reading" is optional framing |
 | ❌ Imperative | `"Use X with start_line: {next_start} to read the remaining lines."` | Implies the agent should follow up, defeating the purpose of truncation |
 
 For tools without a continuation tool (e.g., search tools that return matching lines), the generic notice (`Narrow your query path, pattern, or range to reduce results.`) already uses suggestive phrasing.

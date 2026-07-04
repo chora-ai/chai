@@ -82,11 +82,22 @@ The root is the same `binary → subcommands` map. A standalone security documen
     "tool": "files_read",
     "binary": "cat",
     "subcommand": "",
-    "args": [{ "param": "path", "kind": "positional", "readPath": true }],
+    "args": [
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
+    ],
     "successExitCodes": [1],
-    "hintConditions": [{ "exitCode": "nonzero", "hint": "file not found — use files_list to browse available files" }],
+    "hintConditions": [
+      {
+        "exitCode": "nonzero",
+        "hint": "file not found — use files_list to browse available files"
+      }
+    ],
     "maxOutputLines": 500,
-    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read with start_line: {next_start}."
   }
 ]
 ```

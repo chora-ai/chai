@@ -4,32 +4,19 @@
     "binary": "chai",
     "subcommand": "file read-lines",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "readPath": true
+      },
       {
         "param": "start_line",
         "kind": "flag",
         "flag": "start-line",
         "optional": true,
         "absentDefault": 1
-      }
-    ],
-    "successExitCodes": [1],
-    "hintConditions": [
-      {
-        "exitCode": "nonzero",
-        "hint": "file not found — use files_list to list available files"
-      }
-    ],
-    "maxOutputLines": 500,
-    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read_lines with start_line: {next_start}; omit end_line to read the rest."
-  },
-  {
-    "tool": "files_read_lines",
-    "binary": "chai",
-    "subcommand": "file read-lines",
-    "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      },
       {
         "param": "end_line",
         "kind": "flag",
@@ -43,16 +30,30 @@
         "exitCode": "nonzero",
         "hint": "file not found — use files_list to list available files"
       }
-    ]
+    ],
+    "maxOutputLines": 500,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read with start_line: {next_start}."
   },
   {
     "tool": "files_list",
     "binary": "ls",
     "subcommand": "",
     "args": [
-      { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
-      { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
-      { "param": "path", "kind": "positional", "readPath": true }
+      {
+        "param": "long",
+        "kind": "flagifboolean",
+        "flagIfTrue": "-l"
+      },
+      {
+        "param": "all",
+        "kind": "flagifboolean",
+        "flagIfTrue": "-a"
+      },
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
     ],
     "maxOutputLines": 200,
     "postProcess": {
@@ -80,14 +81,21 @@
         "kind": "flagifboolean",
         "flagIfTrue": "--ignore-case"
       },
-      { "param": "pattern", "kind": "positional" },
-      { "param": "path", "kind": "positional", "readPath": true }
+      {
+        "param": "pattern",
+        "kind": "positional"
+      },
+      {
+        "param": "path",
+        "kind": "positional",
+        "readPath": true
+      }
     ],
     "successExitCodes": [0, 1],
     "hintConditions": [
       {
         "notEmpty": true,
-        "hint": "use files_read_lines to read surrounding context"
+        "hint": "use files_read to read surrounding context"
       }
     ],
     "maxOutputLines": 200
@@ -96,27 +104,54 @@
     "tool": "files_write",
     "binary": "chai",
     "subcommand": "file write",
+    "paramCondition": {
+      "absent": ["start_line", "original_content"]
+    },
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
       {
         "param": "content",
         "kind": "stdin"
+      },
+      {
+        "param": "overwrite",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--overwrite"
       }
     ],
+    "successExitCodes": [1],
     "hintConditions": [
       {
-        "match": "overwriting existing",
-        "hint": "overwrote existing file — verify this was intended"
+        "match": "new file created",
+        "whenArg": { "overwrite": true },
+        "hint": "new file was created (no overwrite necessary, verify this was intended)"
       }
     ]
   },
   {
-    "tool": "files_write_lines",
+    "tool": "files_write",
     "binary": "chai",
     "subcommand": "file patch",
+    "paramCondition": {
+      "present": ["start_line", "original_content"]
+    },
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line"
+      },
       {
         "param": "original_content",
         "kind": "tempfile",
@@ -134,9 +169,21 @@
     "binary": "chai",
     "subcommand": "file replace --line-number",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-      { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
-      { "param": "replacement", "kind": "stdin" },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      },
+      {
+        "param": "pattern",
+        "kind": "tempfile",
+        "flag": "pattern-file"
+      },
+      {
+        "param": "replacement",
+        "kind": "stdin"
+      },
       {
         "param": "literal",
         "kind": "flagifboolean",
@@ -155,11 +202,19 @@
     "binary": "chai",
     "subcommand": "file delete",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      }
     ],
     "successExitCodes": [0],
     "hintConditions": [
-      { "exitCode": 0, "hint": "file deleted — verify this was intended" }
+      {
+        "exitCode": 0,
+        "hint": "file deleted — verify this was intended"
+      }
     ]
   },
   {
@@ -167,7 +222,12 @@
     "binary": "chai",
     "subcommand": "file delete-dir",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true }
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "writePath": true
+      }
     ],
     "successExitCodes": [0],
     "hintConditions": [

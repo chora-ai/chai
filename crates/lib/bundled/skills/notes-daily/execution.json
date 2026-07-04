@@ -16,7 +16,12 @@
       }
     ],
     "successExitCodes": [1],
-    "hintConditions": [{ "exitCode": "nonzero", "hint": "no daily note found for this date — use notes_daily_write to create one" }],
+    "hintConditions": [
+      {
+        "exitCode": "nonzero",
+        "hint": "no daily note found for this date — use notes_daily_write to create one"
+      }
+    ],
     "maxOutputLines": 500
   },
   {
@@ -41,7 +46,10 @@
       }
     ],
     "hintConditions": [
-      { "match": "overwriting existing", "hint": "daily note already exists — consider notes_daily_append to add content instead" }
+      {
+        "match": "overwriting existing",
+        "hint": "daily note already exists — consider notes_daily_append to add content instead"
+      }
     ]
   },
   {
@@ -66,7 +74,10 @@
       }
     ],
     "hintConditions": [
-      { "match": "(created new file)", "hint": "no daily note existed for this date — appended content to a new file; use notes_daily_write to set the full content instead" }
+      {
+        "match": "(created new file)",
+        "hint": "no daily note existed for this date — appended content to a new file; use notes_daily_write to set the full content instead"
+      }
     ]
   }
 ]

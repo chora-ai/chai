@@ -116,6 +116,15 @@ pub(crate) fn apply_hint_conditions(
     result
 }
 
+/// Extract a line number from a line prefixed with `{number}\t{content}`
+/// (the format used by `files_read`, `git_diff_lines`, `git_show_lines`, etc.).
+/// Returns `None` when the line does not start with a number and tab.
+fn extract_line_number(line: &str) -> Option<usize> {
+    let tab_pos = line.find('\t')?;
+    let prefix = &line[..tab_pos];
+    prefix.parse().ok()
+}
+
 /// Truncate tool output to `max_lines` lines, appending a notice when
 /// the output exceeds the limit. The notice includes the total line count
 /// and a hint for narrowing the query. Lines starting with `hint:` are
@@ -129,7 +138,10 @@ pub(crate) fn apply_hint_conditions(
 /// - `{kept}` = non-hint lines shown
 /// - `{total}` = total lines (including hints)
 /// - `{omitted}` = non-hint lines omitted
-/// - `{next_start}` = `kept + 1` (first omitted line)
+/// - `{next_start}` = first omitted line. When output lines are prefixed
+///   with line numbers in the format `{number}\t{content}`, `{next_start}`
+///   is derived from the last kept line number + 1 (so pagination hints
+///   reference the correct file line). Otherwise, `{next_start}` = `kept + 1`.
 pub(crate) fn truncate_output(output: &str, max_lines: usize, truncation_hint: Option<&str>) -> String {
     let lines: Vec<&str> = output.lines().collect();
     let total = lines.len();
@@ -155,7 +167,12 @@ pub(crate) fn truncate_output(output: &str, max_lines: usize, truncation_hint: O
     let mut result = non_hint_lines[..kept].join("\n");
 
     let notice = if let Some(template) = truncation_hint {
-        let next_start = kept + 1;
+        // Derive {next_start} from the last kept line when it has a line-number
+        // prefix (e.g. "501\tcontent" → next_start = 502). Fall back to
+        // output-line numbering (kept + 1) when no prefix is found.
+        let next_start = extract_line_number(non_hint_lines[kept - 1])
+            .map(|n| n + 1)
+            .unwrap_or(kept + 1);
         template
             .replace("{kept}", &kept.to_string())
             .replace("{total}", &total.to_string())
@@ -685,6 +702,66 @@ mod tests {
         let template = "should not appear: {kept}";
         let result = truncate_output(output, 5, Some(template));
         assert_eq!(result, output, "template not applied when no truncation");
+    }
+
+    // --- extract_line_number + truncate_output with line-number prefixes ---
+
+    #[test]
+    fn extract_line_number_parses_tab_prefixed_line() {
+        assert_eq!(extract_line_number("501\tuse std::path::PathBuf;"), Some(501));
+        assert_eq!(extract_line_number("1\thello"), Some(1));
+        assert_eq!(extract_line_number("9999\tlast line"), Some(9999));
+    }
+
+    #[test]
+    fn extract_line_number_returns_none_for_plain_lines() {
+        assert_eq!(extract_line_number("line1"), None);
+        assert_eq!(extract_line_number("no tab here"), None);
+        assert_eq!(extract_line_number(""), None);
+    }
+
+    #[test]
+    fn extract_line_number_returns_none_for_non_numeric_prefix() {
+        assert_eq!(extract_line_number("abc\tcontent"), None);
+        assert_eq!(extract_line_number("12abc\tcontent"), None);
+    }
+
+    #[test]
+    fn truncate_output_next_start_from_line_number_prefix() {
+        // Simulates files_read with start_line: 501 — output lines are prefixed
+        // with file-level line numbers in the format "{number}\t{content}".
+        let mut output = String::new();
+        for i in 501..=630 {
+            if i > 501 { output.push('\n'); }
+            output.push_str(&format!("{}\tcontent line {}", i, i));
+        }
+        // 130 lines total, limit 100 → kept=100, last kept line is "600\t..."
+        let template = "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read with start_line: {next_start}.";
+        let result = truncate_output(&output, 100, Some(template));
+        assert!(result.contains("start_line: 601"), "next_start should be 601 (last kept line number + 1), not 101 (kept + 1)");
+    }
+
+    #[test]
+    fn truncate_output_next_start_from_line_one() {
+        // Simulates files_read from line 1 — truncation should still work correctly.
+        let mut output = String::new();
+        for i in 1..=600 {
+            if i > 1 { output.push('\n'); }
+            output.push_str(&format!("{}\tcontent line {}", i, i));
+        }
+        // 600 lines total, limit 500 → kept=500, last kept line is "500\t..."
+        let template = "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read with start_line: {next_start}.";
+        let result = truncate_output(&output, 500, Some(template));
+        assert!(result.contains("start_line: 501"), "next_start should be 501 when reading from line 1");
+    }
+
+    #[test]
+    fn truncate_output_next_start_falls_back_without_line_numbers() {
+        // Plain lines (no number\t prefix) should fall back to kept + 1.
+        let output = "line1\nline2\nline3\nline4\nline5";
+        let template = "output truncated: {kept} of {total} lines shown; {omitted} lines omitted. Use start_line: {next_start}.";
+        let result = truncate_output(output, 3, Some(template));
+        assert!(result.contains("start_line: 4"), "next_start falls back to kept+1 when no line-number prefix");
     }
 
     // --- apply_hint_conditions + truncate_output interaction ---

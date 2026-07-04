@@ -4,7 +4,10 @@
     "binary": "git",
     "subcommand": "clone",
     "args": [
-      { "param": "url", "kind": "positional" },
+      {
+        "param": "url",
+        "kind": "positional"
+      },
       {
         "param": "path",
         "kind": "positional",
@@ -22,8 +25,16 @@
     "binary": "git",
     "subcommand": "pull",
     "args": [
-      { "param": "remote", "kind": "positional", "optional": true },
-      { "param": "branch_name", "kind": "positional", "optional": true },
+      {
+        "param": "remote",
+        "kind": "positional",
+        "optional": true
+      },
+      {
+        "param": "branch_name",
+        "kind": "positional",
+        "optional": true
+      },
       {
         "param": "repo",
         "kind": "workingdir",
@@ -57,7 +68,11 @@
         "kind": "flagifboolean",
         "flagIfTrue": "--set-upstream"
       },
-      { "param": "remote", "kind": "positional", "optional": true },
+      {
+        "param": "remote",
+        "kind": "positional",
+        "optional": true
+      },
       {
         "param": "branch_name",
         "kind": "positional",

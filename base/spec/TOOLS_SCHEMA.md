@@ -81,13 +81,14 @@ Each element:
 | `subcommand` | string | Subcommand (e.g. `files read`). Must be in `allowlist[binary]`. The value is split by whitespace and each token is prepended before the `args` list when building the command. This allows fixed flags to be encoded as part of the subcommand (e.g. `"-E"` for `grep -E`). |
 | `binaryWrapper` | array of strings (optional) | Wrap the binary invocation through a command prefix (e.g. `["nix", "develop", "--command"]`). When present, the executor constructs `wrapper[0] wrapper[1..] binary subcommand args...` instead of `binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism, not a privilege escalation. Must be a non-empty array when set. Default: not set. |
 | `condition` | object (optional) | Condition that must be satisfied for this execution spec to be selected by the loader. See below. Default: not set. |
+| `paramCondition` | object (optional) | Parameter-based condition for selecting between multiple execution specs with the same tool name at runtime. See below. Default: not set. |
 | `args` | array (optional) | Order of arguments: how each JSON param becomes a CLI arg. |
 | `successExitCodes` | array of integers (optional) | Exit codes to treat as success (in addition to 0). Use when a non-zero exit is a normal result, not an error (e.g. `[0, 1]` for `grep` where exit 1 means no matches). The executor always merges stderr into stdout (appended after stdout with a newline separator) so that `postProcess` hint scripts can inspect diagnostics written to stderr (e.g., compiler warnings). Exit codes not in this list (and not 0) surface as tool errors and bypass `postProcess`. Default: only exit 0 is success. |
 | `postProcess` | object (optional) | Post-process the command's merged output (stdout + stderr) through a script before returning the result to the model. See below. Default: not set. |
 | `hintConditions` | array (optional) | Inline hint conditions evaluated after `postProcess` and before truncation. Each matching condition appends a `hint:` line to the output. See below. Default: not set. |
 | `sideRead` | object (optional) | After the command (and any `postProcess`) completes, look for a file relative to a path parameter and append its contents to the tool result. Silently skipped when the file is absent. See below. Default: not set. |
 | `maxOutputLines` | integer (optional) | Maximum number of output lines to return to the model. When set, output exceeding this limit is truncated and a notice is appended indicating how many lines were omitted. This prevents unbounded tool output (e.g. from `grep` or `git diff`) from exceeding the model's context window. Applies after `postProcess` but before `sideRead` (side-read content is not counted against the limit and is always appended in full). Default: not set (no limit). |
-| `truncationHint` | string (optional) | Per-tool truncation notice template. When set, replaces the generic "Narrow your query path, pattern, or range to reduce results." notice with a tool-specific message. Template variables: `{kept}` = non-hint lines shown, `{total}` = total lines (including hints), `{omitted}` = non-hint lines omitted, `{next_start}` = `kept + 1` (first omitted line). Use `{next_start}` to tell the agent the exact `start_line` to use for pagination via a line-range companion tool. JSON key: `truncationHint`. Default: not set (generic notice). |
+| `truncationHint` | string (optional) | Per-tool truncation notice template. When set, replaces the generic "Narrow your query path, pattern, or range to reduce results." notice with a tool-specific message. Template variables: `{kept}` = non-hint lines shown, `{total}` = total lines (including hints), `{omitted}` = non-hint lines omitted, `{next_start}` = the line number of the first omitted line. When output lines are prefixed with line numbers in the format `{number}\t{content}` (e.g. `files_read`, `git_diff_lines`), `{next_start}` is derived from the last kept line number + 1 — so pagination hints reference the correct file line. Otherwise, `{next_start}` = `kept + 1` (output-line numbering). JSON key: `truncationHint`. Default: not set (generic notice). |
 
 #### `condition` (object)
 
@@ -122,6 +123,46 @@ When multiple execution specs share the same `tool` name but differ in `binaryWr
 ```
 
 With `bins: [["cargo"], ["nix"]]`, if `cargo` is on PATH, group 0 matches and the first spec is selected. If only `nix` is on PATH, group 1 matches and the second (wrapped) spec is selected.
+
+#### `paramCondition` (object)
+
+Parameter-based condition for selecting between multiple execution specs with the same tool name at runtime. Unlike `condition` (which is resolved by the loader at load time based on bin groups), `paramCondition` is resolved by the executor at call time based on which parameters the agent provided.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `present` | array of strings (optional) | Parameter names that must be present (non-null) in the tool call JSON |
+| `absent` | array of strings (optional) | Parameter names that must be absent (or null) from the tool call JSON |
+
+All constraints use AND logic. An entry without `paramCondition` is the default — it matches when no other entry's condition is satisfied.
+
+**Selection rules:**
+
+1. If only one execution spec exists for a tool name, it is always used.
+2. If multiple specs exist, the executor first checks entries with `paramCondition`. If exactly one matches, it is used.
+3. If no `paramCondition` matches, the executor falls back to the default entry (no `paramCondition`).
+4. If multiple `paramCondition` entries match, the tool call is rejected as ambiguous.
+5. If no entry matches (no `paramCondition` matches and no default exists), the executor checks for **partial matches** — entries where at least one `present` parameter was provided but others were missing. When partial matches are found, the error message includes a hint connecting the missing parameters to the provided ones (e.g., `parameter(s) 'original_content' must be provided together with 'start_line'`).
+
+**Example:** A consolidated write tool that routes to different subcommands based on whether surgical-edit parameters are present:
+
+```json
+[
+  {
+    "tool": "files_write",
+    "subcommand": "file write",
+    "paramCondition": { "absent": ["start_line", "original_content"] },
+    "binary": "chai",
+    "args": [...]
+  },
+  {
+    "tool": "files_write",
+    "subcommand": "file patch",
+    "paramCondition": { "present": ["start_line", "original_content"] },
+    "binary": "chai",
+    "args": [...]
+  }
+]
+```
 
 #### `args` (array of arg mapping)
 
@@ -211,7 +252,10 @@ The exit code passed to `hintConditions` is the **main command's exit code** (sa
   "subcommand": "file read",
   "successExitCodes": [1],
   "hintConditions": [
-    { "exitCode": "nonzero", "hint": "file not found — use files_list to list available files" }
+    {
+      "exitCode": "nonzero",
+      "hint": "file not found — use files_list to list available files"
+    }
   ],
   "args": [...]
 }
@@ -221,8 +265,14 @@ The exit code passed to `hintConditions` is the **main command's exit code** (sa
 
 ```json
 "hintConditions": [
-  { "match": "CONFLICT", "hint": "cherry-pick conflicts detected — resolve and stage them, then use git_cherry_pick_continue" },
-  { "whenArg": { "no_commit": true }, "hint": "cherry-pick staged — use git_commit to finalize" }
+  {
+    "match": "CONFLICT",
+    "hint": "cherry-pick conflicts detected — resolve and stage them, then use git_cherry_pick_continue"
+  },
+  {
+    "whenArg": { "no_commit": true },
+    "hint": "cherry-pick staged — use git_commit to finalize"
+  }
 ]
 ```
 
@@ -230,7 +280,10 @@ The exit code passed to `hintConditions` is the **main command's exit code** (sa
 
 ```json
 "hintConditions": [
-  { "exitCode": 0, "hint": "reset to {ref} — use git_status to inspect the current state" }
+  {
+    "exitCode": 0,
+    "hint": "reset to {ref} — use git_status to inspect the current state"
+  }
 ]
 ```
 
@@ -277,9 +330,21 @@ Appends a file's contents to the tool result when the file exists. After the mai
   "binary": "ls",
   "subcommand": "",
   "args": [
-    { "param": "long", "kind": "flagifboolean", "flagIfTrue": "-l" },
-    { "param": "all", "kind": "flagifboolean", "flagIfTrue": "-a" },
-    { "param": "path", "kind": "positional", "readPath": true }
+    {
+      "param": "long",
+      "kind": "flagifboolean",
+      "flagIfTrue": "-l"
+    },
+    {
+      "param": "all",
+      "kind": "flagifboolean",
+      "flagIfTrue": "-a"
+    },
+    {
+      "param": "path",
+      "kind": "positional",
+      "readPath": true
+    }
   ],
   "sideRead": {
     "pathParam": "path",
@@ -296,7 +361,14 @@ Appends a file's contents to the tool result when the file exists. After the mai
   "binary": "curl",
   "subcommand": "-sf --max-time 10",
   "args": [
-    { "param": "feed", "kind": "positional", "resolveCommand": { "script": "resolve-feed-url", "args": ["$param"] } }
+    {
+      "param": "feed",
+      "kind": "positional",
+      "resolveCommand": {
+        "script": "resolve-feed-url",
+        "args": ["$param"]
+      }
+    }
   ],
   "postProcess": {
     "script": "parse-rss"
@@ -306,17 +378,17 @@ Appends a file's contents to the tool result when the file exists. After the mai
 
 ## Example
 
-One tool, one positional argument — split across three files:
+A consolidated read tool with optional line-range parameters — split across three files:
 
 **`tools.json`**:
 ```json
 [
   {
-    "name": "files_read_lines",
-    "description": "Read a range of lines from a file. Returns lines in the format {line_number}\\t{content}. Use this when you only need a specific portion of a file to reduce context usage, or when files_read output is truncated to read the remaining lines. When end_line is omitted, reads from start_line to the end of the file.",
+    "name": "files_read",
+    "description": "Read the contents of a file.",
     "parameters": {
       "type": "object",
-      "required": ["path", "start_line"],
+      "required": ["path"],
       "properties": {
         "path": {
           "type": "string",
@@ -328,7 +400,7 @@ One tool, one positional argument — split across three files:
         },
         "end_line": {
           "type": "integer",
-          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
+          "description": "Line number to end reading at (1-indexed, inclusive)"
         }
       }
     }
@@ -339,7 +411,7 @@ One tool, one positional argument — split across three files:
 **`allowlist.json`**:
 ```json
 {
-  "chai": ["file read-lines"]
+  "chai": ["file read"]
 }
 ```
 
@@ -347,12 +419,31 @@ One tool, one positional argument — split across three files:
 ```json
 [
   {
-    "tool": "files_read_lines",
+    "tool": "files_read",
     "binary": "chai",
-    "subcommand": "file read-lines",
+    "subcommand": "file read",
+    "successExitCodes": [1],
+    "hintConditions": [
+      {
+        "exitCode": "nonzero",
+        "hint": "file not found — use files_list to list available files"
+      }
+    ],
+    "maxOutputLines": 500,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use files_read with start_line: {next_start}.",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "readPath": true },
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      {
+        "param": "path",
+        "kind": "flag",
+        "flag": "path",
+        "readPath": true
+      },
+      {
+        "param": "start_line",
+        "kind": "flag",
+        "flag": "start-line",
+        "optional": true
+      },
       {
         "param": "end_line",
         "kind": "flag",
@@ -386,6 +477,8 @@ A deprecation warning is logged when the legacy format is detected. Both formats
 ## Implementation Notes
 
 - **Loader**: `load_skills` reads `tools.json` from each skill dir and detects its format (root array → three-file, root object → legacy). For the three-file format, it also reads `allowlist.json` and `execution.json`, then constructs a `ToolDescriptor` from the three sources. On success, sets `SkillEntry.tool_descriptor`. On parse error (or missing companion files for the three-file format), logs a warning and leaves `tool_descriptor` as `None`. When `metadata.requires.bins` uses OR-groups and a group matches, the loader records the matched group index (`SkillEntry.matched_bin_group`) and filters execution specs: only specs with `condition.binGroup` equal to the matched index, or specs with no `condition`, are retained. This keeps the executor unaware of bin group logic — it receives a pre-filtered descriptor.
+- **paramCondition routing**: When multiple execution specs share the same `tool` name and at least one has a `paramCondition`, the executor resolves which spec to use at call time based on which parameters the agent provided. It first checks entries with `paramCondition`; if exactly one matches, it is used. If no `paramCondition` matches, the executor falls back to the default entry (no `paramCondition`). If no entry matches and no default exists, the executor checks for partial matches — entries where at least one `present` parameter was provided but others were missing — and includes a hint in the error message identifying the missing paired parameters. This enables multi-mode tools (e.g., a single `files_write` tool that routes to `file write` for whole-file writes and `file patch` for surgical edits based on the presence of `start_line` + `original_content`).
+- **Schema-enforced validation**: The executor validates tool call parameters against the tool's parameter schema before execution. Undeclared parameters (not present in the schema) and type mismatches are rejected immediately. This makes the schema the authoritative contract — the agent cannot provide parameters it was never told about. At startup, `check_schema_execution_alignment` warns when a tool's schema declares a parameter that has no corresponding execution handler, catching the reverse drift case.
 - **Gateway**: Tool list and executor are built only from skills that have a `tools.json` descriptor. There is no hardcoded skill code in the lib; skills without a descriptor contribute no tools. When **`skills.contextMode`** is **`readOnDemand`**, the gateway also registers a **`read_skill(skill_name)`** tool and uses an executor that returns that skill's SKILL.md content in-process; see [CONTEXT.md](CONTEXT.md).
 - **Conversion**: `ToolDescriptor::to_tool_definitions()` produces `Vec<ToolDefinition>` in the shape expected by the active LLM **`Provider`** (Ollama-native and OpenAI-compat backends accept the same function-tool schema in practice). `ToolDescriptor::to_allowlist()` produces `exec::Allowlist` for the safe exec layer. The generic executor uses the execution mapping to build argv (applying `resolveCommand` when set) and runs via the allowlist.
 - **Binary wrappers**: When `binaryWrapper` is set on an execution spec, the executor constructs the command as `wrapper[0] wrapper[1..] resolved_binary subcommand args...` instead of `resolved_binary subcommand args...`. The allowlist validates the declared `binary` and `subcommand`, not the wrapper — the wrapper is a transport mechanism (e.g. `nix develop --command`), not a privilege escalation. The wrapper binary must be on PATH (guaranteed by the OR-group bin check at load time). `binaryWrapper` is an author-declared field in `execution.json`, not an agent-provided parameter; the agent cannot inject an arbitrary wrapper at runtime.
@@ -394,7 +487,7 @@ A deprecation warning is logged when the legacy format is detected. Both formats
 - **Post-processing**: When `postProcess` is set on an execution spec, the executor pipes the command's merged output (stdout + stderr) to the post-processor's stdin and returns the post-processor's stdout instead. The executor always merges stderr into stdout (appended after stdout with a newline separator) before the post-process step, so hint scripts can inspect diagnostics written to stderr (e.g., compiler warnings). On failure or empty output, the original merged output is returned unmodified. Same script resolution rules as `resolveCommand` (skill's `scripts/` dir, no allowlist needed).
 - **Hint conditions**: When `hintConditions` is set on an execution spec, the executor evaluates each condition against the post-processed output and the main command's exit code. Matching conditions append `hint:` lines with blank-line separators. This runs after `postProcess` and before `truncate_output`, so inline hints are present in the output for truncation to preserve. The effective args (augmented with `absentDefault` values) are passed for `whenArg` matching and `{param_name}` template expansion. When `exitCode: "nonzero"` is used, `successExitCodes` must also be declared — otherwise the executor's error propagation short-circuits before `hintConditions` is evaluated.
 - **Side reads**: When `sideRead` is set on an execution spec, the executor appends the named file's contents (relative to the resolved path parameter) to the tool result after `postProcess`. The file is read from disk without going through the allowlist. When `oncePerSession` is `true`, the executor maintains a per-session seen set (keyed by session id and resolved path) and skips re-appending the same file. Silently skipped when the file is absent, empty, or the filename fails the traversal check. The `pathParam` value used for both file lookup and `oncePerSession` deduplication is the canonical (absolute, symlink-resolved) path, ensuring correct behavior regardless of whether the caller provides a relative or absolute path.
-- **Output truncation**: When `maxOutputLines` is set on an execution spec, the executor truncates the tool's output to the specified number of lines if the output exceeds that limit. Truncation applies after `postProcess` and `hintConditions` but before `sideRead` — side-read content is not counted against the line limit and is always appended in full. Lines prefixed with `hint:` are preserved through truncation: non-hint lines are truncated to `maxOutputLines`, then hint lines are appended before the truncation notice. This ensures diagnostic hints (see [adr/DIAGNOSTIC_HINTS.md](../adr/DIAGNOSTIC_HINTS.md)) are never lost to truncation. When truncation occurs, the output ends with a notice indicating how many lines were shown, the total line count, how many lines were omitted, and — when `truncationHint` is set — a tool-specific message (e.g., `Use git_diff_lines with start_line: 201 to read the remaining lines.`); otherwise a generic "Narrow your query path, pattern, or range to reduce results." suggestion is used. The `truncationHint` template supports variables `{kept}`, `{total}`, `{omitted}`, and `{next_start}` that the executor expands at truncation time. This prevents unbounded tool output (e.g. from `grep`, `git diff`, or `git log`) from exceeding the model's context window and terminating the session, and — when a companion line-range tool exists — gives the agent a direct pagination path to recover the omitted content.
+- **Output truncation**: When `maxOutputLines` is set on an execution spec, the executor truncates the tool's output to the specified number of lines if the output exceeds that limit. Truncation applies after `postProcess` and `hintConditions` but before `sideRead` — side-read content is not counted against the line limit and is always appended in full. Lines prefixed with `hint:` are preserved through truncation: non-hint lines are truncated to `maxOutputLines`, then hint lines are appended before the truncation notice. This ensures diagnostic hints (see [adr/DIAGNOSTIC_HINTS.md](../adr/DIAGNOSTIC_HINTS.md)) are never lost to truncation. When truncation occurs, the output ends with a notice indicating how many lines were shown, the total line count, how many lines were omitted, and — when `truncationHint` is set — a tool-specific message (e.g., `Use git_diff_lines with start_line: 201 to read the remaining lines.`); otherwise a generic "Narrow your query path, pattern, or range to reduce results." suggestion is used. The `truncationHint` template supports variables `{kept}`, `{total}`, `{omitted}`, and `{next_start}` that the executor expands at truncation time. When output lines are prefixed with line numbers in the format `{number}\t{content}`, `{next_start}` is derived from the last kept line number + 1 (so pagination hints reference the correct file line); otherwise, `{next_start}` = `kept + 1` (output-line numbering). This prevents unbounded tool output (e.g. from `grep`, `git diff`, or `git log`) from exceeding the model's context window and terminating the session, and — when a companion line-range tool exists — gives the agent a direct pagination path to recover the omitted content.
 - **Stdin validation**: When a `kind: "stdin"` parameter is required (no `optional: true`), `extract_stdin_content` validates that the parameter is present and non-null in the tool call arguments. Missing required stdin params produce an error ("missing required parameter: {param}") instead of silently falling through to the no-stdin code path.
 - **Stdin pipe scoping**: All sites that write to a child process's stdin pipe use `child.stdin.take().ok_or_else(...)` with a block scope that drops the pipe before calling `wait_with_output()`. This guarantees (1) the child sees EOF on stdin before the parent waits, and (2) pipe unavailability surfaces as an error rather than being silently skipped.
 - **Resolve script idempotency**: `resolveCommand` scripts are invoked twice for `writePath`/`readPath` parameters — first in `validate_write_paths()` (result canonicalized and substituted into args), then again in `build_argv()` on the already-resolved value. Scripts that prepend a root path must check whether the input is already absolute and return it unchanged. The idempotent pattern is: `case "$path" in /*) echo "$path"; exit 0 ;; esac`.

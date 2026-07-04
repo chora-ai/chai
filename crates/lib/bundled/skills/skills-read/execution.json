@@ -10,8 +10,15 @@
     "binary": "chai",
     "subcommand": "skill read",
     "args": [
-      { "param": "skill_name", "kind": "positional" },
-      { "param": "file", "kind": "flag", "flag": "file" }
+      {
+        "param": "skill_name",
+        "kind": "positional"
+      },
+      {
+        "param": "file",
+        "kind": "flag",
+        "flag": "file"
+      }
     ],
     "maxOutputLines": 500,
     "postProcess": {
@@ -23,18 +30,40 @@
     "tool": "skills_validate",
     "binary": "chai",
     "subcommand": "skill validate",
-    "args": [{ "param": "skill_name", "kind": "positional" }],
+    "args": [
+      {
+        "param": "skill_name",
+        "kind": "positional"
+      }
+    ],
     "successExitCodes": [1],
-    "hintConditions": [{ "match": "ERROR:", "hint": "use skills_read with file: 'tools_json', 'allowlist_json', or 'execution_json' to examine the content" }]
+    "hintConditions": [
+      {
+        "match": "ERROR:",
+        "hint": "use skills_read with file: 'tools_json', 'allowlist_json', or 'execution_json' to examine the content"
+      }
+    ]
   },
   {
     "tool": "skills_dry_run",
     "binary": "chai",
     "subcommand": "skill dry-run",
     "args": [
-      { "param": "tool", "kind": "positional" },
-      { "param": "args", "kind": "flag", "flag": "args" },
-      { "param": "simulated_output", "kind": "flag", "flag": "simulated-output", "optional": true }
+      {
+        "param": "tool",
+        "kind": "positional"
+      },
+      {
+        "param": "args",
+        "kind": "flag",
+        "flag": "args"
+      },
+      {
+        "param": "simulated_output",
+        "kind": "flag",
+        "flag": "simulated-output",
+        "optional": true
+      }
     ],
     "maxOutputLines": 200
   }

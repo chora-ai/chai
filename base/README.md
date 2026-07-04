@@ -44,6 +44,7 @@ Always read the relevant convention file before adding or modifying a document i
 - **[DIAGNOSTIC_HINTS.md](adr/DIAGNOSTIC_HINTS.md)** — Why chai skill tools use diagnostic hints in tool output instead of directives in SKILL.md.
 - **[TOOL_PARAMETER_NAMING.md](adr/TOOL_PARAMETER_NAMING.md)** — Why bundled skills follow consistent tool and parameter naming conventions (`{skill}_{verb}`, `path`/`repo`/`scope` semantics, qualified identifiers, flag alignment).
 - **[SKILL_DESCRIPTOR_SPLIT.md](adr/SKILL_DESCRIPTOR_SPLIT.md)** — Why the monolithic `tools.json` is split into three files: `tools.json` (tool definitions), `allowlist.json` (security grants), and `execution.json` (implementation mapping).
+- **[CONSOLIDATED_FILE_TOOLS.md](adr/CONSOLIDATED_FILE_TOOLS.md)** — Why `files_read`/`files_read_lines` and `files_write`/`files_write_lines` were consolidated into single tools with multi-mode parameter routing (`paramCondition`), and why the executor validates tool calls against the schema before execution.
 
 ### `/epic`
 

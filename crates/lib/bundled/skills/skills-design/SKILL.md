@@ -158,18 +158,18 @@ Lines starting with `hint:` are preserved through truncation: the executor separ
 
 ### Custom Truncation Notices
 
-When a tool has a continuation tool (e.g., `files_read` → `files_read_lines`), customize the truncation notice with the `truncationHint` field on the execution spec. The `truncationHint` string supports these template variables:
+When a tool supports pagination (e.g., `files_read` with `start_line`), customize the truncation notice with the `truncationHint` field on the execution spec. The `truncationHint` string supports these template variables:
 
 | Variable | Meaning |
 |----------|---------|
 | `{kept}` | Number of lines retained after truncation |
 | `{total}` | Total lines before truncation |
 | `{omitted}` | Number of lines omitted (`{total}` − `{kept}`) |
-| `{next_start}` | The 1-indexed line number of the first omitted line |
+| `{next_start}` | The line number of the first omitted line. When output lines are prefixed with line numbers in the format `{number}\t{content}` (e.g. `files_read`, `git_diff_lines`), `{next_start}` is derived from the last kept line number + 1 — so pagination hints reference the correct file line. Otherwise, `{next_start}` = `kept + 1` (output-line numbering). |
 
 **Convention**: Truncation notices must frame continuation as optional, not imperative. The purpose of truncation is to provide a preview — the notice should tell the agent there is more content and how to read it *if necessary*, not imply the agent must follow up.
 
-✅ `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}; omit end_line to read the rest."`
+✅ `"{omitted} more lines available. To continue reading, use X with start_line: {next_start}."`
 
 ❌ `"Use X with start_line: {next_start} to read the remaining lines."`
 
@@ -224,6 +224,71 @@ For every parameter in a skill's `args` array:
 ## Disallowed Values
 
 When certain parameter values must always be rejected regardless of the agent's intent, enforce this at the tool level using `denyPattern` on the execution spec — not by instruction. The executor rejects matching values before the command runs. Use this for cases like protecting specific git branches from writes, blocking dangerous flags, or refusing reserved identifiers. When the parameter is omitted, `denyResolveCommand` can resolve the current value (e.g., the current branch) and `denyAlwaysResolve` can enforce a check even when no value is provided.
+
+## Multi-Mode Tools with paramCondition
+
+When a single tool name supports multiple execution modes (e.g., whole-file write vs. surgical edit), use multiple `execution.json` entries with the same `tool` name but different `paramCondition` selectors. The executor picks the matching spec based on which parameters the agent provides.
+
+### paramCondition
+
+Each entry can declare a `paramCondition` with two optional constraints:
+
+| Field | Meaning |
+|-------|---------|
+| `present` | Parameter names that must be present (non-null) in the tool call JSON |
+| `absent` | Parameter names that must be absent (or null) from the tool call JSON |
+
+All constraints use AND logic. An entry without `paramCondition` is the default — it matches when no other entry's condition is satisfied.
+
+### Selection Rules
+
+1. If only one execution spec exists for a tool name, it is always used.
+2. If multiple specs exist, the executor first checks entries with `paramCondition`. If exactly one matches, it is used.
+3. If no `paramCondition` matches, the executor falls back to the default entry (no `paramCondition`).
+4. If multiple `paramCondition` entries match, the tool call is rejected as ambiguous.
+5. If no entry matches (no `paramCondition` matches and no default exists), the executor checks for **partial matches** — entries where at least one `present` parameter was provided but others were missing. When partial matches are found, the error message includes a hint connecting the missing parameters to the provided ones (e.g., `parameter(s) 'original_content' must be provided together with 'start_line'`). This tells the agent both WHAT is missing and WHY — because a paired parameter was already provided.
+
+### Example: Consolidated Write Tool
+
+```json
+[
+  {
+    "tool": "files_write",
+    "subcommand": "file write",
+    "paramCondition": { "absent": ["start_line", "original_content"] },
+    "binary": "chai",
+    "args": [
+      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
+      { "param": "content", "kind": "stdin" },
+      { "param": "overwrite", "kind": "flagifboolean", "flagIfTrue": "--overwrite" }
+    ]
+  },
+  {
+    "tool": "files_write",
+    "subcommand": "file patch",
+    "paramCondition": { "present": ["start_line", "original_content"] },
+    "binary": "chai",
+    "args": [
+      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
+      { "param": "start_line", "kind": "flag", "flag": "start-line" },
+      { "param": "original_content", "kind": "tempfile", "flag": "original-content-file" },
+      { "param": "content", "kind": "stdin" }
+    ]
+  }
+]
+```
+
+## Schema-Enforced Validation
+
+The tool schema is the contract. The executor validates tool call parameters against the schema before execution:
+
+| Violation | Example | Behavior |
+|-----------|---------|----------|
+| Undeclared parameter | Agent sends `start_line` to a schema that only declares `path` | Reject — parameter not in schema |
+| Type mismatch | Agent sends `start_line: "50"` when schema declares `start_line: integer` | Reject — type does not match schema |
+| Valid call | Agent sends parameters that match the schema | Execute — schema is the contract |
+
+This means the schema and execution spec must stay aligned: every parameter in the schema must have a corresponding handler in the execution spec. At startup, the gateway warns about schema parameters that have no execution handler (the reverse drift case). The forward drift case (parameter in execution but not in schema) is caught at runtime by schema validation — the agent cannot provide the parameter.
 
 ## Skill Naming and Variant Conventions
 

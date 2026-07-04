@@ -16,33 +16,6 @@
         "flag": "start-line",
         "optional": true,
         "absentDefault": 1
-      }
-    ],
-    "successExitCodes": [1],
-    "hintConditions": [
-      {
-        "exitCode": "nonzero",
-        "hint": "note not found — use notes_list to list available notes"
-      }
-    ],
-    "maxOutputLines": 500,
-    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read_lines with start_line: {next_start}; omit end_line to read the rest."
-  },
-  {
-    "tool": "notes_read_lines",
-    "binary": "chai",
-    "subcommand": "file read-lines",
-    "args": [
-      {
-        "param": "path",
-        "kind": "flag",
-        "flag": "path",
-        "readPath": true
-      },
-      {
-        "param": "start_line",
-        "kind": "flag",
-        "flag": "start-line"
       },
       {
         "param": "end_line",
@@ -57,7 +30,9 @@
         "exitCode": "nonzero",
         "hint": "note not found — use notes_list to list available notes"
       }
-    ]
+    ],
+    "maxOutputLines": 500,
+    "truncationHint": "output truncated: {kept} of {total} lines shown; {omitted} more lines available. To continue reading, use notes_read with start_line: {next_start}."
   },
   {
     "tool": "notes_list",
@@ -120,7 +95,7 @@
     "hintConditions": [
       {
         "notEmpty": true,
-        "hint": "use notes_read_lines to read surrounding context"
+        "hint": "use notes_read to read surrounding context"
       }
     ],
     "maxOutputLines": 200
@@ -129,6 +104,9 @@
     "tool": "notes_write",
     "binary": "chai",
     "subcommand": "file write",
+    "paramCondition": {
+      "absent": ["start_line", "original_content"]
+    },
     "args": [
       {
         "param": "path",
@@ -139,19 +117,29 @@
       {
         "param": "content",
         "kind": "stdin"
+      },
+      {
+        "param": "overwrite",
+        "kind": "flagifboolean",
+        "flagIfTrue": "--overwrite"
       }
     ],
+    "successExitCodes": [1],
     "hintConditions": [
       {
-        "match": "overwriting existing",
-        "hint": "overwrote existing note — verify this was intended"
+        "match": "new file created",
+        "whenArg": { "overwrite": true },
+        "hint": "new note was created (no overwrite necessary, verify this was intended)"
       }
     ]
   },
   {
-    "tool": "notes_write_lines",
+    "tool": "notes_write",
     "binary": "chai",
     "subcommand": "file patch",
+    "paramCondition": {
+      "present": ["start_line", "original_content"]
+    },
     "args": [
       {
         "param": "path",
@@ -163,12 +151,6 @@
         "param": "start_line",
         "kind": "flag",
         "flag": "start-line"
-      },
-      {
-        "param": "end_line",
-        "kind": "flag",
-        "flag": "end-line",
-        "optional": true
       },
       {
         "param": "original_content",
@@ -193,8 +175,15 @@
         "flag": "path",
         "writePath": true
       },
-      { "param": "pattern", "kind": "tempfile", "flag": "pattern-file" },
-      { "param": "replacement", "kind": "stdin" },
+      {
+        "param": "pattern",
+        "kind": "tempfile",
+        "flag": "pattern-file"
+      },
+      {
+        "param": "replacement",
+        "kind": "stdin"
+      },
       {
         "param": "literal",
         "kind": "flagifboolean",
@@ -222,7 +211,10 @@
     ],
     "successExitCodes": [0],
     "hintConditions": [
-      { "exitCode": 0, "hint": "note deleted — verify this was intended" }
+      {
+        "exitCode": 0,
+        "hint": "note deleted — verify this was intended"
+      }
     ]
   },
   {

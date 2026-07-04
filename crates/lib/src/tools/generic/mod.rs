@@ -4,13 +4,20 @@
 //! sandbox-validated path enforcement (readPath/writePath), runtime path-like
 //! value checking (absolute paths, home-relative paths, `file://` URLs,
 //! directory traversal) for unannotated parameters, default CWD confinement
-//! to the sandbox root, and side-read augmentation (append a nearby file's
-//! contents to the tool result).
+//! to the sandbox root, side-read augmentation (append a nearby file's
+//! contents to the tool result), parameter-based execution routing via
+//! `paramCondition` (multiple specs per tool name), and schema-enforced
+//! validation (the tool schema is the contract — undeclared parameters and
+//! type mismatches are rejected before execution).
 
 mod argv;
 mod deny;
 mod output;
 mod sandbox;
+mod validate;
+
+// Re-export for use in dry_run and execute.
+use validate::check_type;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
@@ -19,7 +26,7 @@ use serde::Serialize;
 
 use crate::agent::ToolExecutor;
 use crate::exec::{Allowlist, WriteSandbox};
-use crate::skills::{ArgKind, ToolDescriptor};
+use crate::skills::{ArgKind, ToolDescriptor, ToolSpec};
 use crate::tools::post_process::run_post_process;
 
 /// Result of a dry-run preview: shows what a tool call would execute without
@@ -215,10 +222,20 @@ fn parse_bool_ref(v: Option<&serde_json::Value>) -> Option<bool> {
 /// arguments against writable roots before executing. When a tool has a `sideRead`
 /// spec, the named file is appended to the tool result when found; `oncePerSession`
 /// prevents re-appending the same file within the same session.
+/// One execution variant for a tool name. When multiple specs share a tool
+/// name, `param_condition` selects the right one at call time.
+#[derive(Debug, Clone)]
+struct ExecEntry {
+    allowlist: Allowlist,
+    spec: crate::skills::ExecutionSpec,
+    skill_dir: Option<std::path::PathBuf>,
+}
+
 #[derive(Debug, Clone)]
 pub struct GenericToolExecutor {
-    /// tool_name -> (allowlist, execution spec, skill_dir for script resolution)
-    map: HashMap<String, (Allowlist, crate::skills::ExecutionSpec, Option<std::path::PathBuf>)>,
+    /// tool_name -> (execution entries, optional tool schema for validation)
+    /// Multiple entries per tool name support `paramCondition`-based routing.
+    map: HashMap<String, (Vec<ExecEntry>, Option<ToolSpec>)>,
     /// Optional per-profile write sandbox for path boundary enforcement.
     sandbox: Option<WriteSandbox>,
     /// session_id -> set of "path/filename" keys already surfaced by sideRead
@@ -238,15 +255,30 @@ impl GenericToolExecutor {
     ) -> Self {
         let dir_map: HashMap<&String, &std::path::PathBuf> =
             skill_dirs.iter().map(|(n, p)| (n, p)).collect();
-        let mut map = HashMap::new();
+        let mut map: HashMap<String, (Vec<ExecEntry>, Option<ToolSpec>)> = HashMap::new();
         for (skill_name, desc) in descriptors {
             let allowlist = desc.to_allowlist();
             let skill_dir = dir_map.get(skill_name).cloned().cloned();
             for spec in &desc.execution {
-                map.insert(
-                    spec.tool.clone(),
-                    (allowlist.clone(), spec.clone(), skill_dir.clone()),
-                );
+                let entry = ExecEntry {
+                    allowlist: allowlist.clone(),
+                    spec: spec.clone(),
+                    skill_dir: skill_dir.clone(),
+                };
+                map.entry(spec.tool.clone())
+                    .or_insert_with(|| (Vec::new(), None))
+                    .0
+                    .push(entry);
+            }
+            // Index tool specs by name for schema validation.
+            for tool_spec in &desc.tools {
+                if let Some((_, schema)) = map.get_mut(&tool_spec.name) {
+                    *schema = Some(tool_spec.clone());
+                } else {
+                    map.entry(tool_spec.name.clone())
+                        .or_insert_with(|| (Vec::new(), None))
+                        .1 = Some(tool_spec.clone());
+                }
             }
         }
         Self {
@@ -264,6 +296,177 @@ impl GenericToolExecutor {
     /// Tool names this executor can run.
     pub fn tool_names(&self) -> impl Iterator<Item = &String> {
         self.map.keys()
+    }
+
+    /// Resolve the execution entry for a tool name given the call arguments.
+    /// When multiple entries share a tool name, selects based on `paramCondition`.
+    /// Returns `Err` if the tool is unknown or no condition matches. When no
+    /// condition matches and there are partial matches (some `present` parameters
+    /// satisfied but not all), the error includes a hint about missing paired
+    /// parameters.
+    fn resolve_entry(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+    ) -> Result<&ExecEntry, String> {
+        let (entries, _schema) = self
+            .map
+            .get(name)
+            .ok_or_else(|| format!("unknown tool: {}", name))?;
+        if entries.len() == 1 {
+            return Ok(&entries[0]);
+        }
+        // Multiple entries: select based on paramCondition.
+        // First, try entries with a paramCondition that matches.
+        let mut matched: Vec<&ExecEntry> = Vec::new();
+        for entry in entries {
+            if let Some(ref cond) = entry.spec.param_condition {
+                if cond.matches(args) {
+                    matched.push(entry);
+                }
+            }
+        }
+        if matched.len() == 1 {
+            return Ok(matched[0]);
+        }
+        if matched.len() > 1 {
+            return Err(format!(
+                "tool {}: multiple execution specs match the given parameters",
+                name
+            ));
+        }
+        // No paramCondition matched: fall back to the default entry (no paramCondition).
+        let defaults: Vec<&ExecEntry> = entries
+            .iter()
+            .filter(|e| e.spec.param_condition.is_none())
+            .collect();
+        if defaults.len() == 1 {
+            return Ok(defaults[0]);
+        }
+
+        // No match and no default. Check for partial paramCondition matches
+        // to provide a helpful hint about missing paired parameters.
+        let mut partial_hints: Vec<String> = Vec::new();
+        for entry in entries {
+            if let Some(ref cond) = entry.spec.param_condition {
+                if let Some((satisfied, missing)) = cond.partial_present_match(args) {
+                    let satisfied_list = satisfied
+                        .iter()
+                        .map(|n| format!("'{}'", n))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let missing_list = missing
+                        .iter()
+                        .map(|n| format!("'{}'", n))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    partial_hints.push(format!(
+                        "parameter(s) {} must be provided together with {}",
+                        missing_list, satisfied_list
+                    ));
+                }
+            }
+        }
+        // Deduplicate identical hints (e.g., when multiple entries produce
+        // the same missing-parameter message).
+        partial_hints.sort();
+        partial_hints.dedup();
+
+        if partial_hints.is_empty() {
+            Err(format!(
+                "tool {}: no execution spec matches the given parameters",
+                name
+            ))
+        } else {
+            Err(format!(
+                "tool {}: no execution spec matches the given parameters; {}",
+                name,
+                partial_hints.join("; ")
+            ))
+        }
+    }
+
+    /// Validate tool call arguments against the tool's parameter schema.
+    /// The schema is the contract: undeclared parameters and type mismatches
+    /// are rejected before execution.
+    fn validate_schema(
+        &self,
+        name: &str,
+        args: &serde_json::Value,
+    ) -> Result<(), String> {
+        let (_entries, schema) = self
+            .map
+            .get(name)
+            .ok_or_else(|| format!("unknown tool: {}", name))?;
+        let Some(ref tool_spec) = schema else {
+            // No schema available — skip validation. This supports skills
+            // that define execution specs without corresponding tool schemas.
+            return Ok(());
+        };
+        let params_schema = &tool_spec.parameters;
+        let obj = match args.as_object() {
+            Some(o) => o,
+            None => {
+                return Err(format!(
+                    "tool {}: arguments must be a JSON object",
+                    name
+                ));
+            }
+        };
+
+        // Extract declared properties and required fields from the schema.
+        let properties = params_schema
+            .get("properties")
+            .and_then(|p| p.as_object());
+        let required: Vec<&str> = params_schema
+            .get("required")
+            .and_then(|r| r.as_array())
+            .map(|arr| arr.iter().filter_map(|v| v.as_str()).collect())
+            .unwrap_or_default();
+
+        // Check for undeclared parameters.
+        if let Some(props) = properties {
+            for key in obj.keys() {
+                if !props.contains_key(key) {
+                    return Err(format!(
+                        "tool {}: undeclared parameter '{}' (not in schema)",
+                        name, key
+                    ));
+                }
+            }
+        }
+
+        // Check for type mismatches on declared parameters.
+        if let Some(props) = properties {
+            for (key, value) in obj {
+                if value.is_null() {
+                    continue; // null is treated as absent for type checking.
+                }
+                if let Some(param_schema) = props.get(key) {
+                    if let Some(type_err) = check_type(param_schema, value) {
+                        return Err(format!(
+                            "tool {}: parameter '{}' type mismatch: {}",
+                            name, key, type_err
+                        ));
+                    }
+                }
+            }
+        }
+
+        // Check for missing required parameters.
+        for req in &required {
+            match obj.get(*req) {
+                Some(v) if !v.is_null() => {}
+                _ => {
+                    return Err(format!(
+                        "tool {}: missing required parameter '{}'",
+                        name, req
+                    ));
+                }
+            }
+        }
+
+        Ok(())
     }
 
     /// Preview what a tool call would execute without running the command.
@@ -288,10 +491,11 @@ impl GenericToolExecutor {
         args: &serde_json::Value,
         simulated_output: Option<&str>,
     ) -> Result<DryRunResult, String> {
-        let (allowlist, spec, skill_dir) = self
-            .map
-            .get(name)
-            .ok_or_else(|| format!("unknown tool: {}", name))?;
+        // Schema validation (Decision 2: the schema is the contract).
+        self.validate_schema(name, args)?;
+
+        let entry = self.resolve_entry(name, args)?;
+        let (allowlist, spec, skill_dir) = (&entry.allowlist, &entry.spec, &entry.skill_dir);
 
         // Step 1: Sandbox validation
         let (working_dir, canonical_paths) =
@@ -516,10 +720,11 @@ impl GenericToolExecutor {
 
 impl ToolExecutor for GenericToolExecutor {
     fn execute(&self, name: &str, args: &serde_json::Value, session_id: Option<&str>) -> Result<String, String> {
-        let (allowlist, spec, skill_dir) = self
-            .map
-            .get(name)
-            .ok_or_else(|| format!("unknown tool: {}", name))?;
+        // Schema validation (Decision 2: the schema is the contract).
+        self.validate_schema(name, args)?;
+
+        let entry = self.resolve_entry(name, args)?;
+        let (allowlist, spec, skill_dir) = (&entry.allowlist, &entry.spec, &entry.skill_dir);
 
         let (working_dir, canonical_paths) =
             sandbox::validate_write_paths(spec, args, allowlist, skill_dir.as_deref(), &self.sandbox)?;
@@ -897,5 +1102,136 @@ mod tests {
 
         let args = serde_json::json!({ "force": "true" });
         assert_eq!(resolve_subcommand(&spec, &args), "branch -D");
+    }
+
+    // --- resolve_entry partial match hint tests ---
+
+    fn make_entry(tool: &str, subcommand: &str, param_condition: Option<crate::skills::ParamConditionSpec>) -> ExecEntry {
+        ExecEntry {
+            allowlist: Allowlist::default(),
+            spec: ExecutionSpec {
+                tool: tool.to_string(),
+                binary: "test".to_string(),
+                subcommand: subcommand.to_string(),
+                param_condition: param_condition,
+                ..Default::default()
+            },
+            skill_dir: None,
+        }
+    }
+
+    #[test]
+    fn resolve_entry_includes_partial_match_hint_when_start_line_without_original_content() {
+        // Simulate files_write: two entries with paramCondition
+        let entries = vec![
+            make_entry(
+                "files_write",
+                "file write",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec![],
+                    absent: vec!["start_line".to_string(), "original_content".to_string()],
+                }),
+            ),
+            make_entry(
+                "files_write",
+                "file patch",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["start_line".to_string(), "original_content".to_string()],
+                    absent: vec![],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "files_write".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // start_line provided but original_content missing
+        let args = serde_json::json!({ "path": "foo.txt", "content": "hello", "start_line": 5 });
+        let result = executor.resolve_entry("files_write", &args);
+        let err = result.unwrap_err();
+        assert!(err.contains("parameter(s) 'original_content' must be provided together with 'start_line'"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn resolve_entry_includes_partial_match_hint_when_original_content_without_start_line() {
+        let entries = vec![
+            make_entry(
+                "files_write",
+                "file write",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec![],
+                    absent: vec!["start_line".to_string(), "original_content".to_string()],
+                }),
+            ),
+            make_entry(
+                "files_write",
+                "file patch",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["start_line".to_string(), "original_content".to_string()],
+                    absent: vec![],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "files_write".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // original_content provided but start_line missing
+        let args = serde_json::json!({ "path": "foo.txt", "content": "hello", "original_content": "old" });
+        let result = executor.resolve_entry("files_write", &args);
+        let err = result.unwrap_err();
+        assert!(err.contains("parameter(s) 'start_line' must be provided together with 'original_content'"), "unexpected error: {}", err);
+    }
+
+    #[test]
+    fn resolve_entry_no_partial_hint_when_no_present_params_satisfied() {
+        // Use entries where neither matches and no present params are partially
+        // satisfied — so no partial hint should be included.
+        let entries = vec![
+            make_entry(
+                "test_tool",
+                "mode_a",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["mode_a_param".to_string()],
+                    absent: vec![],
+                }),
+            ),
+            make_entry(
+                "test_tool",
+                "mode_b",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["mode_b_param".to_string()],
+                    absent: vec![],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "test_tool".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // No mode params at all — no partial match
+        let args = serde_json::json!({ "path": "foo.txt" });
+        let result = executor.resolve_entry("test_tool", &args);
+        let err = result.unwrap_err();
+        assert!(!err.contains("also required"), "unexpected hint in error: {}", err);
+        assert!(err.contains("no execution spec matches the given parameters"), "unexpected error: {}", err);
     }
 }

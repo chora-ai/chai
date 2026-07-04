@@ -1,12 +1,17 @@
 //! Startup validation of skill composition against agent configuration.
 //!
-//! Three checks run per agent:
+//! Four checks run per agent:
 //! - **Variant overlap** — warns when two enabled skills share a `variant_of` relationship
 //!   (e.g. `git` and `git-read` both enabled), creating redundant tool surfaces.
 //! - **Tier–model mismatch** — warns when a skill's `capability_tier` exceeds the likely capability
 //!   of the agent's configured model (e.g. `full`-tier skill with a 7B local model).
 //! - **unsafePath parameters** — warns when a skill tool has a parameter annotated with `unsafePath`,
 //!   which bypasses sandbox path validation. This makes escape hatches visible at startup.
+//! - **Schema–execution alignment** — warns when a tool's schema declares a parameter that has no
+//!   corresponding handler in the execution spec. This catches the reverse drift case from
+//!   schema-enforced validation (parameter in schema but not in execution).
+
+use std::collections::HashMap;
 
 use super::SkillEntry;
 
@@ -22,6 +27,7 @@ pub fn validate_skill_composition(
 ) {
     check_variant_overlap(agent_label, enabled_entries);
     check_unsafe_path_params(agent_label, enabled_entries);
+    check_schema_execution_alignment(agent_label, enabled_entries);
     if let Some(model) = default_model {
         check_tier_model_mismatch(agent_label, enabled_entries, model);
     }
@@ -92,6 +98,65 @@ fn check_unsafe_path_params(agent_label: &str, entries: &[SkillEntry]) {
                         entry.name,
                         spec.tool,
                         arg.param_name(),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Warn when a tool's schema declares a parameter that has no corresponding
+/// handler in the execution spec. When the schema declares a parameter, the
+/// agent can provide it — but if the execution spec ignores it, the agent's
+/// intent is silently discarded. This check catches the reverse drift case
+/// from schema-enforced validation (parameter in schema but not in execution).
+fn check_schema_execution_alignment(agent_label: &str, entries: &[SkillEntry]) {
+    use std::collections::HashSet;
+    for entry in entries {
+        let descriptor = match entry.tool_descriptor.as_ref() {
+            Some(d) => d,
+            None => continue,
+        };
+        // Build a map: tool_name -> set of param names handled by execution specs.
+        let mut exec_params: HashMap<&String, HashSet<&str>> = HashMap::new();
+        for spec in &descriptor.execution {
+            let params = exec_params.entry(&spec.tool).or_default();
+            for arg in &spec.args {
+                if let Some(ref param) = arg.param {
+                    params.insert(param.as_str());
+                }
+            }
+        }
+        // For each tool spec, check that all declared schema properties have
+        // a corresponding execution handler (either as an arg param, or via
+        // absentDefault which handles it automatically).
+        for tool_spec in &descriptor.tools {
+            let schema_props = tool_spec
+                .parameters
+                .get("properties")
+                .and_then(|p| p.as_object());
+            let Some(props) = schema_props else { continue };
+            let handled = match exec_params.get(&tool_spec.name) {
+                Some(s) => s,
+                None => {
+                    log::warn!(
+                        "{}: skill '{}' tool '{}' has a schema but no execution spec",
+                        agent_label,
+                        entry.name,
+                        tool_spec.name
+                    );
+                    continue;
+                }
+            };
+            for prop_name in props.keys() {
+                if !handled.contains(prop_name.as_str()) {
+                    log::warn!(
+                        "{}: skill '{}' tool '{}' schema parameter '{}' has no execution handler — \
+                         agent can provide it but it will be silently ignored",
+                        agent_label,
+                        entry.name,
+                        tool_spec.name,
+                        prop_name
                     );
                 }
             }

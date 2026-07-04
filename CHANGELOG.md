@@ -40,9 +40,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Skills
 
-- `files_write_lines` and `notes_write_lines` `expected_content` parameter renamed back to `original_content` (reverted change in v0.4.0); CLI flags `--expected-content` → `--original-content`, `--expected-content-file` → `--original-content-file`
-- `files_write_lines` `end_line` parameter removed — the replacement range is inferred from `original_content` line count
-- `notes_write_lines` `end_line` parameter removed — the replacement range is inferred from `original_content` line count
+- `files_read` + `files_read_lines` consolidated into `files_read` with optional `start_line` and `end_line` parameters — the agent uses a single tool for both full-file and line-range reads (applied to `files`, `files-read`, `notes`, `notes-read` skill variants)
+- `files_write` + `files_write_lines` consolidated into `files_write` with two modes: whole-file write (with optional `overwrite` guard) and surgical edit (with `start_line` + `original_content`); routing between modes uses `paramCondition` (applied to `files` and `notes` skill variants)
+- `overwrite` parameter on `files_write` and `notes_write` — whole-file writes to existing files are rejected without `overwrite: true`; new-file writes succeed regardless; hint conditions inform the agent when a new file was created with `overwrite: true` set
+- `paramCondition` field on execution specs — parameter-based routing between multiple execution specs with the same tool name; supports `present` (parameter must be provided) and `absent` (parameter must be omitted) constraints with AND logic; partial-match hints when paired parameters are incomplete (e.g., `start_line` without `original_content`)
+- Schema-enforced validation — the executor validates tool call parameters against the tool schema before execution; undeclared parameters and type mismatches are rejected; startup alignment check warns when schema parameters lack execution handlers
+- `--overwrite` flag on `chai file write` — rejects writes to existing files without the flag; new-file writes succeed regardless
 
 ### Fixed
 
@@ -55,20 +58,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 #### Skills
 
-- `files_write_lines` and `notes_write_lines` multi-line `original_content` no longer requires `end_line` — the replacement range is inferred from the number of lines in `original_content`, eliminating the trap where omitting `end_line` defaulted to `start_line` even for multi-line content
-- `files_write_lines` and `notes_write_lines` boundary blank lines are preserved automatically — when `start_line` points at content (not the blank line), the blank line is outside the replacement range and survives
+- Truncation `{next_start}` derives from line-number prefix — when output lines use the `{number}\t{content}` format (e.g., `files_read` with `start_line`), `{next_start}` is now the last kept line number + 1 instead of `kept + 1`, fixing incorrect pagination hints that caused infinite re-read loops when reading from a line offset
 
 ### Breaking Changes
 
 - `CHAI_PROFILE` environment variable removed — existing setups using `CHAI_PROFILE` must switch to `--profile` (per-command) or `~/.chai/active` (persistent default)
 - `~/.chai/gateway.lock` moved to `~/.chai/profiles/<name>/gateway.lock` — scripts or tooling checking the old lock path must be updated
-- CLI flag renames — existing scripts using old flag names will fail:
-  - `file patch`: `--expected-content` → `--original-content`, `--expected-content-file` → `--original-content-file`
-- Tool parameter removals — existing tool calls using removed parameters will fail:
-  - `files_write_lines`: `end_line` parameter removed; the replacement range is inferred from `original_content` line count
-  - `notes_write_lines`: `end_line` parameter removed; the replacement range is inferred from `original_content` line count
-- Tool parameter renames — existing tool calls using old parameter names will fail:
-  - `files_write_lines` and `notes_write_lines`: `expected_content` → `original_content`
+- Tool removals — existing tool calls using removed tool names will fail:
+  - `files_read_lines` → use `files_read` with `start_line` and `end_line` parameters
+  - `files_write_lines` → use `files_write` with `start_line` and `original_content` parameters (surgical edit mode)
+  - `notes_read_lines` → use `notes_read` with `start_line` and `end_line` parameters
+  - `notes_write_lines` → use `notes_write` with `start_line` and `original_content` parameters (surgical edit mode)
+- Tool behavior changes — existing tool calls may produce different results:
+  - `files_write` and `notes_write` now reject overwrites of existing files without `overwrite: true`; previously, whole-file writes silently overwrote existing files
 
 ## [0.4.0] - 2026-06-30
 

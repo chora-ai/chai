@@ -72,6 +72,14 @@ pub struct ExecutionSpec {
     /// specs to only those whose condition matches the loading context.
     #[serde(default)]
     pub condition: Option<ConditionSpec>,
+    /// Optional: parameter-based condition for selecting between multiple
+    /// execution specs with the same tool name. When multiple specs share a
+    /// tool name, the executor selects the spec whose `paramCondition` matches
+    /// the tool call arguments. At most one spec should match for any given
+    /// tool call. A spec without `paramCondition` is the default (matches
+    /// when no other spec's condition is satisfied).
+    #[serde(default, rename = "paramCondition")]
+    pub param_condition: Option<ParamConditionSpec>,
     /// Optional: post-process the command's stdout through a script before
     /// returning the result to the model. The script receives stdout on stdin
     /// and its own stdout becomes the tool result. On failure, the original
@@ -104,9 +112,12 @@ pub struct ExecutionSpec {
     /// generic "Narrow your query path, pattern, or range to reduce results."
     /// notice with a tool-specific message. Template variables:
     /// `{kept}` = non-hint lines shown, `{total}` = total lines (including hints),
-    /// `{omitted}` = non-hint lines omitted, `{next_start}` = `kept + 1` (first
-    /// omitted line). For line-range companion tools, use `{next_start}` to tell
-    /// the agent the exact `start_line` to use for pagination.
+    /// `{omitted}` = non-hint lines omitted, `{next_start}` = first omitted line.
+    /// When the output lines are prefixed with line numbers (e.g. `501\tcontent`),
+    /// `{next_start}` is derived from the last kept line number + 1. Otherwise,
+    /// `{next_start}` = `kept + 1` (output-line numbering). For line-range
+    /// companion tools, use `{next_start}` to tell the agent the exact
+    /// `start_line` to use for pagination.
     #[serde(default, rename = "truncationHint")]
     pub truncation_hint: Option<String>,
     /// Optional: inline hint conditions evaluated after postProcess and before
@@ -125,6 +136,7 @@ impl Default for ExecutionSpec {
             args: Vec::new(),
             binary_wrapper: None,
             condition: None,
+            param_condition: None,
             post_process: None,
             side_read: None,
             success_exit_codes: None,
@@ -149,6 +161,72 @@ pub struct ConditionSpec {
     /// `0` means the first group matched (e.g. `["cargo"]`), `1` means the
     /// second group matched (e.g. `["nix"]`).
     pub bin_group: usize,
+}
+
+/// Parameter-based condition for selecting between multiple execution specs
+/// with the same tool name. All specified constraints must be satisfied (AND logic).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParamConditionSpec {
+    /// Parameter names that must be present (non-null) in the tool call JSON.
+    #[serde(default)]
+    pub present: Vec<String>,
+    /// Parameter names that must be absent (or null) from the tool call JSON.
+    #[serde(default)]
+    pub absent: Vec<String>,
+}
+
+impl ParamConditionSpec {
+    /// Evaluate whether this condition matches the given tool call arguments.
+    /// Returns true when all `present` parameters exist and are non-null, and
+    /// all `absent` parameters are missing or null.
+    pub fn matches(&self, args: &serde_json::Value) -> bool {
+        let obj = match args.as_object() {
+            Some(o) => o,
+            None => return false,
+        };
+        for name in &self.present {
+            match obj.get(name) {
+                Some(v) if !v.is_null() => {}
+                _ => return false,
+            }
+        }
+        for name in &self.absent {
+            match obj.get(name) {
+                Some(v) if !v.is_null() => return false,
+                _ => {}
+            }
+        }
+        true
+    }
+
+    /// Check whether this condition partially matches the given arguments —
+    /// i.e., at least one `present` parameter is satisfied but at least one
+    /// is not. Returns a tuple of (satisfied, missing) parameter name lists
+    /// when there is a partial match, or `None` when there is no partial match
+    /// (either no `present` params were satisfied, or all were satisfied).
+    pub fn partial_present_match(&self, args: &serde_json::Value) -> Option<(Vec<&str>, Vec<&str>)> {
+        if self.present.is_empty() {
+            return None;
+        }
+        let obj = match args.as_object() {
+            Some(o) => o,
+            None => return None,
+        };
+        let mut satisfied: Vec<&str> = Vec::new();
+        let mut missing: Vec<&str> = Vec::new();
+        for name in &self.present {
+            match obj.get(name.as_str()) {
+                Some(v) if !v.is_null() => satisfied.push(name),
+                _ => missing.push(name),
+            }
+        }
+        if !satisfied.is_empty() && !missing.is_empty() {
+            Some((satisfied, missing))
+        } else {
+            None
+        }
+    }
 }
 
 /// Spec for appending a file's contents to the tool result when it exists.
@@ -1025,6 +1103,86 @@ mod tests {
         assert!(!values_match(&serde_json::json!(true), &serde_json::json!("false")));
     }
 
+    // --- ParamConditionSpec::partial_present_match tests ---
+
+    #[test]
+    fn partial_present_match_returns_satisfied_and_missing_when_some_present() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string(), "original_content".to_string()],
+            absent: vec![],
+        };
+        // start_line is present, original_content is missing
+        let args = serde_json::json!({ "start_line": 5, "path": "foo.txt" });
+        let (satisfied, missing) = cond.partial_present_match(&args).unwrap();
+        assert_eq!(satisfied, vec!["start_line"]);
+        assert_eq!(missing, vec!["original_content"]);
+    }
+
+    #[test]
+    fn partial_present_match_returns_satisfied_and_missing_when_other_present() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string(), "original_content".to_string()],
+            absent: vec![],
+        };
+        // original_content is present, start_line is missing
+        let args = serde_json::json!({ "original_content": "old", "path": "foo.txt" });
+        let (satisfied, missing) = cond.partial_present_match(&args).unwrap();
+        assert_eq!(satisfied, vec!["original_content"]);
+        assert_eq!(missing, vec!["start_line"]);
+    }
+
+    #[test]
+    fn partial_present_match_returns_none_when_all_present() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string(), "original_content".to_string()],
+            absent: vec![],
+        };
+        let args = serde_json::json!({ "start_line": 5, "original_content": "old" });
+        assert!(cond.partial_present_match(&args).is_none());
+    }
+
+    #[test]
+    fn partial_present_match_returns_none_when_none_present() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string(), "original_content".to_string()],
+            absent: vec![],
+        };
+        let args = serde_json::json!({ "path": "foo.txt", "content": "hello" });
+        assert!(cond.partial_present_match(&args).is_none());
+    }
+
+    #[test]
+    fn partial_present_match_returns_none_when_empty_present() {
+        let cond = ParamConditionSpec {
+            present: vec![],
+            absent: vec!["overwrite".to_string()],
+        };
+        let args = serde_json::json!({ "path": "foo.txt" });
+        assert!(cond.partial_present_match(&args).is_none());
+    }
+
+    #[test]
+    fn partial_present_match_returns_none_for_non_object_args() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string()],
+            absent: vec![],
+        };
+        let args = serde_json::json!("not an object");
+        assert!(cond.partial_present_match(&args).is_none());
+    }
+
+    #[test]
+    fn partial_present_match_treats_null_as_absent() {
+        let cond = ParamConditionSpec {
+            present: vec!["start_line".to_string(), "original_content".to_string()],
+            absent: vec![],
+        };
+        // start_line is present, original_content is null
+        let args = serde_json::json!({ "start_line": 5, "original_content": null });
+        let (satisfied, missing) = cond.partial_present_match(&args).unwrap();
+        assert_eq!(satisfied, vec!["start_line"]);
+        assert_eq!(missing, vec!["original_content"]);
+    }
     // --- ToolDescriptor::from_parts tests ---
 
     #[test]
@@ -1128,7 +1286,10 @@ mod tests {
             "binary": "cat",
             "subcommand": "",
             "hintConditions": [
-                { "exitCode": "nonzero", "hint": "file not found" }
+                {
+                    "exitCode": "nonzero",
+                    "hint": "file not found"
+                }
             ]
         });
         let spec: ExecutionSpec = serde_json::from_value(json).unwrap();

@@ -12,6 +12,9 @@ pub(crate) enum FileCmd {
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
+        /// Overwrite an existing file. Without this flag, writing to an existing file is rejected.
+        #[arg(long)]
+        overwrite: bool,
     },
     /// Append content to an existing file. Creates the file if it does not exist. Content is read from stdin when --content is omitted.
     Append {
@@ -96,7 +99,7 @@ pub(crate) enum FileCmd {
         /// Line number to start reading at (1-indexed, inclusive)
         #[arg(long)]
         start_line: usize,
-        /// Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file.
+        /// Line number to end reading at (1-indexed, inclusive).
         #[arg(long)]
         end_line: Option<usize>,
     },
@@ -162,7 +165,7 @@ pub(crate) enum FileCmd {
 
 pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
     match cmd {
-        FileCmd::Write { path, content } => {
+        FileCmd::Write { path, content, overwrite } => {
             let content = read_content_from_stdin_or(content)?;
             let target = if std::path::Path::new(&path).is_relative() {
                 std::env::current_dir()?.join(&path)
@@ -176,6 +179,9 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                     })?;
                 }
             }
+            if target.exists() && !overwrite {
+                anyhow::bail!("overwrite must be set to true to overwrite an existing file");
+            }
             let existing = if target.exists() {
                 let old_content = std::fs::read_to_string(&target)
                     .unwrap_or_default();
@@ -188,6 +194,8 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", target.display(), e))?;
             if let Some(old_lines) = existing {
                 println!("wrote {} ({} bytes, overwriting existing {} lines)", target.display(), content.len(), old_lines);
+            } else if overwrite {
+                println!("wrote {} ({} bytes, new file created)", target.display(), content.len());
             } else {
                 println!("wrote {} ({} bytes)", target.display(), content.len());
             }

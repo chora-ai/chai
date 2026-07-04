@@ -9,20 +9,6 @@
         "path": {
           "type": "string",
           "description": "File path relative to the sandbox root"
-        }
-      }
-    }
-  },
-  {
-    "name": "files_read_lines",
-    "description": "Read a range of lines from a file.",
-    "parameters": {
-      "type": "object",
-      "required": ["path", "start_line"],
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "File path relative to the sandbox root"
         },
         "start_line": {
           "type": "integer",
@@ -30,7 +16,7 @@
         },
         "end_line": {
           "type": "integer",
-          "description": "Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the file."
+          "description": "Line number to end reading at (1-indexed, inclusive)."
         }
       }
     }
@@ -86,7 +72,7 @@
   },
   {
     "name": "files_write",
-    "description": "Write content to a file. Creates the file if it does not exist, overwrites if it does. Parent directories are created automatically if they do not exist.",
+    "description": "Write content to a file. Creates the file if it does not exist. Parent directories are created automatically if they do not exist.",
     "parameters": {
       "type": "object",
       "required": ["path", "content"],
@@ -98,20 +84,6 @@
         "content": {
           "type": "string",
           "description": "Content to write to the file"
-        }
-      }
-    }
-  },
-  {
-    "name": "files_write_lines",
-    "description": "Replace one or more lines in a file without rewriting the entire file.",
-    "parameters": {
-      "type": "object",
-      "required": ["path", "start_line", "original_content", "content"],
-      "properties": {
-        "path": {
-          "type": "string",
-          "description": "File path relative to the sandbox root"
         },
         "start_line": {
           "type": "integer",
@@ -121,9 +93,9 @@
           "type": "string",
           "description": "The original content that will be replaced. The first line must match the content at start_line or the edit is rejected."
         },
-        "content": {
-          "type": "string",
-          "description": "The content that will replace original_content"
+        "overwrite": {
+          "type": "boolean",
+          "description": "Must be set to true to overwrite an existing file"
         }
       }
     }
