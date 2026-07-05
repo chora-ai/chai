@@ -26,11 +26,15 @@
         },
         "skip": {
           "type": "integer",
-          "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits). Use with count to paginate through history."
+          "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits)."
         },
         "oneline": {
           "type": "boolean",
           "description": "Use compact one-line format per commit"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Commit, branch, or ref to show history for (e.g. 'main', 'HEAD~5..HEAD')"
         },
         "repo": {
           "type": "string",
@@ -86,11 +90,11 @@
         },
         "staged": {
           "type": "boolean",
-          "description": "Show staged changes (--cached)"
+          "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
         },
         "ref": {
           "type": "string",
-          "description": "Compare against a specific commit, branch, or ref"
+          "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
         },
         "repo": {
           "type": "string",
@@ -112,7 +116,7 @@
       "properties": {
         "ref": {
           "type": "string",
-          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'main')"
         },
         "repo": {
           "type": "string",
@@ -138,7 +142,7 @@
         },
         "ref": {
           "type": "string",
-          "description": "Commit hash, branch name, tag, or ref to show"
+          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'main')"
         },
         "repo": {
           "type": "string",
@@ -149,7 +153,7 @@
   },
   {
     "name": "git_branch",
-    "description": "List branches. Shows all local branches with the current branch marked.",
+    "description": "List branches. Shows branches with the current branch marked.",
     "parameters": {
       "type": "object",
       "required": [],

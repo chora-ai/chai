@@ -330,9 +330,45 @@ impl GenericToolExecutor {
             return Ok(matched[0]);
         }
         if matched.len() > 1 {
+            // Collect the parameter names that caused each condition to match,
+            // so the caller knows which parameters are conflicting.
+            let conditions: Vec<String> = matched
+                .iter()
+                .filter_map(|e| {
+                    e.spec.param_condition.as_ref().map(|cond| {
+                        let matched_params: Vec<&str> = cond
+                            .present
+                            .iter()
+                            .filter(|name| {
+                                args.as_object()
+                                    .and_then(|obj| obj.get(name.as_str()))
+                                    .map_or(false, |v| !v.is_null())
+                            })
+                            .map(|n| n.as_str())
+                            .collect();
+                        if matched_params.is_empty() {
+                            // Condition matched via absent-only — describe what was absent.
+                            let absent_params: Vec<&str> = cond
+                                .absent
+                                .iter()
+                                .filter(|name| {
+                                    args.as_object()
+                                        .and_then(|obj| obj.get(name.as_str()))
+                                        .map_or(true, |v| v.is_null())
+                                })
+                                .map(|n| n.as_str())
+                                .collect();
+                            format!("absent: [{}]", absent_params.join(", "))
+                        } else {
+                            format!("present: [{}]", matched_params.join(", "))
+                        }
+                    })
+                })
+                .collect();
             return Err(format!(
-                "tool {}: multiple execution specs match the given parameters",
-                name
+                "tool {}: multiple execution specs match the given parameters (matching conditions: {})",
+                name,
+                conditions.join("; ")
             ));
         }
         // No paramCondition matched: fall back to the default entry (no paramCondition).
@@ -1233,5 +1269,124 @@ mod tests {
         let err = result.unwrap_err();
         assert!(!err.contains("also required"), "unexpected hint in error: {}", err);
         assert!(err.contains("no execution spec matches the given parameters"), "unexpected error: {}", err);
+    }
+    #[test]
+    fn resolve_entry_multiple_match_includes_present_param_names() {
+        // Simulate git_rebase: two entries with present-based conditions
+        let entries = vec![
+            make_entry(
+                "git_rebase",
+                "rebase continue",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["continue".to_string()],
+                    absent: vec![],
+                }),
+            ),
+            make_entry(
+                "git_rebase",
+                "rebase abort",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["abort".to_string()],
+                    absent: vec![],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "git_rebase".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // Both continue and abort provided — both conditions match
+        let args = serde_json::json!({ "continue": true, "abort": true, "repo": "chai" });
+        let result = executor.resolve_entry("git_rebase", &args);
+        let err = result.unwrap_err();
+        assert!(err.contains("multiple execution specs match the given parameters"), "unexpected error: {}", err);
+        assert!(err.contains("present: [continue]"), "should list 'continue' as matching param: {}", err);
+        assert!(err.contains("present: [abort]"), "should list 'abort' as matching param: {}", err);
+    }
+
+    #[test]
+    fn resolve_entry_multiple_match_includes_absent_param_names() {
+        // Simulate a tool with two absent-only conditions that both match
+        let entries = vec![
+            make_entry(
+                "test_tool",
+                "mode_a",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec![],
+                    absent: vec!["flag_a".to_string()],
+                }),
+            ),
+            make_entry(
+                "test_tool",
+                "mode_b",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec![],
+                    absent: vec!["flag_b".to_string()],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "test_tool".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // Neither flag_a nor flag_b provided — both absent-conditions match
+        let args = serde_json::json!({ "path": "foo.txt" });
+        let result = executor.resolve_entry("test_tool", &args);
+        let err = result.unwrap_err();
+        assert!(err.contains("multiple execution specs match the given parameters"), "unexpected error: {}", err);
+        assert!(err.contains("absent: [flag_a]"), "should list 'flag_a' as absent matching param: {}", err);
+        assert!(err.contains("absent: [flag_b]"), "should list 'flag_b' as absent matching param: {}", err);
+    }
+
+    #[test]
+    fn resolve_entry_multiple_match_with_present_and_absent_conditions() {
+        // One condition uses present, another uses absent — both match
+        let entries = vec![
+            make_entry(
+                "test_tool",
+                "mode_a",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec!["flag_a".to_string()],
+                    absent: vec![],
+                }),
+            ),
+            make_entry(
+                "test_tool",
+                "mode_b",
+                Some(crate::skills::ParamConditionSpec {
+                    present: vec![],
+                    absent: vec!["flag_b".to_string()],
+                }),
+            ),
+        ];
+        let executor = GenericToolExecutor {
+            map: vec![(
+                "test_tool".to_string(),
+                (entries, None),
+            )]
+            .into_iter()
+            .collect(),
+            sandbox: None,
+            side_read_seen: Arc::new(Mutex::new(HashMap::new())),
+        };
+        // flag_a provided, flag_b absent — both conditions match
+        let args = serde_json::json!({ "flag_a": true, "path": "foo.txt" });
+        let result = executor.resolve_entry("test_tool", &args);
+        let err = result.unwrap_err();
+        assert!(err.contains("multiple execution specs match the given parameters"), "unexpected error: {}", err);
+        assert!(err.contains("present: [flag_a]"), "should list 'flag_a' as present matching param: {}", err);
+        assert!(err.contains("absent: [flag_b]"), "should list 'flag_b' as absent matching param: {}", err);
     }
 }

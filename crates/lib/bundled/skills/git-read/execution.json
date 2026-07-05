@@ -47,6 +47,11 @@
         "flagIfTrue": "--oneline"
       },
       {
+        "param": "ref",
+        "kind": "positional",
+        "optional": true
+      },
+      {
         "param": "path",
         "kind": "positional",
         "optional": true,

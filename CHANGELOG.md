@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### Skills
+
+- `ref` parameter on `git_log` — view commit history for a specific branch, tag, or ref range (e.g., `main`, `HEAD~5..HEAD`); works in both `git` and `git-read` skill variants
+- `continue` and `abort` boolean parameters on `git_rebase` — continue or abort an in-progress rebase after conflict resolution (replaces separate `git_rebase_continue` and `git_rebase_abort` tools)
+- `continue` and `abort` boolean parameters on `git_cherry_pick` — continue or abort an in-progress cherry-pick after conflict resolution (replaces separate `git_cherry_pick_continue` and `git_cherry_pick_abort` tools)
+
 #### Desktop
 
 - Per-profile gateway state — each profile has its own `GatewayState` (sessions, chat, status, process handle) stored in a `HashMap<String, GatewayState>` on `ChaiApp`, enabling multiple simultaneous gateways and seamless profile switching with preserved state
@@ -46,6 +52,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `paramCondition` field on execution specs — parameter-based routing between multiple execution specs with the same tool name; supports `present` (parameter must be provided) and `absent` (parameter must be omitted) constraints with AND logic; partial-match hints when paired parameters are incomplete (e.g., `start_line` without `original_content`)
 - Schema-enforced validation — the executor validates tool call parameters against the tool schema before execution; undeclared parameters and type mismatches are rejected; startup alignment check warns when schema parameters lack execution handlers
 - `--overwrite` flag on `chai file write` — rejects writes to existing files without the flag; new-file writes succeed regardless
+- `git_rebase` and `git_cherry_pick` consolidated — `continue`/`abort` operations are now boolean parameters on the parent tool instead of separate tool names; routing uses `paramCondition` (same pattern as `files_write` surgical edit vs whole-file write); both `continue` and `abort` provided simultaneously is rejected as ambiguous
+- `git_reset` changed to unstage-only — `ref` parameter removed; new required `paths` parameter (with `split: true`) mirrors `git_add` for targeted unstaging (e.g., `paths: "."` to unstage all, `paths: "file.rs"` to unstage a specific file); the tool can no longer move the branch pointer or lose commits
+- `git_add` `paths` description clarified — documents space-separated multi-file support and `"."` for staging all
 
 ### Fixed
 
@@ -71,6 +80,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `notes_write_lines` → use `notes_write` with `start_line` and `original_content` parameters (surgical edit mode)
 - Tool behavior changes — existing tool calls may produce different results:
   - `files_write` and `notes_write` now reject overwrites of existing files without `overwrite: true`; previously, whole-file writes silently overwrote existing files
+  - `git_reset` no longer accepts a `ref` parameter and cannot move the branch pointer; existing calls using `ref` must switch to the `paths` parameter for unstaging (e.g., `git_reset({paths: "."})` to unstage all)
+- Tool removals — existing tool calls using removed tool names will fail:
+  - `git_rebase_continue` → use `git_rebase` with `continue: true`
+  - `git_rebase_abort` → use `git_rebase` with `abort: true`
+  - `git_cherry_pick_continue` → use `git_cherry_pick` with `continue: true`
+  - `git_cherry_pick_abort` → use `git_cherry_pick` with `abort: true`
 
 ## [0.4.0] - 2026-06-30
 

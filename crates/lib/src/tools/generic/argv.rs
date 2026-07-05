@@ -880,7 +880,7 @@ mod tests {
     #[test]
     fn build_argv_literal_pushes_fixed_value() {
         let spec = ExecutionSpec {
-            tool: "git_rebase_continue".to_string(),
+            tool: "git_rebase".to_string(),
             binary: "git".to_string(),
             subcommand: "rebase".to_string(),
             args: vec![ArgMapping {

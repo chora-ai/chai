@@ -26,11 +26,15 @@
         },
         "skip": {
           "type": "integer",
-          "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits). Use with count to paginate through history."
+          "description": "Skip N commits before starting output (e.g. 10 to skip the first 10 commits)."
         },
         "oneline": {
           "type": "boolean",
           "description": "Use compact one-line format per commit"
+        },
+        "ref": {
+          "type": "string",
+          "description": "Commit, branch, or ref to show history for (e.g. 'main', 'HEAD~5..HEAD')"
         },
         "repo": {
           "type": "string",
@@ -86,11 +90,11 @@
         },
         "staged": {
           "type": "boolean",
-          "description": "Show staged changes (--cached)"
+          "description": "Show staged changes (index vs HEAD) instead of unstaged changes"
         },
         "ref": {
           "type": "string",
-          "description": "Compare against a specific commit, branch, or ref"
+          "description": "Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')"
         },
         "repo": {
           "type": "string",
@@ -112,7 +116,7 @@
       "properties": {
         "ref": {
           "type": "string",
-          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'abc1234', 'main')"
+          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'main')"
         },
         "repo": {
           "type": "string",
@@ -138,7 +142,7 @@
         },
         "ref": {
           "type": "string",
-          "description": "Commit hash, branch name, tag, or ref to show"
+          "description": "Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'main')"
         },
         "repo": {
           "type": "string",
@@ -149,7 +153,7 @@
   },
   {
     "name": "git_branch",
-    "description": "List branches. Shows all local branches with the current branch marked.",
+    "description": "List branches. Shows branches with the current branch marked.",
     "parameters": {
       "type": "object",
       "required": [],
@@ -174,7 +178,25 @@
       "properties": {
         "paths": {
           "type": "string",
-          "description": "File path or pattern to stage, relative to the repository root"
+          "description": "File path or pattern to stage, relative to the repository root. Space-separated for multiple files. Use '.' to stage all unstaged changes."
+        },
+        "repo": {
+          "type": "string",
+          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
+        }
+      }
+    }
+  },
+  {
+    "name": "git_reset",
+    "description": "Unstage files from the index.",
+    "parameters": {
+      "type": "object",
+      "required": ["paths"],
+      "properties": {
+        "paths": {
+          "type": "string",
+          "description": "File path or pattern to unstage, relative to the repository root. Space-separated for multiple files. Use '.' to unstage all staged changes."
         },
         "repo": {
           "type": "string",
@@ -210,7 +232,7 @@
       "properties": {
         "branch_name": {
           "type": "string",
-          "description": "Name for the new branch (e.g. 'feature/add-search')"
+          "description": "Name for the new branch (e.g. 'feat/add-search')"
         },
         "repo": {
           "type": "string",
@@ -228,7 +250,7 @@
       "properties": {
         "branch_name": {
           "type": "string",
-          "description": "Branch name to switch to (e.g. 'main', 'dev')"
+          "description": "Branch name to switch to (e.g. 'main', 'feat/add-search')"
         },
         "repo": {
           "type": "string",
@@ -239,14 +261,14 @@
   },
   {
     "name": "git_branch_delete",
-    "description": "Delete a local branch.",
+    "description": "Delete a branch.",
     "parameters": {
       "type": "object",
       "required": ["branch_name"],
       "properties": {
         "branch_name": {
           "type": "string",
-          "description": "Branch name to delete (e.g. 'feature/old-branch')"
+          "description": "Branch name to delete (e.g. 'feat/add-search')"
         },
         "force": {
           "type": "boolean",
@@ -283,14 +305,22 @@
   },
   {
     "name": "git_rebase",
-    "description": "Rebase the current branch onto another branch or ref. Replays the current branch's commits on top of the target.",
+    "description": "Rebase the current branch onto another branch or ref. Replays the current branch's commits on top of the target. Also continue or abort an in-progress rebase.",
     "parameters": {
       "type": "object",
-      "required": ["onto"],
+      "required": [],
       "properties": {
         "onto": {
           "type": "string",
-          "description": "The branch or ref to rebase onto (e.g. 'main', 'feat/my-feature')"
+          "description": "The branch or ref to rebase onto (e.g. 'main', 'feat/add-search')"
+        },
+        "continue": {
+          "type": "boolean",
+          "description": "Continue an in-progress rebase after resolving conflicts"
+        },
+        "abort": {
+          "type": "boolean",
+          "description": "Abort an in-progress rebase and restore the original branch state"
         },
         "repo": {
           "type": "string",
@@ -301,10 +331,10 @@
   },
   {
     "name": "git_cherry_pick",
-    "description": "Apply the changes introduced by specific commits onto the current branch. Defaults to creating a new commit for each picked commit.",
+    "description": "Apply the changes introduced by specific commits onto the current branch. Defaults to creating a new commit for each picked commit. Also continue or abort an in-progress cherry-pick.",
     "parameters": {
       "type": "object",
-      "required": ["commits"],
+      "required": [],
       "properties": {
         "commits": {
           "type": "string",
@@ -312,81 +342,15 @@
         },
         "no_commit": {
           "type": "boolean",
-          "description": "Stage changes without committing — follow with git_commit to finalize (default: false)"
+          "description": "Stage changes without committing (default: false)"
         },
-        "repo": {
-          "type": "string",
-          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-        }
-      }
-    }
-  },
-  {
-    "name": "git_rebase_continue",
-    "description": "Continue a rebase after resolving conflicts.",
-    "parameters": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-        }
-      }
-    }
-  },
-  {
-    "name": "git_rebase_abort",
-    "description": "Abort an in-progress rebase and restore the original branch state.",
-    "parameters": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-        }
-      }
-    }
-  },
-  {
-    "name": "git_cherry_pick_continue",
-    "description": "Continue a cherry-pick after resolving conflicts.",
-    "parameters": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-        }
-      }
-    }
-  },
-  {
-    "name": "git_cherry_pick_abort",
-    "description": "Abort an in-progress cherry-pick and restore the original branch state.",
-    "parameters": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "repo": {
-          "type": "string",
-          "description": "Repository path relative to the sandbox root. Defaults to the sandbox root if omitted."
-        }
-      }
-    }
-  },
-  {
-    "name": "git_reset",
-    "description": "Reset the current branch to a specified ref.",
-    "parameters": {
-      "type": "object",
-      "required": [],
-      "properties": {
-        "ref": {
-          "type": "string",
-          "description": "The ref to reset to (default: 'HEAD~1')"
+        "continue": {
+          "type": "boolean",
+          "description": "Continue an in-progress cherry-pick after resolving conflicts"
+        },
+        "abort": {
+          "type": "boolean",
+          "description": "Abort an in-progress cherry-pick and restore the original branch state"
         },
         "repo": {
           "type": "string",

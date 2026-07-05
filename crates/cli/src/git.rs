@@ -12,10 +12,10 @@ pub(crate) enum GitCmd {
         /// Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output.
         #[arg(long)]
         end_line: Option<usize>,
-        /// Show staged changes (--cached)
+        /// Show staged changes (index vs HEAD) instead of unstaged changes
         #[arg(long)]
         staged: bool,
-        /// Compare against a specific commit, branch, or ref
+        /// Compare against a specific commit, branch, or ref (e.g. 'main', 'HEAD~3')
         #[arg(long = "ref")]
         ref_: Option<String>,
         /// Limit diff to a specific file or directory path within the repository
@@ -33,7 +33,7 @@ pub(crate) enum GitCmd {
         /// Line number to end reading at (1-indexed, inclusive). When omitted, reads from start_line to the end of the output.
         #[arg(long)]
         end_line: Option<usize>,
-        /// Commit hash, branch name, tag, or ref to show
+        /// Commit hash, branch name, tag, or ref to show (e.g. 'HEAD', 'main')
         #[arg(long)]
         r#ref: String,
         /// Repository path (working directory for git). Defaults to the current directory.

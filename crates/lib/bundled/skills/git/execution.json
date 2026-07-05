@@ -47,6 +47,11 @@
         "flagIfTrue": "--oneline"
       },
       {
+        "param": "ref",
+        "kind": "positional",
+        "optional": true
+      },
+      {
         "param": "path",
         "kind": "positional",
         "optional": true,
@@ -245,6 +250,40 @@
           "args": ["--path", "$param"]
         }
       }
+    ],
+    "hintConditions": [
+      {
+        "exitCode": 0,
+        "hint": "staged changes — use git_status to inspect the current state"
+      }
+    ]
+  },
+  {
+    "tool": "git_reset",
+    "binary": "git",
+    "subcommand": "reset",
+    "args": [
+      {
+        "param": "paths",
+        "kind": "positional",
+        "split": true
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "hintConditions": [
+      {
+        "exitCode": 0,
+        "hint": "unstaged changes — use git_status to inspect the current state"
+      }
     ]
   },
   {
@@ -415,6 +454,64 @@
   {
     "tool": "git_rebase",
     "binary": "git",
+    "binaryWrapper": ["env", "GIT_EDITOR=true"],
+    "subcommand": "rebase",
+    "paramCondition": {
+      "present": ["continue"]
+    },
+    "args": [
+      {
+        "kind": "literal",
+        "value": "--continue"
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        },
+        "denyPattern": "^release/.+$",
+        "denyAlwaysResolve": true,
+        "denyResolveCommand": {
+          "script": "resolve-current-branch",
+          "args": ["$workingDir"]
+        }
+      }
+    ],
+    "successExitCodes": [1],
+    "maxOutputLines": 50
+  },
+  {
+    "tool": "git_rebase",
+    "binary": "git",
+    "subcommand": "rebase",
+    "paramCondition": {
+      "present": ["abort"]
+    },
+    "args": [
+      {
+        "kind": "literal",
+        "value": "--abort"
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 50
+  },
+  {
+    "tool": "git_rebase",
+    "binary": "git",
     "subcommand": "rebase",
     "args": [
       {
@@ -443,13 +540,70 @@
     "hintConditions": [
       {
         "match": "CONFLICT",
-        "hint": "rebase conflicts detected — resolve conflicts, stage them with git_add, then use git_rebase_continue to proceed (or git_rebase_abort to cancel)"
+        "hint": "rebase conflicts detected — resolve conflicts, stage them with git_add, then use git_rebase with continue: true (or abort: true to cancel)"
       },
       {
         "match": "is up to date",
         "hint": "current branch is already up to date with the target"
       }
     ]
+  },
+  {
+    "tool": "git_cherry_pick",
+    "binary": "git",
+    "subcommand": "cherry-pick",
+    "paramCondition": {
+      "present": ["continue"]
+    },
+    "args": [
+      {
+        "kind": "literal",
+        "value": "--continue"
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        },
+        "denyPattern": "^release/.+$",
+        "denyAlwaysResolve": true,
+        "denyResolveCommand": {
+          "script": "resolve-current-branch",
+          "args": ["$workingDir"]
+        }
+      }
+    ],
+    "successExitCodes": [1],
+    "maxOutputLines": 50
+  },
+  {
+    "tool": "git_cherry_pick",
+    "binary": "git",
+    "subcommand": "cherry-pick",
+    "paramCondition": {
+      "present": ["abort"]
+    },
+    "args": [
+      {
+        "kind": "literal",
+        "value": "--abort"
+      },
+      {
+        "param": "repo",
+        "kind": "workingdir",
+        "optional": true,
+        "resolveCommand": {
+          "binary": "chai",
+          "subcommand": "resolve repo-path",
+          "args": ["--path", "$param"]
+        }
+      }
+    ],
+    "maxOutputLines": 50
   },
   {
     "tool": "git_cherry_pick",
@@ -489,149 +643,11 @@
     "hintConditions": [
       {
         "match": "CONFLICT",
-        "hint": "cherry-pick conflicts detected — resolve conflicts, stage them with git_add, then use git_cherry_pick_continue to proceed (or git_cherry_pick_abort to cancel)"
+        "hint": "cherry-pick conflicts detected — resolve conflicts, stage them with git_add, then use git_cherry_pick with continue: true (or abort: true to cancel)"
       },
       {
         "whenArg": { "no_commit": true },
         "hint": "cherry-pick staged — use git_commit to finalize with a conventional commit message"
-      }
-    ]
-  },
-  {
-    "tool": "git_rebase_continue",
-    "binary": "git",
-    "subcommand": "rebase",
-    "args": [
-      {
-        "kind": "literal",
-        "value": "--continue"
-      },
-      {
-        "param": "repo",
-        "kind": "workingdir",
-        "optional": true,
-        "resolveCommand": {
-          "binary": "chai",
-          "subcommand": "resolve repo-path",
-          "args": ["--path", "$param"]
-        },
-        "denyPattern": "^release/.+$",
-        "denyAlwaysResolve": true,
-        "denyResolveCommand": {
-          "script": "resolve-current-branch",
-          "args": ["$workingDir"]
-        }
-      }
-    ],
-    "successExitCodes": [1],
-    "maxOutputLines": 50
-  },
-  {
-    "tool": "git_rebase_abort",
-    "binary": "git",
-    "subcommand": "rebase",
-    "args": [
-      {
-        "kind": "literal",
-        "value": "--abort"
-      },
-      {
-        "param": "repo",
-        "kind": "workingdir",
-        "optional": true,
-        "resolveCommand": {
-          "binary": "chai",
-          "subcommand": "resolve repo-path",
-          "args": ["--path", "$param"]
-        }
-      }
-    ],
-    "maxOutputLines": 50
-  },
-  {
-    "tool": "git_cherry_pick_continue",
-    "binary": "git",
-    "subcommand": "cherry-pick",
-    "args": [
-      {
-        "kind": "literal",
-        "value": "--continue"
-      },
-      {
-        "param": "repo",
-        "kind": "workingdir",
-        "optional": true,
-        "resolveCommand": {
-          "binary": "chai",
-          "subcommand": "resolve repo-path",
-          "args": ["--path", "$param"]
-        },
-        "denyPattern": "^release/.+$",
-        "denyAlwaysResolve": true,
-        "denyResolveCommand": {
-          "script": "resolve-current-branch",
-          "args": ["$workingDir"]
-        }
-      }
-    ],
-    "successExitCodes": [1],
-    "maxOutputLines": 50
-  },
-  {
-    "tool": "git_cherry_pick_abort",
-    "binary": "git",
-    "subcommand": "cherry-pick",
-    "args": [
-      {
-        "kind": "literal",
-        "value": "--abort"
-      },
-      {
-        "param": "repo",
-        "kind": "workingdir",
-        "optional": true,
-        "resolveCommand": {
-          "binary": "chai",
-          "subcommand": "resolve repo-path",
-          "args": ["--path", "$param"]
-        }
-      }
-    ],
-    "maxOutputLines": 50
-  },
-  {
-    "tool": "git_reset",
-    "binary": "git",
-    "subcommand": "reset",
-    "args": [
-      {
-        "param": "ref",
-        "kind": "positional",
-        "optional": true,
-        "absentDefault": "HEAD~1"
-      },
-      {
-        "param": "repo",
-        "kind": "workingdir",
-        "optional": true,
-        "resolveCommand": {
-          "binary": "chai",
-          "subcommand": "resolve repo-path",
-          "args": ["--path", "$param"]
-        },
-        "denyPattern": "^(main|release/.+)$",
-        "denyAlwaysResolve": true,
-        "denyResolveCommand": {
-          "script": "resolve-current-branch",
-          "args": ["$workingDir"]
-        }
-      }
-    ],
-    "maxOutputLines": 50,
-    "hintConditions": [
-      {
-        "exitCode": 0,
-        "hint": "reset to {ref} — use git_status to inspect the current state, or git_commit to re-commit staged changes"
       }
     ]
   }
