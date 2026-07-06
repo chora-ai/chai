@@ -11,22 +11,100 @@ use super::super::{
     STATUS_INTERVAL_FRAMES,
 };
 
+/// Resolved WebSocket connection info for a profile.
+///
+/// For local profiles, the URL is derived from `config.json` `gateway.bind:port`.
+/// For remote profiles, the URL and token come from the `remote` entry in
+/// `desktop.json`. The `ws_url` is always the full URL to connect to
+/// (including `wss://` for TLS), and `gateway_token` is the auth token to
+/// use in the pairing protocol.
+pub(crate) struct WsConnectInfo {
+    /// WebSocket URL (e.g. `ws://127.0.0.1:15151/ws` or `wss://example.com/chai/ws`).
+    pub(crate) ws_url: String,
+    /// Gateway auth token for the pairing protocol. For local profiles, resolved
+    /// from `config.json` / env. For remote profiles, from the `remote` entry.
+    pub(crate) gateway_token: Option<String>,
+    /// Paths for the active profile (device identity, device token).
+    pub(crate) paths: lib::profile::ChaiPaths,
+}
+
+/// Resolve WebSocket connection info for a profile.
+///
+/// Checks the desktop config for a `remote` entry matching the profile name.
+/// If found, uses the remote entry's URL and token. Otherwise, falls back to
+/// the local config's `gateway.bind:port` and resolved auth token.
+pub(crate) fn resolve_ws_connect_info(profile_override: Option<&str>) -> Result<WsConnectInfo, String> {
+    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
+
+    // Check if this profile is a remote entry.
+    let desktop_config = lib::config::load_desktop_config().map_err(|e| e.to_string())?;
+    if let Some(ref remote) = desktop_config.remote {
+        let profile_name = paths.profile_name.trim();
+        if let Some(entry) = remote.iter().find(|r| r.id.trim() == profile_name) {
+            return Ok(WsConnectInfo {
+                ws_url: entry.url.trim().to_string(),
+                gateway_token: Some(entry.token.trim().to_string()),
+                paths,
+            });
+        }
+    }
+
+    // Local profile: derive URL from config.
+    let bind = config.gateway.bind.trim();
+    let port = config.gateway.port;
+    let token = lib::config::resolve_gateway_token(&config);
+    let ws_url = format!("ws://{}:{}/ws", bind, port);
+
+    Ok(WsConnectInfo {
+        ws_url,
+        gateway_token: token,
+        paths,
+    })
+}
+
 impl ChaiApp {
+    /// Whether the active profile is a remote profile (listed in `desktop.json` `remote` array).
+    pub(crate) fn is_remote_profile(&self) -> bool {
+        self.cached_desktop_config
+            .as_ref()
+            .map_or(false, |dc| {
+                dc.remote
+                    .as_ref()
+                    .map_or(false, |remote| {
+                        remote
+                            .iter()
+                            .any(|r| r.id.trim() == self.profile_active.trim())
+                    })
+            })
+    }
+
     /// Poll for probe result and optionally start a new probe for the active profile's gateway.
     /// Call each frame.
     pub(crate) fn poll_gateway_probe(&mut self) {
+        // Skip probing when the user explicitly disconnected a remote profile.
+        // Without this guard, the periodic TCP probe would re-detect the remote
+        // gateway and automatically set responds=true, undoing the disconnect.
+        let remote_disconnected = self.gw_ref().map_or(false, |gw| gw.remote_disconnected);
+        if remote_disconnected {
+            // Still drain any in-flight probe result (shouldn't happen, but be safe).
+            if let Some(rx) = self.gw().probe_receiver.as_ref() {
+                let _ = rx.try_recv();
+            }
+            return;
+        }
         // Check for in-flight probe result.
         let probe_rx = self.gw_ref()
             .and_then(|gw| gw.probe_receiver.as_ref())
             .and_then(|rx| rx.try_recv().ok());
         if let Some(ok) = probe_rx {
             // When the TCP probe succeeds, verify the active profile actually
-            // has a running gateway. If two profiles share the same port
-            // (e.g. both default to 15151), a probe for profile B would
-            // succeed because profile A's gateway is bound to that port.
-            // Without this check, the desktop would treat profile A's gateway
-            // as profile B's, showing the wrong agents and sessions.
-            let ok = ok && self.running_profiles.iter().any(|p| *p == self.profile_active);
+            // has a running gateway (local profiles only). For remote profiles,
+            // the TCP probe is sufficient — there is no local gateway.lock.
+            let ok = if self.is_remote_profile() {
+                ok
+            } else {
+                ok && self.running_profiles.iter().any(|p| *p == self.profile_active)
+            };
             let need_invalidate;
             {
                 let gw = self.gw();
@@ -56,21 +134,41 @@ impl ChaiApp {
         if probe_rx_none && frames_since_probe >= PROBE_INTERVAL_FRAMES {
             self.gw().frames_since_probe = 0;
             let (tx, rx) = mpsc::channel();
+            let is_remote = self.is_remote_profile();
             let profile_override = Some(self.profile_active.clone());
             std::thread::spawn(move || {
-                let Ok((config, _paths)) = lib::config::load_config(profile_override.as_deref()) else {
-                    let _ = tx.send(false);
-                    return;
-                };
-                let addr_str = format!("{}:{}", config.gateway.bind.trim(), config.gateway.port);
-                let ok = addr_str
-                    .parse::<SocketAddr>()
-                    .ok()
-                    .and_then(|addr| {
-                        std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()
-                    })
-                    .is_some();
-                let _ = tx.send(ok);
+                if is_remote {
+                    // For remote profiles, probe the remote URL's host:port.
+                    let desktop_config = match lib::config::load_desktop_config() {
+                        Ok(c) => c,
+                        Err(_) => { let _ = tx.send(false); return; }
+                    };
+                    let entry = desktop_config.remote.as_ref()
+                        .and_then(|remote| {
+                            let name = profile_override.as_deref().unwrap_or("").trim();
+                            remote.iter().find(|r| r.id.trim() == name)
+                        });
+                    let Some(entry) = entry else {
+                        let _ = tx.send(false);
+                        return;
+                    };
+                    let ok = probe_remote_url(&entry.url);
+                    let _ = tx.send(ok);
+                } else {
+                    let Ok((config, _paths)) = lib::config::load_config(profile_override.as_deref()) else {
+                        let _ = tx.send(false);
+                        return;
+                    };
+                    let addr_str = format!("{}:{}", config.gateway.bind.trim(), config.gateway.port);
+                    let ok = addr_str
+                        .parse::<SocketAddr>()
+                        .ok()
+                        .and_then(|addr| {
+                            std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()
+                        })
+                        .is_some();
+                    let _ = tx.send(ok);
+                }
             });
             self.gw().probe_receiver = Some(rx);
         }
@@ -382,13 +480,60 @@ fn parse_providers_block(providers: Option<&serde_json::Value>) -> std::collecti
     map
 }
 
+/// Extract host and port from a WebSocket URL for TCP probing.
+/// Supports `ws://host:port/path` and `wss://host:port/path`.
+fn extract_host_port_from_ws_url(url: &str) -> Option<(String, u16)> {
+    let url = url.trim();
+    let rest = if url.starts_with("ws://") {
+        &url[5..]
+    } else if url.starts_with("wss://") {
+        &url[6..]
+    } else {
+        return None;
+    };
+    // Take everything up to the first '/' (path separator) or end of string.
+    let authority = rest.split('/').next().unwrap_or(rest);
+    // Parse host:port. If port is missing, default to 80 for ws:// and 443 for wss://.
+    let is_wss = url.starts_with("wss://");
+    if let Some(colon_pos) = authority.rfind(':') {
+        let host = &authority[..colon_pos];
+        let port_str = &authority[colon_pos + 1..];
+        let port: u16 = port_str.parse().ok()?;
+        Some((host.to_string(), port))
+    } else {
+        let default_port = if is_wss { 443 } else { 80 };
+        Some((authority.to_string(), default_port))
+    }
+}
+
+/// Probe a remote gateway URL by attempting a TCP connection to its host:port.
+///
+/// Uses DNS resolution (via `ToSocketAddrs`) so hostnames like `localhost`
+/// work alongside numeric IP addresses. This is necessary because
+/// `SocketAddr::parse()` only accepts numeric IPs.
+fn probe_remote_url(url: &str) -> bool {
+    let Some((host, port)) = extract_host_port_from_ws_url(url) else {
+        return false;
+    };
+    let addr_str = format!("{}:{}", host, port);
+    use std::net::ToSocketAddrs;
+    addr_str
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| {
+            addrs.find_map(|addr| {
+                std::net::TcpStream::connect_timeout(&addr, Duration::from_millis(800)).ok()
+            })
+        })
+        .is_some()
+}
+
 /// Fetch gateway status via WebSocket (connect + status). Runs in a thread; use blocking.
 pub(crate) fn fetch_gateway_status(profile_override: Option<&str>, needs_raw_json: bool) -> Result<GatewayStatusDetails, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -745,11 +890,10 @@ pub(crate) fn build_connect_params(
 
 /// Fetch new gateway log lines via the `logs` WebSocket method.
 pub(crate) fn fetch_gateway_logs(profile_override: Option<&str>, after_seq: u64) -> Result<(Vec<String>, u64), String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -870,11 +1014,10 @@ pub(crate) fn fetch_agent_detail(
     profile_override: Option<&str>,
     agent_id: &str,
 ) -> Result<crate::app::types::AgentDetail, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1021,11 +1164,10 @@ pub(crate) fn run_agent_turn(
     model: Option<String>,
     orchestrator_id: Option<String>,
 ) -> Result<AgentReply, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1194,11 +1336,10 @@ pub(crate) fn send_stop(
     profile_override: Option<&str>,
     session_id: &str,
 ) -> Result<bool, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1297,11 +1438,10 @@ pub(crate) fn fetch_sessions_list(
     profile_override: Option<&str>,
     orchestrator_id: Option<&str>,
 ) -> Result<Vec<super::super::SessionSummary>, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1454,11 +1594,10 @@ pub(crate) fn fetch_sessions_history(
     profile_override: Option<&str>,
     session_id: &str,
 ) -> Result<super::super::SessionHistory, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1704,11 +1843,10 @@ pub(crate) fn fetch_sessions_delete(
     profile_override: Option<&str>,
     session_id: &str,
 ) -> Result<bool, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {
@@ -1806,11 +1944,10 @@ pub(crate) fn fetch_sessions_delete_all(
     profile_override: Option<&str>,
     orchestrator_id: Option<&str>,
 ) -> Result<usize, String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {

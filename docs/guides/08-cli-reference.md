@@ -9,6 +9,13 @@ chai                    # Prints a short usage reminder
 chai --help             # Full help text
 ```
 
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CHAI_HOME` | `~/.chai` | Overrides the chai home directory. Set to an absolute or relative path. Empty string falls back to the default. |
+| `RUST_LOG` | `info` (gateway), `warn` (other) | Log level for the `env_logger` crate. |
+
 ## `chai version`
 
 Print the installed version.

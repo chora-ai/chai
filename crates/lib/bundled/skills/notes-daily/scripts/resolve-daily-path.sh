@@ -33,7 +33,7 @@ case "$date" in
     /*) echo "$date"; exit 0 ;;
 esac
 
-sandbox_root="$HOME/.chai/active/sandbox"
+sandbox_root="${CHAI_HOME:-$HOME/.chai}/active/sandbox"
 
 # Resolve the notes directory from scope parameter.
 if [ -z "$scope_rel" ]; then

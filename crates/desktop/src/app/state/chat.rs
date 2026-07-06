@@ -477,11 +477,10 @@ impl ChaiApp {
 
 /// Listen for session.message events from the gateway and forward them via an mpsc channel.
 fn run_session_events_loop(tx: mpsc::Sender<SessionEvent>, ctx: egui::Context, profile_override: Option<&str>) -> Result<(), String> {
-    let (config, paths) = lib::config::load_config(profile_override).map_err(|e| e.to_string())?;
-    let bind = config.gateway.bind.trim();
-    let port = config.gateway.port;
-    let token = lib::config::resolve_gateway_token(&config);
-    let ws_url = format!("ws://{}:{}/ws", bind, port);
+    let info = super::gateway::resolve_ws_connect_info(profile_override)?;
+    let ws_url = info.ws_url;
+    let token = info.gateway_token;
+    let paths = info.paths;
 
     let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
     rt.block_on(async move {

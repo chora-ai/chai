@@ -122,9 +122,9 @@ When the gateway crashes unexpectedly, the desktop extracts the actual error mes
 
 ## Desktop Settings
 
-The desktop app reads `~/.chai/desktop.json` at startup for appearance and log settings. This file is separate from per-profile `config.json` — it holds machine-local user preferences that don't change when you switch profiles.
+The desktop app reads `~/.chai/desktop.json` at startup for appearance, log, and remote profile settings. This file is separate from per-profile `config.json` — it holds machine-local user preferences that don't change when you switch profiles.
 
-When the file is absent, all values use their defaults (dark theme, 14pt font, 1000-line log buffer). Invalid values are rejected at load time and the desktop falls back to defaults.
+When the file is absent, all values use their defaults (dark theme, 14pt font, 1000-line log buffer, no remote profiles). Invalid values are rejected at load time and the desktop falls back to defaults.
 
 ```json
 {
@@ -147,6 +147,63 @@ All blocks and fields are optional.
 | `logs.bufferSize` | `1000` | Maximum number of log lines retained in memory per buffer (desktop and gateway). |
 
 Settings are loaded once at startup — changes require restarting the desktop app.
+
+## Remote Profiles
+
+The desktop can connect to a remote gateway instead of spawning a local one. Add a `remote` array to `desktop.json` with entries for each remote gateway:
+
+```json
+{
+  "remote": [
+    {
+      "id": "my-remote",
+      "url": "wss://gateway.example.com/ws",
+      "token": "your-gateway-token"
+    }
+  ]
+}
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | Yes | Profile name (appears in the ComboBox). Must be unique and not collide with existing local profile names. |
+| `url` | Yes | WebSocket URL. Must start with `ws://` or `wss://`. Supports full paths for reverse proxy setups (e.g., `wss://example.com/chai/ws`). |
+| `token` | Yes | Gateway auth token for device pairing. Must match the server's `gateway.auth.token`. |
+
+When a remote profile is selected, the header shows **Connect/Disconnect** instead of Start/Stop. The desktop never spawns a local gateway process for remote profiles.
+
+### Reverse Proxy Setup for TLS
+
+The gateway does not have built-in TLS. To use `wss://`, run a reverse proxy (e.g., Caddy, nginx, Traefik) in front of the gateway with TLS termination. Example Caddy configuration:
+
+```
+gateway.example.com {
+    tls internal
+    reverse_proxy localhost:15151
+}
+```
+
+Then set the remote entry URL to `wss://gateway.example.com/ws`.
+
+### `CHAI_HOME` Environment Variable
+
+The `CHAI_HOME` environment variable overrides the default `~/.chai` directory. This is useful for testing split deployment on a single machine — the server and client can each use different `CHAI_HOME` values:
+
+```bash
+# Server
+CHAI_HOME=~/.chai-server chai gateway
+
+# Client
+CHAI_HOME=~/.chai-client chai-desktop
+```
+
+| Value | Behavior |
+|-------|----------|
+| Absolute path (existing) | Uses that directory |
+| Absolute path (nonexistent) | Accepted (for `chai init`) |
+| Relative path | Resolved against current working directory |
+| Empty string | Falls back to `~/.chai` |
+| Not set | Default `~/.chai` behavior |
 
 ## Try It
 

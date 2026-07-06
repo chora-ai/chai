@@ -1,4 +1,4 @@
-//! Runtime profile layout under `~/.chai`: `profiles/<name>/`, `active` symlink, shared `skills/`.
+//! Runtime profile layout under `~/.chai` (or `$CHAI_HOME` if set): `profiles/<name>/`, `active` symlink, shared `skills/`.
 //! Per-profile gateway lock at `~/.chai/profiles/<name>/gateway.lock` (PID) so `chai profile switch` can refuse while that profile's gateway is up.
 //! The running gateway holds an **advisory exclusive lock** (`flock` / `LockFileEx`) on that file so concurrent starts and stale-PID races are avoided.
 //! Each profile has its own lock, allowing multiple gateways to run on different profiles simultaneously.
@@ -37,8 +37,37 @@ impl ChaiPaths {
     }
 }
 
-/// `~/.chai` (or `$HOME/.chai`).
+/// `~/.chai` (or `$CHAI_HOME` if set).
+///
+/// If the `CHAI_HOME` environment variable is set, its value is used directly.
+/// Otherwise, falls back to `dirs::home_dir()/.chai`. This allows isolated
+/// testing and multi-instance setups on a single machine.
 pub fn chai_home() -> Result<PathBuf> {
+    if let Ok(custom) = std::env::var("CHAI_HOME") {
+        if !custom.is_empty() {
+            let path = PathBuf::from(&custom);
+            // Canonicalize to resolve symlinks and relative paths.
+            return std::fs::canonicalize(&path)
+                .map_err(|e| anyhow::anyhow!("CHAI_HOME={} does not exist: {}", custom, e))
+                .or_else(|_| {
+                    // Path doesn't exist yet (e.g. before `chai init`). Use
+                    // the value as-is so init can create it.
+                    if path.is_absolute() {
+                        Ok(path)
+                    } else {
+                        std::env::current_dir()
+                            .map(|cwd| cwd.join(&path))
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "cannot resolve relative CHAI_HOME={}: {}",
+                                    custom,
+                                    e
+                                )
+                            })
+                    }
+                });
+        }
+    }
     dirs::home_dir()
         .map(|h| h.join(".chai"))
         .ok_or_else(|| anyhow::anyhow!("could not resolve home directory for ~/.chai"))
@@ -338,5 +367,128 @@ mod lock_tests {
 
         drop(g2);
         assert!(find_running_gateway_profiles(&dir).is_empty());
+    }
+}
+
+#[cfg(test)]
+mod chai_home_tests {
+    use super::*;
+
+    /// Verify that `chai_home()` returns the default `~/.chai` when
+    /// `CHAI_HOME` is not set.
+    #[test]
+    fn chai_home_returns_default_when_env_not_set() {
+        // Temporarily remove CHAI_HOME if it happens to be set in the
+        // test environment.
+        let guard = env_guard::remove("CHAI_HOME");
+        let home = chai_home().expect("chai_home should succeed");
+        assert!(home.ends_with(".chai"));
+        drop(guard);
+    }
+
+    /// Verify that `CHAI_HOME` overrides the default when set to an
+    /// existing directory.
+    #[test]
+    fn chai_home_uses_env_when_set_to_existing_dir() {
+        let dir = std::env::temp_dir().join(format!(
+            "chai-home-env-test-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+
+        let guard = env_guard::set("CHAI_HOME", &dir);
+        let home = chai_home().expect("chai_home with CHAI_HOME should succeed");
+        // Should be the canonical (resolved) path.
+        let expected = std::fs::canonicalize(&dir).expect("canonicalize");
+        assert_eq!(home, expected);
+
+        drop(guard);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Verify that `CHAI_HOME` works when the directory doesn't exist yet
+    /// (e.g. before `chai init`). The absolute path should be returned as-is.
+    #[test]
+    fn chai_home_uses_env_when_dir_does_not_exist() {
+        let dir = std::env::temp_dir().join(format!(
+            "chai-home-env-nonexistent-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        // Deliberately do NOT create the directory.
+
+        let guard = env_guard::set("CHAI_HOME", &dir);
+        let home = chai_home().expect("chai_home with nonexistent CHAI_HOME should succeed");
+        assert_eq!(home, dir);
+
+        drop(guard);
+    }
+
+    /// Verify that an empty `CHAI_HOME` falls back to the default.
+    #[test]
+    fn chai_home_falls_back_when_env_is_empty() {
+        let guard = env_guard::set_raw("CHAI_HOME", "");
+        let home = chai_home().expect("chai_home should succeed with empty CHAI_HOME");
+        assert!(home.ends_with(".chai"));
+        drop(guard);
+    }
+}
+
+/// Test utility for temporarily setting/removing environment variables.
+/// Restores the original value when dropped.
+#[cfg(test)]
+mod env_guard {
+    use std::sync::Mutex;
+
+    // Serialize env var mutations across tests to avoid race conditions.
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    pub struct EnvGuard {
+        key: String,
+        original: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(val) => std::env::set_var(&self.key, val),
+                None => std::env::remove_var(&self.key),
+            }
+        }
+    }
+
+    pub fn set(key: &str, value: &std::path::Path) -> EnvGuard {
+        let lock = LOCK.lock().unwrap();
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        EnvGuard {
+            key: key.to_string(),
+            original,
+            _lock: lock,
+        }
+    }
+
+    pub fn set_raw(key: &str, value: &str) -> EnvGuard {
+        let lock = LOCK.lock().unwrap();
+        let original = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        EnvGuard {
+            key: key.to_string(),
+            original,
+            _lock: lock,
+        }
+    }
+
+    pub fn remove(key: &str) -> EnvGuard {
+        let lock = LOCK.lock().unwrap();
+        let original = std::env::var(key).ok();
+        std::env::remove_var(key);
+        EnvGuard {
+            key: key.to_string(),
+            original,
+            _lock: lock,
+        }
     }
 }

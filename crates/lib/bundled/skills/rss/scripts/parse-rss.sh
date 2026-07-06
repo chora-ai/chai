@@ -138,7 +138,7 @@ if ! printf '%s\n' "$blocks" | grep -q '<title\|<pubDate\|<published\|<link'; th
         http://*|https://*) is_url=true ;;
     esac
     if [ "$is_url" = false ] && [ -n "$feed" ]; then
-        feeds_file="$HOME/.chai/active/sandbox/rss-feeds.txt"
+        feeds_file="${CHAI_HOME:-$HOME/.chai}/active/sandbox/rss-feeds.txt"
         if [ -f "$feeds_file" ]; then
             url=$(grep "^${feed}|" "$feeds_file" | head -1 | cut -d'|' -f2)
             if [ -z "$url" ]; then

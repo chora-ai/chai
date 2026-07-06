@@ -14,7 +14,7 @@ if [ -z "$skill_name" ]; then
 fi
 
 # Find the skill directory and active version
-skill_dir="${HOME}/.chai/skills/${skill_name}"
+skill_dir="${CHAI_HOME:-${HOME}/.chai}/skills/${skill_name}"
 if [ ! -d "$skill_dir" ]; then
     printf '%s\n' "$input"
     exit 0

@@ -18,7 +18,7 @@
 
 scope="$1"
 
-sandbox_root="$HOME/.chai/active/sandbox"
+sandbox_root="${CHAI_HOME:-$HOME/.chai}/active/sandbox"
 
 # If the input is already an absolute path, use it directly.
 case "$scope" in

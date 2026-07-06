@@ -110,4 +110,20 @@ fn settings_left_column(ui: &mut egui::Ui, config: &lib::config::DesktopConfig) 
         dashboard::kv(ui, "Buffer size", &config.logs.buffer_size.to_string());
     });
     ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+
+    if let Some(ref remote) = config.remote {
+        if !remote.is_empty() {
+            dashboard::section_group(ui, "Remote Profiles", |ui| {
+                for entry in remote {
+                    let url_display = if entry.url.len() > 50 {
+                        format!("{}…", &entry.url[..47])
+                    } else {
+                        entry.url.clone()
+                    };
+                    dashboard::kv(ui, &entry.id, &url_display);
+                }
+            });
+            ui.add_space(spacing::DASHBOARD_COLUMN_GAP);
+        }
+    }
 }

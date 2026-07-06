@@ -19,16 +19,17 @@ fn truncate_label(s: &str, max_chars: usize) -> (String, bool) {
 /// Render the top header with title, profile switcher, and gateway controls.
 ///
 /// `running` and `owned` describe the current gateway state.
-/// `probe_completed` controls whether the Start button is enabled yet.
+/// `probe_completed` controls whether the Start/Connect button is enabled yet.
+/// `is_remote` controls the button labels: Connect/Disconnect for remote profiles,
+///   Start/Stop for local profiles.
+/// `remote_disconnected` is true when the user explicitly disconnected from a remote
+///   profile. In this state, the Connect button is enabled even though `probe_completed`
+///   is false, because the probe is suppressed while disconnected.
 /// `profile_dropdown_enabled` controls whether the profile ComboBox is interactive (always true
 ///   with per-profile locks; the switch handler checks per-profile gateway state).
 /// `profile_error` is `Some(msg)` when a profile switch failed (shown as right-aligned red text below the header).
 /// `gateway_error` is `Some(msg)` when the gateway failed to start or exited unexpectedly (shown as
 ///   right-aligned red text below the header, visible from any screen).
-/// `profile_mismatch` is `Some(label)` when the gateway is running a different profile than the desktop's
-///   active profile (e.g. due to an externally started gateway); `label` is shown
-///   as an amber hint. With per-profile locks, the mismatch is informational only and does not disable
-///   the dropdown — the user can switch to a different profile.
 /// `on_profile_change` is called with the selected profile name when the user picks a different profile.
 /// `on_start` and `on_stop` are callbacks invoked when the corresponding
 /// buttons are pressed.
@@ -37,6 +38,8 @@ pub fn header<FProfile, FStart, FStop>(
     running: bool,
     owned: bool,
     probe_completed: bool,
+    is_remote: bool,
+    remote_disconnected: bool,
     profile_names: &[String],
     profile_active: &str,
     profile_dropdown_enabled: bool,
@@ -62,18 +65,37 @@ pub fn header<FProfile, FStart, FStop>(
                 ui.horizontal(|ui| {
                     ui.heading("Chai");
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if !probe_completed {
-                            ui.add_enabled(false, egui::Button::new("Start gateway"));
-                        } else if running {
-                            if owned {
-                                if ui.button("Stop gateway").clicked() {
+                        if is_remote {
+                            // Remote profile: Connect/Disconnect buttons.
+                            // When the user explicitly disconnected (remote_disconnected),
+                            // show the Connect button as enabled even though probe_completed
+                            // is false — the probe is suppressed while disconnected, so
+                            // probe_completed will never become true until the user clicks
+                            // Connect (which clears remote_disconnected and triggers a probe).
+                            if !probe_completed && !remote_disconnected {
+                                ui.add_enabled(false, egui::Button::new("Connect"));
+                            } else if running {
+                                if ui.button("Disconnect").clicked() {
                                     on_stop();
                                 }
-                            } else {
-                                ui.add_enabled(false, egui::Button::new("Gateway running"));
+                            } else if ui.button("Connect").clicked() {
+                                on_start();
                             }
-                        } else if ui.button("Start gateway").clicked() {
-                            on_start();
+                        } else {
+                            // Local profile: Start/Stop gateway buttons.
+                            if !probe_completed {
+                                ui.add_enabled(false, egui::Button::new("Start gateway"));
+                            } else if running {
+                                if owned {
+                                    if ui.button("Stop gateway").clicked() {
+                                        on_stop();
+                                    }
+                                } else {
+                                    ui.add_enabled(false, egui::Button::new("Gateway running"));
+                                }
+                            } else if ui.button("Start gateway").clicked() {
+                                on_start();
+                            }
                         }
 
                         ui.add_space(8.0);

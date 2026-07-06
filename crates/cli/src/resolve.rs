@@ -2,8 +2,8 @@
 //!
 //! Implements the `chai resolve` subcommand, which provides sandbox-aware
 //! path resolution for tool `resolveCommand` entries. Each variant resolves
-//! the sandbox root from `$HOME/.chai/active/sandbox` (matching the shell
-//! scripts it replaces), validates that resolved paths are inside the
+//! the sandbox root from `~/.chai/active/sandbox` (or `$CHAI_HOME/active/sandbox`
+//! if `CHAI_HOME` is set), validates that resolved paths are inside the
 //! sandbox, and outputs the validated path on stdout (same protocol as the
 //! resolve scripts it replaces).
 //!
@@ -52,11 +52,12 @@ pub(crate) enum ResolveCmd {
     },
 }
 
-/// Resolve the sandbox directory from `$HOME/.chai/active/sandbox`.
+/// Resolve the sandbox directory from `~/.chai/active/sandbox`
+/// (or `$CHAI_HOME/active/sandbox` if `CHAI_HOME` is set).
 /// Returns the raw (non-canonicalized) sandbox path.
 fn sandbox_raw() -> Result<PathBuf> {
-    let home = std::env::var("HOME").map_err(|_| anyhow::anyhow!("$HOME not set"))?;
-    Ok(PathBuf::from(home).join(".chai/active/sandbox"))
+    let chai_home = lib::profile::chai_home()?;
+    Ok(chai_home.join("active/sandbox"))
 }
 
 /// Resolve the sandbox to its physical (canonical) path.

@@ -137,6 +137,10 @@ struct GatewayState {
     was_running: bool,
     /// True when the user explicitly stopped this profile's gateway via the Stop button.
     was_stopped_by_user: bool,
+    /// True when the user explicitly disconnected a remote profile. Prevents
+    /// the periodic TCP probe from re-detecting the remote gateway and
+    /// automatically reconnecting. Cleared when the user clicks Connect.
+    remote_disconnected: bool,
     /// On-demand per-agent detail cache for this profile's gateway.
     agent_detail_cache: BTreeMap<String, crate::app::types::AgentDetail>,
     /// Last error from an agent detail fetch for this profile.
@@ -189,6 +193,7 @@ impl Default for GatewayState {
             active_orchestrator_id: None,
             was_running: false,
             was_stopped_by_user: false,
+            remote_disconnected: false,
             agent_detail_cache: BTreeMap::new(),
             agent_detail_fetch_error: None,
             agent_detail_receiver: None,
@@ -689,6 +694,23 @@ impl ChaiApp {
 
         // Cache miss or stale — load from disk.
         let config = lib::config::load_desktop_config().map_err(|e| e.to_string())?;
+        // Ensure remote profile directories exist so they appear in the ComboBox.
+        if let Some(ref remote) = config.remote {
+            if let Ok(chai_home) = lib::profile::chai_home() {
+                for entry in remote {
+                    let profile_dir = lib::profile::profile_dir(&chai_home, &entry.id);
+                    if !profile_dir.is_dir() {
+                        if let Err(e) = std::fs::create_dir_all(&profile_dir) {
+                            log::warn!(
+                                "failed to create remote profile directory for \"{}\": {}",
+                                entry.id,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
         self.cached_desktop_config = Some(config);
         self.cached_desktop_config_mtime = current_mtime;
         Ok(self.cached_desktop_config.as_ref().unwrap())
@@ -836,6 +858,15 @@ impl ChaiApp {
         if let Ok(n) = lib::profile::read_persistent_profile_name(&chai_home) {
             self.profile_active = n;
         }
+        // For remote profiles, start with remote_disconnected = true so the
+        // user must explicitly click Connect. Without this, the periodic TCP
+        // probe auto-detects the remote gateway and the UI shows a "connected"
+        // state without the user choosing to connect. Profile switches also
+        // set remote_disconnected in switch_profile_to(), but this handles
+        // the initial startup load.
+        if self.is_remote_profile() {
+            self.gw().remote_disconnected = true;
+        }
         self.profiles_need_refresh = false;
     }
 
@@ -897,6 +928,7 @@ impl ChaiApp {
             gw.agent_detail_requested_id = None;
             gw.was_running = false;
             gw.was_stopped_by_user = false;
+            gw.remote_disconnected = false;
             gw.current_provider = None;
             gw.current_model = None;
             gw.default_model = None;
@@ -926,6 +958,16 @@ impl ChaiApp {
         self.invalidate_desktop_config_cache();
         self.invalidate_skills_cache();
         self.profiles_need_refresh = true;
+
+        // For remote profiles, start with remote_disconnected = true so the
+        // user must explicitly click Connect. Without this, the periodic TCP
+        // probe would auto-detect the remote gateway and the UI would show a
+        // "connected" state without the user choosing to connect.
+        // The cache was invalidated above, so reload it to check is_remote.
+        let _ = self.load_desktop_config_cached();
+        if self.is_remote_profile() {
+            self.gw().remote_disconnected = true;
+        }
     }
 
     fn start_new_session(&mut self) {
@@ -965,6 +1007,43 @@ impl ChaiApp {
         if need_clear_chat_session {
             self.gw().chat_session_id = None;
         }
+    }
+
+    /// Disconnect from a remote gateway profile. Clears probe state, session
+    /// data, and agent detail cache so the UI returns to the disconnected state.
+    /// Sets `remote_disconnected` to prevent the periodic TCP probe from
+    /// automatically re-detecting the remote gateway.
+    fn disconnect_remote_profile(&mut self) {
+        let gw = self.gw();
+        gw.responds = false;
+        gw.probe_completed = false;
+        gw.probe_receiver = None;
+        gw.frames_since_probe = 0;
+        gw.status = None;
+        gw.status_receiver = None;
+        gw.frames_since_status = 0;
+        gw.status_fetch_ever_failed = false;
+        gw.was_running = false;
+        gw.was_stopped_by_user = true;
+        gw.remote_disconnected = true;
+        gw.active_orchestrator_id = None;
+        gw.dashboard_agent_id = None;
+        gw.agent_detail_cache.clear();
+        gw.agent_detail_fetch_error = None;
+        gw.agent_detail_receiver = None;
+        gw.agent_detail_requested_id = None;
+        self.clear_session_and_messages();
+        self.invalidate_skills_cache();
+        self.skills_fetch_error = None;
+        self.invalidate_config_cache();
+        // Note: do NOT invalidate the desktop config cache here.
+        // Disconnecting does not change desktop.json, and invalidating
+        // the cache causes is_remote_profile() to return false on the
+        // next frame (before any screen repopulates the cache), which
+        // makes the header show a disabled "Start gateway" button
+        // instead of "Connect".
+        self.gateway_error = None;
+        self.profiles_need_refresh = true;
     }
 
     /// Clear all session and message state for the active profile when the gateway stops.
@@ -1025,7 +1104,35 @@ impl ChaiApp {
         }
         ctx.set_fonts(fonts);
 
-        Self::default()
+        // Create profile directories for remote entries so they appear in
+        // the ComboBox before the user has ever connected.
+        if let Some(ref remote) = desktop_config.remote {
+            if let Ok(chai_home) = lib::profile::chai_home() {
+                for entry in remote {
+                    let profile_dir = lib::profile::profile_dir(&chai_home, &entry.id);
+                    if !profile_dir.is_dir() {
+                        if let Err(e) = std::fs::create_dir_all(&profile_dir) {
+                            log::warn!(
+                                "failed to create remote profile directory for \"{}\": {}",
+                                entry.id,
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut app = Self::default();
+        // Store the loaded desktop config so is_remote_profile() works
+        // from the first frame without requiring a settings screen visit.
+        app.cached_desktop_config = Some(desktop_config);
+        app.cached_desktop_config_mtime = std::fs::metadata(lib::config::DesktopConfig::path(
+            &lib::profile::chai_home().unwrap_or_else(|_| std::path::PathBuf::from(".")),
+        ))
+        .ok()
+        .and_then(|m| m.modified().ok());
+        app
     }
 
     /// Poll for chat turn result and clear receiver when done. Call each frame.
@@ -1696,8 +1803,24 @@ impl eframe::App for ChaiApp {
         // Poll all running gateways.
         self.poll_gateway_probe();
 
+        // Ensure the desktop config cache is populated before computing
+        // is_remote_profile(), which depends on it. The cache may have been
+        // invalidated by a disconnect, gateway stop, or running-profiles
+        // change — if it is not repopulated, is_remote_profile() returns
+        // false and the header falls back to local-profile button labels
+        // (disabled "Start gateway" instead of "Connect").
+        let _ = self.load_desktop_config_cached();
+
         let owned = self.gateway_owned();
-        let running = owned || self.gateway_running();
+        // For remote profiles, "running" means the remote gateway responded to
+        // the TCP probe (no local gateway.lock). For local profiles, "running"
+        // means the gateway.lock is held by some process.
+        let is_remote = self.is_remote_profile();
+        let running = if is_remote {
+            self.gw_ref().map_or(false, |gw| gw.responds)
+        } else {
+            owned || self.gateway_running()
+        };
 
         // Detect gateway stop for the active profile.
         let was_running = self.gw_ref().map_or(false, |gw| gw.was_running);
@@ -1791,11 +1914,14 @@ impl eframe::App for ChaiApp {
         let profile_dropdown_enabled = true;
         let profile_error = self.profile_switch_error.clone();
         let gateway_error = self.gateway_error.clone();
+        let remote_disconnected = self.gw_ref().map_or(false, |gw| gw.remote_disconnected);
         ui::header::header(
             ctx,
             running,
             owned,
             self.gateway_probe_completed(),
+            is_remote,
+            remote_disconnected,
             &self.profile_names,
             &self.profile_active,
             profile_dropdown_enabled,
@@ -1812,13 +1938,37 @@ impl eframe::App for ChaiApp {
             },
         );
         if let Some(name) = switch_profile_to {
+            // When switching away from a remote profile, auto-disconnect first.
+            if is_remote && running {
+                self.disconnect_remote_profile();
+            }
             self.switch_profile_to(name);
         }
+        // For remote profiles, "Connect" just means the probe succeeded —
+        // no local gateway is spawned. The desktop connects to the remote
+        // gateway via WebSocket on each operation (status, chat, etc.).
+        // For local profiles, start_gateway spawns a local gateway child process.
         if start_gateway {
-            self.start_gateway();
+            if is_remote {
+                // Remote: clear any prior disconnect and trigger an immediate
+                // probe to detect the remote gateway.
+                self.gw().remote_disconnected = false;
+                self.gw().was_stopped_by_user = false;
+                self.gateway_error = None;
+                self.gw().frames_since_probe = PROBE_INTERVAL_FRAMES;
+            } else {
+                self.start_gateway();
+            }
         }
         if stop_gateway {
-            self.stop_gateway();
+            // For remote profiles there is no subprocess to stop.
+            // Disconnect means clearing the probe state and session data.
+            // For local profiles, kill the owned gateway child.
+            if is_remote {
+                self.disconnect_remote_profile();
+            } else {
+                self.stop_gateway();
+            }
         }
         ui::sidebar::sidebar(&mut self.current_screen, ctx);
         ui::sessions::sessions_panel(self, ctx, running);

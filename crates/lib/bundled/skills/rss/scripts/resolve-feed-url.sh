@@ -9,7 +9,7 @@ case "$feed" in
 esac
 
 # Look up the feed name in the feeds file.
-feeds_file="$HOME/.chai/active/sandbox/rss-feeds.txt"
+feeds_file="${CHAI_HOME:-$HOME/.chai}/active/sandbox/rss-feeds.txt"
 if [ ! -f "$feeds_file" ]; then
     echo "$feed"
     exit 0

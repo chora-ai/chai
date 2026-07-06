@@ -9,12 +9,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-#### Skills
-
-- `ref` parameter on `git_log` — view commit history for a specific branch, tag, or ref range (e.g., `main`, `HEAD~5..HEAD`); works in both `git` and `git-read` skill variants
-- `continue` and `abort` boolean parameters on `git_rebase` — continue or abort an in-progress rebase after conflict resolution (replaces separate `git_rebase_continue` and `git_rebase_abort` tools)
-- `continue` and `abort` boolean parameters on `git_cherry_pick` — continue or abort an in-progress cherry-pick after conflict resolution (replaces separate `git_cherry_pick_continue` and `git_cherry_pick_abort` tools)
-
 #### Desktop
 
 - Per-profile gateway state — each profile has its own `GatewayState` (sessions, chat, status, process handle) stored in a `HashMap<String, GatewayState>` on `ChaiApp`, enabling multiple simultaneous gateways and seamless profile switching with preserved state
@@ -22,8 +16,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Pre-flight port conflict check in `start_gateway()` — before spawning the gateway child process, the desktop attempts a `TcpListener::bind` on the configured port and produces a clear error identifying which running profile holds the port
 - Gateway error suppression of profile-mismatch hint — when a `gateway_error` is set, the amber profile-mismatch hint is suppressed to avoid stacking redundant messages
 - Gateway error clearing on profile switch — `gateway_error` is specific to the profile that was active when the start was attempted and is cleared on profile switch
+- Remote profile support — connect the desktop to a remote gateway via WebSocket instead of spawning a local gateway process. Remote entries in `desktop.json` define the profile id, WebSocket URL, and gateway auth token. Remote profiles appear in the profile ComboBox alongside local profiles and show Connect/Disconnect buttons instead of Start/Stop. Device identity is stored under the remote profile directory. Both `ws://` and `wss://` (TLS) URLs are supported with full path support for reverse proxy deployments.
+- `remote` array in `desktop.json` — each entry has `id` (profile name), `url` (WebSocket URL with `ws://` or `wss://`), and `token` (gateway auth token). Invalid entries are rejected at load time with warnings; entries colliding with existing local profile directories are skipped (disk wins).
+- Remote profile directories created automatically at startup and on config reload — ensures remote profiles appear in the ComboBox before the user has connected.
+- Remote gateway TCP probe — probes the remote URL's host:port instead of the local `gateway.bind:port`.
+- Remote profile disconnect-before-switch — switching away from a connected remote profile auto-disconnects first.
+- Remote entries shown in Settings dashboard — the "Remote Profiles" section lists each entry's id and URL.
+
+#### Skills
+
+- `ref` parameter on `git_log` — view commit history for a specific branch, tag, or ref range (e.g., `main`, `HEAD~5..HEAD`); works in both `git` and `git-read` skill variants
+- `continue` and `abort` boolean parameters on `git_rebase` — continue or abort an in-progress rebase after conflict resolution (replaces separate `git_rebase_continue` and `git_rebase_abort` tools)
+- `continue` and `abort` boolean parameters on `git_cherry_pick` — continue or abort an in-progress cherry-pick after conflict resolution (replaces separate `git_cherry_pick_continue` and `git_cherry_pick_abort` tools)
 
 ### Changed
+
+#### CLI
+
+- `chai profile switch` always succeeds — no longer checks `gateway_is_running()` before switching (switching only updates the `~/.chai/active` symlink)
+- `chai profile current` no longer displays `CHAI_PROFILE` (the environment variable has been removed)
 
 #### Desktop
 
@@ -31,11 +42,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - All WebSocket operations use the active profile directly — removed `cached_gateway_profile`, `gateway_profile()`, `refresh_cached_gateway_profile()`, and the entire override system (`env_profile`, `cached_profile_override`, `effective_profile_override()`, `gw_key()`)
 - `start_gateway()` always passes `--profile` to the child process
 - Session id resolution reads `"id"` instead of `"sessionId"` from `sessions.list` responses (matching the gateway's response format)
-
-#### CLI
-
-- `chai profile switch` always succeeds — no longer checks `gateway_is_running()` before switching (switching only updates the `~/.chai/active` symlink)
-- `chai profile current` no longer displays `CHAI_PROFILE` (the environment variable has been removed)
 
 #### Runtime and Configuration
 
@@ -57,13 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `git_add` `paths` description clarified — documents space-separated multi-file support and `"."` for staging all
 
 ### Fixed
-
-#### Desktop
-
-- Cross-profile session contamination — `cached_gateway_profile` no longer falls back to the first running profile, preventing sessions from one profile appearing under another
-- ComboBox reverting to gateway profile after switch — the header now uses `profile_active` directly instead of `effective_profile`
-- UI not updating after profile switch — all config loading, skills, and providers now use the active profile instead of an override chain
-- Port conflict produces clear error — cross-profile port conflicts are detected before spawning the gateway and the error identifies which running profile holds the port
 
 #### Skills
 

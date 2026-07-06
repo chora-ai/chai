@@ -1,5 +1,5 @@
 ---
-status: draft
+status: in-progress
 ---
 
 # Epic: Split Deployment
@@ -8,7 +8,7 @@ status: draft
 
 **Prerequisite** — The `desktop.json` file (appearance and logs blocks) is already implemented. This epic adds a `remote` array to `desktop.json` so the desktop can connect to remote gateways, with the active profile symlink pointing at the selected target (local or remote) so device identity storage is reused.
 
-**Status** — **Draft (not implemented).** The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no Connect/Disconnect mode, and no documentation for the scenario. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
+**Status** — **Phase 1 implemented.** Phase 1 (remote profile configuration and connection) is complete. Phase 2 (gateway security hardening) and Phase 3 (documentation and UX) are not yet started. The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no Connect/Disconnect mode, and no documentation for the scenario. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
 
 ## Problem Statement
 
@@ -18,13 +18,14 @@ Chai's desktop app is designed around a single-machine model: it spawns `chai ga
 - **No TLS.** The gateway binds plain HTTP/WebSocket. The desktop hardcodes `ws://` URLs. Auth tokens, device tokens, conversation content, and tool outputs all travel in cleartext over the network.
 - **No Connect/Disconnect mode.** The desktop shows a "Start gateway" button even when configured for a remote gateway. Pressing it would spawn a conflicting local process.
 - **No origin validation.** The gateway does not check the `Origin` header on WebSocket upgrades, enabling cross-site WebSocket hijacking on non-loopback deployments.
+- **No connection limit.** The gateway accepts unlimited WebSocket connections. Any number of authenticated clients can connect simultaneously, see the full session list, and interact with any session. For split deployment, this is insecure by default — a compromised token grants full access alongside the legitimate client.
 - **No documentation.** Zero guidance exists for setting up, securing, or operating a split deployment.
 
 The underlying protocol plumbing (device pairing, challenge-response auth, token issuance, log streaming) already works over the network. What's missing is the configuration, security, and UX layer to make this a first-class scenario.
 
 ## Goal
 
-A developer can deploy `chai gateway` on a remote server, configure a client's desktop app to connect to it securely, and have the desktop operate in a connect-only mode with no option to spawn a local gateway. The connection is protected by TLS (or a documented reverse-proxy path), the client authenticates via the existing device pairing protocol, and the configuration clearly distinguishes between server-side and client-side concerns.
+A developer can deploy `chai gateway` on a remote server, configure a client's desktop app to connect to it securely, and have the desktop operate in a connect-only mode with no option to spawn a local gateway. The connection is protected by TLS (via a documented reverse-proxy path), the client authenticates via the existing device pairing protocol, and the configuration clearly distinguishes between server-side and client-side concerns. Non-loopback gateways default to a single active client connection, providing secure-by-default isolation for split deployments.
 
 ## Current State
 
@@ -95,6 +96,14 @@ In a split deployment, the two `~/.chai` directories serve different purposes:
 
 A client machine that only connects to remote gateways does not need a `config.json`, `agents/`, `sandbox/`, `skills.lock`, or `.env` in its profile directory. The profile directory is created at desktop startup (a `mkdir -p` with no files written) so the remote entry appears in the ComboBox. The `device.json` and `device_token` files are created on first connect.
 
+### Gateway Lock vs. Connection Policy
+
+The per-profile `gateway.lock` is a **process-level guard**, not a connection control. It uses an advisory exclusive `flock` (`fs2::FileExt::try_lock_exclusive`) to prevent two gateway processes from running on the same profile. It does not limit, track, or gate WebSocket client connections in any way.
+
+Currently, the gateway accepts unlimited WebSocket connections — there is no `maxConnections` config, no connection counter, and no semaphore. Each connection spawns an independent `handle_socket` task that subscribes to the broadcast channel and can interact with any session. The `PairingStore` is a `Vec<PairedEntry>` with no limit on the number of paired devices.
+
+For split deployment, this means any number of authenticated clients can connect to the same gateway simultaneously. This is insecure by default for a remote deployment where the gateway is exposed to the network. The connection policy introduced in this epic addresses this gap.
+
 ### Security Posture
 
 Per [SECURITY.md](../SECURITY.md), the following are explicitly out of scope:
@@ -105,6 +114,8 @@ Per [SECURITY.md](../SECURITY.md), the following are explicitly out of scope:
 
 The gateway does enforce token auth for non-loopback bindings — it refuses to start without `auth.mode: "token"` when bound to a non-loopback address.
 
+This epic addresses origin validation and introduces a connection policy for non-loopback deployments. TLS termination remains the operator's responsibility (reverse proxy with WSS→WS termination).
+
 ### Existing Gaps
 
 | Gap | Severity | Description |
@@ -112,8 +123,9 @@ The gateway does enforce token auth for non-loopback bindings — it refuses to 
 | No TLS/WSS | 🔴 Critical | All data (tokens, messages, tool outputs) sent in cleartext over the network |
 | No remote address config | 🟠 High | `gateway.bind` repurposed as connect-to address; semantically wrong and confusing |
 | No Connect/Disconnect mode | 🟠 High | Desktop can still spawn a local gateway; no way to disable this |
+| No connection limit | 🟠 High | Unlimited WebSocket clients can connect; no single-client default for non-loopback |
 | No origin validation | 🟡 Medium | Cross-site WebSocket hijacking possible on non-loopback |
-| `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented at `~/.chai/profiles/<name>/gateway.lock`; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles still skip lock detection and rely on TCP probe (by design). |
+| `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented at `~/.chai/profiles/<name>/gateway.lock`; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles skip lock detection and rely on TCP probe (by design). |
 | No documentation | 🟡 Medium | Zero guidance for split deployment setup or operation |
 | Status shows server paths | 🟢 Low | Gateway status returns server-local absolute paths; confusing but not breaking |
 
@@ -122,17 +134,18 @@ The gateway does enforce token auth for non-loopback bindings — it refuses to 
 ### In Scope
 
 - A `remote` array in `desktop.json` that lets the desktop connect to remote gateways. Each entry has an `id` (used as the profile name and ComboBox label), a `url` (the WebSocket connection URL), and a `token` (the gateway auth token for pairing). Local profiles and remote entries appear alongside each other in the ComboBox.
-- `wss://` URL construction in the desktop client for connections to TLS-terminated gateways.
+- `wss://` URL construction in the desktop client for connections to TLS-terminated gateways. Full path support in the `url` field for reverse proxy configurations (e.g., `wss://example.com/chai/ws`).
 - A Connect/Disconnect mode for remote profiles: when the selected profile is remote, the desktop shows Connect/Disconnect instead of Start/Stop, never spawns a local gateway, and probes the remote URL for liveness.
-- WebSocket origin validation on the gateway for non-loopback connections.
+- WebSocket origin validation on the gateway for non-loopback connections. Default: reject all browser-origin requests on non-loopback. Operators opt in to specific origins via `gateway.allowedOrigins` in `config.json`.
+- A connection limit on the gateway for non-loopback deployments. Default: one active WebSocket connection. Operators can increase the limit via `gateway.maxConnections` in `config.json`. When the limit is exceeded, the oldest connection is disconnected (kick-oldest), which handles reconnection gracefully.
 - Documentation and a user journey for the split deployment scenario.
 - Updates to `SECURITY.md` to reflect the new capabilities.
 
 ### Out of Scope
 
 - **Built-in TLS termination in the gateway** — TLS termination remains the operator's responsibility (reverse proxy). Tracked as a potential future direction in [SECURITY.md](../SECURITY.md).
-- **Per-client session isolation** — Authenticated clients can still interact with any session. This is a broader access-control concern tracked separately in [SECURITY.md](../SECURITY.md).
-- **Rate limiting** — No limit on concurrent connections or message rates. Tracked as out of scope in [SECURITY.md](../SECURITY.md).
+- **Per-client session isolation** — Authenticated clients within the connection limit can still interact with any session. This is a broader access-control concern tracked separately in [SECURITY.md](../SECURITY.md).
+- **Rate limiting** — No limit on message rates or agent turn frequency. Tracked as out of scope in [SECURITY.md](../SECURITY.md).
 - **OS-level sandboxing or resource exhaustion controls** — Not related to the split deployment scenario.
 - **Remote configuration management** — The client cannot change the server's `config.json` from the desktop. Server configuration is the developer's responsibility.
 - **Multi-tenant gateway** — A single gateway serving multiple independent clients with separate configurations. This is a separate concern.
@@ -164,8 +177,8 @@ Instead of a single `gateway.connectUrl` field, `desktop.json` gains a `remote` 
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `id` | `string` | Yes | Profile name and ComboBox label. Also determines the profile directory under `~/.chai/profiles/` where device identity is stored. Must not collide with existing local profile directory names. |
-| `url` | `string` | Yes | WebSocket connection URL. Must start with `ws://` or `wss://`. May include a path (e.g., `wss://example.com/chai/ws`). |
+| `id` | `string` | Yes | Profile name and ComboBox label. Also determines the profile directory under `~/.chai/profiles/` where device identity is stored. Must not collide with existing local profile directory names (enforced at load time; see Collision Handling below). |
+| `url` | `string` | Yes | WebSocket connection URL. Must start with `ws://` or `wss://`. Supports full paths for reverse proxy configurations (e.g., `wss://example.com/chai/ws`). The desktop sends the full URL to the WebSocket client library; path mapping to the gateway's `/ws` route is the reverse proxy's responsibility. |
 | `token` | `string` | Yes | Gateway auth token for device pairing. Sent in the `auth.token` field of the connection payload. |
 
 This approach unifies local and remote profiles in the ComboBox: the user sees the same dropdown regardless of whether profiles are local or remote. Selecting a local profile means "spawn or attach locally" (Start/Stop). Selecting a remote profile means "connect to a remote gateway" (Connect/Disconnect). The mode is determined by the type of the selected profile, not by a global flag.
@@ -179,6 +192,8 @@ This approach unifies local and remote profiles in the ComboBox: the user sees t
 - Device identity storage is reused from the existing architecture — `ChaiPaths` already resolves `device.json()`, `device_token_path()`, and `paired_json()` from `profile_dir`. The `device.json` and `device_token` files are created on first connect (by `build_connect_params`), but the directory itself must already exist so the ComboBox can list it.
 
 **Startup directory creation:** When `desktop.json` is loaded at startup, the desktop iterates the `remote` array and creates `~/.chai/profiles/<id>/` for each entry that does not already exist. This is a `mkdir -p` operation — no files are written, just the directory. The directory is empty until the user selects the remote profile and clicks Connect, at which point `device.json` is generated and `device_token` is issued by the gateway.
+
+**Collision handling:** If a remote entry `id` collides with an existing local profile directory at load time, the entry is rejected (the desktop logs a warning and skips it). If a local profile directory is created *after* `desktop.json` is loaded (e.g., via `chai init`), the collision is not detected until the next desktop restart. At that point, the same load-time rejection applies. The desktop does not re-scan for collisions at runtime — the local profile on disk takes precedence, and the conflicting remote entry is treated as a configuration error visible in the startup log. This keeps the runtime behavior simple and predictable: profile directories are the source of truth, and `desktop.json` remote entries that conflict are configuration errors.
 
 **Active symlink and profile switching:** The active symlink is updated when selecting a remote profile, same as for local profiles. This is consistent: the symlink always points at whichever profile directory the desktop is using, and `ChaiPaths` resolves device identity from there. Profile switching is always allowed for local profiles — per-profile locks allow the symlink to be freely rewritten regardless of running gateways.
 
@@ -200,6 +215,12 @@ The gateway will not gain built-in TLS termination — this remains the operator
 
 This requires adding a TLS-enabled WebSocket client to the desktop crate's dependencies (e.g., `tokio-tungstenite` with the `native-tls` or `rustls` feature).
 
+### Full Path Support in `url`
+
+**Decision:** The `url` field supports full paths (e.g., `wss://example.com/chai/ws`) for reverse proxy configurations. The desktop passes the full URL to the WebSocket client library, which includes the path in the HTTP upgrade request. The reverse proxy is responsible for mapping the path to the gateway's `/ws` route (e.g., nginx `proxy_pass`, Caddy `handle_path`, Traefik `StripPrefix` middleware). No gateway route changes are needed — the gateway continues to serve WebSocket upgrades at `/ws` as it does today.
+
+This is essential for reverse proxy setups, which are the only supported TLS path. Without full path support, operators cannot use common reverse proxy routing patterns.
+
 ### Connect/Disconnect Mode
 
 When the selected profile is remote, the desktop operates in connect-only mode:
@@ -207,7 +228,7 @@ When the selected profile is remote, the desktop operates in connect-only mode:
 - The header shows **Connect/Disconnect** controls instead of Start/Stop.
 - The desktop does not attempt to spawn `chai gateway` as a subprocess.
 - The desktop probes the remote URL for liveness (TCP connect to the host:port extracted from the URL).
-- Switching to a different remote profile requires disconnecting first (the desktop must swap its WebSocket connection and cached state — see Active Symlink and Switching below). Local profile switching is always allowed.
+- Switching to a different remote profile requires disconnecting first (the desktop must swap its WebSocket connection and cached state — see Active Symlink and Switching above). Local profile switching is always allowed.
 - When the user clicks **Connect**, the desktop opens a WebSocket connection to the remote URL and authenticates via the device pairing protocol.
 - When the user clicks **Disconnect**, the desktop closes the WebSocket connection.
 
@@ -227,7 +248,29 @@ The gateway maintains an `allowedOrigins` list in `config.json`. If the `Origin`
 
 Check for the presence of an `Origin` header (browser WebSocket APIs always send it). If present on a non-loopback connection, validate it against an allowlist. If absent (non-browser client like the desktop app), allow it through.
 
-**Recommendation:** Approach A with a default of `["*"]` when `auth.mode: "token"` is set (token auth already gates access). When `auth.mode: "none"` on non-loopback (which is already refused at startup), this is moot. For stricter deployments, operators can set `allowedOrigins` to specific domains. This is a defense-in-depth measure, not the primary security boundary.
+**Decision: Approach A with a secure-by-default empty list.** When `auth.mode: "token"` is set on a non-loopback binding (which is already required), the `allowedOrigins` field defaults to an empty array — meaning all browser-origin requests are rejected. The desktop app does not send an `Origin` header, so it is unaffected. Operators who need browser-based tools can explicitly add origins to `allowedOrigins`. This is a defense-in-depth measure — token auth is the primary security boundary; origin validation prevents cross-site hijacking even if a token is compromised via a browser-side attack.
+
+When `auth.mode: "none"` on non-loopback (which is already refused at startup), this is moot.
+
+### Connection Policy
+
+The gateway currently accepts unlimited WebSocket connections. For split deployment on non-loopback, this is insecure by default — a single compromised token allows an attacker to connect alongside the legitimate client, observe all sessions, and interact with the gateway.
+
+**Decision: `gateway.maxConnections` with a secure default.**
+
+| Field | Type | Default (loopback) | Default (non-loopback) | Description |
+|-------|------|--------------------|------------------------|-------------|
+| `gateway.maxConnections` | `integer` | Unchanged (unlimited) | `1` | Maximum number of simultaneously authenticated WebSocket connections. |
+
+When a new connection authenticates and the count would exceed `maxConnections`, the gateway disconnects the longest-running existing connection (kick-oldest). This kick-oldest policy handles network interruptions gracefully: if the legitimate desktop reconnects after a brief outage, it displaces any stale connection. If an attacker holds a connection with a stolen token, the legitimate user's reconnection kicks the attacker off.
+
+The desktop handles unexpected disconnections with its existing reconnect logic. When the gateway rejects a connection due to the limit being reached (before authentication completes), it sends a WebSocket close frame with a descriptive reason that the desktop can display to the user.
+
+**Why kick-oldest instead of reject-new:** A reject-new policy creates a denial-of-service vector: an attacker with a stolen token can hold a connection and prevent the legitimate user from reconnecting. Kick-oldest ensures the most recent authenticator always gets access, which is the correct tradeoff for a single-operator deployment model.
+
+**Why `maxConnections` instead of per-device limits:** Per-device limits (e.g., one connection per device token) are more granular but more complex. For the initial implementation, a simple global limit with kick-oldest semantics provides the security benefit (single-client default) without requiring device-tracking infrastructure. Per-device limits can be added as a future enhancement if multi-client deployments need finer control.
+
+**Interaction with `gateway.lock`:** The connection policy is independent of `gateway.lock`. The lock prevents multiple gateway *processes* per profile (process-level guard). The connection policy limits WebSocket *client* connections per gateway (connection-level guard). They operate at different layers and do not interact.
 
 ### `gateway.lock` and Remote Gateway Detection
 
@@ -247,47 +290,117 @@ The desktop config screen currently shows `config.json` contents (bind, port, pr
 
 ### Functional
 
-- [ ] **`remote` array in `desktop.json`** — Add a `remote` array to the `DesktopConfig` struct in `crates/lib/src/config.rs`. Each entry has `id` (string), `url` (string, must start with `ws://` or `wss://`), and `token` (string). Invalid entries are rejected at load time. When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged.
-- [ ] **Remote profile directories created at startup** — When `desktop.json` is loaded at startup, the desktop creates `~/.chai/profiles/<id>/` for each remote entry that does not already exist (`mkdir -p`, no files written). This ensures remote entries appear in the ComboBox before the user has ever connected.
-- [ ] **Remote profile in ComboBox** — Remote entry `id`s appear alongside local profile names in the header ComboBox. The ComboBox is populated from `~/.chai/profiles/` directory names. Selecting a remote profile updates the active symlink to point at the remote profile's directory, same as selecting a local profile.
-- [ ] **Connect/Disconnect mode** — When the selected profile is remote (the `id` matches a `remote` entry in `desktop.json`), the header shows Connect/Disconnect instead of Start/Stop. The desktop does not spawn a local gateway. Clicking Connect opens a WebSocket connection to the remote `url`. Clicking Disconnect closes it. Switching to a different remote profile requires disconnecting first; local profile switching is always allowed.
-- [ ] **Device identity for remote profiles** — When connecting to a remote profile, the desktop loads/creates `device.json` and `device_token` under `~/.chai/profiles/<remote-id>/` (the directory already exists from startup creation). The `token` from the remote entry is used for the pairing protocol instead of `config.json` `gateway.auth.token`.
-- [ ] **WebSocket URL from remote entry** — When the selected profile is remote, the desktop uses the `url` from the remote entry for the WebSocket connection and TCP probe instead of deriving from `config.json` `gateway.bind:port`.
-- [ ] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when a remote entry's `url` specifies `wss://`. Local profiles always use `ws://` (derived from `bind:port`).
-- [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. Uses Approach A: an `allowedOrigins` list in `gateway` config rejects upgrades whose `Origin` doesn't match. Defaults to `["*"]` when `auth.mode: "token"` is set (token auth already gates access; this is defense-in-depth). When `auth.mode: "none"` on non-loopback (already refused at startup), this is moot. Operators can restrict to specific domains for stricter deployments.
+- [x] **`remote` array in `desktop.json`** — Add a `remote` array to the `DesktopConfig` struct in `crates/lib/src/config.rs`. Each entry has `id` (string), `url` (string, must start with `ws://` or `wss://`, supports full paths), and `token` (string). Invalid entries are rejected at load time. When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged.
+- [x] **Remote profile directories created at startup** — When `desktop.json` is loaded at startup, the desktop creates `~/.chai/profiles/<id>/` for each remote entry that does not already exist (`mkdir -p`, no files written). This ensures remote entries appear in the ComboBox before the user has ever connected.
+- [x] **Remote entry collision detection** — If a remote entry `id` collides with an existing local profile directory at load time, the entry is rejected (logged as a warning, skipped). The desktop does not re-scan for collisions at runtime; disk wins over config.
+- [x] **Remote profile in ComboBox** — Remote entry `id`s appear alongside local profile names in the header ComboBox. The ComboBox is populated from `~/.chai/profiles/` directory names. Selecting a remote profile updates the active symlink to point at the remote profile's directory, same as selecting a local profile.
+- [x] **Connect/Disconnect mode** — When the selected profile is remote (the `id` matches a `remote` entry in `desktop.json`), the header shows Connect/Disconnect instead of Start/Stop. The desktop does not spawn a local gateway. Clicking Connect opens a WebSocket connection to the remote `url`. Clicking Disconnect closes it. Switching to a different remote profile requires disconnecting first; local profile switching is always allowed.
+- [x] **Device identity for remote profiles** — When connecting to a remote profile, the desktop loads/creates `device.json` and `device_token` under `~/.chai/profiles/<remote-id>/` (the directory already exists from startup creation). The `token` from the remote entry is used for the pairing protocol instead of `config.json` `gateway.auth.token`.
+- [x] **WebSocket URL from remote entry** — When the selected profile is remote, the desktop uses the `url` from the remote entry for the WebSocket connection and TCP probe instead of deriving from `config.json` `gateway.bind:port`. The full URL (including path) is passed to the WebSocket client library.
+- [x] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when a remote entry's `url` specifies `wss://`. Local profiles always use `ws://` (derived from `bind:port`).
+- [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. An `allowedOrigins` field in the `gateway` config block lists permitted origins. Default is empty (reject all browser origins on non-loopback). The desktop app does not send an `Origin` header and is unaffected. Operators can add specific origins to allow browser-based tools.
+- [ ] **Connection limit** — The gateway enforces `gateway.maxConnections` (integer) for authenticated WebSocket connections. Default: `1` for non-loopback bindings, unlimited for loopback. When a new authenticated connection would exceed the limit, the longest-running existing connection is disconnected (kick-oldest). The gateway sends a descriptive close frame when disconnecting. The desktop handles unexpected disconnections with its existing reconnect logic.
 - [ ] **Config screen hidden for remote profiles** — When the selected profile is remote, the Config screen does not appear in the sidebar. The Gateway screen (showing `status` from the remote gateway) is the sole source of configuration visibility.
-- [ ] **TCP probe uses remote URL** — When the selected profile is remote, the desktop probes the remote gateway host:port (extracted from the `url`) for liveness instead of `bind:port`.
-- [ ] **Profile detection skips `gateway.lock` for remote** — When the selected profile is remote, the desktop does not check for `gateway.lock` and relies on the TCP probe. The remote gateway's profile name (from `status`) may differ from the local `id`; this is not surfaced as a mismatch warning.
+- [x] **TCP probe uses remote URL** — When the selected profile is remote, the desktop probes the remote gateway host:port (extracted from the `url`) for liveness instead of `bind:port`.
+- [x] **Profile detection skips `gateway.lock` for remote** — When the selected profile is remote, the desktop does not check for `gateway.lock` and relies on the TCP probe. The remote gateway's profile name (from `status`) may differ from the local `id`; this is not surfaced as a mismatch warning.
 
 ### Non-functional
 
-- [x] **Backward compatibility** — When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port`, show Start/Stop controls, and operate in spawn-or-attach mode.
-- [ ] **No new required dependencies for gateway** — TLS support is client-side only (desktop crate). The gateway does not gain TLS dependencies.
+- [x] **Backward compatibility** — When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port`, show Start/Stop controls, and operate in spawn-or-attach mode. The gateway with default `maxConnections` (unlimited for loopback, `1` for non-loopback) does not change behavior for existing loopback deployments.
+- [x] **No new required dependencies for gateway** — TLS support is client-side only (desktop crate). The gateway does not gain TLS dependencies.
 - [x] **Config validation** — Remote entry `url` must start with `ws://` or `wss://`. `id` must be non-empty and must not collide with existing local profile directory names (enforced at load time). Invalid entries are rejected.
-- [ ] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
+- [ ] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation, connection limit, and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
+
+## Phase 1 Implementation Notes
+
+Phase 1 is implemented. Key implementation details:
+
+### Config Schema
+
+The `DesktopConfig` struct in `crates/lib/src/config.rs` has an optional `remote` field:
+
+```rust
+pub struct DesktopConfig {
+    pub appearance: AppearanceConfig,
+    pub logs: LogsConfig,
+    pub remote: Option<Vec<RemoteEntry>>,
+}
+
+pub struct RemoteEntry {
+    pub id: String,    // profile name / ComboBox label
+    pub url: String,   // ws:// or wss:// with full path support
+    pub token: String, // gateway auth token for pairing
+}
+```
+
+Validation at load time: `id` must be non-empty, `url` must start with `ws://` or `wss://`, `token` must be non-empty. Collision detection: if a remote entry `id` matches an existing profile directory with a `config.json` or `gateway.lock`, the entry is logged as a warning and skipped (disk wins).
+
+### `CHAI_HOME` Environment Variable
+
+The `profile::chai_home()` function in `crates/lib/src/profile.rs` checks the `CHAI_HOME` environment variable before falling back to the default `~/.chai`. This enables isolated testing of split deployment on a single machine. The `resolve.rs` `sandbox_raw()` function also respects `CHAI_HOME` (previously it read `$HOME` directly). Seven bundled skill shell scripts were updated from `$HOME/.chai` to `${CHAI_HOME:-$HOME/.chai}`.
+
+### Desktop State
+
+The desktop distinguishes local vs. remote profiles by looking up the selected `id` in the `remote` array from the loaded `desktop.json`. Remote profiles show Connect/Disconnect instead of Start/Stop, never spawn a local gateway, and use the remote entry's `url` and `token` for WebSocket connections. A `remote_disconnected` flag in `GatewayState` prevents the TCP probe from re-detecting the remote gateway after explicit disconnect, ensuring the Connect button remains enabled.
+
+### TLS Dependency
+
+The desktop crate uses `tokio-tungstenite` with the `rustls-tls-webpki-roots` feature for TLS WebSocket connections. Local profiles always use `ws://`.
+
+### TCP Probe
+
+The remote gateway TCP probe uses `ToSocketAddrs::to_socket_addrs()` for DNS resolution so hostnames like `localhost` work alongside numeric IP addresses. The probe extracts host and port from the remote URL (defaulting to port 80 for `ws://` and 443 for `wss://` when no port is specified).
 
 ## Phases
 
-| Phase | Focus | Status |
-|-------|-------|--------|
-| 1 | `remote` array in `desktop.json` + startup directory creation + ComboBox integration + Connect/Disconnect mode + device identity for remote profiles | Not started |
-| 2 | `wss://` support in desktop client | Not started |
-| 3 | WebSocket origin validation | Not started |
-| 4 | Documentation, user journey, config screen visibility, and `SECURITY.md` updates | Not started |
+### Phase 1: Remote Profile Configuration and Connection
 
-## Open Questions
+Core split deployment support on the client side. After this phase, a desktop can connect to a remote gateway over `ws://` or `wss://`.
 
-- **Should `url` support full paths for reverse proxies?** E.g., `wss://example.com/chai/ws` where the reverse proxy routes `/chai/` to the gateway. The desktop would send the full path in the WebSocket upgrade request. The current gateway WebSocket handler matches `/ws` at the root — a path-based reverse proxy would need to strip the prefix or the gateway would need to handle non-root paths.
+| Deliverable | Detail |
+|-------------|--------|
+| `remote` array in `desktop.json` | Schema, parsing, validation (including full path support in `url`, collision detection at load time) |
+| Remote profile directories | `mkdir -p` at startup for each remote entry that does not exist on disk |
+| ComboBox integration | Remote `id`s appear alongside local profile names; local/remote distinction via lookup |
+| Connect/Disconnect mode | Header shows Connect/Disconnect for remote profiles; no local gateway spawn; disconnect-before-switch for remote |
+| Device identity for remote profiles | Load/create `device.json` and `device_token` under `~/.chai/profiles/<remote-id>/`; use remote entry `token` for pairing |
+| WebSocket URL from remote entry | Use `url` field instead of `bind:port`; pass full URL (including path) to WebSocket client |
+| `wss://` client support | TLS WebSocket connection when `url` specifies `wss://`; add `tokio-tungstenite` with TLS feature to desktop crate |
+| TCP probe uses remote URL | Probe remote host:port extracted from `url` instead of `bind:port` |
+| Profile detection skips `gateway.lock` for remote | No lock file check; rely on TCP probe |
 
-- **Should `allowedOrigins` default to `["*"]` when token auth is enabled, or should it be explicitly empty (block all browser origins)?** A permissive default reduces friction but weakens defense-in-depth. A restrictive default is safer but may surprise operators who expect browser-based tools to work.
+**Test checkpoint:** A desktop on machine A can connect to a gateway on machine B using a `desktop.json` remote entry with a `ws://` URL. The desktop shows Connect/Disconnect, never spawns a local gateway, and device identity is stored under the remote profile directory. A `wss://` URL connects through a TLS-terminating reverse proxy. Full path URLs (e.g., `wss://example.com/chai/ws`) work through a reverse proxy with path stripping.
 
-- **What happens when a local profile and a remote entry share the same `id`?** This is rejected at load time (the `id` must not collide with existing profile directories). But if a local profile is created *after* `desktop.json` is loaded (e.g., via `chai init`), the collision is not detected until the next desktop restart. Should the desktop re-scan for collisions at runtime?
+### Phase 2: Gateway Security Hardening
+
+Server-side security measures for non-loopback deployments. After this phase, split deployment is secure by default.
+
+| Deliverable | Detail |
+|-------------|--------|
+| WebSocket origin validation | `gateway.allowedOrigins` field in `config.json`; default empty (reject all browser origins on non-loopback); desktop unaffected (no `Origin` header) |
+| Connection limit | `gateway.maxConnections` field in `config.json`; default `1` for non-loopback, unlimited for loopback; kick-oldest when limit exceeded; descriptive close frame |
+| Gateway rejects non-loopback without connection limit | If `maxConnections` is not explicitly set on a non-loopback binding, it defaults to `1` (same as the loopback default of unlimited, but explicitly documented) |
+
+**Test checkpoint:** A non-loopback gateway with default configuration allows exactly one WebSocket client at a time. A second connection authenticates and the first is disconnected. An `Origin` header on a non-loopback upgrade is rejected when `allowedOrigins` is empty (default). Adding an origin to `allowedOrigins` allows that origin through. Loopback behavior is unchanged.
+
+### Phase 3: Documentation and User Experience
+
+Making split deployment a documented, supported scenario.
+
+| Deliverable | Detail |
+|-------------|--------|
+| Config screen hidden for remote profiles | Sidebar omits Config screen when remote profile is selected |
+| User journey documentation | Step-by-step guide for split deployment in `docs/` |
+| Reverse proxy setup guide | nginx, Caddy, and Traefik configurations with WSS→WS termination, TLS certificate provisioning, WebSocket proxy configuration, and header forwarding |
+| `SECURITY.md` updates | Move origin validation and connection limit from "Out of Scope" to implemented; add `wss://` client support as partially implemented (client-side only); document `maxConnections` and `allowedOrigins` defaults and their security rationale |
+
+**Test checkpoint:** A new user can follow the user journey documentation to set up a split deployment end-to-end, including TLS via a reverse proxy. The Config screen is hidden when a remote profile is selected.
 
 ## Follow-ups
 
 ### Reverse Proxy Documentation
 
-A step-by-step guide for setting up common reverse proxies (nginx, Caddy, Traefik) with WSS→WS termination in front of the gateway. Includes TLS certificate provisioning (Let's Encrypt), WebSocket proxy configuration, and header forwarding.
+A step-by-step guide for setting up common reverse proxies (nginx, Caddy, Traefik) with WSS→WS termination in front of the gateway. Includes TLS certificate provisioning (Let's Encrypt), WebSocket proxy configuration, path stripping for non-root deployments, and header forwarding. This is included in Phase 3.
 
 ### Remote Gateway Status Reporting
 
@@ -301,9 +414,9 @@ The desktop's profile ComboBox is always enabled — profile switching is always
 
 This eliminates the disconnect/stop-before-switch constraint for local profiles described in earlier design sections. The only remaining switching constraint is for remote profiles (connection-based: the desktop must swap its WebSocket connection and cached state). See the design section on active symlink and switching for the updated distinction.
 
-### Multi-Client Observability
+### Multi-Client Deployments
 
-When multiple desktop clients connect to a single remote gateway, there is no per-client log filtering or session visibility. Each client sees the full gateway log stream and all sessions. Per-client scoping is a broader access-control concern related to session isolation (tracked in [SECURITY.md](../SECURITY.md)).
+The connection policy (`gateway.maxConnections`) defaults to `1` for non-loopback, making single-client the secure default for split deployment. Operators who need multiple simultaneous clients (e.g., team access to a shared gateway) can increase `maxConnections`. In multi-client deployments, all clients within the connection limit share the same access — there is no per-client session isolation. Per-client scoping is a broader access-control concern tracked in [SECURITY.md](../SECURITY.md) under "Session isolation across channels."
 
 ## Related Docs
 
@@ -315,4 +428,4 @@ When multiple desktop clients connect to a single remote gateway, there is no pe
 - [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md) — Gateway status payload (server-side absolute paths)
 - [SESSIONS.md](../spec/SESSIONS.md) — Session persistence, storage layout, and management (session management is gateway-side)
 
-**Implementation touchpoints:** `crates/lib/src/config.rs` (`DesktopConfig`, `GatewayConfig`), `crates/lib/src/profile.rs` (`ChaiPaths`, `resolve_profile_dir`), `crates/lib/src/device.rs` (`DeviceIdentity`), `crates/lib/src/gateway/server.rs` (origin validation), `crates/desktop/src/app.rs` (state, start/stop → connect/disconnect), `crates/desktop/src/app/state/gateway.rs` (WebSocket URL construction, `build_connect_params`), `crates/desktop/src/app/ui/header.rs` (ComboBox, button labels), `crates/desktop/src/app/screens/config.rs` (sidebar visibility)
+**Implementation touchpoints:** `crates/lib/src/config.rs` (`DesktopConfig`, `GatewayConfig`), `crates/lib/src/profile.rs` (`ChaiPaths`, `resolve_profile_dir`), `crates/lib/src/device.rs` (`DeviceIdentity`), `crates/lib/src/gateway/server.rs` (origin validation, connection limit), `crates/desktop/src/app.rs` (state, start/stop → connect/disconnect), `crates/desktop/src/app/state/gateway.rs` (WebSocket URL construction, `build_connect_params`), `crates/desktop/src/app/ui/header.rs` (ComboBox, button labels), `crates/desktop/src/app/screens/config.rs` (sidebar visibility)

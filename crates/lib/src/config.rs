@@ -1299,8 +1299,8 @@ pub fn default_skills_dir(chai_home: &Path) -> PathBuf {
 /// Desktop application configuration loaded from `~/.chai/desktop.json`.
 ///
 /// This file is separate from per-profile `config.json`: it holds client-side
-/// settings (appearance, log buffer size) that are machine-local and
-/// user-specific, not tied to any profile.
+/// settings (appearance, log buffer size, remote entries) that are machine-local
+/// and user-specific, not tied to any profile.
 ///
 /// All fields are optional. When the file is absent, all values use their
 /// defaults — no change from current behavior.
@@ -1314,6 +1314,55 @@ pub struct DesktopConfig {
     /// Log buffer settings.
     #[serde(default)]
     pub logs: LogsConfig,
+
+    /// Remote gateway entries. Each entry defines a remote profile that connects
+    /// to an external gateway via WebSocket instead of spawning a local gateway.
+    #[serde(default)]
+    pub remote: Option<Vec<RemoteEntry>>,
+}
+
+/// A remote gateway entry in `desktop.json`. Defines how the desktop connects
+/// to an external (non-local) gateway.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoteEntry {
+    /// Profile name / identifier. Must be non-empty. Used as the directory name
+    /// under `~/.chai/profiles/` for device identity storage.
+    pub id: String,
+
+    /// WebSocket URL for the remote gateway. Must start with `ws://` or `wss://`.
+    /// Full path is supported (e.g. `wss://example.com/chai/ws`).
+    pub url: String,
+
+    /// Gateway auth token for the pairing protocol. Must be non-empty.
+    pub token: String,
+}
+
+impl RemoteEntry {
+    /// Validate this remote entry. Returns `Ok(())` if valid, or an error
+    /// description if invalid. Valid entries have non-empty `id`, `url` starting
+    /// with `ws://` or `wss://`, and non-empty `token`.
+    pub fn validate(&self) -> Result<(), String> {
+        let id = self.id.trim();
+        if id.is_empty() {
+            return Err("remote entry id must not be empty".to_string());
+        }
+        let url = self.url.trim();
+        if !url.starts_with("ws://") && !url.starts_with("wss://") {
+            return Err(format!(
+                "remote entry \"{}\" url must start with ws:// or wss://, got: {}",
+                id, url
+            ));
+        }
+        let token = self.token.trim();
+        if token.is_empty() {
+            return Err(format!(
+                "remote entry \"{}\" token must not be empty",
+                id
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl DesktopConfig {
@@ -1377,7 +1426,9 @@ fn default_buffer_size() -> usize {
 /// Load `desktop.json` from `~/.chai/desktop.json`.
 ///
 /// Returns default values when the file is absent. Rejects invalid values
-/// (bad theme, non-positive fontSize/bufferSize) at load time.
+/// (bad theme, non-positive fontSize/bufferSize, invalid remote entries) at
+/// load time. Remote entries with `id` colliding with existing profile
+/// directories on disk are logged as warnings and skipped (disk wins).
 pub fn load_desktop_config() -> Result<DesktopConfig> {
     let chai_home = crate::profile::chai_home()?;
     let path = DesktopConfig::path(&chai_home);
@@ -1389,7 +1440,7 @@ pub fn load_desktop_config() -> Result<DesktopConfig> {
     let content = std::fs::read_to_string(&path)
         .with_context(|| format!("failed to read {}", path.display()))?;
 
-    let config: DesktopConfig = serde_json::from_str(&content)
+    let mut config: DesktopConfig = serde_json::from_str(&content)
         .with_context(|| format!("failed to parse {}", path.display()))?;
 
     // Validate.
@@ -1405,6 +1456,43 @@ pub fn load_desktop_config() -> Result<DesktopConfig> {
     }
     if config.logs.buffer_size == 0 {
         anyhow::bail!("invalid logs.bufferSize: must be a positive integer");
+    }
+
+    // Validate remote entries and filter out invalid/colliding ones.
+    if let Some(ref mut remote) = config.remote {
+        let profiles_dir = chai_home.join("profiles");
+        let mut valid: Vec<RemoteEntry> = Vec::new();
+        for entry in remote.drain(..) {
+            if let Err(e) = entry.validate() {
+                log::warn!("skipping remote entry: {}", e);
+                continue;
+            }
+            // Check collision with existing profile directories on disk.
+            let id = entry.id.trim();
+            let profile_path = profiles_dir.join(id);
+            // If the directory already exists AND it has a config.json or
+            // gateway.lock, it's a real local profile — disk wins.
+            // A directory created by a previous run for a remote entry (no
+            // config.json) is fine — it's the remote profile directory we
+            // created.
+            if profile_path.is_dir() {
+                let has_local_config = profile_path.join("config.json").exists()
+                    || profile_path.join("gateway.lock").exists();
+                if has_local_config {
+                    log::warn!(
+                        "skipping remote entry \"{}\": collides with existing local profile directory",
+                        id
+                    );
+                    continue;
+                }
+            }
+            valid.push(entry);
+        }
+        config.remote = if valid.is_empty() {
+            None
+        } else {
+            Some(valid)
+        };
     }
 
     Ok(config)
@@ -2104,5 +2192,98 @@ mod tests {
         let j = r#"{"providers":[{"id":"ollama","endpointType":"ollama"}]}"#;
         let c: Config = serde_json::from_str(j).expect("parse");
         assert_eq!(resolve_provider_api_key(&c.providers, "ollama"), None);
+    }
+
+    #[test]
+    fn desktop_config_default_has_no_remote() {
+        let dc = DesktopConfig::default();
+        assert!(dc.remote.is_none());
+    }
+
+    #[test]
+    fn remote_entry_validate_rejects_empty_id() {
+        let entry = RemoteEntry {
+            id: "".to_string(),
+            url: "ws://localhost:15151/ws".to_string(),
+            token: "secret".to_string(),
+        };
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn remote_entry_validate_rejects_empty_url() {
+        let entry = RemoteEntry {
+            id: "test".to_string(),
+            url: "".to_string(),
+            token: "secret".to_string(),
+        };
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn remote_entry_validate_rejects_http_url() {
+        let entry = RemoteEntry {
+            id: "test".to_string(),
+            url: "http://example.com/ws".to_string(),
+            token: "secret".to_string(),
+        };
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn remote_entry_validate_accepts_ws_url() {
+        let entry = RemoteEntry {
+            id: "test".to_string(),
+            url: "ws://192.168.1.100:15151/ws".to_string(),
+            token: "secret".to_string(),
+        };
+        assert!(entry.validate().is_ok());
+    }
+
+    #[test]
+    fn remote_entry_validate_accepts_wss_url_with_path() {
+        let entry = RemoteEntry {
+            id: "prod".to_string(),
+            url: "wss://example.com/chai/ws".to_string(),
+            token: "secret".to_string(),
+        };
+        assert!(entry.validate().is_ok());
+    }
+
+    #[test]
+    fn remote_entry_validate_rejects_empty_token() {
+        let entry = RemoteEntry {
+            id: "test".to_string(),
+            url: "ws://localhost:15151/ws".to_string(),
+            token: "".to_string(),
+        };
+        assert!(entry.validate().is_err());
+    }
+
+    #[test]
+    fn desktop_config_deserialize_with_remote() {
+        let j = r#"{"appearance":{"theme":"dark","fontSize":14},"logs":{"bufferSize":1000},"remote":[{"id":"prod","url":"wss://example.com/ws","token":"abc123"}]}"#;
+        let dc: DesktopConfig = serde_json::from_str(j).expect("parse");
+        let remote = dc.remote.expect("remote should be present");
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0].id, "prod");
+        assert_eq!(remote[0].url, "wss://example.com/ws");
+        assert_eq!(remote[0].token, "abc123");
+    }
+
+    #[test]
+    fn desktop_config_deserialize_without_remote() {
+        let j = r#"{"appearance":{"theme":"dark","fontSize":14},"logs":{"bufferSize":1000}}"#;
+        let dc: DesktopConfig = serde_json::from_str(j).expect("parse");
+        assert!(dc.remote.is_none());
+    }
+
+    #[test]
+    fn desktop_config_empty_remote_array() {
+        let j = r#"{"appearance":{"theme":"dark","fontSize":14},"logs":{"bufferSize":1000},"remote":[]}"#;
+        let dc: DesktopConfig = serde_json::from_str(j).expect("parse");
+        // Empty array should deserialize as Some(vec![])
+        let remote = dc.remote.as_ref().expect("remote should be present");
+        assert!(remote.is_empty());
     }
 }

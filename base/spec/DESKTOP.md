@@ -8,7 +8,7 @@ This spec describes the current behavior of **`crates/desktop`** (`chai-desktop`
 
 ## Purpose
 
-The desktop app is a **local operator console** for Chai. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess or attach to an **already listening** gateway on the configured bind/port. This spec captures the implemented behavior so agents working on the desktop package can understand the current state without reading the epic or source code.
+The desktop app is a **local operator console** for Chai. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess, **attach** to an already listening gateway on the configured bind/port, or **connect** to a remote gateway over the network. This spec captures the implemented behavior so agents working on the desktop package can understand the current state without reading the epic or source code.
 
 ## Application Model
 
@@ -18,8 +18,9 @@ The desktop app is a **local operator console** for Chai. It does **not** embed 
 |------|----------|
 | **Spawn** | App starts `chai gateway` as a subprocess. Header shows **Start/Stop** controls. |
 | **Attach** | Another process owns the port. Header shows disabled "Gateway running". |
+| **Remote** | Desktop connects to a remote gateway via WebSocket. Header shows **Connect/Disconnect** controls. No local gateway is spawned. |
 
-A periodic **TCP probe** (~1 Hz) to `gateway.bind`:`gateway.port` detects liveness. The probe cross-checks against `running_profiles` (based on per-profile gateway lock files): if the active profile is not in `running_profiles`, the probe returns `responds = false` even if the port is open — preventing the desktop from connecting to another profile's gateway. When the probe confirms the active profile's gateway is responding, the app opens a WebSocket connection.
+A periodic **TCP probe** (~1 Hz) detects liveness. For local profiles, the probe targets `gateway.bind`:`gateway.port` and cross-checks against `running_profiles` (based on per-profile gateway lock files): if the active profile is not in `running_profiles`, the probe returns `responds = false` even if the port is open — preventing the desktop from connecting to another profile's gateway. For remote profiles, the probe targets the host:port extracted from the remote entry's `url` field and skips lock file cross-checking. The probe is suppressed when the user explicitly disconnects from a remote profile (via the `remote_disconnected` flag in `GatewayState`). When the probe confirms the gateway is responding, the app opens a WebSocket connection.
 
 ### Runtime Profiles
 
@@ -32,6 +33,19 @@ When the gateway is running on a different profile than the active one (detected
 - **Profile mismatch hint**: when a gateway is running on a different profile than the active one, an amber label indicates which profile the gateway is using.
 - **Spawn propagation**: when the desktop starts the gateway, the active profile is passed via `--profile` so the subprocess uses the same profile.
 - All `load_config` calls use the active profile (from `~/.chai/active`) to load the correct per-profile configuration (port, token, skills, etc.).
+
+### Remote Profiles
+
+When the selected profile is a remote entry (its `id` matches an entry in the `remote` array of `desktop.json`), the desktop operates in **Connect/Disconnect** mode instead of Start/Stop:
+
+- The header shows **Connect/Disconnect** controls. Clicking Connect opens a WebSocket connection to the remote gateway's `url`. Clicking Disconnect closes it.
+- The desktop does not spawn a local gateway process.
+- The WebSocket URL and auth token come from the remote entry (not from `config.json`).
+- Device identity (`device.json`, `device_token`) is stored under `~/.chai/profiles/<remote-id>/`.
+- Switching away from a connected remote profile auto-disconnects first.
+- After explicit disconnect, the Connect button remains enabled (the `remote_disconnected` flag prevents the TCP probe from re-detecting the remote gateway).
+
+Remote entries also appear in the Settings dashboard under a "Remote Profiles" section listing each entry's id and URL.
 
 ### WebSocket Protocol
 
@@ -91,7 +105,7 @@ Merged Tools JSON from `status`.
 Read-only summary of `config.json` (loaded via `lib::config::load_config`, same as CLI). No JSON editor.
 
 | Field | Shown |
-|-------|-------|
+|-------|------|
 | Workers with `effective_worker_defaults` | ✓ |
 | `maxToolLoopsPerTurn` | ✓ |
 | Delegation caps (per turn, per session, per worker) | ✓ |
@@ -134,7 +148,7 @@ Dashboard `kv` uses a fixed-width key column (`KV_LABEL_COLUMN_WIDTH`) for align
 
 The desktop app reads `~/.chai/desktop.json` at startup for client-side settings that are machine-local and user-specific, not tied to any profile. This file is separate from per-profile `config.json`: `config.json` is a server-side operator document, while `desktop.json` holds desktop application preferences.
 
-When `desktop.json` is absent, all values use their defaults — no change from current behavior. Invalid values (bad theme, non-positive fontSize/bufferSize) are rejected at load time and the desktop falls back to defaults.
+When `desktop.json` is absent, all values use their defaults — no change from current behavior. Invalid values (bad theme, non-positive fontSize/bufferSize, invalid remote entries) are rejected at load time and the desktop falls back to defaults.
 
 ### File Location
 
@@ -150,7 +164,14 @@ When `desktop.json` is absent, all values use their defaults — no change from 
   },
   "logs": {
     "bufferSize": 1000
-  }
+  },
+  "remote": [
+    {
+      "id": "assistant-remote",
+      "url": "wss://gateway.example.com/ws",
+      "token": "<gateway-token>"
+    }
+  ]
 }
 ```
 
@@ -169,6 +190,20 @@ All blocks and fields are optional.
 |-------|------|---------|-------------|
 | `bufferSize` | `number` | `1000` | Maximum number of log lines retained in memory per buffer (desktop and gateway). |
 
+#### `remote` Block
+
+The `remote` array defines remote gateway connections. Each entry represents a remote gateway the desktop can connect to instead of spawning a local gateway. Remote entries appear as profiles in the ComboBox alongside local profiles.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | `string` | Yes | Profile name and ComboBox label. Also determines the profile directory under `~/.chai/profiles/` where device identity is stored. Must be non-empty. Must not collide with existing local profile directories (enforced at load time; disk wins). |
+| `url` | `string` | Yes | WebSocket connection URL. Must start with `ws://` or `wss://`. Supports full paths for reverse proxy configurations (e.g., `wss://example.com/chai/ws`). The desktop passes the full URL to the WebSocket client library. |
+| `token` | `string` | Yes | Gateway auth token for device pairing. Must be non-empty. Used in the `auth.token` field of the connection payload instead of `config.json` `gateway.auth.token`. |
+
+Invalid entries (empty `id`, non-`ws://`/`wss://` `url`, empty `token`) are rejected at load time with a logged warning. Entries whose `id` collides with an existing local profile directory (one containing `config.json` or `gateway.lock`) are also rejected — disk wins over configuration.
+
+When `desktop.json` is loaded at startup, the desktop creates `~/.chai/profiles/<id>/` for each valid remote entry that does not already exist. This ensures remote entries appear in the ComboBox before the user has ever connected.
+
 ### Loading
 
 The desktop loads `desktop.json` once at startup. Settings are not hot-reloaded. When the file is absent, all values use their built-in defaults. When the file fails to parse or validate, the desktop logs a warning and falls back to defaults.
@@ -178,9 +213,23 @@ The desktop loads `desktop.json` once at startup. Settings are not hot-reloaded.
 | File | Owner | Who reads it | Contains |
 |------|-------|-------------|----------|
 | `config.json` (per-profile) | Operator / developer | `chai gateway` | Bind, port, auth, channels, providers, agents, skills |
-| `desktop.json` (home root) | Client / end user | `chai-desktop` | Appearance, logs |
+| `desktop.json` (home root) | Client / end user | `chai-desktop` | Appearance, logs, remote profiles |
 
 Nothing moves out of `config.json`. The desktop still reads `config.json` for display purposes (providers, agents, channels) and for the `gateway.bind:port` fallback. `desktop.json` is purely additive.
+
+### `CHAI_HOME` Environment Variable
+
+The `CHAI_HOME` environment variable overrides the default `~/.chai` home directory. When set, `profile::chai_home()` returns its value instead of `dirs::home_dir()/.chai`. This enables isolated testing of split deployment on a single machine: the server and client can each point at different `CHAI_HOME` directories without interfering with the user's real `~/.chai`.
+
+| `CHAI_HOME` value | Behavior |
+|-------------------|----------|
+| Set to an existing absolute path | Canonicalized path is returned |
+| Set to a nonexistent absolute path | Value returned as-is (supports `chai init` creating the directory) |
+| Set to a relative path | Resolved against the current working directory |
+| Set to an empty string | Treated as unset; falls back to default `~/.chai` |
+| Not set | Default `~/.chai` behavior |
+
+The `resolve.rs` `sandbox_raw()` function (CLI) also respects `CHAI_HOME` — previously it read `$HOME` directly. Seven bundled skill shell scripts were updated from `$HOME/.chai` to `${CHAI_HOME:-$HOME/.chai}`.
 
 ## Error Handling
 
@@ -251,6 +300,7 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | Clear buffer button | Logs screen | No in-memory log clear button |
 | Gateway status fetch failure | `fetch_gateway_status()` WebSocket | Silent; user sees stale status or "Loading from gateway status..." placeholder |
 | Session events listener disconnection | WebSocket reconnect loop | Silent with exponential backoff retry; session deletion state is reconciled immediately by the RPC result handler, so missed `session.deleted` broadcasts no longer leave ghost sessions in the sidebar |
+| Config screen hidden for remote profiles | Config screen | Remote profiles have no `config.json`; Config screen should be hidden (not yet implemented) |
 
 ## Related Documents
 
@@ -264,3 +314,4 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |
 | [SESSIONS.md](SESSIONS.md) | Session persistence, storage layout, gateway protocol methods, and CLI session commands |
 | [spec/CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks |
+| [epic `SPLIT_DEPLOYMENT`](../epic/SPLIT_DEPLOYMENT.md) | Split deployment epic (remote gateway support) |

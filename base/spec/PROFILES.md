@@ -68,7 +68,7 @@ The following resources are **shared across all profiles**:
 |----------|----------|-------|
 | Active symlink | `~/.chai/active` | Points to the persistent default profile |
 | Skill packages | `~/.chai/skills/` | Only package store; per-agent enablement selects subsets (see [AGENTS.md](AGENTS.md)) |
-| Desktop config | `~/.chai/desktop.json` | Desktop appearance and log settings (see [DESKTOP.md](DESKTOP.md)) |
+| Desktop config | `~/.chai/desktop.json` | Desktop appearance, log, and remote profile settings (see [DESKTOP.md](DESKTOP.md)) |
 
 ## Active Profile Resolution
 
@@ -176,6 +176,26 @@ When the gateway is running on a different profile than the active one (detected
 **Re-running `chai init`** is fully non-destructive: existing profile files are never overwritten, bundled skill `active` symlinks are left unchanged when they already point to a valid version, and the profile `active` symlink is preserved if it resolves to a valid profile directory. A deleted `sandbox/` directory is recovered for existing profiles without modifying other files. Only a missing or broken `active` symlink triggers the default (`assistant`).
 
 Default profile names are **mnemonics**, not different runtime policies. Users may rename profiles, add more, or adjust layout after init.
+
+## `CHAI_HOME` Environment Variable
+
+The `CHAI_HOME` environment variable overrides the default `~/.chai` home directory. When set, `profile::chai_home()` returns its value instead of `dirs::home_dir()/.chai`. All path resolution (profile directories, active symlink, skills, desktop.json) respects this override.
+
+| `CHAI_HOME` value | Behavior |
+|-------------------|----------|
+| Set to an existing absolute path | Canonicalized path is returned |
+| Set to a nonexistent absolute path | Value returned as-is (supports `chai init` creating the directory) |
+| Set to a relative path | Resolved against the current working directory |
+| Set to an empty string | Treated as unset; falls back to default `~/.chai` |
+| Not set | Default `~/.chai` behavior |
+
+This is primarily useful for testing split deployment on a single machine: the server and client can each point at different `CHAI_HOME` directories without interfering with the user's real `~/.chai`.
+
+## Remote Profile Directories
+
+When the desktop loads a `desktop.json` with a `remote` array, it creates `~/.chai/profiles/<id>/` for each valid remote entry that does not already exist on disk. These directories start empty — no `config.json`, `sandbox/`, or `agents/` are written. The `device.json` and `device_token` files are created on first connect.
+
+Remote profile directories that lack `config.json` are distinguished from local profiles at load time: if a remote entry's `id` collides with a directory containing `config.json` or `gateway.lock`, the entry is rejected (disk wins).
 
 ## Relationship to Other Systems
 

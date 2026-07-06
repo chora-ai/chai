@@ -77,7 +77,7 @@ If a `.env` file exists in the profile directory (e.g. `~/.chai/profiles/assista
 
 ## Desktop Configuration
 
-The desktop app reads a separate `~/.chai/desktop.json` file for client-side settings (appearance, log buffer size) that are machine-local and not tied to any profile. This file is documented in [DESKTOP.md](DESKTOP.md). No `config.json` schema changes are needed — `desktop.json` is purely additive.
+The desktop app reads a separate `~/.chai/desktop.json` file for client-side settings (appearance, log buffer size, remote gateway profiles) that are machine-local and not tied to any profile. This file is documented in [DESKTOP.md](DESKTOP.md). No `config.json` schema changes are needed — `desktop.json` is purely additive.
 
 ## Related Documents
 
