@@ -137,6 +137,7 @@ Returns an error (`"unknown agent id"`) if the requested agent id does not match
 ## Related Documents
 
 - **[CONFIGURATION.md](CONFIGURATION.md)** — On-disk blocks vs **`status`** blocks.
+- **[GATEWAY.md](GATEWAY.md)** — Gateway server behavior: HTTP routes, WebSocket lifecycle, connection tracking, origin validation.
 - **[CHANNELS.md](CHANNELS.md)** — Channel runtime behavior.
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Catalog and delegation.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery rules.

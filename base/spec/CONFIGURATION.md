@@ -82,6 +82,7 @@ The desktop app reads a separate `~/.chai/desktop.json` file for client-side set
 ## Related Documents
 
 - **[GATEWAY_STATUS.md](GATEWAY_STATUS.md)** — Runtime **`status`** payload and alignment with these blocks.
+- **[GATEWAY.md](GATEWAY.md)** — Gateway server behavior: HTTP routes, startup validation, WebSocket lifecycle, connection tracking, origin validation.
 - **[CHANNELS.md](CHANNELS.md)** — Channel config and runtime behavior.
 - **[ORCHESTRATION.md](ORCHESTRATION.md)** — Delegation policy and worker semantics.
 - **[PROVIDERS.md](PROVIDERS.md)** — Provider ids and discovery vs **`agents.enabledProviders`**.

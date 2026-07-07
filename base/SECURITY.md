@@ -271,6 +271,7 @@ These are potential security enhancements that are not yet implemented:
 | [spec/TOOLS_SCHEMA.md](spec/TOOLS_SCHEMA.md) | `writePath`, `readPath`, `unsafePath`, `denyPattern` field definitions |
 | [adr/WRITE_SANDBOX.md](adr/WRITE_SANDBOX.md) | Architectural decision for the sandbox model |
 | [adr/AGENT_ISOLATION.md](adr/AGENT_ISOLATION.md) | Architectural decision for agent isolation |
+| [spec/GATEWAY.md](spec/GATEWAY.md) | Gateway server behavior: connection security, origin validation, connection tracking |
 | [spec/CONFIGURATION.md](spec/CONFIGURATION.md) | Gateway auth modes and secrets resolution |
 | [spec/PROFILES.md](spec/PROFILES.md) | Profile directory structure and trust-sensitive resources |
 | [spec/SESSIONS.md](spec/SESSIONS.md) | Session persistence, storage layout, and management |

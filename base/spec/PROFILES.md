@@ -214,6 +214,7 @@ Remote profile directories that lack `config.json` are distinguished from local 
 | Document | Purpose |
 |----------|---------|
 | [adr/RUNTIME_PROFILES.md](../adr/RUNTIME_PROFILES.md) | Architectural decision for the profile model |
+| [GATEWAY.md](GATEWAY.md) | Gateway server behavior: startup validation, gateway lock enforcement |
 | [CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks, `skills.lockMode`, and environment overrides |
 | [AGENTS.md](AGENTS.md) | Per-agent context and skill configuration within profiles |
 | [SKILL_FORMAT.md](SKILL_FORMAT.md) | Skill directory layout, `SKILL.md` content, and frontmatter |

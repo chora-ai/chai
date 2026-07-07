@@ -45,12 +45,12 @@ Always read the relevant convention file before adding or modifying a document i
 - **[TOOL_PARAMETER_NAMING.md](adr/TOOL_PARAMETER_NAMING.md)** — Why bundled skills follow consistent tool and parameter naming conventions (`{skill}_{verb}`, `path`/`repo`/`scope` semantics, qualified identifiers, flag alignment).
 - **[SKILL_DESCRIPTOR_SPLIT.md](adr/SKILL_DESCRIPTOR_SPLIT.md)** — Why the monolithic `tools.json` is split into three files: `tools.json` (tool definitions), `allowlist.json` (security grants), and `execution.json` (implementation mapping).
 - **[TOOL_CONSOLIDATION.md](adr/TOOL_CONSOLIDATION.md)** — Why separate tool names for thin-wrapper operations (file read/write line-range variants, git rebase/cherry-pick continue/abort) were consolidated into multi-mode tools with `paramCondition` routing, why the executor validates tool calls against the schema before execution, and why `git_reset` was changed to an unstage-only tool with required `paths`.
+- **[SPLIT_DEPLOYMENT.md](adr/SPLIT_DEPLOYMENT.md)** — Why remote gateway configuration lives in `desktop.json` (not `config.json`), why TLS is via reverse proxy, why the connection policy uses identity-based 1:N tracking with kick-oldest, and why origin validation defaults to reject-all.
 
 ### `/epic`
 
 - **[DESKTOP_FILES.md](epic/DESKTOP_FILES.md)** — (draft) File explorer and editor for Chai agent context, skill files, and sandbox.
 - **[PARALLEL_WORKFLOWS.md](epic/PARALLEL_WORKFLOWS.md)** — (draft) Enable the orchestrator agent to run multiple delegation calls in parallel.
-- **[SPLIT_DEPLOYMENT.md](epic/SPLIT_DEPLOYMENT.md)** — (complete) Enable a hosted-gateway deployment model with secure data transfer.
 - **[TOOL_APPROVAL.md](epic/TOOL_APPROVAL.md)** — (draft) Optional human gate before tools; auto-run is today's default.
 
 ### `/meta`
@@ -82,6 +82,7 @@ Always read the relevant convention file before adding or modifying a document i
 
 - **[CONFIGURATION.md](spec/CONFIGURATION.md)** — On-disk `config.json` blocks, `skills.lockMode`, env overrides, pairing with `status`.
 - **[GATEWAY_STATUS.md](spec/GATEWAY_STATUS.md)** — WebSocket `status` shape, key order, redaction, runtime snapshot, paring with `config.json`.
+- **[GATEWAY.md](spec/GATEWAY.md)** — Gateway server behavior: HTTP routes, startup validation, WebSocket lifecycle, authentication, connection tracking, origin validation.
 - **[PROFILES.md](spec/PROFILES.md)** — Profile directory, active profile, gateway lock, skill lockfile and generation tracking, switching.
 
 #### Agents, Context, and Skills

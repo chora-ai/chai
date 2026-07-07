@@ -2,16 +2,16 @@
 
 ## Scope
 
-- [epic/SPLIT_DEPLOYMENT.md](epic/SPLIT_DEPLOYMENT.md)
+- `epic/SPLIT_DEPLOYMENT.md`
 - future directions in [SECURITY.md](SECURITY.md)
 
 ## Epic
 
-- [ ] update proposal for split deployment and implement the epic in phases
+- [x] `epic/SPLIT_DEPLOYMENT.md` — see [adr/SPLIT_DEPLOYMENT.md](adr/SPLIT_DEPLOYMENT.md) and [spec/GATEWAY.md](spec/GATEWAY.md)
 
 ## Security
 
-- [ ] future directions that enable a secure and private split deployment architecture
+- [ ] continue future directions that enable a secure and private split deployment architecture
 
 ## Skills
 

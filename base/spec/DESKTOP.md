@@ -8,7 +8,7 @@ This spec describes the current behavior of **`crates/desktop`** (`chai-desktop`
 
 ## Purpose
 
-The desktop app is a **local operator console** for Chai. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess, **attach** to an already listening gateway on the configured bind/port, or **connect** to a remote gateway over the network. This spec captures the implemented behavior so agents working on the desktop package can understand the current state without reading the epic or source code.
+The desktop app is a **local operator console** for Chai. It does **not** embed the gateway as a library; it may **spawn** the `chai gateway` subprocess, **attach** to an already listening gateway on the configured bind/port, or **connect** to a remote gateway over the network. This spec captures the implemented behavior so agents working on the desktop package can understand the current state without reading the source code.
 
 ## Application Model
 
@@ -327,4 +327,4 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | [spec/LOGGING.md](LOGGING.md) | Log buffer, `logs` WS method, and desktop log merging |
 | [SESSIONS.md](SESSIONS.md) | Session persistence, storage layout, gateway protocol methods, and CLI session commands |
 | [spec/CONFIGURATION.md](CONFIGURATION.md) | On-disk `config.json` blocks |
-| [epic `SPLIT_DEPLOYMENT`](../epic/SPLIT_DEPLOYMENT.md) | Split deployment epic (remote gateway support) |
+| [adr/SPLIT_DEPLOYMENT.md](../adr/SPLIT_DEPLOYMENT.md) | Architectural decisions for remote gateway support |
