@@ -1,5 +1,5 @@
 ---
-status: in-progress
+status: complete
 ---
 
 # Epic: Split Deployment
@@ -8,7 +8,7 @@ status: in-progress
 
 **Prerequisite** — The `desktop.json` file (appearance and logs blocks) is already implemented. This epic adds a `remote` array to `desktop.json` so the desktop can connect to remote gateways, with the active profile symlink pointing at the selected target (local or remote) so device identity storage is reused.
 
-**Status** — **Phases 1 and 2 implemented.** Phase 1 (remote profile configuration and connection) is complete. Phase 2 (gateway security hardening — origin validation and connection limiting) is complete. Phase 3 (documentation and UX) is not yet started. The desktop can connect to a remote gateway over `ws://` or `wss://` with Connect/Disconnect mode, device identity stored per-profile, and TLS support via reverse proxy. The gateway enforces origin validation and connection limits on non-loopback bindings. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
+**Status** — **All phases implemented.** Phase 1 (remote profile configuration and connection) is complete. Phase 2 (gateway security hardening — origin validation and connection limiting) is complete. Phase 3 (documentation and UX — Config/Skills screen messages, user journey, reverse proxy guide, SECURITY.md, CHANGELOG, spec, and epic updates) is complete and manually tested. The desktop can connect to a remote gateway over `ws://` or `wss://` with Connect/Disconnect mode, device identity stored per-profile, and TLS support via reverse proxy. The gateway enforces origin validation and connection limits on non-loopback bindings. The per-profile gateway lock follow-up has been implemented — multiple gateways can run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
 
 ## Problem Statement
 
@@ -113,7 +113,7 @@ Per [SECURITY.md](../SECURITY.md), the following were previously out of scope an
 
 The following remain out of scope:
 
-- **TLS termination** — "The gateway binds plain HTTP/WebSocket. TLS is the operator's responsibility (e.g., reverse proxy). Binding to non-loopback without TLS exposes the auth token and all data in cleartext."
+- **TLS termination** — "The gateway binds plain HTTP/WebSocket. TLS is the operator's responsibility (e.g., reverse proxy). The desktop client supports `wss://` connections to TLS-terminated gateways via a remote entry's `url` field in `desktop.json`. TLS termination itself remains the operator's responsibility via a reverse proxy. Binding to non-loopback without TLS exposes the auth token and all data in cleartext."
 - **Session isolation across channels** — "No per-client or per-channel session access control; authenticated WebSocket clients can interact with any session."
 
 The gateway does enforce token auth for non-loopback bindings — it refuses to start without `auth.mode: "token"` when bound to a non-loopback address.
@@ -128,8 +128,8 @@ The gateway does enforce token auth for non-loopback bindings — it refuses to 
 | No connection limit | 🟠 High | ✅ Phase 2 — `gateway.maxConnections` with kick-oldest |
 | No origin validation | 🟡 Medium | ✅ Phase 2 — `gateway.allowedOrigins` on non-loopback |
 | `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles skip lock detection and rely on TCP probe (by design). |
-| No documentation | 🟡 Medium | Phase 3 (not yet started) |
-| Status shows server paths | 🟢 Low | Gateway status returns server-local absolute paths; confusing but not breaking |
+| No documentation | 🟡 Medium | ✅ Phase 3 — user journey, reverse proxy guide, SECURITY.md, CHANGELOG, spec |
+| Status shows server paths | 🟢 Resolved | ✅ Server-local paths (`discoveryRoot`, `contextDirectory`) removed from status payload (see Follow-ups) |
 
 ## Scope
 
@@ -308,11 +308,13 @@ In split deployment, the desktop's local `gateway.lock` doesn't exist (the gatew
 
 When the selected profile is local, the desktop uses per-profile lock file scanning to discover all running local gateway profiles, and uses the TCP probe to determine whether the active profile's gateway is responding.
 
-### Config Screen Visibility
+### Config and Skills Screen Visibility
 
-The desktop config screen currently shows `config.json` contents (bind, port, providers, agents, channels). For a remote-only client, there is no `config.json` — server-side configuration is managed server-side.
+The desktop Config screen shows `config.json` contents (bind, port, providers, agents, channels) and the Skills screen shows local skill packages from `~/.chai/skills/`. For a remote-only client, there is no `config.json` and local skills are irrelevant — the server-side gateway owns configuration and skills. Showing local data would be misleading.
 
-**Decision:** When the selected profile is remote, the Config screen is hidden from the sidebar. The Gateway screen (which shows `status` from the remote gateway) is the source of truth for the remote gateway's effective configuration. The Config screen reappears when a local profile is selected.
+**Decision:** When the selected profile is remote, both the Config and Skills screens display a clear message instead of attempting to load local data. The Config screen message directs users to the Gateway screen for the gateway's effective configuration. The Skills screen message directs users to the Gateway screen for the gateway's loaded skill packages. Both screens remain visible in the sidebar for all profiles (no conditional sidebar, no screen redirect) — the message renders immediately when the profile changes, handling the profile-switch-while-on-screen case naturally. The screens revert to their normal behavior when a local profile is selected.
+
+This approach (show with message) was chosen over hiding the screens from the sidebar because: (1) the clear message is necessary regardless of approach — it is needed as a fallback for the transition frame even in a hide-from-sidebar approach; (2) the message is simpler to use as primary content than as a fallback; (3) a consistent sidebar across profile types avoids visual jarring and disorienting screen redirects; and (4) the message educates users about where to find the information.
 
 ## Requirements
 
@@ -328,7 +330,7 @@ The desktop config screen currently shows `config.json` contents (bind, port, pr
 - [x] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when a remote entry's `url` specifies `wss://`. Local profiles always use `ws://` (derived from `bind:port`).
 - [x] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. An `allowedOrigins` field in the `gateway` config block lists permitted origins. Default is empty (reject all browser origins on non-loopback). The desktop app does not send an `Origin` header and is unaffected. Operators can add specific origins to allow browser-based tools.
 - [x] **Connection limit** — The gateway enforces `gateway.maxConnections` (integer) for authenticated WebSocket connections, tracked by client identity (device ID). Default: `1` for non-loopback bindings, unlimited for loopback. When a new client authenticates and the distinct-client limit is exceeded, all connections of the longest-running existing client are disconnected (kick-oldest). The gateway sends a descriptive close frame (code 1013) when disconnecting. The desktop handles unexpected disconnections with its existing reconnect logic.
-- [ ] **Config screen hidden for remote profiles** — When the selected profile is remote, the Config screen does not appear in the sidebar. The Gateway screen (showing `status` from the remote gateway) is the sole source of configuration visibility.
+- [x] **Config and Skills screens show a message for remote profiles** — When the selected profile is remote, the Config and Skills screens display a clear message directing users to the Gateway screen instead of attempting to load non-existent local config or skills. Both screens remain visible in the sidebar for all profiles.
 - [x] **TCP probe uses remote URL** — When the selected profile is remote, the desktop probes the remote gateway host:port (extracted from the `url`) for liveness instead of `bind:port`.
 - [x] **Profile detection skips `gateway.lock` for remote** — When the selected profile is remote, the desktop does not check for `gateway.lock` and relies on the TCP probe. The remote gateway's profile name (from `status`) may differ from the local `id`; this is not surfaced as a mismatch warning.
 
@@ -468,12 +470,12 @@ Making split deployment a documented, supported scenario.
 
 | Deliverable | Detail |
 |-------------|--------|
-| Config screen hidden for remote profiles | Sidebar omits Config screen when remote profile is selected |
-| User journey documentation | Step-by-step guide for split deployment in `docs/` |
-| Reverse proxy setup guide | nginx, Caddy, and Traefik configurations with WSS→WS termination, TLS certificate provisioning, WebSocket proxy configuration, and header forwarding |
+| Config and Skills screens show a clear message for remote profiles | Both screens direct users to the Gateway screen instead of loading non-existent local config/skills |
+| User journey documentation | Step-by-step guide for split deployment in `docs/journey/14-desktop-split-deployment.md` |
+| Reverse proxy setup guide | nginx, Caddy, and Traefik configurations with WSS→WS termination, TLS certificate provisioning, WebSocket proxy configuration, and header forwarding in `docs/guides/09-desktop.md` |
 | `SECURITY.md` updates | Move origin validation and connection limit from "Out of Scope" to implemented; add `wss://` client support as partially implemented (client-side only); document `maxConnections` and `allowedOrigins` defaults and their security rationale |
 
-**Test checkpoint:** A new user can follow the user journey documentation to set up a split deployment end-to-end, including TLS via a reverse proxy. The Config screen is hidden when a remote profile is selected.
+**Status:** Implemented and manually tested. The Config and Skills screens show a subtitle ("This profile connects to a remote gateway.") and a body message directing users to the Gateway screen. Manual tests verified all six test cases (Config screen, Skills screen, profile switch while on Config, profile switch while on Skills, switch back to local, sidebar consistency).
 
 ## Follow-ups
 
@@ -504,7 +506,7 @@ The connection policy (`gateway.maxConnections`) defaults to `1` for non-loopbac
 - [CONFIGURATION.md](../spec/CONFIGURATION.md) — Configuration schema (gateway block, auth, env overrides)
 - [PROFILES.md](../spec/PROFILES.md) — Profile directory structure (device.json, device_token, paired.json, active symlink)
 - [CHANNELS.md](../spec/CHANNELS.md) — Channel behavior (channels live inside the gateway process)
-- [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md) — Gateway status payload (server-side absolute paths)
+- [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md) — Gateway status payload
 - [SESSIONS.md](../spec/SESSIONS.md) — Session persistence, storage layout, and management (session management is gateway-side)
 
-**Implementation touchpoints:** `crates/lib/src/config.rs` (`DesktopConfig`, `GatewayConfig`), `crates/lib/src/profile.rs` (`ChaiPaths`, `resolve_profile_dir`), `crates/lib/src/device.rs` (`DeviceIdentity`), `crates/lib/src/gateway/server.rs` (origin validation, connection limit), `crates/desktop/src/app.rs` (state, start/stop → connect/disconnect), `crates/desktop/src/app/state/gateway.rs` (WebSocket URL construction, `build_connect_params`), `crates/desktop/src/app/ui/header.rs` (ComboBox, button labels), `crates/desktop/src/app/screens/config.rs` (sidebar visibility)
+**Implementation touchpoints:** `crates/lib/src/config.rs` (`DesktopConfig`, `GatewayConfig`), `crates/lib/src/profile.rs` (`ChaiPaths`, `resolve_profile_dir`), `crates/lib/src/device.rs` (`DeviceIdentity`), `crates/lib/src/gateway/server.rs` (origin validation, connection limit), `crates/desktop/src/app.rs` (state, start/stop → connect/disconnect), `crates/desktop/src/app/state/gateway.rs` (WebSocket URL construction, `build_connect_params`), `crates/desktop/src/app/ui/header.rs` (ComboBox, button labels), `crates/desktop/src/app/screens/config.rs` (remote-profile message), `crates/desktop/src/app/screens/skills.rs` (remote-profile message)

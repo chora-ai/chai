@@ -174,7 +174,47 @@ When a remote profile is selected, the header shows **Connect/Disconnect** inste
 
 ### Reverse Proxy Setup for TLS
 
-The gateway does not have built-in TLS. To use `wss://`, run a reverse proxy (e.g., Caddy, nginx, Traefik) in front of the gateway with TLS termination. Example Caddy configuration:
+The gateway does not have built-in TLS. To use `wss://`, run a reverse proxy in front of the gateway with TLS termination. The reverse proxy terminates the TLS connection from the desktop client and forwards plain `ws://` traffic to the gateway's bind address and port (default `127.0.0.1:15151`).
+
+The examples below assume the gateway is running locally on `127.0.0.1:15151` and the domain is `gateway.example.com`. Adjust the domain, port, and path to match your setup.
+
+#### nginx
+
+```nginx
+server {
+    listen 443 ssl;
+    server_name gateway.example.com;
+
+    ssl_certificate /etc/letsencrypt/live/gateway.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/gateway.example.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:15151;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+    }
+}
+```
+
+Provision certificates with Let's Encrypt (certbot):
+
+```bash
+sudo certbot certonly --standalone -d gateway.example.com
+```
+
+#### Caddy
+
+Caddy provides automatic HTTPS via Let's Encrypt — no manual certificate management needed:
+
+```
+gateway.example.com {
+    reverse_proxy localhost:15151
+}
+```
+
+For local testing, use `tls internal` to generate a self-signed certificate:
 
 ```
 gateway.example.com {
@@ -183,7 +223,99 @@ gateway.example.com {
 }
 ```
 
-Then set the remote entry URL to `wss://gateway.example.com/ws`.
+#### Traefik
+
+Traefik uses entrypoints, routers, and services. The example below uses a static configuration file (`traefik.yml`) and assumes Let's Encrypt for TLS:
+
+```yaml
+# traefik.yml (static configuration)
+entryPoints:
+  web:
+    address: ":80"
+  websecure:
+    address: ":443"
+
+providers:
+  file:
+    filename: /etc/traefik/dynamic.yml
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: you@example.com
+      storage: /etc/traefik/acme.json
+      httpChallenge:
+        entryPoint: web
+```
+
+```yaml
+# dynamic.yml (dynamic configuration)
+http:
+  routers:
+    chai-gateway:
+      rule: "Host(`gateway.example.com`)"
+      entryPoints:
+        - websecure
+      service: chai-gateway
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    chai-gateway:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:15151"
+```
+
+Traefik handles WebSocket upgrades automatically — no special header configuration is needed.
+
+#### Non-Root Path Deployments
+
+If the gateway is not at the root path (e.g., `wss://example.com/chai/ws`), the reverse proxy must strip the path prefix before forwarding to the gateway's `/ws` route. The gateway serves WebSocket upgrades at `/ws` and HTTP at `/`.
+
+- **nginx** — use `proxy_pass` with a trailing path to strip the prefix:
+  ```nginx
+  location /chai/ {
+      proxy_pass http://127.0.0.1:15151/;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header Host $host;
+  }
+  ```
+- **Caddy** — use `handle_path` to strip the prefix:
+  ```
+  gateway.example.com {
+      handle_path /chai/* {
+          reverse_proxy localhost:15151
+      }
+  }
+  ```
+- **Traefik** — use the `StripPrefix` middleware:
+  ```yaml
+  http:
+    middlewares:
+      strip-chai:
+        stripPrefix:
+          prefixes:
+            - /chai
+    routers:
+      chai-gateway:
+        rule: "Host(`gateway.example.com`) && PathPrefix(`/chai`)"
+        middlewares:
+          - strip-chai
+        # ... (entryPoints, service, tls as above)
+  ```
+
+Then set the remote entry URL to `wss://example.com/chai/ws` in `desktop.json`.
+
+#### Verifying the Setup
+
+1. Confirm the gateway is running on the server: `curl http://127.0.0.1:15151/` should return JSON with `"status":"running"`.
+2. Confirm the reverse proxy is forwarding: `curl https://gateway.example.com/` should return the same JSON.
+3. In `desktop.json`, set the remote entry URL to `wss://gateway.example.com/ws` (or `wss://gateway.example.com/chai/ws` for non-root deployments).
+4. Select the remote profile in the desktop app, click **Connect**, and verify the connection is established (header shows "Gateway: running").
+5. Check the **Gateway** screen — it should show the remote gateway's status (agents, providers, models, skill packages).
 
 ### `CHAI_HOME` Environment Variable
 

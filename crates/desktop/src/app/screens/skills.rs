@@ -4,6 +4,12 @@ use crate::app::ui::{dashboard, spacing};
 use crate::app::ChaiApp;
 
 pub fn ui_skills_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
+    if app.is_remote_profile() {
+        crate::app::ui_screen(ui, "Skills", Some("This profile connects to a remote gateway."), |ui| {
+            ui.label("Use the Gateway screen to view the gateway's loaded skill packages.");
+        });
+        return;
+    }
     let (config, chai_home) = match app.load_config_cached() {
         Ok(cp) => (cp.0.clone(), cp.1.chai_home.clone()),
         Err(e) => {

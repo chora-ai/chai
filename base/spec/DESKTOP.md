@@ -83,7 +83,14 @@ The sidebar organizes screens into groups:
 
 ### Skills
 
-All available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents[]` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for an orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). All orchestrator agents (not just the default) are correctly identified — non-default orchestrators are shown in green, not blue. A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
+When the selected profile is a remote entry (its `id` matches an entry in the `remote` array of `desktop.json`), the Skills screen displays a message instead of loading local skill data:
+
+> This profile connects to a remote gateway.
+> Use the Gateway screen to view the gateway's loaded skill packages.
+
+The message is shown via an `is_remote_profile()` early return at the top of `ui_skills_screen`. No local skills or config data are loaded. The Gateway screen is the source of truth for skill packages on a remote gateway.
+
+For local profiles, all available skills are listed in alphabetical order with no agent selector or enabled/disabled section headings. When the gateway is running, `enabledSkills` from `status.agents[]` determines which skills are enabled for each agent (falls back to config when the gateway is down). Within each skill card, green text indicates the skill is enabled for an orchestrator ("Enabled for {orchestratorId}"), and blue text indicates the skill is enabled for a worker ("Enabled for {workerId}"). All orchestrator agents (not just the default) are correctly identified — non-default orchestrators are shown in green, not blue. A skill not enabled for any agent shows no indicator. Detail pane for SKILL.md and `tools.json` — **read-only**.
 
 ### Agent
 
@@ -102,7 +109,14 @@ Merged Tools JSON from `status`.
 
 ### Config
 
-Read-only summary of `config.json` (loaded via `lib::config::load_config`, same as CLI). No JSON editor.
+When the selected profile is a remote entry (its `id` matches an entry in the `remote` array of `desktop.json`), the Config screen displays a message instead of attempting to load a local `config.json`:
+
+> This profile connects to a remote gateway.
+> Use the Gateway screen to view the gateway's effective configuration.
+
+The message is shown via an `is_remote_profile()` early return at the top of `ui_config_screen`. No config file is loaded. The Gateway screen is the source of truth for the remote gateway's effective configuration.
+
+For local profiles, the Config screen provides a read-only summary of `config.json` (loaded via `lib::config::load_config`, same as CLI). No JSON editor.
 
 | Field | Shown |
 |-------|------|
@@ -300,7 +314,6 @@ These gaps describe what the system exposes but the desktop does not yet surface
 | Clear buffer button | Logs screen | No in-memory log clear button |
 | Gateway status fetch failure | `fetch_gateway_status()` WebSocket | Silent; user sees stale status or "Loading from gateway status..." placeholder |
 | Session events listener disconnection | WebSocket reconnect loop | Silent with exponential backoff retry; session deletion state is reconciled immediately by the RPC result handler, so missed `session.deleted` broadcasts no longer leave ghost sessions in the sidebar |
-| Config screen hidden for remote profiles | Config screen | Remote profiles have no `config.json`; Config screen should be hidden (not yet implemented) |
 
 ## Related Documents
 

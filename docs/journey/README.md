@@ -17,6 +17,7 @@ Step-by-step walkthroughs for setting up chai, verifying its behavior, and testi
 5. **Pick a channel** — connect Telegram (04), Matrix (08), or Signal (09) for end-to-end messaging.
 6. **Pick a skill** — test files (05), notes (06), or skills management (07).
 7. **Go deeper** — providers (10), multi-agent (11), gateway auth (12), profile management (13).
+8. **Split deployment** — connect to a remote gateway with TLS (14).
 
 ## Journeys
 
@@ -36,6 +37,7 @@ Step-by-step walkthroughs for setting up chai, verifying its behavior, and testi
 | 11 | [Agent: multi-agent configuration](11-agent-multi.md) | Configure an orchestrator with a worker, trigger delegation, verify the worker's response. |
 | 12 | [Gateway: auth](12-gateway-auth.md) | Enable token auth, verify connect with and without the token, test protected HTTP routes. |
 | 13 | [Profile: manage and switch](13-profile-manage.md) | Create a second profile, switch profiles, verify the gateway uses the active config, clean up. |
+| 14 | [Desktop: split deployment](14-desktop-split-deployment.md) | Connect the desktop app to a remote gateway, send a chat message, and verify the Config and Skills screens show a remote-gateway message. |
 
 ## Guides vs. Journeys
 

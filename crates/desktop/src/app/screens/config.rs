@@ -4,6 +4,12 @@ use crate::app::ui::{dashboard, readonly_code, spacing, view_toggle};
 use crate::app::{ChaiApp, ConfigViewMode};
 
 pub fn ui_config_screen(app: &mut ChaiApp, ui: &mut egui::Ui) {
+    if app.is_remote_profile() {
+        crate::app::ui_screen(ui, "Config", Some("This profile connects to a remote gateway."), |ui| {
+            ui.label("Use the Gateway screen to view the gateway's effective configuration.");
+        });
+        return;
+    }
     app.invalidate_enabled_providers_cache();
     let (config, paths) = match app.load_config_cached() {
         Ok(cp) => (cp.0.clone(), cp.1.clone()),

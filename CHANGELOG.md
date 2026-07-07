@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Remote gateway TCP probe — probes the remote URL's host:port instead of the local `gateway.bind:port`.
 - Remote profile disconnect-before-switch — switching away from a connected remote profile auto-disconnects first.
 - Remote entries shown in Settings dashboard — the "Remote Profiles" section lists each entry's id and URL.
+- Config and Skills screens show a clear message for remote profiles — when a remote profile is selected, the Config screen displays a message directing users to the Gateway screen for the gateway's effective configuration, and the Skills screen directs users to the Gateway screen for the gateway's loaded skill packages, instead of attempting to load non-existent local config or skills
 
 #### Runtime and Configuration
 
