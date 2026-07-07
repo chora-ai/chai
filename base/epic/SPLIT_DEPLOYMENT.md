@@ -8,7 +8,7 @@ status: in-progress
 
 **Prerequisite** — The `desktop.json` file (appearance and logs blocks) is already implemented. This epic adds a `remote` array to `desktop.json` so the desktop can connect to remote gateways, with the active profile symlink pointing at the selected target (local or remote) so device identity storage is reused.
 
-**Status** — **Phase 1 implemented.** Phase 1 (remote profile configuration and connection) is complete. Phase 2 (gateway security hardening) and Phase 3 (documentation and UX) are not yet started. The desktop can attach to an externally owned gateway over the network via TCP probing and the WebSocket challenge-response protocol, but there is no explicit support for split deployment: no remote address configuration, no TLS, no Connect/Disconnect mode, and no documentation for the scenario. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
+**Status** — **Phases 1 and 2 implemented.** Phase 1 (remote profile configuration and connection) is complete. Phase 2 (gateway security hardening — origin validation and connection limiting) is complete. Phase 3 (documentation and UX) is not yet started. The desktop can connect to a remote gateway over `ws://` or `wss://` with Connect/Disconnect mode, device identity stored per-profile, and TLS support via reverse proxy. The gateway enforces origin validation and connection limits on non-loopback bindings. The per-profile gateway lock follow-up (previously listed) has been implemented — multiple gateways can now run simultaneously on different profiles, and profile switching is always allowed (see Current State below).
 
 ## Problem Statement
 
@@ -100,33 +100,35 @@ A client machine that only connects to remote gateways does not need a `config.j
 
 The per-profile `gateway.lock` is a **process-level guard**, not a connection control. It uses an advisory exclusive `flock` (`fs2::FileExt::try_lock_exclusive`) to prevent two gateway processes from running on the same profile. It does not limit, track, or gate WebSocket client connections in any way.
 
-Currently, the gateway accepts unlimited WebSocket connections — there is no `maxConnections` config, no connection counter, and no semaphore. Each connection spawns an independent `handle_socket` task that subscribes to the broadcast channel and can interact with any session. The `PairingStore` is a `Vec<PairedEntry>` with no limit on the number of paired devices.
+The gateway enforces a connection limit via `ConnectionTracker` in `GatewayState`, which tracks authenticated connections keyed by client identity (device ID). See the Connection Policy design section below for details.
 
-For split deployment, this means any number of authenticated clients can connect to the same gateway simultaneously. This is insecure by default for a remote deployment where the gateway is exposed to the network. The connection policy introduced in this epic addresses this gap.
+For split deployment, the connection limit defaults to 1 on non-loopback, making single-client the secure default. The connection policy is independent of `gateway.lock` (process guard vs. connection guard — different layers).
 
 ### Security Posture
 
-Per [SECURITY.md](../SECURITY.md), the following are explicitly out of scope:
+Per [SECURITY.md](../SECURITY.md), the following were previously out of scope and are now implemented:
+
+- **WebSocket origin validation** — Implemented. The gateway validates the `Origin` header on WebSocket upgrades for non-loopback bindings. `allowedOrigins` defaults to empty (reject all browser origins). The desktop app is unaffected (no `Origin` header).
+- **Connection limiting** — Implemented. `gateway.maxConnections` caps simultaneously authenticated client identities. Default: 1 on non-loopback, unlimited on loopback. Kick-oldest when limit exceeded.
+
+The following remain out of scope:
 
 - **TLS termination** — "The gateway binds plain HTTP/WebSocket. TLS is the operator's responsibility (e.g., reverse proxy). Binding to non-loopback without TLS exposes the auth token and all data in cleartext."
-- **WebSocket origin validation** — "The gateway does not check the `Origin` header on WebSocket upgrades. On loopback this is mitigated by same-origin policy; on non-loopback deployments, cross-site WebSocket hijacking is possible without additional network controls."
 - **Session isolation across channels** — "No per-client or per-channel session access control; authenticated WebSocket clients can interact with any session."
 
 The gateway does enforce token auth for non-loopback bindings — it refuses to start without `auth.mode: "token"` when bound to a non-loopback address.
 
-This epic addresses origin validation and introduces a connection policy for non-loopback deployments. TLS termination remains the operator's responsibility (reverse proxy with WSS→WS termination).
-
 ### Existing Gaps
 
-| Gap | Severity | Description |
-|-----|----------|-------------|
-| No TLS/WSS | 🔴 Critical | All data (tokens, messages, tool outputs) sent in cleartext over the network |
-| No remote address config | 🟠 High | `gateway.bind` repurposed as connect-to address; semantically wrong and confusing |
-| No Connect/Disconnect mode | 🟠 High | Desktop can still spawn a local gateway; no way to disable this |
-| No connection limit | 🟠 High | Unlimited WebSocket clients can connect; no single-client default for non-loopback |
-| No origin validation | 🟡 Medium | Cross-site WebSocket hijacking possible on non-loopback |
-| `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented at `~/.chai/profiles/<name>/gateway.lock`; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles skip lock detection and rely on TCP probe (by design). |
-| No documentation | 🟡 Medium | Zero guidance for split deployment setup or operation |
+| Gap | Severity | Status |
+|-----|----------|--------|
+| No TLS/WSS | 🔴 Critical | Out of scope (operator's responsibility — reverse proxy) |
+| No remote address config | 🟠 High | ✅ Phase 1 — `remote` array in `desktop.json` |
+| No Connect/Disconnect mode | 🟠 High | ✅ Phase 1 — remote profiles show Connect/Disconnect |
+| No connection limit | 🟠 High | ✅ Phase 2 — `gateway.maxConnections` with kick-oldest |
+| No origin validation | 🟡 Medium | ✅ Phase 2 — `gateway.allowedOrigins` on non-loopback |
+| `gateway.lock` is per-profile | 🟢 Resolved | Per-profile locks implemented; desktop discovers running profiles via `find_running_gateway_profiles()`. Remote profiles skip lock detection and rely on TCP probe (by design). |
+| No documentation | 🟡 Medium | Phase 3 (not yet started) |
 | Status shows server paths | 🟢 Low | Gateway status returns server-local absolute paths; confusing but not breaking |
 
 ## Scope
@@ -137,7 +139,7 @@ This epic addresses origin validation and introduces a connection policy for non
 - `wss://` URL construction in the desktop client for connections to TLS-terminated gateways. Full path support in the `url` field for reverse proxy configurations (e.g., `wss://example.com/chai/ws`).
 - A Connect/Disconnect mode for remote profiles: when the selected profile is remote, the desktop shows Connect/Disconnect instead of Start/Stop, never spawns a local gateway, and probes the remote URL for liveness.
 - WebSocket origin validation on the gateway for non-loopback connections. Default: reject all browser-origin requests on non-loopback. Operators opt in to specific origins via `gateway.allowedOrigins` in `config.json`.
-- A connection limit on the gateway for non-loopback deployments. Default: one active WebSocket connection. Operators can increase the limit via `gateway.maxConnections` in `config.json`. When the limit is exceeded, the oldest connection is disconnected (kick-oldest), which handles reconnection gracefully.
+- A connection limit on the gateway for non-loopback deployments. Default: one active client identity. Operators can increase the limit via `gateway.maxConnections` in `config.json`. When the limit is exceeded, the oldest client's connections are disconnected (kick-oldest), which handles reconnection gracefully.
 - Documentation and a user journey for the split deployment scenario.
 - Updates to `SECURITY.md` to reflect the new capabilities.
 
@@ -254,23 +256,49 @@ When `auth.mode: "none"` on non-loopback (which is already refused at startup), 
 
 ### Connection Policy
 
-The gateway currently accepts unlimited WebSocket connections. For split deployment on non-loopback, this is insecure by default — a single compromised token allows an attacker to connect alongside the legitimate client, observe all sessions, and interact with the gateway.
+The gateway previously accepted unlimited WebSocket connections. For split deployment on non-loopback, this was insecure by default — a single compromised token allowed an attacker to connect alongside the legitimate client, observe all sessions, and interact with the gateway.
 
 **Decision: `gateway.maxConnections` with a secure default.**
 
 | Field | Type | Default (loopback) | Default (non-loopback) | Description |
 |-------|------|--------------------|------------------------|-------------|
-| `gateway.maxConnections` | `integer` | Unchanged (unlimited) | `1` | Maximum number of simultaneously authenticated WebSocket connections. |
+| `gateway.maxConnections` | `integer` | Unchanged (unlimited) | `1` | Maximum number of simultaneously authenticated **client identities** (devices). |
 
-When a new connection authenticates and the count would exceed `maxConnections`, the gateway disconnects the longest-running existing connection (kick-oldest). This kick-oldest policy handles network interruptions gracefully: if the legitimate desktop reconnects after a brief outage, it displaces any stale connection. If an attacker holds a connection with a stolen token, the legitimate user's reconnection kicks the attacker off.
+When a new client identity authenticates and the count of distinct clients would exceed `maxConnections`, the gateway disconnects all connections belonging to the longest-running existing client (kick-oldest). This kick-oldest policy handles network interruptions gracefully: if the legitimate desktop reconnects after a brief outage, it displaces any stale connection. If an attacker holds a connection with a stolen token, the legitimate user's reconnection kicks the attacker off.
 
-The desktop handles unexpected disconnections with its existing reconnect logic. When the gateway rejects a connection due to the limit being reached (before authentication completes), it sends a WebSocket close frame with a descriptive reason that the desktop can display to the user.
+The desktop handles unexpected disconnections with its existing reconnect logic. When the gateway kicks a connection due to the limit being exceeded, it sends a WebSocket close frame (code 1013, reason "connection limit reached: displaced by newer connection") before disconnecting.
 
 **Why kick-oldest instead of reject-new:** A reject-new policy creates a denial-of-service vector: an attacker with a stolen token can hold a connection and prevent the legitimate user from reconnecting. Kick-oldest ensures the most recent authenticator always gets access, which is the correct tradeoff for a single-operator deployment model.
 
 **Why `maxConnections` instead of per-device limits:** Per-device limits (e.g., one connection per device token) are more granular but more complex. For the initial implementation, a simple global limit with kick-oldest semantics provides the security benefit (single-client default) without requiring device-tracking infrastructure. Per-device limits can be added as a future enhancement if multi-client deployments need finer control.
 
 **Interaction with `gateway.lock`:** The connection policy is independent of `gateway.lock`. The lock prevents multiple gateway *processes* per profile (process-level guard). The connection policy limits WebSocket *client* connections per gateway (connection-level guard). They operate at different layers and do not interact.
+
+#### Identity-Based Tracking (1:N Multi-Connection-Per-Client)
+
+**Decision: Track connections by client identity (device ID) with a 1:N model — one client slot holding N concurrent connections.**
+
+The `ConnectionTracker` in `GatewayState` tracks authenticated connections keyed by **client identity** (device ID), not by individual WebSocket connection. Each client identity maps to a **list of active connections**. The connection limit applies to the number of **distinct clients**, not individual connections:
+
+- **Same-client connections coexist.** When the same client opens an additional WebSocket connection (e.g., the desktop's status fetch alongside its events listener), the new connection is added to that client's existing list without any kick or limit check.
+- **Kick-oldest across distinct clients.** If a *new* client connects and the distinct-client limit is exceeded, all connections of the oldest client are kicked (each receives a close frame, each `handle_socket` task breaks).
+- **Per-connection unregister.** When a connection disconnects (normally or kicked), `unregister` removes that specific connection from its client's list; if the client's list becomes empty, the client slot is freed entirely.
+
+**Why identity-based tracking:** The desktop opens multiple concurrent WebSocket connections per logical client (session events listener, periodic status/log fetches, on-demand agent turns, etc.) — all sharing the same device identity. A naive 1:1 model (one entry per connection, or one entry per client with same-key displacement) was tried first and produced an **infinite self-displacement churn loop**: every one-shot fetch kicked the long-lived events listener, which reconnected and kicked the next fetch. The 1:N model allows all connections from the same device to coexist without displacing each other, while the distinct-client limit is still enforced across different devices.
+
+#### Session Events Listener Thread Cancellation
+
+**Decision: An `Arc<AtomicBool>` cancel flag on `GatewayState` (`session_events_cancel`) threads cancellation signals to the desktop's background session events listener.**
+
+The desktop's background session events listener thread (`ensure_session_events_listener` in `crates/desktop/src/app/state/chat.rs`) had no cancellation mechanism. Once spawned, it looped forever — reconnecting to the gateway WebSocket every 2–10 seconds regardless of whether the user had disconnected the profile, stopped the local gateway, or switched profiles. This was a pre-existing bug (harmless before Phase 2 because a ghost listener to a dead port was just noise), but the connection limit made it **visible and harmful**: a disconnected desktop's ghost listener thread kept reconnecting, authenticating, and registering with the `ConnectionTracker`, participating in the kick-oldest churn alongside the remaining live instances.
+
+The fix adds a cancel flag stored in `GatewayState`. The flag is created when the listener starts, cloned into the thread, and checked at the top of each retry-loop iteration. All teardown paths set the flag before clearing the receiver:
+
+- `disconnect_remote_profile` (via `clear_session_and_messages`)
+- Local gateway stop (via `clear_session_and_messages`)
+- Profile switch (cancel old profile's listener before starting new)
+
+`ensure_session_events_listener` itself also calls `stop_session_events_listener()` when `running` is false, making it the single chokepoint for the `!running` path.
 
 ### `gateway.lock` and Remote Gateway Detection
 
@@ -298,8 +326,8 @@ The desktop config screen currently shows `config.json` contents (bind, port, pr
 - [x] **Device identity for remote profiles** — When connecting to a remote profile, the desktop loads/creates `device.json` and `device_token` under `~/.chai/profiles/<remote-id>/` (the directory already exists from startup creation). The `token` from the remote entry is used for the pairing protocol instead of `config.json` `gateway.auth.token`.
 - [x] **WebSocket URL from remote entry** — When the selected profile is remote, the desktop uses the `url` from the remote entry for the WebSocket connection and TCP probe instead of deriving from `config.json` `gateway.bind:port`. The full URL (including path) is passed to the WebSocket client library.
 - [x] **`wss://` support in desktop** — The desktop client can establish TLS WebSocket connections when a remote entry's `url` specifies `wss://`. Local profiles always use `ws://` (derived from `bind:port`).
-- [ ] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. An `allowedOrigins` field in the `gateway` config block lists permitted origins. Default is empty (reject all browser origins on non-loopback). The desktop app does not send an `Origin` header and is unaffected. Operators can add specific origins to allow browser-based tools.
-- [ ] **Connection limit** — The gateway enforces `gateway.maxConnections` (integer) for authenticated WebSocket connections. Default: `1` for non-loopback bindings, unlimited for loopback. When a new authenticated connection would exceed the limit, the longest-running existing connection is disconnected (kick-oldest). The gateway sends a descriptive close frame when disconnecting. The desktop handles unexpected disconnections with its existing reconnect logic.
+- [x] **WebSocket origin validation** — The gateway validates the `Origin` header on WebSocket upgrades for non-loopback connections. An `allowedOrigins` field in the `gateway` config block lists permitted origins. Default is empty (reject all browser origins on non-loopback). The desktop app does not send an `Origin` header and is unaffected. Operators can add specific origins to allow browser-based tools.
+- [x] **Connection limit** — The gateway enforces `gateway.maxConnections` (integer) for authenticated WebSocket connections, tracked by client identity (device ID). Default: `1` for non-loopback bindings, unlimited for loopback. When a new client authenticates and the distinct-client limit is exceeded, all connections of the longest-running existing client are disconnected (kick-oldest). The gateway sends a descriptive close frame (code 1013) when disconnecting. The desktop handles unexpected disconnections with its existing reconnect logic.
 - [ ] **Config screen hidden for remote profiles** — When the selected profile is remote, the Config screen does not appear in the sidebar. The Gateway screen (showing `status` from the remote gateway) is the sole source of configuration visibility.
 - [x] **TCP probe uses remote URL** — When the selected profile is remote, the desktop probes the remote gateway host:port (extracted from the `url`) for liveness instead of `bind:port`.
 - [x] **Profile detection skips `gateway.lock` for remote** — When the selected profile is remote, the desktop does not check for `gateway.lock` and relies on the TCP probe. The remote gateway's profile name (from `status`) may differ from the local `id`; this is not surfaced as a mismatch warning.
@@ -309,7 +337,7 @@ The desktop config screen currently shows `config.json` contents (bind, port, pr
 - [x] **Backward compatibility** — When `desktop.json` is absent or has no `remote` block, all existing behavior is unchanged. The desktop continues to derive the WebSocket URL from `bind:port`, show Start/Stop controls, and operate in spawn-or-attach mode. The gateway with default `maxConnections` (unlimited for loopback, `1` for non-loopback) does not change behavior for existing loopback deployments.
 - [x] **No new required dependencies for gateway** — TLS support is client-side only (desktop crate). The gateway does not gain TLS dependencies.
 - [x] **Config validation** — Remote entry `url` must start with `ws://` or `wss://`. `id` must be non-empty and must not collide with existing local profile directory names (enforced at load time). Invalid entries are rejected.
-- [ ] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation, connection limit, and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
+- [x] **Security documentation updated** — `SECURITY.md` updated to reflect origin validation, connection limit, and `wss://` client support, moving those items from "Out of Scope" to implemented or partially implemented.
 
 ## Phase 1 Implementation Notes
 
@@ -351,6 +379,57 @@ The desktop crate uses `tokio-tungstenite` with the `rustls-tls-webpki-roots` fe
 
 The remote gateway TCP probe uses `ToSocketAddrs::to_socket_addrs()` for DNS resolution so hostnames like `localhost` work alongside numeric IP addresses. The probe extracts host and port from the remote URL (defaulting to port 80 for `ws://` and 443 for `wss://` when no port is specified).
 
+## Phase 2 Implementation Notes
+
+Phase 2 is implemented. Key implementation details:
+
+### Config Schema
+
+The `GatewayConfig` struct in `crates/lib/src/config.rs` gains two fields:
+
+```rust
+pub struct GatewayConfig {
+    pub port: u16,
+    pub bind: String,
+    pub auth: GatewayAuthConfig,
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
+    #[serde(default)]
+    pub max_connections: Option<usize>,
+}
+```
+
+- `allowed_origins` defaults to an empty `Vec` (reject all browser origins on non-loopback).
+- `max_connections` is `Option<usize>`: `None` = use bind-based default (unlimited for loopback, 1 for non-loopback); `Some(0)` = explicit opt-out (unlimited); `Some(n)` = cap at n.
+- `effective_max_connections(bind, config)` resolves the effective limit at runtime.
+
+### ConnectionTracker
+
+The `ConnectionTracker` in `crates/lib/src/gateway/server.rs` is an `Arc`-wrapped struct with internal `Mutex` that tracks authenticated connections keyed by **client identity** (device ID). Each client identity maps to a `Vec` of connection entries, each holding a `oneshot::Sender<()>` kick signal. The tracker:
+
+- `register(client_key, conn_id)`: called after successful auth. If the client already exists, the connection is added to its list (no kick, no limit check). If the client is new and the distinct-client limit is exceeded, all connections of the oldest client are kicked (oneshot signals sent). The new client is then registered.
+- `unregister(conn_id)`: called when a socket disconnects. Removes the specific connection from its client's list; if the list becomes empty, the client slot is freed.
+
+The kick signal is received in `handle_socket`'s `select!` loop, which sends a WebSocket close frame (code 1013, reason "connection limit reached: displaced by newer connection") and breaks.
+
+### Origin Validation
+
+The `ws_handler` in `crates/lib/src/gateway/server.rs` extracts `HeaderMap` from the request. On non-loopback bindings, if an `Origin` header is present, it is checked against `allowed_origins`. Non-matching origins receive HTTP 403 ("origin not allowed"). Absent `Origin` header (non-browser client like the desktop app) is allowed. Loopback bindings skip origin validation entirely.
+
+### Session Events Listener Cancellation
+
+The desktop's `GatewayState` gains a `session_events_cancel: Option<Arc<AtomicBool>>` field. The `stop_session_events_listener()` helper on `ChaiApp` sets the flag and drops the receiver. This is called from:
+
+- `clear_session_and_messages` (used by both `disconnect_remote_profile` and local gateway stop)
+- Profile-switch teardown path
+- `ensure_session_events_listener` when `running` is false
+
+The listener thread checks the flag at the top of each retry-loop iteration and exits cleanly with a log message ("session events listener cancelled, exiting").
+
+### Status Payload
+
+The gateway `status` WebSocket response now includes `gateway.maxConnections` — the effective limit (`null` for unlimited, integer for a cap). This is documented in [GATEWAY_STATUS.md](../spec/GATEWAY_STATUS.md).
+
 ## Phases
 
 ### Phase 1: Remote Profile Configuration and Connection
@@ -369,7 +448,7 @@ Core split deployment support on the client side. After this phase, a desktop ca
 | TCP probe uses remote URL | Probe remote host:port extracted from `url` instead of `bind:port` |
 | Profile detection skips `gateway.lock` for remote | No lock file check; rely on TCP probe |
 
-**Test checkpoint:** A desktop on machine A can connect to a gateway on machine B using a `desktop.json` remote entry with a `ws://` URL. The desktop shows Connect/Disconnect, never spawns a local gateway, and device identity is stored under the remote profile directory. A `wss://` URL connects through a TLS-terminating reverse proxy. Full path URLs (e.g., `wss://example.com/chai/ws`) work through a reverse proxy with path stripping.
+**Status:** Implemented.
 
 ### Phase 2: Gateway Security Hardening
 
@@ -378,10 +457,10 @@ Server-side security measures for non-loopback deployments. After this phase, sp
 | Deliverable | Detail |
 |-------------|--------|
 | WebSocket origin validation | `gateway.allowedOrigins` field in `config.json`; default empty (reject all browser origins on non-loopback); desktop unaffected (no `Origin` header) |
-| Connection limit | `gateway.maxConnections` field in `config.json`; default `1` for non-loopback, unlimited for loopback; kick-oldest when limit exceeded; descriptive close frame |
-| Gateway rejects non-loopback without connection limit | If `maxConnections` is not explicitly set on a non-loopback binding, it defaults to `1` (same as the loopback default of unlimited, but explicitly documented) |
+| Connection limit | `gateway.maxConnections` field in `config.json`; default `1` for non-loopback, unlimited for loopback; identity-based tracking (1:N multi-connection-per-client); kick-oldest when distinct-client limit exceeded; descriptive close frame (code 1013) |
+| Session events listener cancellation | `Arc<AtomicBool>` cancel flag on desktop `GatewayState`; listener thread exits cleanly on disconnect, gateway stop, or profile switch instead of reconnecting indefinitely |
 
-**Test checkpoint:** A non-loopback gateway with default configuration allows exactly one WebSocket client at a time. A second connection authenticates and the first is disconnected. An `Origin` header on a non-loopback upgrade is rejected when `allowedOrigins` is empty (default). Adding an origin to `allowedOrigins` allows that origin through. Loopback behavior is unchanged.
+**Status:** Implemented and manually tested. Unit tests: 10 config tests, 10 `ConnectionTracker` tests. Manual tests verified origin validation (reject/allow), connection limit (kick-oldest across distinct clients, no intra-client churn), `maxConnections: 0` (unlimited), `maxConnections: 3` (allows 3 distinct clients), status payload includes `maxConnections`, and session events listener cancellation (disconnect, local gateway stop).
 
 ### Phase 3: Documentation and User Experience
 

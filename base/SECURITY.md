@@ -23,6 +23,31 @@ The gateway exposes a WebSocket interface for the desktop app and other clients.
 
 **Loopback enforcement** — The gateway refuses to start when binding to a non-loopback address without token auth. This prevents accidental exposure on network interfaces.
 
+## Gateway Connection Security
+
+On non-loopback bindings, the gateway applies two defense-in-depth measures beyond token authentication:
+
+### WebSocket Origin Validation
+
+When bound to a non-loopback address, the gateway validates the `Origin` header on WebSocket upgrade requests against `gateway.allowedOrigins` in `config.json`. This prevents cross-site WebSocket hijacking (CSWSH) — a browser-based attack where a malicious page opens a WebSocket to the gateway using the victim's credentials.
+
+- **Default: reject all browser origins.** `allowedOrigins` defaults to an empty array. Any request with an `Origin` header is rejected with HTTP 403.
+- **Desktop app unaffected.** The desktop app does not send an `Origin` header, so it is always allowed. Origin validation targets browser clients only.
+- **Operator opt-in.** Operators who need browser-based tools add specific origins (e.g. `["https://app.example.com"]`) to `allowedOrigins`.
+- **Loopback exempt.** On loopback, origin validation is skipped (same-origin policy applies).
+- **Defense-in-depth.** Token auth is the primary security boundary; origin validation adds protection against CSWSH even if a token is compromised via a browser-side attack.
+
+### Connection Limiting
+
+When bound to a non-loopback address, the gateway limits the number of simultaneously authenticated WebSocket connections via `gateway.maxConnections` in `config.json`.
+
+- **Default: 1 on non-loopback** (secure-by-default single-client). Unlimited on loopback.
+- **`maxConnections: 0`** is an explicit opt-out (unlimited).
+- **Kick-oldest policy.** When a new connection authenticates and the limit is exceeded, the gateway disconnects the longest-running existing connection (sent a WebSocket close frame with code 1013 and reason "connection limit reached: displaced by newer connection"). The most recent authenticator always wins.
+- **DoS resistance.** Kick-oldest (not reject-new) prevents a stolen-token attacker from holding a connection and blocking the legitimate user from reconnecting.
+- **Desktop reconnect.** The desktop app handles unexpected disconnections with its existing reconnect logic.
+- **Independent of `gateway.lock`.** The process guard (`gateway.lock`) and the connection guard (`maxConnections`) operate at different layers and are independent.
+
 ## Device Pairing
 
 Clients authenticate to the gateway using an Ed25519 challenge-response protocol:
@@ -224,9 +249,8 @@ The following are explicitly outside Chai's current security model:
 
 - **OS-level sandboxing** (containers, seccomp, landlock) — Userspace path validation is sufficient for the current threat model. Kernel-level enforcement is a possible future direction.
 - **Resource exhaustion** — The agent can write arbitrarily large files within the sandbox, create arbitrarily many files, and consume unbounded tool output (subject to `maxOutputLines` and `maxToolLoopsPerTurn`). There are no disk quotas or memory limits enforced by the executor.
-- **Rate limiting** — The gateway does not limit concurrent WebSocket connections, message rates, or agent turn frequency. An authenticated client can trigger unlimited LLM API calls, creating a cost DoS vector against paid providers.
+- **Rate limiting** — The gateway limits concurrent WebSocket connections (see [Gateway Connection Security](#gateway-connection-security)) but does not limit message rates or agent turn frequency. An authenticated client can trigger unlimited LLM API calls, creating a cost DoS vector against paid providers.
 - **TLS termination** — The gateway binds plain HTTP/WebSocket. TLS is the operator's responsibility (e.g., reverse proxy). Binding to non-loopback without TLS exposes the auth token and all data in cleartext.
-- **WebSocket origin validation** — The gateway does not check the `Origin` header on WebSocket upgrades. On loopback this is mitigated by same-origin policy; on non-loopback deployments, cross-site WebSocket hijacking is possible without additional network controls.
 - **Encryption at rest** — Session files are persisted to disk as plain JSON (see [spec/SESSIONS.md](spec/SESSIONS.md)), making conversation history readable to any process with filesystem access. Configuration files, device keys, and pairing tokens are also stored on disk without encryption. See "Secrets Stored in Plaintext" above and "Encryption at rest for session data" in Future Directions.
 - **`CHAI_BIN` environment variable** — The `CHAI_BIN` env var overrides the `chai` binary path used by the executor. This is set by the user (or the launch environment), not the agent. If the gateway is launched with `CHAI_BIN` pointing to a compromised binary, all `chai` tool calls are subverted. This is a host-side concern, not an agent-facing vulnerability.
 - **Session isolation across channels** — Sessions are implicitly isolated by `(channel_id, conversation_id)` keys, but WebSocket clients with valid authentication can interact with any session regardless of channel. There is no per-client or per-channel session access control.
@@ -235,7 +259,7 @@ The following are explicitly outside Chai's current security model:
 
 These are potential security enhancements that are not yet implemented:
 
-- **Rate limiting and connection throttling** — Limit WebSocket connections, message rates, and agent turn frequency.
+- **Rate limiting** — Limit message rates and agent turn frequency. (Connection limiting is implemented; see [Gateway Connection Security](#gateway-connection-security).)
 - **Enforced device scopes and roles** — Use the existing `role` and `scopes` fields from device pairing for authorization decisions.
 - **Encryption at rest for session data** — Encrypt session files on disk so conversation history is not readable without the gateway's credentials. Session files are currently stored as plain JSON under the profile's `agents/<agentId>/sessions/` directory (see [spec/SESSIONS.md](spec/SESSIONS.md)). Relevant for multi-user or shared-host deployments.
 

@@ -56,6 +56,19 @@ pub struct GatewayConfig {
     /// Auth settings. When absent, defaults to no auth for loopback bind.
     #[serde(default)]
     pub auth: GatewayAuthConfig,
+
+    /// Allowed browser origins for WebSocket upgrades on non-loopback.
+    /// Default empty (reject all browser origins). The desktop app sends no
+    /// `Origin` header and is unaffected. Operators who need browser-based
+    /// tools can explicitly add origins here.
+    #[serde(default)]
+    pub allowed_origins: Vec<String>,
+
+    /// Maximum simultaneously authenticated WebSocket connections.
+    /// `None` = use bind-based default (unlimited for loopback, 1 for non-loopback).
+    /// `Some(0)` = unlimited (explicit opt-out). `Some(n)` = cap at n.
+    #[serde(default)]
+    pub max_connections: Option<usize>,
 }
 
 /// Sandbox enforcement settings.
@@ -139,7 +152,24 @@ impl Default for GatewayConfig {
             port: default_gateway_port(),
             bind: default_gateway_bind(),
             auth: GatewayAuthConfig::default(),
+            allowed_origins: Vec::new(),
+            max_connections: None,
         }
+    }
+}
+
+/// Returns the effective max connections. `None` means unlimited.
+///
+/// - Non-loopback defaults to 1 (secure-by-default single-client).
+/// - Loopback defaults to unlimited.
+/// - `Some(0)` is treated as unlimited (explicit opt-out).
+/// - `Some(n)` caps at n.
+pub fn effective_max_connections(bind: &str, config: &GatewayConfig) -> Option<usize> {
+    match config.max_connections {
+        Some(0) => None, // explicit opt-out: unlimited
+        None if !is_loopback_bind(bind) => Some(1),
+        None => None, // loopback default: unlimited
+        Some(n) => Some(n),
     }
 }
 
@@ -2285,5 +2315,83 @@ mod tests {
         // Empty array should deserialize as Some(vec![])
         let remote = dc.remote.as_ref().expect("remote should be present");
         assert!(remote.is_empty());
+    }
+
+    // ── Gateway security fields (allowedOrigins, maxConnections) ──
+
+    #[test]
+    fn gateway_default_allowed_origins_empty() {
+        let g = GatewayConfig::default();
+        assert!(g.allowed_origins.is_empty());
+    }
+
+    #[test]
+    fn gateway_default_max_connections_none() {
+        let g = GatewayConfig::default();
+        assert_eq!(g.max_connections, None);
+    }
+
+    #[test]
+    fn gateway_allowed_origins_from_json() {
+        let j = r#"{"gateway":{"allowedOrigins":["https://example.com","https://app.example.com"]}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.gateway.allowed_origins, vec![
+            "https://example.com".to_string(),
+            "https://app.example.com".to_string(),
+        ]);
+    }
+
+    #[test]
+    fn gateway_max_connections_from_json() {
+        let j = r#"{"gateway":{"maxConnections":3}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.gateway.max_connections, Some(3));
+    }
+
+    #[test]
+    fn gateway_max_connections_zero_from_json() {
+        let j = r#"{"gateway":{"maxConnections":0}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert_eq!(c.gateway.max_connections, Some(0));
+    }
+
+    #[test]
+    fn gateway_omit_security_fields_defaults() {
+        let j = r#"{"gateway":{"port":8080}}"#;
+        let c: Config = serde_json::from_str(j).expect("parse");
+        assert!(c.gateway.allowed_origins.is_empty());
+        assert_eq!(c.gateway.max_connections, None);
+    }
+
+    #[test]
+    fn effective_max_connections_loopback_default_unlimited() {
+        let g = GatewayConfig::default();
+        assert_eq!(effective_max_connections("127.0.0.1", &g), None);
+    }
+
+    #[test]
+    fn effective_max_connections_non_loopback_default_one() {
+        let g = GatewayConfig::default();
+        assert_eq!(effective_max_connections("0.0.0.0", &g), Some(1));
+    }
+
+    #[test]
+    fn effective_max_connections_explicit_n() {
+        let g = GatewayConfig {
+            max_connections: Some(5),
+            ..Default::default()
+        };
+        assert_eq!(effective_max_connections("0.0.0.0", &g), Some(5));
+        assert_eq!(effective_max_connections("127.0.0.1", &g), Some(5));
+    }
+
+    #[test]
+    fn effective_max_connections_zero_is_unlimited() {
+        let g = GatewayConfig {
+            max_connections: Some(0),
+            ..Default::default()
+        };
+        assert_eq!(effective_max_connections("0.0.0.0", &g), None);
+        assert_eq!(effective_max_connections("127.0.0.1", &g), None);
     }
 }

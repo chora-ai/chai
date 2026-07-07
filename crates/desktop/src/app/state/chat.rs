@@ -1,4 +1,5 @@
-use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 use eframe::egui;
@@ -436,7 +437,7 @@ impl ChaiApp {
     /// Ensure the background session.events listener is running when the gateway is up.
     pub(crate) fn ensure_session_events_listener(&mut self, running: bool, ctx: egui::Context) {
         if !running {
-            self.gw().session_events_receiver = None;
+            self.stop_session_events_listener();
             return;
         }
         // Only start listener if gateway is actually responding (not just starting)
@@ -445,12 +446,25 @@ impl ChaiApp {
             let (tx, rx) = mpsc::channel();
             let tx_clone = tx.clone();
             let profile_override = Some(self.profile_active.clone());
+            // Create a cancel flag so the listener thread can be stopped when
+            // the gateway disconnects or the user switches profiles. The flag
+            // is stored in GatewayState so teardown paths can signal it; a
+            // clone is moved into the thread for checking before each
+            // reconnection attempt.
+            let cancel = Arc::new(AtomicBool::new(false));
+            let cancel_clone = cancel.clone();
             std::thread::spawn(move || {
                 // Wait a bit for gateway to be fully ready
                 std::thread::sleep(Duration::from_secs(1));
-                // Retry loop: if connection fails, wait a bit and retry
+                // Retry loop: if connection fails, wait a bit and retry.
+                // Check the cancel flag before each attempt so the thread
+                // exits cleanly when the gateway is disconnected.
                 let mut retry_count = 0;
                 loop {
+                    if cancel_clone.load(Ordering::SeqCst) {
+                        log::info!("session events listener cancelled, exiting");
+                        return;
+                    }
                     match run_session_events_loop(tx_clone.clone(), ctx.clone(), profile_override.as_deref()) {
                         Err(e) => {
                             retry_count += 1;
@@ -470,7 +484,9 @@ impl ChaiApp {
                     }
                 }
             });
-            self.gw().session_events_receiver = Some(rx);
+            let gw = self.gw();
+            gw.session_events_cancel = Some(cancel);
+            gw.session_events_receiver = Some(rx);
         }
     }
 }

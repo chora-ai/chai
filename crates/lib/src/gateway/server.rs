@@ -45,7 +45,7 @@ use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
     extract::{
-        ws::{Message, WebSocket, WebSocketUpgrade},
+        ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade},
         Query, State,
     },
     http::{HeaderMap, StatusCode},
@@ -60,7 +60,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::sync::broadcast;
 use tokio::sync::mpsc;
-use tokio::sync::RwLock;
+use tokio::sync::{oneshot, Mutex, RwLock};
 use tokio::task::JoinHandle;
 
 const PROTOCOL_VERSION: u32 = 1;
@@ -147,6 +147,114 @@ fn require_connect_token(config: &Config) -> Option<String> {
     }
 }
 
+/// Entry for a single WebSocket connection within the connection tracker.
+/// The `oneshot::Sender` is used to signal the connection's `handle_socket`
+/// task to shut down when the connection is displaced (kicked) because the
+/// per-client connection limit is exceeded by a different client.
+struct ConnectionEntry {
+    conn_id: String,
+    kick_tx: oneshot::Sender<()>,
+}
+
+/// Tracks authenticated WebSocket connections for `maxConnections` enforcement.
+///
+/// Connections are tracked by **client identity** (device ID), not by individual
+/// WebSocket connection. This is critical because the desktop opens multiple
+/// concurrent WebSocket connections (session events listener, status fetch, agent
+/// turns, etc.) per logical client. A single desktop with `maxConnections: 1`
+/// must be able to hold all its concurrent connections simultaneously without
+/// displacing itself.
+///
+/// Each client identity maps to a list of active connections. The connection
+/// limit applies to the number of **distinct clients**, not the number of
+/// individual WebSocket connections.
+///
+/// When a new connection authenticates:
+/// - If the client already has entries, the new connection is added to that
+///   client's list — no limit check is needed since the client slot already
+///   exists.
+/// - If the client is new and the limit would be exceeded, the oldest entry
+///   belonging to a *different* client is kicked (kick-oldest) before the new
+///   client's entry is added.
+///
+/// The outer `Vec` tracks clients in insertion order (oldest first) for
+/// kick-oldest. Each client's connections are stored in a `Vec` in insertion
+/// order. The tracker is wrapped in `Arc<Mutex>` for shared access across
+/// socket tasks.
+pub struct ConnectionTracker {
+    /// (client_key, connections) pairs in client insertion order (oldest first).
+    entries: Mutex<Vec<(String, Vec<ConnectionEntry>)>>,
+    max: Option<usize>,
+}
+
+impl ConnectionTracker {
+    pub fn new(max: Option<usize>) -> Self {
+        Self {
+            entries: Mutex::new(Vec::new()),
+            max,
+        }
+    }
+
+    /// Register a newly authenticated connection. Returns a `oneshot::Receiver`
+    /// that, when signaled, tells the connection's `handle_socket` task to shut
+    /// down.
+    ///
+    /// If `client_key` matches an existing client, the new connection is added
+    /// to that client's connection list — no limit check is needed since the
+    /// client slot already exists. This allows the desktop's multiple concurrent
+    /// WebSocket connections (events listener, status fetch, agent turns, etc.)
+    /// to coexist without displacing each other.
+    ///
+    /// If `client_key` is new and the number of distinct clients would exceed the
+    /// limit, the oldest entry belonging to a different client is kicked
+    /// (kick-oldest) before the new entry is added.
+    ///
+    /// Returns `None` when there is no connection limit (unlimited).
+    pub async fn register(
+        &self,
+        client_key: String,
+        conn_id: String,
+    ) -> Option<oneshot::Receiver<()>> {
+        let max = self.max?;
+        let (kick_tx, kick_rx) = oneshot::channel();
+        let mut entries = self.entries.lock().await;
+
+        // Same client: add this connection to the client's existing list.
+        // No limit check — the client slot already exists.
+        if let Some((_, conns)) = entries.iter_mut().find(|(k, _)| *k == client_key) {
+            conns.push(ConnectionEntry { conn_id, kick_tx });
+            return Some(kick_rx);
+        }
+
+        // New client: if at limit, kick all connections of the oldest client.
+        while entries.len() >= max {
+            let (_, old_conns) = entries.remove(0);
+            for old_entry in old_conns {
+                let _ = old_entry.kick_tx.send(());
+            }
+        }
+        entries.push((
+            client_key,
+            vec![ConnectionEntry { conn_id, kick_tx }],
+        ));
+        Some(kick_rx)
+    }
+
+    /// Unregister a single connection (called when a socket disconnects normally
+    /// or after being kicked). Removes the connection from its client's list.
+    /// If the client's list becomes empty, the client slot is removed entirely,
+    /// freeing space for a new client.
+    pub async fn unregister(&self, conn_id: &str) {
+        let mut entries = self.entries.lock().await;
+        // Remove the specific connection from its client's list.
+        for (_, conns) in entries.iter_mut() {
+            conns.retain(|entry| entry.conn_id != conn_id);
+        }
+        // Remove client slots that have no remaining connections.
+        entries.retain(|(_, conns)| !conns.is_empty());
+    }
+}
+
 /// Shared state for the gateway (config, sessions, channels, agent).
 #[derive(Clone)]
 pub struct GatewayState {
@@ -189,6 +297,8 @@ pub struct GatewayState {
     /// Per-session stop flags. When set, the agent loop breaks after the current iteration.
     /// The flag is cleared at the start of each new turn.
     pub session_stop_flags: Arc<RwLock<HashMap<String, Arc<AtomicBool>>>>,
+    /// Tracks authenticated WebSocket connections for maxConnections enforcement.
+    pub connection_tracker: Arc<ConnectionTracker>,
 }
 
 /// Per-provider runtime state: discovered model name list.
@@ -1101,6 +1211,9 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         skills_locked_count,
         sandbox_roots_count,
         session_stop_flags: Arc::new(RwLock::new(HashMap::new())),
+        connection_tracker: Arc::new(ConnectionTracker::new(
+            config::effective_max_connections(&config.gateway.bind, &config.gateway),
+        )),
     };
 
     // Scan persisted sessions on startup (populates disk index for lazy loading).
@@ -1412,6 +1525,10 @@ pub async fn run_gateway(config: Config, paths: ChaiPaths) -> Result<()> {
         .await
         .with_context(|| format!("binding to {}", bind_addr))?;
     log::info!("gateway listening on {}", bind_addr);
+    match config::effective_max_connections(&config.gateway.bind, &config.gateway) {
+        Some(n) => log::info!("connection limit: {} max authenticated connection(s)", n),
+        None => log::info!("connection limit: unlimited"),
+    }
 
     let serve_result = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal(
@@ -1573,7 +1690,36 @@ fn merge_channel_runtime_detail(
 }
 
 /// GET /ws upgrades to WebSocket. First frame must be connect; we reply with hello-ok.
-async fn ws_handler(State(state): State<GatewayState>, ws: WebSocketUpgrade) -> Response {
+///
+/// On non-loopback bindings, the `Origin` header is validated against
+/// `gateway.allowedOrigins`. Browser clients send an `Origin` header;
+/// the desktop app does not, so it is unaffected. When `allowedOrigins` is
+/// empty (the default), all browser-origin requests are rejected on non-loopback.
+async fn ws_handler(
+    State(state): State<GatewayState>,
+    ws: WebSocketUpgrade,
+    headers: HeaderMap,
+) -> Response {
+    // Origin validation for non-loopback.
+    if !config::is_loopback_bind(&state.config.gateway.bind) {
+        if let Some(origin) = headers.get("origin") {
+            let origin_str = origin.to_str().unwrap_or("");
+            if !state
+                .config
+                .gateway
+                .allowed_origins
+                .iter()
+                .any(|o| o == origin_str)
+            {
+                log::warn!("rejecting WebSocket upgrade: origin not allowed: {}", origin_str);
+                return Response::builder()
+                    .status(StatusCode::FORBIDDEN)
+                    .body("origin not allowed".into())
+                    .unwrap();
+            }
+        }
+        // No Origin header = non-browser client (desktop app) = allowed.
+    }
     ws.on_upgrade(move |socket| handle_socket(socket, state))
 }
 
@@ -1581,6 +1727,9 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
     let mut sent_hello = false;
     let mut connect_attempted = false;
     let mut event_rx = state.event_tx.subscribe();
+    let conn_id = uuid::Uuid::new_v4().to_string();
+    let mut kick_rx: Option<oneshot::Receiver<()>> = None;
+    let mut registered = false;
 
     let nonce = uuid::Uuid::new_v4().to_string();
     let ts_ms = std::time::SystemTime::now()
@@ -1596,6 +1745,28 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
         tokio::select! {
             biased;
 
+            // Kicked by connection tracker (displaced by a newer connection).
+            // When kick_rx is None (pre-auth), this future is pending and never fires.
+            _ = async {
+                if let Some(rx) = kick_rx.as_mut() {
+                    rx.await
+                } else {
+                    std::future::pending::<
+                        Result<(), oneshot::error::RecvError>,
+                    >()
+                    .await
+                }
+            } => {
+                log::info!("connection {} kicked: displaced by newer connection", conn_id);
+                let _ = socket
+                    .send(Message::Close(Some(CloseFrame {
+                        code: 1013,
+                        reason: "connection limit reached: displaced by newer connection"
+                            .into(),
+                    })))
+                    .await;
+                break;
+            }
             event = event_rx.recv() => {
                 match event {
                     Ok(text) => {
@@ -1631,13 +1802,18 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         continue;
                     }
                 };
+                // Capture the device ID for connection-tracker client identity.
+                let mut client_device_id: Option<String> = None;
                 let auth_for_hello: Option<HelloAuth> = if let Some(ref token) = params.auth.device_token {
                     match state.pairing_store.get_by_token(token).await {
-                        Some(entry) => Some(HelloAuth {
-                            device_token: entry.device_token,
-                            role: entry.role,
-                            scopes: entry.scopes,
-                        }),
+                        Some(entry) => {
+                            client_device_id = Some(entry.device_id.clone());
+                            Some(HelloAuth {
+                                device_token: entry.device_token,
+                                role: entry.role,
+                                scopes: entry.scopes,
+                            })
+                        }
                         None => {
                             let res = WsResponse::err(&req.id, "invalid device token");
                             let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
@@ -1651,6 +1827,7 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                         let _ = socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await;
                         continue;
                     }
+                    client_device_id = Some(device.id.clone());
                     if let Some(entry) = state.pairing_store.get_by_device_id(&device.id).await {
                         Some(HelloAuth {
                             device_token: entry.device_token,
@@ -1720,6 +1897,25 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                 let res = WsResponse::ok(&req.id, serde_json::to_value(&hello).unwrap_or(json!({})));
                 if socket.send(Message::Text(serde_json::to_string(&res).unwrap_or_default().into())).await.is_ok() {
                     sent_hello = true;
+                    // Register with the connection tracker for maxConnections enforcement.
+                    // The client key is the device ID (when available). For token-only auth
+                    // (no device identity), all connections sharing the same gateway token
+                    // are treated as the same client. This identity-based tracking prevents
+                    // the desktop's multiple concurrent WebSocket connections from displacing
+                    // each other.
+                    let client_key = client_device_id.unwrap_or_else(|| {
+                        params
+                            .auth
+                            .token
+                            .as_deref()
+                            .map(|t| format!("token:{}", t.trim()))
+                            .unwrap_or_else(|| "anonymous".to_string())
+                    });
+                    kick_rx = state
+                        .connection_tracker
+                        .register(client_key, conn_id.clone())
+                        .await;
+                    registered = true;
                 }
             }
             "health" => {
@@ -1895,6 +2091,10 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
                     "port": state.config.gateway.port,
                     "bind": state.config.gateway.bind,
                     "auth": auth_mode,
+                    "maxConnections": config::effective_max_connections(
+                        &state.config.gateway.bind,
+                        &state.config.gateway,
+                    ),
                 });
                 let sandbox_block = json!({
                     "mode": state.config.sandbox.mode.as_str(),
@@ -2421,11 +2621,173 @@ async fn handle_socket(mut socket: WebSocket, state: GatewayState) {
         }
     }
 
+    if registered {
+        state.connection_tracker.unregister(&conn_id).await;
+    }
+
     if !sent_hello {
         if connect_attempted {
             log::debug!("ws client connect rejected, client disconnected");
         } else {
             log::debug!("ws client disconnected before sending connect");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn register_same_client_multiple_connections_no_kick() {
+        // A single client should be able to hold multiple concurrent connections
+        // without any of them being kicked. This is the core fix: the desktop
+        // opens many WebSocket connections (events listener, status fetch, agent
+        // turns, etc.) that must coexist.
+        let tracker = ConnectionTracker::new(Some(1));
+
+        let mut rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let mut rx2 = tracker.register("device-A".into(), "conn-2".into()).await.unwrap();
+        let mut rx3 = tracker.register("device-A".into(), "conn-3".into()).await.unwrap();
+
+        // None of the kick signals should have fired.
+        assert!(rx1.try_recv().is_err());
+        assert!(rx2.try_recv().is_err());
+        assert!(rx3.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn register_new_client_displaces_oldest_when_limit_exceeded() {
+        // With maxConnections=1, a second distinct client should kick the first
+        // client's connection(s).
+        let tracker = ConnectionTracker::new(Some(1));
+
+        let mut rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let mut rx2 = tracker.register("device-B".into(), "conn-2".into()).await.unwrap();
+
+        // The first client's connection should have been kicked.
+        assert!(rx1.try_recv().is_ok());
+        // The second client's connection should not be kicked.
+        assert!(rx2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn register_new_client_kicks_all_oldest_client_connections() {
+        // When the oldest client has multiple connections and a new client
+        // displaces it, all of the oldest client's connections should be kicked.
+        let tracker = ConnectionTracker::new(Some(1));
+
+        let mut rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let mut rx2 = tracker.register("device-A".into(), "conn-2".into()).await.unwrap();
+        let mut rx3 = tracker.register("device-A".into(), "conn-3".into()).await.unwrap();
+        let mut rx4 = tracker.register("device-B".into(), "conn-4".into()).await.unwrap();
+
+        // All of device-A's connections should be kicked.
+        assert!(rx1.try_recv().is_ok());
+        assert!(rx2.try_recv().is_ok());
+        assert!(rx3.try_recv().is_ok());
+        // device-B's connection is safe.
+        assert!(rx4.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn register_within_limit_no_kick() {
+        // With maxConnections=3, three distinct clients should all coexist.
+        let tracker = ConnectionTracker::new(Some(3));
+
+        let mut rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let mut rx2 = tracker.register("device-B".into(), "conn-2".into()).await.unwrap();
+        let mut rx3 = tracker.register("device-C".into(), "conn-3".into()).await.unwrap();
+
+        assert!(rx1.try_recv().is_err());
+        assert!(rx2.try_recv().is_err());
+        assert!(rx3.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn register_fourth_client_kicks_oldest() {
+        // With maxConnections=3, a 4th distinct client should kick the oldest
+        // client (device-A), not device-B or device-C.
+        let tracker = ConnectionTracker::new(Some(3));
+
+        let mut rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let mut rx2 = tracker.register("device-B".into(), "conn-2".into()).await.unwrap();
+        let mut rx3 = tracker.register("device-C".into(), "conn-3".into()).await.unwrap();
+        let mut rx4 = tracker.register("device-D".into(), "conn-4".into()).await.unwrap();
+
+        // device-A (oldest) is kicked.
+        assert!(rx1.try_recv().is_ok());
+        // device-B, device-C, device-D are safe.
+        assert!(rx2.try_recv().is_err());
+        assert!(rx3.try_recv().is_err());
+        assert!(rx4.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn unregister_removes_connection_and_frees_client_slot() {
+        // When a client's last connection unregisters, the client slot should
+        // be removed, freeing space for a new client.
+        let tracker = ConnectionTracker::new(Some(1));
+
+        let _rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        // Unregister conn-1; device-A's slot is freed.
+        tracker.unregister("conn-1").await;
+
+        // Now device-B can connect without kicking anyone.
+        let mut rx2 = tracker.register("device-B".into(), "conn-2".into()).await.unwrap();
+        assert!(rx2.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn unregister_one_of_many_keeps_client_slot() {
+        // When a client has multiple connections and one unregisters, the
+        // client slot should remain (other connections still active).
+        let tracker = ConnectionTracker::new(Some(1));
+
+        let _rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let _rx2 = tracker.register("device-A".into(), "conn-2".into()).await.unwrap();
+        // Unregister one of device-A's connections.
+        tracker.unregister("conn-1").await;
+
+        // A new client should still displace device-A because device-A still has
+        // an active connection (conn-2).
+        let mut rx3 = tracker.register("device-B".into(), "conn-3".into()).await.unwrap();
+        // device-B should not be kicked.
+        assert!(rx3.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn register_unlimited_no_kick() {
+        // With no limit (None), any number of distinct clients can connect.
+        let tracker = ConnectionTracker::new(None);
+
+        // register returns None (no kick receiver needed for unlimited).
+        assert!(tracker.register("device-A".into(), "conn-1".into()).await.is_none());
+        assert!(tracker.register("device-B".into(), "conn-2".into()).await.is_none());
+        assert!(tracker.register("device-C".into(), "conn-3".into()).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn register_reconnect_after_unregister_no_kick() {
+        // After a client disconnects and its slot is freed, the same client
+        // reconnecting should be treated as a new client (no kick), and should
+        // not displace itself.
+        let tracker = ConnectionTracker::new(Some(2));
+
+        let _rx1 = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        let _rx2 = tracker.register("device-B".into(), "conn-2".into()).await.unwrap();
+        tracker.unregister("conn-1").await;
+
+        // device-A reconnects — should be a new entry, not displacing device-B.
+        let mut rx3 = tracker.register("device-A".into(), "conn-3".into()).await.unwrap();
+        assert!(rx3.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn unregister_nonexistent_conn_is_noop() {
+        // Unregistering a conn_id that doesn't exist should not panic.
+        let tracker = ConnectionTracker::new(Some(1));
+        let _rx = tracker.register("device-A".into(), "conn-1".into()).await.unwrap();
+        tracker.unregister("nonexistent").await; // should not panic
     }
 }

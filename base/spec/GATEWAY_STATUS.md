@@ -46,6 +46,7 @@ The top-level **`skills`** block holds shared skill store metadata (not per-agen
 | **`protocol`** | Wire protocol version (**`1`**). |
 | **`port`**, **`bind`** | Effective listen address. |
 | **`auth`** | **`"none"`** or **`"token"`**. |
+| **`maxConnections`** | Effective max authenticated WebSocket connections. **`null`** = unlimited; integer = cap. Derived from **`gateway.maxConnections`** config and bind address (loopback defaults to unlimited; non-loopback defaults to 1). |
 
 ### `sandbox`
 
@@ -124,7 +125,7 @@ Returns an error (`"unknown agent id"`) if the requested agent id does not match
 
 | Block | Include | Omit |
 |-------|---------|------|
-| **`gateway`** | Bind, port, auth mode, protocol | Secrets |
+| **`gateway`** | Bind, port, auth mode, protocol, max connections | Secrets |
 | **`channels`** | Active vs configured, transport hints | Tokens, passwords, Matrix access tokens |
 | **`providers`** | Endpoint type, model discovery method, model lists | API keys, URLs that embed credentials |
 | **`sandbox`** | Mode, root count | — |

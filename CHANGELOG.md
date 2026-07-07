@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Remote profile disconnect-before-switch — switching away from a connected remote profile auto-disconnects first.
 - Remote entries shown in Settings dashboard — the "Remote Profiles" section lists each entry's id and URL.
 
+#### Runtime and Configuration
+
+- WebSocket origin validation — `gateway.allowedOrigins` field in `config.json` validates the `Origin` header on WebSocket upgrades for non-loopback bindings; defaults to empty (reject all browser origins); the desktop app is unaffected (no `Origin` header)
+- Connection limit — `gateway.maxConnections` field in `config.json` caps simultaneously authenticated WebSocket connections; defaults to 1 on non-loopback (secure-by-default single-client) and unlimited on loopback; `0` is an explicit opt-out; when the limit is exceeded, the oldest connection is kicked with a descriptive close frame
+- `maxConnections` in gateway status payload — the `status` WebSocket response now includes `gateway.maxConnections` (effective limit, `null` for unlimited)
+
 #### Skills
 
 - `ref` parameter on `git_log` — view commit history for a specific branch, tag, or ref range (e.g., `main`, `HEAD~5..HEAD`); works in both `git` and `git-read` skill variants

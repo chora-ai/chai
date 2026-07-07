@@ -5,6 +5,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::io::BufRead;
 use std::process::{Child, Stdio};
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::SystemTime;
 
 mod screens;
@@ -89,6 +91,11 @@ struct GatewayState {
     logs_cursor: u64,
     /// When Some, a session events stream is in flight for this profile's gateway.
     session_events_receiver: Option<mpsc::Receiver<SessionEvent>>,
+    /// Cancel flag for the session events listener thread. When Some, the
+    /// background thread checks this flag before each reconnection attempt.
+    /// Setting it to true signals the thread to exit cleanly instead of
+    /// reconnecting indefinitely after a disconnect or gateway stop.
+    session_events_cancel: Option<Arc<AtomicBool>>,
     /// Current chat session id for this profile (created on first agent call).
     chat_session_id: Option<String>,
     /// In-memory chat transcript for the current session in this profile.
@@ -169,6 +176,7 @@ impl Default for GatewayState {
             frames_since_logs: 0,
             logs_cursor: 0,
             session_events_receiver: None,
+            session_events_cancel: None,
             chat_session_id: None,
             chat_messages: Vec::new(),
             chat_turn_receiver: None,
@@ -422,6 +430,23 @@ impl ChaiApp {
     /// Whether the active profile's gateway is running (owned or external).
     fn gateway_running(&self) -> bool {
         self.running_profiles.iter().any(|p| *p == self.profile_active)
+    }
+
+    /// Stop the background session events listener thread for the active profile.
+    ///
+    /// Signals the cancel flag so the thread exits instead of reconnecting,
+    /// then drops the receiver. This must be called whenever the gateway is
+    /// disconnected (remote profile disconnect, local gateway stop, or profile
+    /// switch). Without this, the listener thread continues reconnecting to
+    /// the gateway WebSocket indefinitely — a leaked thread that registers
+    /// with the connection tracker and participates in kick churn even after
+    /// the user has disconnected.
+    fn stop_session_events_listener(&mut self) {
+        let gw = self.gw();
+        if let Some(cancel) = gw.session_events_cancel.take() {
+            cancel.store(true, Ordering::SeqCst);
+        }
+        gw.session_events_receiver = None;
     }
 
     /// Whether the active profile's gateway has completed at least one probe.
@@ -932,6 +957,9 @@ impl ChaiApp {
             gw.current_provider = None;
             gw.current_model = None;
             gw.default_model = None;
+            if let Some(cancel) = gw.session_events_cancel.take() {
+                cancel.store(true, Ordering::SeqCst);
+            }
             gw.session_events_receiver = None;
             gw.sessions_list_fetched = false;
             gw.sessions_list_receiver = None;
@@ -1060,6 +1088,9 @@ impl ChaiApp {
         gw.session_summaries.clear();
         gw.session_order.clear();
         gw.selected_session_id = None;
+        if let Some(cancel) = gw.session_events_cancel.take() {
+            cancel.store(true, Ordering::SeqCst);
+        }
         gw.session_events_receiver = None;
         gw.sessions_list_fetched = false;
         gw.sessions_list_receiver = None;
