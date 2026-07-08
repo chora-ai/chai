@@ -1,6 +1,6 @@
 {
   "ls": [""],
-  "grep": ["", "-E", "-E --line-number"],
+  "grep": ["", "-E", "-E --line-number", "-E --line-number --exclude-dir=.git"],
   "chai": [
     "file write",
     "file delete",

@@ -68,7 +68,7 @@
   {
     "tool": "notes_search",
     "binary": "grep",
-    "subcommand": "-E --line-number",
+    "subcommand": "-E --line-number --exclude-dir=.git",
     "args": [
       {
         "param": "recursive",
