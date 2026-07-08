@@ -178,3 +178,8 @@ The proposals do **not** compromise security:
 - Moving shell logic to binary (L2) improves security by replacing untested shell scripts with tested Rust.
 - Tool-level enforcement (L3) adds safety checks that currently rely on agent compliance.
 - Deeper validation (L4) catches security issues that currently require manual audits.
+
+## Additional Notes
+
+- [ ] "The `chai skill write-*` commands copy the current active tree, apply your change, compute the new hash, and repoint `active`" - how to make this easier? "There is no `chai skill hash` command today; use a small script or reproduce the algorithm from `versioning.rs`."
+- [ ] Is there a convention for the ordering of parameters within a tool call? Should there be? For example, should the parameters reflect the order of the arguments and flags so they are more intuitive? Should parameters that are specific to the tool and environment such as "path" and "repo" always appear first or last? Should there be more consistency in the order across all tool calls?
