@@ -60,12 +60,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skills
 
 - `files_read` + `files_read_lines` consolidated into `files_read` with optional `start_line` and `end_line` parameters — the agent uses a single tool for both full-file and line-range reads (applied to `files`, `files-read`, `notes`, `notes-read` skill variants)
-- `files_write` + `files_write_lines` consolidated into `files_write` with two modes: whole-file write (with optional `overwrite` guard) and surgical edit (with `start_line` + `original_content`); routing between modes uses `paramCondition` (applied to `files` and `notes` skill variants)
+- `files_write` and `notes_write` simplified to whole-file create/overwrite only — the consolidated surgical edit mode (intermediate `start_line` + `original_content` parameters) is removed; surgical edits now use the dedicated `files_edit` / `notes_edit` tools below
+- New `files_edit` and `notes_edit` tools — surgical in-place editing with `old_content` / `new_content` parameters and optional `start_line`; when `start_line` is omitted, the tool searches for `old_content` and requires exactly one match
+- `files_replace` and `notes_replace` `dry_run` parameter removed — replaced by automatic safety enforcement via `count` parameter and auto-dry-run threshold
+- `files_replace` and `notes_replace` `count` parameter added — expected replacement count; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
+- CLI subcommand `file patch` renamed to `file edit` — flags `--expected-content` to `--old-content`, `--expected-content-file` to `--old-content-file`, `--content` to `--new-content`
+- CLI `file replace` `--count` flag added — expected number of replacements; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
 - `overwrite` parameter on `files_write` and `notes_write` — whole-file writes to existing files are rejected without `overwrite: true`; new-file writes succeed regardless; hint conditions inform the agent when a new file was created with `overwrite: true` set
-- `paramCondition` field on execution specs — parameter-based routing between multiple execution specs with the same tool name; supports `present` (parameter must be provided) and `absent` (parameter must be omitted) constraints with AND logic; partial-match hints when paired parameters are incomplete (e.g., `start_line` without `original_content`)
+- `paramCondition` field on execution specs — parameter-based routing between multiple execution specs with the same tool name; supports `present` (parameter must be provided) and `absent` (parameter must be omitted) constraints with AND logic; partial-match hints when paired parameters are incomplete (e.g., `continue` without `abort`)
 - Schema-enforced validation — the executor validates tool call parameters against the tool schema before execution; undeclared parameters and type mismatches are rejected; startup alignment check warns when schema parameters lack execution handlers
 - `--overwrite` flag on `chai file write` — rejects writes to existing files without the flag; new-file writes succeed regardless
-- `git_rebase` and `git_cherry_pick` consolidated — `continue`/`abort` operations are now boolean parameters on the parent tool instead of separate tool names; routing uses `paramCondition` (same pattern as `files_write` surgical edit vs whole-file write); both `continue` and `abort` provided simultaneously is rejected as ambiguous
+- `git_rebase` and `git_cherry_pick` consolidated — `continue`/`abort` operations are now boolean parameters on the parent tool instead of separate tool names; routing uses `paramCondition`; both `continue` and `abort` provided simultaneously is rejected as ambiguous
 - `git_reset` changed to unstage-only — `ref` parameter removed; new required `paths` parameter (with `split: true`) mirrors `git_add` for targeted unstaging (e.g., `paths: "."` to unstage all, `paths: "file.rs"` to unstage a specific file); the tool can no longer move the branch pointer or lose commits
 - `git_add` `paths` description clarified — documents space-separated multi-file support and `"."` for staging all
 
@@ -81,9 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `~/.chai/gateway.lock` moved to `~/.chai/profiles/<name>/gateway.lock` — scripts or tooling checking the old lock path must be updated
 - Tool removals — existing tool calls using removed tool names will fail:
   - `files_read_lines` → use `files_read` with `start_line` and `end_line` parameters
-  - `files_write_lines` → use `files_write` with `start_line` and `original_content` parameters (surgical edit mode)
+  - `files_write_lines` → use `files_edit` with `old_content` / `new_content` for surgical edits (whole-file writes remain on `files_write`)
   - `notes_read_lines` → use `notes_read` with `start_line` and `end_line` parameters
-  - `notes_write_lines` → use `notes_write` with `start_line` and `original_content` parameters (surgical edit mode)
+  - `notes_write_lines` → use `notes_edit` with `old_content` / `new_content` for surgical edits (whole-file writes remain on `notes_write`)
 - Tool behavior changes — existing tool calls may produce different results:
   - `files_write` and `notes_write` now reject overwrites of existing files without `overwrite: true`; previously, whole-file writes silently overwrote existing files
   - `git_reset` no longer accepts a `ref` parameter and cannot move the branch pointer; existing calls using `ref` must switch to the `paths` parameter for unstaging (e.g., `git_reset({paths: "."})` to unstage all)
@@ -92,6 +97,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `git_rebase_abort` → use `git_rebase` with `abort: true`
   - `git_cherry_pick_continue` → use `git_cherry_pick` with `continue: true`
   - `git_cherry_pick_abort` → use `git_cherry_pick` with `abort: true`
+- Tool parameter removals — existing tool calls using removed parameters will fail:
+  - `files_replace` and `notes_replace`: `dry_run` parameter removed; use `count` to verify expected replacements
+- New tool names — `files_edit` and `notes_edit` are new tools for surgical edits; agents previously had no dedicated surgical edit tool
+- CLI subcommand rename: `chai file patch` → `chai file edit`
+- CLI flag renames (on the renamed `file edit` subcommand): `--expected-content` → `--old-content`, `--expected-content-file` → `--old-content-file`, `--content` → `--new-content` — scripts using old flag names will fail
 
 ## [0.4.0] - 2026-06-30
 

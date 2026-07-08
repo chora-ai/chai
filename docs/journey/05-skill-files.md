@@ -48,9 +48,9 @@ This journey covers the **`files`** skill (full read + write + delete). The read
    - **Expect:** The agent uses `files_write`. Verify the file exists: `cat ~/.chai/profiles/assistant/sandbox/test-note.md`.
    - **Expect:** The file contains the heading and body text.
 
-6. **Patch a file (write specific lines)**
+6. **Edit a file (replace specific content)**
    - Send: "In test-note.md, replace the line 'Hello from the files skill.' with 'Updated by the files skill.'"
-   - **Expect:** The agent uses `files_read` with `start_line` to get `original_content`, then `files_write` with `start_line` and `original_content` to patch the file. The reply confirms the change. Verify: `cat ~/.chai/profiles/assistant/sandbox/test-note.md` should show "Updated by the files skill."
+   - **Expect:** The agent uses `files_read` to read the file, then `files_edit` with `old_content` and `new_content` to edit the file. The reply confirms the change. Verify: `cat ~/.chai/profiles/assistant/sandbox/test-note.md` should show "Updated by the files skill."
 
 7. **Bulk find-and-replace**
    - First, create a test file: Send: "Create a file called versions.txt with the content `version = \"1.0.0\"\nname = \"demo\"\nversion = \"2.0.0\"\n`."
@@ -84,7 +84,7 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 - **"loaded 0 skill(s)"** — The `files` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the files_search tool to find files containing 'config' and show me the results."
 - **"agent: tool files_write failed: path not in writable roots"** — The file path is outside the sandbox. All write operations target the sandbox directory (`~/.chai/profiles/<active>/sandbox/`). Use relative paths; the skill's directives instruct the model to use `./`-relative paths.
-- **"agent: tool files_write failed: original_content mismatch"** — The file changed between the read and the write. The agent should re-read and retry; this is expected behavior for the verification mechanism.
+- **"agent: tool files_edit failed: old_content mismatch"** — The file changed between the read and the edit. The agent should re-read and retry; this is expected behavior for the verification mechanism.
 - **"agent: tool files_write failed: overwrite must be set to true to overwrite an existing file"** — The agent tried to overwrite an existing file without the `overwrite` parameter. The agent should re-call with `overwrite: true` if overwriting was intended.
 - **File not found after write** — The file may have been written inside the sandbox but you checked the wrong path. Check `~/.chai/profiles/<active>/sandbox/` for the file.
 - **Agent writes to wrong path** — The model may have used an absolute path. The skill's directives instruct relative paths, but models vary in compliance. Check the sandbox root for the file.
@@ -98,7 +98,7 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 | 3 | "List files, read config.json" | Agent lists directory and reads file |
 | 4 | "Search for 'agent'" | Agent returns matches with line numbers |
 | 5 | "Create test-note.md" | File created in sandbox |
-| 6 | "Patch test-note.md" | Line replaced; file updated |
+| 6 | "Edit test-note.md" | Line replaced; file updated |
 | 7 | "Bulk replace in versions.txt" | Both version lines updated via `files_replace` |
 | 8 | "Delete test-note.md" | File removed |
 | 9 | "Write to /tmp/…" (optional) | Rejected — sandbox enforcement |

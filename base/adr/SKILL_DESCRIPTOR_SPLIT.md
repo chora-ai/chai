@@ -68,7 +68,7 @@ The root is an array, not an object. This is the simplest possible format: a lis
   "cat": [""],
   "ls": [""],
   "grep": ["", "-E"],
-  "chai": ["file write", "file delete", "file patch", "file read-lines", "file delete-dir", "file replace"]
+  "chai": ["file write", "file delete", "file edit", "file read", "file delete-dir", "file replace"]
 }
 ```
 

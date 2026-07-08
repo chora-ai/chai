@@ -85,17 +85,35 @@
           "type": "string",
           "description": "Content to write to the file"
         },
-        "start_line": {
-          "type": "integer",
-          "description": "Line number of the first line in original_content (1-indexed, inclusive)"
-        },
-        "original_content": {
-          "type": "string",
-          "description": "The original content that will be replaced. The first line must match the content at start_line or the edit is rejected."
-        },
         "overwrite": {
           "type": "boolean",
           "description": "Must be set to true to overwrite an existing file"
+        }
+      }
+    }
+  },
+  {
+    "name": "files_edit",
+    "description": "Replace specific content in a file. The old_content must match the file exactly or the edit is rejected.",
+    "parameters": {
+      "type": "object",
+      "required": ["path", "old_content", "new_content"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "File path relative to the sandbox root"
+        },
+        "old_content": {
+          "type": "string",
+          "description": "The content currently in the file that will be replaced. Must match the file content or the edit is rejected."
+        },
+        "new_content": {
+          "type": "string",
+          "description": "The replacement content"
+        },
+        "start_line": {
+          "type": "integer",
+          "description": "Line number of the first line in old_content (1-indexed, inclusive). Optional — when omitted, the tool searches for old_content and requires exactly one match."
         }
       }
     }
@@ -123,9 +141,9 @@
           "type": "boolean",
           "description": "Treat the pattern as literal text instead of regex. Default: false."
         },
-        "dry_run": {
-          "type": "boolean",
-          "description": "Preview the diff without making changes. Default: false."
+        "count": {
+          "type": "integer",
+          "description": "Expected number of replacements. The tool rejects if the actual count differs."
         }
       }
     }

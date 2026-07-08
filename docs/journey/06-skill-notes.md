@@ -54,20 +54,24 @@ These are separate skill packages, enabled independently in `enabledSkills`. The
    - Send: "Read the note at test-note.md."
    - **Expect:** The agent uses `notes_read` and returns the full content including frontmatter.
 
-6. **Search for content**
+6. **Edit the note (replace specific content)**
+   - Send: "In test-note.md, replace the text 'This is a test note from the notes skill.' with 'Updated by the notes skill.'"
+   - **Expect:** The agent uses `notes_read` to read the note, then `notes_edit` with `old_content` and `new_content` to edit it. The reply confirms the change. Verify: `cat ~/.chai/profiles/assistant/sandbox/test-note.md` should show "Updated by the notes skill."
+
+7. **Search for content**
    - Send: "Search all notes for the word 'test' and show me the results."
    - **Expect:** The agent uses `notes_search` and returns matching lines with line numbers.
 
-7. **Append to the note**
+8. **Append to the note**
    - Send: "Append a new section to test-note.md with the content '\n## Added Section\n\nThis was appended later.'"
    - **Expect:** The agent uses `notes_append`. Verify: the file now includes the added section at the end.
 
-8. **Bulk find-and-replace**
+9. **Bulk find-and-replace**
    - First, create a note with repeated patterns: Send: "Create a note at versions.md with content '# Versions\n\nrelease = \"1.0.0\"\nrelease = \"2.0.0\"\n'."
    - Then send: "Use notes_replace to replace all occurrences of `release = \"(\d+)\.(\d+)\.(\d+)\"` with `release = \"$1.$2.99\"` in versions.md."
    - **Expect:** The agent uses `notes_replace` with capture groups. Both release lines are updated in a single call. The diff shows both changes. Verify: both lines in the note should now end in `.99`.
 
-9. **Delete the note**
+10. **Delete the note**
    - Send: "Delete the note at test-note.md."
    - **Expect:** The agent uses `notes_delete`. Verify: `ls ~/.chai/profiles/assistant/sandbox/test-note.md` should fail (file not found).
 
@@ -75,7 +79,7 @@ These are separate skill packages, enabled independently in `enabledSkills`. The
 
 ## Extended: notes-daily (optional)
 
-If you enabled `notes-daily`, try these additional steps after step 8:
+If you enabled `notes-daily`, try these additional steps after step 9:
 
 - **Create today's daily note:** "Create today's daily note with a tasks section."
   - **Expect:** The agent uses `notes_daily_write`. The note is stored in the configured daily folder (default `00-daily/`).
@@ -125,6 +129,7 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 - **"loaded 0 skill(s)"** — The `notes` skill is not in `enabledSkills` on the orchestrator agent. Edit `config.json` to add it, then restart the gateway.
 - **Agent does not use tools** — Use a model that supports tool/function calling. Try a more explicit message: "Use the notes_search tool to search all notes for 'test'."
 - **"agent: tool notes_write failed: path not in writable roots"** — The note path resolved outside the sandbox. The notes skill resolves paths relative to the root directory (the sandbox directory). Ensure you are not requesting an absolute path.
+- **"agent: tool notes_edit failed: old_content mismatch"** — The note changed between the read and the edit. The agent should re-read and retry; this is expected behavior for the verification mechanism.
 - **Note not found after write** — The note may be in the sandbox directory under a different path than expected. Check `~/.chai/profiles/<active>/sandbox/` for the file.
 - **notes-daily returns error** — The daily notes folder may not exist. The resolver will create the file but the parent directory must exist. Create `00-daily/` in the sandbox if needed.
 - **notes-frontmatter error on a note without frontmatter** — Some operations (like `notes_frontmatter_read`) require the note to have existing frontmatter. Create frontmatter first with `notes_write`, then use frontmatter tools to edit it.
@@ -139,10 +144,11 @@ Every turn the model receives the full system context (AGENT.md, workers roster,
 | 3 | "List the files" | Agent lists directory contents |
 | 4 | "Create a note" | Note created in sandbox |
 | 5 | "Read the note" | Agent returns full content |
-| 6 | "Search for 'test'" | Agent returns matches |
-| 7 | "Append to the note" | Section added at end |
-| 8 | "Bulk replace in versions.md" | Both release lines updated via `notes_replace` |
-| 9 | "Delete the note" | Note removed |
-| 10 | Ctrl+C | Gateway stops |
+| 6 | "Edit the note" | Text replaced via `notes_edit` |
+| 7 | "Search for 'test'" | Agent returns matches |
+| 8 | "Append to the note" | Section added at end |
+| 9 | "Bulk replace in versions.md" | Both release lines updated via `notes_replace` |
+| 10 | "Delete the note" | Note removed |
+| 11 | Ctrl+C | Gateway stops |
 
 **See also:** [05 — Skill: Files](05-skill-files.md) · [07 — Skill: Skills](07-skill-skills.md)

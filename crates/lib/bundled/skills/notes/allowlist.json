@@ -4,12 +4,10 @@
   "chai": [
     "file write",
     "file delete",
-    "file patch",
+    "file edit",
     "file read-lines",
     "file delete-dir",
     "file replace",
-    "file replace --line-number",
-    "file replace --dry-run",
-    "file replace --dry-run --line-number"
+    "file replace --line-number"
   ]
 }

@@ -26,35 +26,35 @@ pub(crate) enum FileCmd {
         #[arg(long, allow_hyphen_values = true)]
         content: Option<String>,
     },
-    /// Patch a file by replacing a range of lines. Content is read from stdin when --content is omitted.
-    Patch {
-        /// Absolute file path to patch
+    /// Edit a file by replacing specific content. Content is read from stdin when --new-content is omitted.
+    Edit {
+        /// Absolute file path to edit
         #[arg(long)]
         path: String,
-        /// Line number of the first line in original_content (1-indexed, inclusive).
-        /// The replacement range spans from start_line through start_line + lines in
-        /// original_content - 1.
+        /// Line number of the first line in old_content (1-indexed, inclusive).
+        /// Optional — when omitted, the tool searches for old_content and
+        /// requires exactly one match.
         #[arg(long)]
-        start_line: usize,
+        start_line: Option<usize>,
         /// Line number to end replacing at (1-indexed, inclusive). When omitted,
-        /// the end line is inferred from the number of lines in original_content
-        /// (start_line + original_content lines - 1).
+        /// the end line is inferred from the number of lines in old_content
+        /// (start_line + old_content lines - 1).
         #[arg(long)]
         end_line: Option<usize>,
-        /// The content expected at the replacement range. The number of lines
+        /// The content currently in the file that will be replaced. The number of lines
         /// determines the range when --end-line is omitted. Must match the file
         /// content or the edit is rejected.
         #[arg(long, allow_hyphen_values = true)]
-        original_content: Option<String>,
-        /// Read original_content from a file instead of passing it as a CLI flag. Takes precedence
-        /// over --original-content. This avoids CLI argument encoding issues for content that
+        old_content: Option<String>,
+        /// Read old_content from a file instead of passing it as a CLI flag. Takes precedence
+        /// over --old-content. This avoids CLI argument encoding issues for content that
         /// must match file content byte-for-byte.
-        #[arg(long = "original-content-file")]
-        original_content_file: Option<String>,
+        #[arg(long = "old-content-file")]
+        old_content_file: Option<String>,
         /// Replacement content. If ommitted, content is read from stdin.
         /// Accepts values that begin with dashes (e.g. YAML frontmatter).
-        #[arg(long, allow_hyphen_values = true)]
-        content: Option<String>,
+        #[arg(long = "new-content", allow_hyphen_values = true)]
+        new_content: Option<String>,
     },
     /// Replace all occurrences of a regex pattern in a file. Supports capture groups ($1-$9) in the replacement string.
     Replace {
@@ -87,6 +87,12 @@ pub(crate) enum FileCmd {
         /// making replacements in large files to prevent unintended replacements.
         #[arg(long)]
         dry_run: bool,
+        /// Expected number of replacements. When provided, the tool rejects before
+        /// writing if the actual match count differs. When omitted and the actual
+        /// match count exceeds a safety threshold (5), the tool shows the diff
+        /// without writing.
+        #[arg(long)]
+        count: Option<usize>,
         /// Show line numbers in the diff output
         #[arg(long)]
         line_number: bool,
@@ -249,16 +255,16 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             }
             Ok(())
         }
-        FileCmd::Patch { path, start_line, end_line, original_content, original_content_file, content } => {
-            let content = read_content_from_stdin_or(content)?;
-            // Resolve original_content: --original-content-file takes precedence,
-            // then --original-content. File-based passing avoids CLI argument
+        FileCmd::Edit { path, start_line, end_line, old_content, old_content_file, new_content } => {
+            let new_content = read_content_from_stdin_or(new_content)?;
+            // Resolve old_content: --old-content-file takes precedence,
+            // then --old-content. File-based passing avoids CLI argument
             // encoding issues for content that must match file content byte-for-byte.
-            let original_content = if let Some(ref file_path) = original_content_file {
+            let old_content = if let Some(ref file_path) = old_content_file {
                 Some(std::fs::read_to_string(file_path)
-                    .map_err(|e| anyhow::anyhow!("failed to read original-content-file {}: {}", file_path, e))?)
+                    .map_err(|e| anyhow::anyhow!("failed to read old-content-file {}: {}", file_path, e))?)
             } else {
-                original_content
+                old_content
             };
             let target = std::path::Path::new(&path);
             if !target.exists() {
@@ -267,22 +273,44 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             if !target.is_file() {
                 anyhow::bail!("not a file: {}", path);
             }
-            if start_line == 0 {
-                anyhow::bail!("start_line must be at least 1 (1-indexed)");
-            }
-
-            // Resolve end_line: when not explicitly provided, infer from the
-            // number of lines in original_content. This makes the replacement
-            // range always match what the agent described, eliminating the trap
-            // where end_line defaulted to start_line (single-line) even when
-            // original_content spanned multiple lines.
-            let end_line = resolve_end_line(start_line, end_line, original_content.as_deref())?;
-            if end_line < start_line {
-                anyhow::bail!("end_line ({}) must be >= start_line ({})", end_line, start_line);
-            }
 
             let original = std::fs::read_to_string(target)
                 .map_err(|e| anyhow::anyhow!("failed to read {}: {}", path, e))?;
+
+            // old_content is required — without it there is nothing to match.
+            let old_content = old_content.ok_or_else(|| {
+                anyhow::anyhow!("old_content is required — provide the content to be replaced")
+            })?;
+
+            // When start_line is provided, use it as an anchor (current behavior).
+            // When omitted, search for old_content in the file and require exactly one match.
+            let start_line = match start_line {
+                Some(n) => {
+                    if n == 0 {
+                        anyhow::bail!("start_line must be at least 1 (1-indexed)");
+                    }
+                    n
+                }
+                None => {
+                    // Search mode: find all matches of old_content using the
+                    // five-stage verification cascade adapted for search.
+                    let matches = find_old_content_matches(&original, &old_content);
+                    if matches.is_empty() {
+                        anyhow::bail!(
+                            "old_content not found in {}\n\nhint: use files_read to read the file content, or verify the file path is correct",
+                            path,
+                        );
+                    }
+                    if matches.len() > 1 {
+                        anyhow::bail!(
+                            "old_content matches at {} locations — provide start_line to target a specific occurrence",
+                            matches.len(),
+                        );
+                    }
+                    // Exactly one match — use its start line.
+                    matches[0].0
+                }
+            };
 
             if start_line > original.lines().count() {
                 anyhow::bail!(
@@ -292,17 +320,24 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 );
             }
 
+            // Resolve end_line: when not explicitly provided, infer from the
+            // number of lines in old_content. This makes the replacement
+            // range always match what the agent described, eliminating the trap
+            // where end_line defaulted to start_line (single-line) even when
+            // old_content spanned multiple lines.
+            let end_line = resolve_end_line(start_line, end_line, Some(&old_content))?;
+            if end_line < start_line {
+                anyhow::bail!("end_line ({}) must be >= start_line ({})", end_line, start_line);
+            }
+
             let effective_end = end_line.min(original.lines().count());
 
-            // Verify original_content if provided, and collect trailing whitespace
-            // from the original file if the match succeeded via stage 4 (trailing-
-            // whitespace tolerance). This allows us to preserve the file's trailing
+            // Verify old_content against the file content at the resolved
+            // location, and collect trailing whitespace from the original file
+            // if the match succeeded via stage 4 (trailing-whitespace
+            // tolerance). This allows us to preserve the file's trailing
             // whitespace in the replacement content.
-            let trailing_ws = if let Some(ref expected) = original_content {
-                verify_original(&original, start_line, effective_end, expected)?
-            } else {
-                Vec::new()
-            };
+            let trailing_ws = verify_original(&original, start_line, effective_end, &old_content)?;
 
             // Apply trailing whitespace from the original file to the replacement
             // content. When the LLM drops trailing whitespace, the verification
@@ -313,8 +348,8 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             // provided partial trailing whitespace (we replace, not append, to avoid
             // doubling). Extra replacement lines (expanding the range) have no
             // original trailing whitespace to preserve.
-            let content = if !trailing_ws.is_empty() {
-                let mut lines: Vec<String> = content.lines().map(String::from).collect();
+            let new_content = if !trailing_ws.is_empty() {
+                let mut lines: Vec<String> = new_content.lines().map(String::from).collect();
                 for (i, ws) in trailing_ws.iter().enumerate() {
                     if i < lines.len() {
                         // Trim the replacement line's trailing whitespace,
@@ -326,24 +361,24 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 }
                 lines.join("\n")
             } else {
-                content
+                new_content
             };
 
-            let diff = format_patch_diff(&original, start_line, Some(effective_end), &content);
-            let result = patch_string(&original, start_line, Some(end_line), &content);
+            let diff = format_patch_diff(&original, start_line, Some(effective_end), &new_content);
+            let result = patch_string(&original, start_line, Some(end_line), &new_content);
 
             std::fs::write(target, &result)
                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
 
             let removed = effective_end - start_line + 1;
-            let added = content.lines().count();
+            let added = new_content.lines().count();
             println!(
-                "patched {} - removed {} line(s), added {} line(s)\n{}",
+                "edited {} - removed {} line(s), added {} line(s)\n{}",
                 path, removed, added, diff
             );
             Ok(())
         }
-        FileCmd::Replace { path, pattern_file, pattern, replacement, dry_run, literal, line_number } => {
+        FileCmd::Replace { path, pattern_file, pattern, replacement, dry_run, literal, count, line_number } => {
             let target = std::path::Path::new(&path);
             if !target.exists() {
                 anyhow::bail!("file does not exist: {}", path);
@@ -394,7 +429,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                                 "dry run: {} replacement(s) in {} (literal match)\n{}",
                                 match_count, path, diff
                             );
-                        } else {
+                        } else if check_replace_count(match_count, count, &path, &diff)? {
                             std::fs::write(target, new_content.as_bytes())
                                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
                             println!(
@@ -423,7 +458,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
 
             // Collect all captures.
             let all_captures: Vec<_> = re.captures_iter(&original).collect();
-            let count = all_captures.len();
+            let regex_match_count = all_captures.len();
             let line_count = original.lines().count();
 
             // Safety: when regex mode matches far more positions than there are
@@ -431,7 +466,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
             // like `| foo | bar |` matching at every character boundary. In that
             // case, retry as literal before writing anything to disk.
             let match_cap = degenerate_match_cap(line_count);
-            if count > match_cap {
+            if regex_match_count > match_cap {
                 // Regex produced an unreasonable number of matches.
                 // Try literal mode — if the pattern contains unintentional
                 // regex metacharacters, literal matching will find the
@@ -450,14 +485,14 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                         if dry_run {
                             println!(
                                 "dry run: {} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
-                                literal_count, path, count, diff
+                                literal_count, path, regex_match_count, diff
                             );
-                        } else {
+                        } else if check_replace_count(literal_count, count, &path, &diff)? {
                             std::fs::write(target, new_content.as_bytes())
                                 .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
                             println!(
                                 "{} replacement(s) in {} (literal match — regex matched {} positions, likely due to unintentional regex metacharacters)\n{}",
-                                literal_count, path, count, diff
+                                literal_count, path, regex_match_count, diff
                             );
                         }
                         return Ok(());
@@ -467,13 +502,13 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                         // Refuse the replacement to prevent file corruption.
                         anyhow::bail!(
                             "regex matched {} positions (exceeds safety cap of {} for a {}-line file) — likely a degenerate pattern. Use literal: true or adjust the pattern.",
-                            count, match_cap, line_count
+                            regex_match_count, match_cap, line_count
                         );
                     }
                 }
             }
 
-            if count > 0 {
+            if regex_match_count > 0 {
                 // Only expand capture group references ($1-$9) when the
                 // pattern contains explicit capture groups. When there are
                 // no capture groups, caps.expand() would silently consume
@@ -483,8 +518,8 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 let has_capture_groups = re.captures_len() > 1;
 
                 // Collect match byte-offset ranges for diff generation.
-                let mut match_ranges: Vec<(usize, usize)> = Vec::with_capacity(count);
-                let mut replacement_texts: Vec<String> = Vec::with_capacity(count);
+                let mut match_ranges: Vec<(usize, usize)> = Vec::with_capacity(regex_match_count);
+                let mut replacement_texts: Vec<String> = Vec::with_capacity(regex_match_count);
                 let mut result = String::with_capacity(original.len());
                 let mut last_end = 0;
 
@@ -517,14 +552,14 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                 if dry_run {
                     println!(
                         "dry run: {} replacement(s) in {}\n{}",
-                        count, path, diff
+                        regex_match_count, path, diff
                     );
-                } else {
+                } else if check_replace_count(regex_match_count, count, &path, &diff)? {
                     std::fs::write(target, new_content.as_bytes())
                         .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
                     println!(
                         "{} replacement(s) in {}\n{}",
-                        count, path, diff
+                        regex_match_count, path, diff
                     );
                 }
                 return Ok(());
@@ -554,7 +589,7 @@ pub(crate) fn run_file(cmd: FileCmd) -> Result<()> {
                             "dry run: {} replacement(s) in {} (trailing-whitespace-tolerant match)\n{}",
                             match_count, path, diff
                         );
-                    } else {
+                    } else if check_replace_count(match_count, count, &path, &diff)? {
                         std::fs::write(target, new_content.as_bytes())
                             .map_err(|e| anyhow::anyhow!("failed to write {}: {}", path, e))?;
                         println!(
@@ -760,24 +795,24 @@ pub(crate) fn read_content_from_stdin_or(content: Option<String>) -> Result<Stri
     }
 }
 
-/// Resolve the end line for a patch operation. When `end_line` is explicitly
+/// Resolve the end line for an edit operation. When `end_line` is explicitly
 /// provided, use it. When omitted, infer from the number of lines in
-/// `original_content` so the replacement range matches what the agent
+/// `old_content` so the replacement range matches what the agent
 /// described. Returns the resolved end line (1-indexed, inclusive).
-fn resolve_end_line(start_line: usize, end_line: Option<usize>, original_content: Option<&str>) -> Result<usize> {
+fn resolve_end_line(start_line: usize, end_line: Option<usize>, old_content: Option<&str>) -> Result<usize> {
     match end_line {
         Some(explicit) => Ok(explicit),
         None => {
-            match original_content {
+            match old_content {
                 Some(expected) => {
                     let expected_lines = expected.lines().count();
                     if expected_lines == 0 {
-                        anyhow::bail!("original_content is empty — cannot infer end_line");
+                        anyhow::bail!("old_content is empty — cannot infer end_line");
                     }
                     Ok(start_line + expected_lines - 1)
                 }
                 None => {
-                    anyhow::bail!("either --end-line or --original-content is required to determine the replacement range");
+                    anyhow::bail!("either --end-line or --old-content is required to determine the replacement range");
                 }
             }
         }
@@ -1457,7 +1492,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     }
 
     // Stage 5: Blank-line-boundary-tolerant match
-    // When the agent reads a line range and constructs original_content from
+    // When the agent reads a line range and constructs old_content from
     // what it saw, blank lines at the top or bottom of the range may be
     // included or excluded differently from the actual file. Strip leading
     // and trailing blank lines from both actual and expected before comparing
@@ -1512,7 +1547,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
                 act_line,
             ),
             None if expected_lines.len() != actual_lines.len() => format!(
-                "\nhint: original_content has {} lines, file range lines {}-{} has {} lines",
+                "\nhint: old_content has {} lines, file range lines {}-{} has {} lines",
                 expected_lines.len(),
                 start_line,
                 effective_end,
@@ -1546,7 +1581,7 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
     };
 
     anyhow::bail!(
-        "original_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
+        "old_content mismatch at lines {}-{}:\n  expected:\n{}\n  actual:\n{}\n{}\n{}",
         start_line,
         effective_end,
         expected_fmt,
@@ -1554,6 +1589,139 @@ fn verify_original(original: &str, start_line: usize, end_line: usize, expected:
         line_hint,
         byte_hint,
     )
+}
+
+/// Safety threshold for auto-dry-run in replace mode. When `count` is omitted
+/// and the actual match count exceeds this value, the tool shows the diff
+/// without writing, prompting the agent to confirm with an explicit `count`.
+const REPLACE_AUTO_DRY_RUN_THRESHOLD: usize = 5;
+
+/// Check the replacement count against the `count` parameter and the
+/// auto-dry-run threshold. Returns `Ok(true)` if the write should proceed,
+/// `Ok(false)` if the write should be skipped (auto-dry-run), or an error
+/// if the count was specified but doesn't match.
+///
+/// This helper is inserted in all four replacement code paths (literal mode,
+/// regex mode, degenerate-regex fallback, zero-regex fallback) to enforce
+/// count verification and auto-dry-run uniformly.
+fn check_replace_count(
+    actual_count: usize,
+    expected_count: Option<usize>,
+    path: &str,
+    diff: &str,
+) -> Result<bool> {
+    if let Some(expected) = expected_count {
+        if actual_count != expected {
+            anyhow::bail!(
+                "expected {} replacement(s) but found {} — adjust the pattern or count\n{}",
+                expected, actual_count, diff
+            );
+        }
+        // Count matched — proceed with write.
+        Ok(true)
+    } else if actual_count > REPLACE_AUTO_DRY_RUN_THRESHOLD {
+        // Auto-dry-run: show the diff but don't write.
+        println!(
+            "{} replacement(s) in {} (preview — not written)\n{}\nhint: {} replacements exceeded safety threshold — set count: {} to apply, or use files_edit for a single targeted edit",
+            actual_count, path, diff, actual_count, actual_count
+        );
+        Ok(false)
+    } else {
+        // No count specified and within threshold — proceed with write.
+        Ok(true)
+    }
+}
+
+/// Find all matches of `old_content` in `original` using the five-stage
+/// verification cascade adapted for search. Returns a vector of
+/// `(start_line, end_line)` tuples (1-indexed, inclusive) for all matches
+/// found through the first stage that produces any matches.
+///
+/// The stages mirror `verify_original`:
+/// 1. Exact match
+/// 2. NFC-normalized match
+/// 3. Unicode-to-ASCII folded match
+/// 4. Trailing-whitespace-tolerant match
+/// 5. Blank-line-boundary-tolerant match
+///
+/// For each stage, we slide a window of `old_content.lines().count()` lines
+/// across `original.lines()` and compare. The first stage that produces any
+/// matches wins — we don't combine matches across stages.
+fn find_old_content_matches(original: &str, old_content: &str) -> Vec<(usize, usize)> {
+    use unicode_normalization::UnicodeNormalization;
+
+    let orig_lines: Vec<&str> = original.lines().collect();
+    let old_lines: Vec<&str> = old_content.lines().collect();
+    let window_size = old_lines.len();
+
+    if window_size == 0 || window_size > orig_lines.len() {
+        return Vec::new();
+    }
+
+    // Helper: check all windows for a given normalization function.
+    // Returns match positions as (start_line, end_line) 1-indexed inclusive.
+    let find_with_normalizer = |normalize: &dyn Fn(&str) -> String| -> Vec<(usize, usize)> {
+        let normalized_old: String = normalize(&old_lines.join("\n"));
+        let mut matches = Vec::new();
+
+        for start in 0..=(orig_lines.len() - window_size) {
+            let window: String = orig_lines[start..start + window_size].join("\n");
+            if normalize(&window) == normalized_old {
+                matches.push((start + 1, start + window_size));
+            }
+        }
+        matches
+    };
+
+    // Stage 1: Exact match
+    let exact_matches = find_with_normalizer(&|s| s.to_string());
+    if !exact_matches.is_empty() {
+        return exact_matches;
+    }
+
+    // Stage 2: NFC-normalized match
+    let nfc_matches = find_with_normalizer(&|s| s.nfc().collect::<String>());
+    if !nfc_matches.is_empty() {
+        return nfc_matches;
+    }
+
+    // Stage 3: Unicode-to-ASCII folded match (applied after NFC)
+    let folded_matches = find_with_normalizer(&|s| {
+        fold_unicode_to_ascii(&s.nfc().collect::<String>())
+    });
+    if !folded_matches.is_empty() {
+        return folded_matches;
+    }
+
+    // Stage 4: Trailing-whitespace-tolerant match
+    let trailing_ws_matches = find_with_normalizer(&|s| {
+        s.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n")
+    });
+    if !trailing_ws_matches.is_empty() {
+        return trailing_ws_matches;
+    }
+
+    // Stage 5: Blank-line-boundary-tolerant match
+    // Strip leading/trailing blank lines from both the window and old_content
+    // (with trailing whitespace already stripped per Stage 4).
+    let strip_boundary_blank = |s: &str| -> String {
+        let lines: Vec<&str> = s.lines().collect();
+        let first_nonblank = lines.iter().position(|l| !l.trim().is_empty());
+        let last_nonblank = lines.iter().rposition(|l| !l.trim().is_empty());
+        match (first_nonblank, last_nonblank) {
+            (Some(first), Some(last)) => lines[first..=last].join("\n"),
+            _ => String::new(),
+        }
+    };
+    let boundary_matches = find_with_normalizer(&|s| {
+        let trimmed: String = s.lines().map(|l| l.trim_end()).collect::<Vec<_>>().join("\n");
+        strip_boundary_blank(&trimmed)
+    });
+    if !boundary_matches.is_empty() {
+        return boundary_matches;
+    }
+
+    Vec::new()
 }
 
 /// Extract YAML frontmatter from markdown content (between first `---` pair).
@@ -1761,6 +1929,9 @@ mod tests {
     use super::LiteralMatchResult;
     use super::byte_offset_to_line;
     use super::collapse_consecutive_blank_lines;
+    use super::find_old_content_matches;
+    use super::check_replace_count;
+    use super::REPLACE_AUTO_DRY_RUN_THRESHOLD;
 
     #[test]
     fn edit_frontmatter_updates_existing_with_leading_newlines() {
@@ -1919,13 +2090,13 @@ mod tests {
 
     #[test]
     fn resolve_end_line_inferred_from_single_line_expected() {
-        // Single line original_content: end_line = start_line.
+        // Single line old_content: end_line = start_line.
         assert_eq!(resolve_end_line(3, None, Some("hello")).unwrap(), 3);
     }
 
     #[test]
     fn resolve_end_line_inferred_from_multi_line_expected() {
-        // 3-line original_content starting at line 5: end_line = 7.
+        // 3-line old_content starting at line 5: end_line = 7.
         assert_eq!(resolve_end_line(5, None, Some("a\nb\nc")).unwrap(), 7);
     }
 
@@ -1936,19 +2107,19 @@ mod tests {
 
     #[test]
     fn resolve_end_line_rejects_empty_expected_without_explicit_end() {
-        // Empty original_content cannot infer end_line.
+        // Empty old_content cannot infer end_line.
         assert!(resolve_end_line(1, None, Some("")).is_err());
     }
 
     #[test]
     fn resolve_end_line_rejects_no_expected_no_end() {
-        // Neither end_line nor original_content provided.
+        // Neither end_line nor old_content provided.
         assert!(resolve_end_line(1, None, None).is_err());
     }
 
     #[test]
     fn resolve_end_line_explicit_overrides_inference() {
-        // Even if original_content has 3 lines, explicit end_line wins.
+        // Even if old_content has 3 lines, explicit end_line wins.
         assert_eq!(resolve_end_line(1, Some(10), Some("a\nb\nc")).unwrap(), 10);
     }
 
@@ -1961,13 +2132,13 @@ mod tests {
 
     #[test]
     fn patch_string_with_inferred_end_line_multi_line_expected() {
-        // The original bug: agent provides multi-line original_content
+        // The original bug: agent provides multi-line old_content
         // without specifying end_line. With inference, the range is
         // correct and the right lines are replaced.
         let input = "line1\nline2\nline3\nline4\nline5";
         // Agent wants to replace lines 2-4 (3 lines of expected content)
-        let original_content = "line2\nline3\nline4";
-        let end_line = resolve_end_line(2, None, Some(original_content)).unwrap();
+        let old_content = "line2\nline3\nline4";
+        let end_line = resolve_end_line(2, None, Some(old_content)).unwrap();
         assert_eq!(end_line, 4);
         let out = patch_string(input, 2, Some(end_line), "new2\nnew3\nnew4");
         assert_eq!(out, "line1\nnew2\nnew3\nnew4\nline5");
@@ -1977,8 +2148,8 @@ mod tests {
     fn patch_string_with_inferred_end_line_single_line() {
         // Single-line replacement: inferred end_line == start_line.
         let input = "a\nb\nc";
-        let original_content = "b";
-        let end_line = resolve_end_line(2, None, Some(original_content)).unwrap();
+        let old_content = "b";
+        let end_line = resolve_end_line(2, None, Some(old_content)).unwrap();
         assert_eq!(end_line, 2);
         let out = patch_string(input, 2, Some(end_line), "replaced");
         assert_eq!(out, "a\nreplaced\nc");
@@ -1992,8 +2163,8 @@ mod tests {
         let input = "a\n\nheading\nbody\n\nc";
         // Agent targets lines 3-4 (heading + body), blank lines at 2 and 5
         // are outside the range and preserved.
-        let original_content = "heading\nbody";
-        let end_line = resolve_end_line(3, None, Some(original_content)).unwrap();
+        let old_content = "heading\nbody";
+        let end_line = resolve_end_line(3, None, Some(old_content)).unwrap();
         assert_eq!(end_line, 4);
         let out = patch_string(input, 3, Some(end_line), "new heading\nnew body");
         assert_eq!(out, "a\n\nnew heading\nnew body\n\nc");
@@ -3052,6 +3223,142 @@ mod tests {
     #[test]
     fn collapse_blank_lines_single_line() {
         assert_eq!(collapse_consecutive_blank_lines("hello"), "hello");
+    }
+
+    // --- find_old_content_matches tests ---
+
+    #[test]
+    fn find_old_content_unique_match() {
+        let original = "line one\nline two\nline three";
+        let matches = find_old_content_matches(original, "line two");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (2, 2)); // line 2, 1-indexed
+    }
+
+    #[test]
+    fn find_old_content_multiple_matches() {
+        let original = "value = 1\nvalue = 1\nvalue = 1";
+        let matches = find_old_content_matches(original, "value = 1");
+        assert_eq!(matches.len(), 3);
+        assert_eq!(matches[0], (1, 1));
+        assert_eq!(matches[1], (2, 2));
+        assert_eq!(matches[2], (3, 3));
+    }
+
+    #[test]
+    fn find_old_content_no_match() {
+        let original = "line one\nline two\nline three";
+        let matches = find_old_content_matches(original, "this content does not exist");
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn find_old_content_multi_line_match() {
+        let original = "a\nb\nc\nd\ne";
+        let matches = find_old_content_matches(original, "b\nc\nd");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (2, 4));
+    }
+
+    #[test]
+    fn find_old_content_trailing_ws_tolerance() {
+        // File has trailing whitespace, old_content doesn't.
+        // Stage 4 should find the match.
+        let original = "function foo() {\n    return 42;   \n}";
+        let matches = find_old_content_matches(original, "    return 42;");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (2, 2));
+    }
+
+    #[test]
+    fn find_old_content_blank_line_boundary_tolerance() {
+        // old_content has a leading blank line, file window has a trailing
+        // blank line instead. After stripping boundary blanks, both reduce
+        // to "b\nc" — stage 5 match. Stages 1-4 don't match because the
+        // blank line position differs (leading vs trailing).
+        let original = "b\nc\n\nd";
+        let old_content = "\nb\nc";
+        let matches = find_old_content_matches(original, old_content);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (1, 3)); // lines 1-3 (1-indexed)
+    }
+
+    #[test]
+    fn find_old_content_nfc_tolerance() {
+        // NFC normalization: file has precomposed é, old_content has decomposed.
+        let nfd = "caf\u{00e9}"; // precomposed é
+        let nfc = "caf\u{0065}\u{0301}"; // e + combining acute
+        let original = format!("a\n{}\nb", nfd);
+        let matches = find_old_content_matches(&original, nfc);
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (2, 2));
+    }
+
+    #[test]
+    fn find_old_content_unicode_ascii_tolerance() {
+        // Unicode-to-ASCII folding: file has smart quote, old_content has ASCII.
+        let original = "a\nOllama\u{2019}s feature\nb";
+        let matches = find_old_content_matches(original, "Ollama's feature");
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0], (2, 2));
+    }
+
+    #[test]
+    fn find_old_content_window_larger_than_file() {
+        let original = "short";
+        let matches = find_old_content_matches(original, "short\nfile");
+        assert!(matches.is_empty());
+    }
+
+    // --- check_replace_count tests ---
+
+    #[test]
+    fn check_replace_count_matches() {
+        // count=3, actual=3 → proceed
+        assert_eq!(check_replace_count(3, Some(3), "test.txt", "").unwrap(), true);
+    }
+
+    #[test]
+    fn check_replace_count_mismatch_rejects() {
+        // count=1, actual=3 → reject
+        assert!(check_replace_count(3, Some(1), "test.txt", "diff").is_err());
+    }
+
+    #[test]
+    fn check_replace_count_auto_dry_run_threshold() {
+        // No count, actual > threshold → skip write
+        assert_eq!(check_replace_count(REPLACE_AUTO_DRY_RUN_THRESHOLD + 1, None, "test.txt", "diff").unwrap(), false);
+    }
+
+    #[test]
+    fn check_replace_count_below_threshold_no_count() {
+        // No count, actual <= threshold → proceed
+        assert_eq!(check_replace_count(REPLACE_AUTO_DRY_RUN_THRESHOLD, None, "test.txt", "").unwrap(), true);
+    }
+
+    #[test]
+    fn check_replace_count_zero_matches_with_count_zero() {
+        // count=0, actual=0 → proceed (0 replacements is valid)
+        assert_eq!(check_replace_count(0, Some(0), "test.txt", "").unwrap(), true);
+    }
+
+    #[test]
+    fn check_replace_count_zero_matches_without_count() {
+        // No count, actual=0 → proceed (0 is <= threshold)
+        assert_eq!(check_replace_count(0, None, "test.txt", "").unwrap(), true);
+    }
+
+    #[test]
+    fn check_replace_count_exactly_at_threshold() {
+        // No count, actual == threshold → proceed (not exceeding)
+        assert_eq!(check_replace_count(REPLACE_AUTO_DRY_RUN_THRESHOLD, None, "test.txt", "").unwrap(), true);
+    }
+
+    #[test]
+    fn check_replace_count_count_overrides_threshold() {
+        // count specified and matches, even if > threshold → proceed
+        let large = REPLACE_AUTO_DRY_RUN_THRESHOLD + 10;
+        assert_eq!(check_replace_count(large, Some(large), "test.txt", "").unwrap(), true);
     }
 
 }

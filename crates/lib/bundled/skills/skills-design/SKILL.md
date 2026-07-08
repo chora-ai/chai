@@ -30,7 +30,7 @@ Concretely: before adding a directive, check whether a tool could enforce it ins
 
 ## Verification Over Instruction
 
-When correctness depends on state (e.g., editing a line range that shifts after each edit), prefer a tool-side verification check over an agent-side instruction. The agent provides a snapshot of the state it expects (like `original_content`), and the tool rejects the operation if the actual state has diverged. This is more reliable than instructing the agent to "always re-read before editing" because the tool enforces it.
+When correctness depends on state (e.g., editing a line range that shifts after each edit), prefer a tool-side verification check over an agent-side instruction. The agent provides a snapshot of the state it expects (like `old_content`), and the tool rejects the operation if the actual state has diverged. This is more reliable than instructing the agent to "always re-read before editing" because the tool enforces it.
 
 ## Diagnostic Hints Over Directives
 
@@ -246,33 +246,30 @@ All constraints use AND logic. An entry without `paramCondition` is the default 
 2. If multiple specs exist, the executor first checks entries with `paramCondition`. If exactly one matches, it is used.
 3. If no `paramCondition` matches, the executor falls back to the default entry (no `paramCondition`).
 4. If multiple `paramCondition` entries match, the tool call is rejected as ambiguous.
-5. If no entry matches (no `paramCondition` matches and no default exists), the executor checks for **partial matches** — entries where at least one `present` parameter was provided but others were missing. When partial matches are found, the error message includes a hint connecting the missing parameters to the provided ones (e.g., `parameter(s) 'original_content' must be provided together with 'start_line'`). This tells the agent both WHAT is missing and WHY — because a paired parameter was already provided.
+5. If no entry matches (no `paramCondition` matches and no default exists), the executor checks for **partial matches** — entries where at least one `present` parameter was provided but others were missing. When partial matches are found, the error message includes a hint connecting the missing parameters to the provided ones (e.g., `parameter(s) 'abort' must be provided together with 'continue'`). This tells the agent both WHAT is missing and WHY — because a paired parameter was already provided.
 
-### Example: Consolidated Write Tool
+### Example: Rebase Tool With continue/abort
+
+`files_write` previously used `paramCondition` to route between whole-file write and surgical edit modes. That has been split into `files_write` (whole-file only) and `files_edit` (surgical edit only), eliminating the need for `paramCondition` on the write surface. The canonical `paramCondition` example is now the git rebase tool, which routes `continue`/`abort` operations:
 
 ```json
 [
   {
-    "tool": "files_write",
-    "subcommand": "file write",
-    "paramCondition": { "absent": ["start_line", "original_content"] },
+    "tool": "git_rebase",
+    "subcommand": "rebase continue",
+    "paramCondition": { "present": ["continue"] },
     "binary": "chai",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-      { "param": "content", "kind": "stdin" },
-      { "param": "overwrite", "kind": "flagifboolean", "flagIfTrue": "--overwrite" }
+      { "param": "continue", "kind": "literal", "value": "--continue" }
     ]
   },
   {
-    "tool": "files_write",
-    "subcommand": "file patch",
-    "paramCondition": { "present": ["start_line", "original_content"] },
+    "tool": "git_rebase",
+    "subcommand": "rebase abort",
+    "paramCondition": { "present": ["abort"] },
     "binary": "chai",
     "args": [
-      { "param": "path", "kind": "flag", "flag": "path", "writePath": true },
-      { "param": "start_line", "kind": "flag", "flag": "start-line" },
-      { "param": "original_content", "kind": "tempfile", "flag": "original-content-file" },
-      { "param": "content", "kind": "stdin" }
+      { "param": "abort", "kind": "literal", "value": "--abort" }
     ]
   }
 ]

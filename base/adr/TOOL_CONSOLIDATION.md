@@ -61,6 +61,19 @@ Mode routing between multiple execution specs with the same tool name is handled
 
 The same consolidation was applied to `notes_read`/`notes_read_lines` and `notes_write`/`notes_write_lines` across both full and read-only skill variants (`files`, `files-read`, `notes`, `notes-read`).
 
+#### Evolution: Three-Tool Model
+
+The consolidated two-mode `files_write` was later split into two separate tools, superseding the `paramCondition` routing for the writing/editing surface:
+
+- `files_write` — whole-file create/overwrite only (`path`, `content`, `overwrite`)
+- `files_edit` — surgical in-place edit (`path`, `old_content`, `new_content`, optional `start_line`)
+
+The two-mode `files_write` was overloaded: the `content` parameter served double duty (whole-file content vs replacement content), forcing the surgical edit parameter to be named `original_content` to differentiate itself. Splitting into `files_edit` gives the surgical edit tool its own parameter namespace (`old_content` / `new_content`) with no naming tension, and eliminates the `paramCondition` routing on `files_write`.
+
+`files_edit` also gained a search mode: when `start_line` is omitted, the binary searches for `old_content` using the same five-stage verification cascade and requires exactly one match. This frees the agent from knowing the exact line number when the content is unique.
+
+The `paramCondition` mechanism itself is retained for git tools (`git_rebase`, `git_cherry_pick`), where `continue`/`abort` boolean parameters route to different CLI invocations.
+
 ### Decision 2: Schema-Enforced Validation
 
 The tool schema is the contract. The executor validates tool call parameters against the schema before execution — undeclared parameters and type mismatches are rejected immediately with a clear error.
@@ -137,8 +150,8 @@ The `denyPattern` on `repo` (`^(main|release/.+)$`) was removed since branch-lev
 
 **Positive:**
 
-- **Smaller tool surface.** The LLM navigates fewer tool names — 4 fewer git tools (20 → 16), and 4 fewer file tools (replaced by consolidated multi-mode tools).
-- **`paramCondition` routing is a proven, reusable pattern.** Multi-mode tools (same name, different execution) are now established for both file and git skills. The pattern is generalizable to future tool designs.
+- **Smaller tool surface.** The LLM navigates fewer tool names — 4 fewer git tools (20 → 16), and 4 fewer file tool names (replaced by consolidated `files_read` / `files_write` / `files_edit` / `files_replace`).
+- **`paramCondition` routing is a proven, reusable pattern.** Multi-mode tools (same name, different execution) are established for git skills (`git_rebase`, `git_cherry_pick`). The pattern is generalizable to future tool designs. The file editing surface originally used `paramCondition` for `files_write` but was later split into `files_write` + `files_edit` — see "Evolution: Three-Tool Model" above.
 - **Schema is the contract.** The execution boundary validates against the schema, preventing silent acceptance of undeclared parameters.
 - **Overwrite guard.** Whole-file writes to existing files are blocked without explicit `overwrite: true`, closing a safety gap.
 - **Partial match and multiple match hints.** When the agent provides incomplete or conflicting parameters, the error message identifies which parameters are involved — the agent learns what to correct.
@@ -149,9 +162,19 @@ The `denyPattern` on `repo` (`^(main|release/.+)$`) was removed since branch-lev
 **Negative:**
 
 - **More parameters per tool.** Consolidated tools have more parameters than the separate tools they replaced. This is more schema surface for the LLM to understand, though the modes are clearly separated by parameter presence.
-- **`overwrite` is silently ignored in surgical edit mode.** Agents that pass `overwrite` with `start_line`/`original_content` will not get an error — the parameter is simply not routed. This is acceptable because `original_content` already provides the verification mechanism.
 - **Schema/execution alignment must be maintained.** Every schema parameter must have a corresponding execution handler. The startup warning catches the reverse drift case, but it is a build-time concern, not a runtime enforcement.
 - **`git_rebase --continue` requires `binaryWrapper`.** The non-interactive editor workaround is git-specific knowledge that must be maintained in the execution spec. If git's behavior changes (e.g., adding a native `--no-edit` flag to `rebase --continue`), the wrapper can be removed.
+
+**Updated by the Three-Tool Model:**
+
+The following negative consequences from the original two-mode `files_write` consolidation were resolved by splitting into `files_write` + `files_edit`:
+
+- ~~**`overwrite` is silently ignored in surgical edit mode.**~~ — Resolved. `files_edit` has no `overwrite` parameter; schema validation rejects it if provided. `files_write` is always whole-file, so `overwrite` always applies.
+- ~~**The `content` parameter serves double duty**~~ — Resolved. `files_write` has `content` (whole-file), `files_edit` has `old_content` / `new_content`. No naming tension.
+
+A new positive consequence of the split:
+
+- **Granular file editing tools.** `files_write` (whole-file) and `files_edit` (surgical) each have a dedicated parameter namespace with no ambiguity. The agent selects the tool by purpose, not by parameter combination.
 
 ## References
 

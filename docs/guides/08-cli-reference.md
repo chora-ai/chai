@@ -232,12 +232,12 @@ echo '...' | chai file write --path <PATH>
 chai file append --path <PATH> --content '...'
 echo '...' | chai file append --path <PATH>
 
-# Replace a range of lines (patch)
-chai file patch --path <PATH> --start-line <N> [--end-line <N>] \
-  --original-content '...' --content '...'
+# Replace specific content (edit)
+chai file edit --path <PATH> [--start-line <N>] [--end-line <N>] \
+  --old-content '...' --new-content '...'
 ```
 
-The `patch` command replaces lines `[start_line, end_line]` with new content. When `--end-line` is omitted, the replacement range is inferred from the number of lines in `--original-content`. When `--original-content` is provided (or `--original-content-file`), the tool verifies it matches the file before applying the patch — if it doesn't match, the edit is rejected. Use `--original-content-file` to read the original content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
+The `edit` command replaces lines `[start_line, end_line]` with new content. When `--start-line` is omitted, the tool searches for `--old-content` in the file and requires exactly one match. When `--end-line` is omitted, the replacement range is inferred from the number of lines in `--old-content`. When `--old-content` is provided (or `--old-content-file`), the tool verifies it matches the file before applying the edit — if it doesn't match, the edit is rejected. Use `--old-content-file` to read the old content from a file instead of passing it as a CLI flag (avoids encoding issues for multi-line content).
 
 ### Find and Replace
 
@@ -247,7 +247,7 @@ chai file replace --path <PATH> (--pattern <PATTERN> | --pattern-file <FILE>) [-
 
 Replace all occurrences of a regex pattern in a file. The pattern is matched against the full file content with multiline mode enabled (`^` and `$` match line boundaries). Supports capture groups (`$1`–`$9`) in the replacement string. Use `$$` for a literal `$`. Use an empty replacement to delete matches. Returns a diff of all changes made.
 
-**Diff line number convention** — Both `patch` and `replace` return diffs with post-edit line numbers: removed lines (`-` prefix) use original-file line numbers; added lines (`+` prefix) and context-after lines use new-file line numbers. This means context lines after an insertion show their shifted positions, not the original numbers.
+**Diff line number convention** — Both `edit` and `replace` return diffs with post-edit line numbers: removed lines (`-` prefix) use original-file line numbers; added lines (`+` prefix) and context-after lines use new-file line numbers. This means context lines after an insertion show their shifted positions, not the original numbers.
 
 Either `--pattern` or `--pattern-file` is required. When `--replacement` is omitted, the replacement is read from stdin.
 
@@ -284,7 +284,8 @@ Capture groups (`$1`–`$9`) are not supported in literal mode.
 | `--replacement <REPLACEMENT>` | Replacement string (falls back to stdin when omitted) |
 | `--line-number` | Show line numbers in the diff output (off by default) |
 | `--literal` | Treat the pattern as literal text instead of regex |
-| `--dry-run` | Preview the replacement diff without modifying the file |
+| `--dry-run` | Preview the replacement diff without modifying the file (CLI-only; not exposed as a tool parameter — agents use `--count` instead) |
+| `--count <N>` | Expected number of replacements; the command rejects if the actual count differs. When omitted and the match count exceeds 5, the command auto-previews without writing. Safety mechanism for agents. |
 
 If zero matches are found, exits 0 with a "0 replacements" message.
 

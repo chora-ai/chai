@@ -104,9 +104,6 @@
     "tool": "notes_write",
     "binary": "chai",
     "subcommand": "file write",
-    "paramCondition": {
-      "absent": ["start_line", "original_content"]
-    },
     "args": [
       {
         "param": "path",
@@ -134,12 +131,9 @@
     ]
   },
   {
-    "tool": "notes_write",
+    "tool": "notes_edit",
     "binary": "chai",
-    "subcommand": "file patch",
-    "paramCondition": {
-      "present": ["start_line", "original_content"]
-    },
+    "subcommand": "file edit",
     "args": [
       {
         "param": "path",
@@ -150,15 +144,16 @@
       {
         "param": "start_line",
         "kind": "flag",
-        "flag": "start-line"
+        "flag": "start-line",
+        "optional": true
       },
       {
-        "param": "original_content",
+        "param": "old_content",
         "kind": "tempfile",
-        "flag": "original-content-file"
+        "flag": "old-content-file"
       },
       {
-        "param": "content",
+        "param": "new_content",
         "kind": "stdin"
       }
     ],
@@ -190,9 +185,10 @@
         "flagIfTrue": "--literal"
       },
       {
-        "param": "dry_run",
-        "kind": "flagifboolean",
-        "flagIfTrue": "--dry-run"
+        "param": "count",
+        "kind": "flag",
+        "flag": "count",
+        "optional": true
       }
     ],
     "maxOutputLines": 200

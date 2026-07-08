@@ -1158,28 +1158,30 @@ mod tests {
 
     #[test]
     fn resolve_entry_includes_partial_match_hint_when_start_line_without_original_content() {
-        // Simulate files_write: two entries with paramCondition
+        // Generic paramCondition test: two entries where present params
+        // must be provided together. files_write no longer uses
+        // paramCondition, so we use a hypothetical test_tool.
         let entries = vec![
             make_entry(
-                "files_write",
-                "file write",
+                "test_tool",
+                "mode_a",
                 Some(crate::skills::ParamConditionSpec {
                     present: vec![],
-                    absent: vec!["start_line".to_string(), "original_content".to_string()],
+                    absent: vec!["param_a".to_string(), "param_b".to_string()],
                 }),
             ),
             make_entry(
-                "files_write",
-                "file patch",
+                "test_tool",
+                "mode_b",
                 Some(crate::skills::ParamConditionSpec {
-                    present: vec!["start_line".to_string(), "original_content".to_string()],
+                    present: vec!["param_a".to_string(), "param_b".to_string()],
                     absent: vec![],
                 }),
             ),
         ];
         let executor = GenericToolExecutor {
             map: vec![(
-                "files_write".to_string(),
+                "test_tool".to_string(),
                 (entries, None),
             )]
             .into_iter()
@@ -1187,36 +1189,37 @@ mod tests {
             sandbox: None,
             side_read_seen: Arc::new(Mutex::new(HashMap::new())),
         };
-        // start_line provided but original_content missing
-        let args = serde_json::json!({ "path": "foo.txt", "content": "hello", "start_line": 5 });
-        let result = executor.resolve_entry("files_write", &args);
+        // param_a provided but param_b missing
+        let args = serde_json::json!({ "path": "foo.txt", "param_a": 5 });
+        let result = executor.resolve_entry("test_tool", &args);
         let err = result.unwrap_err();
-        assert!(err.contains("parameter(s) 'original_content' must be provided together with 'start_line'"), "unexpected error: {}", err);
+        assert!(err.contains("parameter(s) 'param_b' must be provided together with 'param_a'"), "unexpected error: {}", err);
     }
 
     #[test]
     fn resolve_entry_includes_partial_match_hint_when_original_content_without_start_line() {
+        // Generic paramCondition test: param_b provided but param_a missing.
         let entries = vec![
             make_entry(
-                "files_write",
-                "file write",
+                "test_tool",
+                "mode_a",
                 Some(crate::skills::ParamConditionSpec {
                     present: vec![],
-                    absent: vec!["start_line".to_string(), "original_content".to_string()],
+                    absent: vec!["param_a".to_string(), "param_b".to_string()],
                 }),
             ),
             make_entry(
-                "files_write",
-                "file patch",
+                "test_tool",
+                "mode_b",
                 Some(crate::skills::ParamConditionSpec {
-                    present: vec!["start_line".to_string(), "original_content".to_string()],
+                    present: vec!["param_a".to_string(), "param_b".to_string()],
                     absent: vec![],
                 }),
             ),
         ];
         let executor = GenericToolExecutor {
             map: vec![(
-                "files_write".to_string(),
+                "test_tool".to_string(),
                 (entries, None),
             )]
             .into_iter()
@@ -1224,11 +1227,11 @@ mod tests {
             sandbox: None,
             side_read_seen: Arc::new(Mutex::new(HashMap::new())),
         };
-        // original_content provided but start_line missing
-        let args = serde_json::json!({ "path": "foo.txt", "content": "hello", "original_content": "old" });
-        let result = executor.resolve_entry("files_write", &args);
+        // param_b provided but param_a missing
+        let args = serde_json::json!({ "path": "foo.txt", "param_b": "old" });
+        let result = executor.resolve_entry("test_tool", &args);
         let err = result.unwrap_err();
-        assert!(err.contains("parameter(s) 'start_line' must be provided together with 'original_content'"), "unexpected error: {}", err);
+        assert!(err.contains("parameter(s) 'param_a' must be provided together with 'param_b'"), "unexpected error: {}", err);
     }
 
     #[test]
