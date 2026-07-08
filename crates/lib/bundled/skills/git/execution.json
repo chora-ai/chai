@@ -399,6 +399,9 @@
       }
     ],
     "successExitCodes": [1],
+    "postProcess": {
+      "script": "filter-git-hints"
+    },
     "hintConditions": [
       {
         "match": "not fully merged",

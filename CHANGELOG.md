@@ -79,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 #### Skills
 
 - Truncation `{next_start}` derives from line-number prefix — when output lines use the `{number}\t{content}` format (e.g., `files_read` with `start_line`), `{next_start}` is now the last kept line number + 1 instead of `kept + 1`, fixing incorrect pagination hints that caused infinite re-read loops when reading from a line offset
+- `git_branch_delete` output no longer includes git's own hint lines — git emits unhelpful hints like "run 'git branch -D ...'" and "Disable this message with git config" that reference commands the agent cannot run; a `postProcess` script (`filter-git-hints.sh`) now strips all `hint:` lines from git's output before the declarative `hintConditions` hint is appended, leaving only the error message and the agent-relevant hint
 
 ### Breaking Changes
 
