@@ -346,6 +346,7 @@ This is a lazy-load pattern: sessions are listed with metadata only, and full hi
 ### Channel-Bound Session Read-Only Guard
 
 Clicking a channel-bound session sets `selected_session_id` (for viewing) but not `chat_session_id` (for sending). The `can_send_base` guard checks `chat_session_id.is_some()`, disabling the chat input for channel-bound sessions. This prevents the desktop from sending a message that would cause the gateway's `get_or_create` to create a new empty session, overwriting the channel session's history on disk.
+
 ### Session Event Processing
 
 | Event | Desktop Behavior |

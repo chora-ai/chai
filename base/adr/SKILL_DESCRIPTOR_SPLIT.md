@@ -51,7 +51,7 @@ Split `tools.json` into three files with distinct responsibilities:
       "properties": {
         "path": {
           "type": "string",
-          "description": "File path relative to the sandbox root (use ./ prefix)"
+          "description": "File path relative to the sandbox root"
         }
       }
     }
@@ -93,7 +93,7 @@ The root is the same `binary → subcommands` map. A standalone security documen
     "hintConditions": [
       {
         "exitCode": "nonzero",
-        "hint": "file not found — use files_list to browse available files"
+        "hint": "file not found — use files_list to list available files"
       }
     ],
     "maxOutputLines": 500,

@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+#### CLI
+
+- `chai file write` `--overwrite` flag added — rejects writes to existing files without the flag; new-file writes succeed regardless
+- `chai file replace` `--count` flag added — expected number of replacements; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
+
 #### Desktop
 
 - Per-profile gateway state — each profile has its own `GatewayState` (sessions, chat, status, process handle) stored in a `HashMap<String, GatewayState>` on `ChaiApp`, enabling multiple simultaneous gateways and seamless profile switching with preserved state
-- `running_profiles` discovery — the desktop scans all per-profile lock files via `find_running_gateway_profiles()` to discover which profiles have running gateways (replaces the old single `gateway_lock_profile`)
-- Pre-flight port conflict check in `start_gateway()` — before spawning the gateway child process, the desktop attempts a `TcpListener::bind` on the configured port and produces a clear error identifying which running profile holds the port
-- Gateway error suppression of profile-mismatch hint — when a `gateway_error` is set, the amber profile-mismatch hint is suppressed to avoid stacking redundant messages
-- Gateway error clearing on profile switch — `gateway_error` is specific to the profile that was active when the start was attempted and is cleared on profile switch
 - Remote profile support — connect the desktop to a remote gateway via WebSocket instead of spawning a local gateway process. Remote entries in `desktop.json` define the profile id, WebSocket URL, and gateway auth token. Remote profiles appear in the profile ComboBox alongside local profiles and show Connect/Disconnect buttons instead of Start/Stop. Device identity is stored under the remote profile directory. Both `ws://` and `wss://` (TLS) URLs are supported with full path support for reverse proxy deployments.
 - `remote` array in `desktop.json` — each entry has `id` (profile name), `url` (WebSocket URL with `ws://` or `wss://`), and `token` (gateway auth token). Invalid entries are rejected at load time with warnings; entries colliding with existing local profile directories are skipped (disk wins).
 - Remote profile directories created automatically at startup and on config reload — ensures remote profiles appear in the ComboBox before the user has connected.
@@ -28,13 +29,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - WebSocket origin validation — `gateway.allowedOrigins` field in `config.json` validates the `Origin` header on WebSocket upgrades for non-loopback bindings; defaults to empty (reject all browser origins); the desktop app is unaffected (no `Origin` header)
 - Connection limit — `gateway.maxConnections` field in `config.json` caps simultaneously authenticated WebSocket connections; defaults to 1 on non-loopback (secure-by-default single-client) and unlimited on loopback; `0` is an explicit opt-out; when the limit is exceeded, the oldest connection is kicked with a descriptive close frame
-- `maxConnections` in gateway status payload — the `status` WebSocket response now includes `gateway.maxConnections` (effective limit, `null` for unlimited)
+- `maxConnections` in gateway status payload — the `status` WebSocket response now includes `gateway.maxConnections` (effective limit, default `1`, `null` for unlimited)
 
 #### Skills
 
 - `ref` parameter on `git_log` — view commit history for a specific branch, tag, or ref range (e.g., `main`, `HEAD~5..HEAD`); works in both `git` and `git-read` skill variants
 - `continue` and `abort` boolean parameters on `git_rebase` — continue or abort an in-progress rebase after conflict resolution (replaces separate `git_rebase_continue` and `git_rebase_abort` tools)
 - `continue` and `abort` boolean parameters on `git_cherry_pick` — continue or abort an in-progress cherry-pick after conflict resolution (replaces separate `git_cherry_pick_continue` and `git_cherry_pick_abort` tools)
+- `count` parameter on `files_replace` and `notes_replace` — expected replacement count; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
 
 ### Changed
 
@@ -42,37 +44,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `chai profile switch` always succeeds — no longer checks `gateway_is_running()` before switching (switching only updates the `~/.chai/active` symlink)
 - `chai profile current` no longer displays `CHAI_PROFILE` (the environment variable has been removed)
+- `chai file patch` renamed to `file edit` — flags `--expected-content` to `--old-content`, `--expected-content-file` to `--old-content-file`, `--content` to `--new-content`
 
 #### Desktop
 
 - Profile ComboBox is always enabled — profile switching is always allowed regardless of whether any gateway is running (previously disabled while a gateway was running)
-- All WebSocket operations use the active profile directly — removed `cached_gateway_profile`, `gateway_profile()`, `refresh_cached_gateway_profile()`, and the entire override system (`env_profile`, `cached_profile_override`, `effective_profile_override()`, `gw_key()`)
-- `start_gateway()` always passes `--profile` to the child process
-- Session id resolution reads `"id"` instead of `"sessionId"` from `sessions.list` responses (matching the gateway's response format)
 
 #### Runtime and Configuration
 
 - Per-profile gateway locks — lock files moved from `~/.chai/gateway.lock` (shared across all profiles) to `~/.chai/profiles/<name>/gateway.lock` (one per profile), allowing multiple gateways to run simultaneously on different profiles
 - Lock acquisition moved to the beginning of `run_gateway()` — same-profile conflicts now produce immediate errors instead of being buried after startup logs
-- `CHAI_PROFILE` environment variable removed — profile resolution is now 2-tier: CLI `--profile` (per-command) → `~/.chai/active` (persistent default)
-- `read_gateway_lock_profile()` removed as dead code — with per-profile locks, the profile is implicit from the lock file's path
 
 #### Skills
 
 - `files_read` + `files_read_lines` consolidated into `files_read` with optional `start_line` and `end_line` parameters — the agent uses a single tool for both full-file and line-range reads (applied to `files`, `files-read`, `notes`, `notes-read` skill variants)
-- `files_write` and `notes_write` simplified to whole-file create/overwrite only — the consolidated surgical edit mode (intermediate `start_line` + `original_content` parameters) is removed; surgical edits now use the dedicated `files_edit` / `notes_edit` tools below
+- `files_write` and `notes_write` simplified to whole-file create/overwrite only — the consolidated surgical edit mode (intermediate `start_line` + `original_content` parameters) is removed; surgical edits now use the dedicated `files_edit` / `notes_edit` tools
 - New `files_edit` and `notes_edit` tools — surgical in-place editing with `old_content` / `new_content` parameters and optional `start_line`; when `start_line` is omitted, the tool searches for `old_content` and requires exactly one match
-- `files_replace` and `notes_replace` `dry_run` parameter removed — replaced by automatic safety enforcement via `count` parameter and auto-dry-run threshold
-- `files_replace` and `notes_replace` `count` parameter added — expected replacement count; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
-- CLI subcommand `file patch` renamed to `file edit` — flags `--expected-content` to `--old-content`, `--expected-content-file` to `--old-content-file`, `--content` to `--new-content`
-- CLI `file replace` `--count` flag added — expected number of replacements; the tool rejects if the actual count differs; when omitted and the match count exceeds 5, the tool auto-previews without writing
 - `overwrite` parameter on `files_write` and `notes_write` — whole-file writes to existing files are rejected without `overwrite: true`; new-file writes succeed regardless; hint conditions inform the agent when a new file was created with `overwrite: true` set
 - `paramCondition` field on execution specs — parameter-based routing between multiple execution specs with the same tool name; supports `present` (parameter must be provided) and `absent` (parameter must be omitted) constraints with AND logic; partial-match hints when paired parameters are incomplete (e.g., `continue` without `abort`)
 - Schema-enforced validation — the executor validates tool call parameters against the tool schema before execution; undeclared parameters and type mismatches are rejected; startup alignment check warns when schema parameters lack execution handlers
-- `--overwrite` flag on `chai file write` — rejects writes to existing files without the flag; new-file writes succeed regardless
 - `git_rebase` and `git_cherry_pick` consolidated — `continue`/`abort` operations are now boolean parameters on the parent tool instead of separate tool names; routing uses `paramCondition`; both `continue` and `abort` provided simultaneously is rejected as ambiguous
 - `git_reset` changed to unstage-only — `ref` parameter removed; new required `paths` parameter (with `split: true`) mirrors `git_add` for targeted unstaging (e.g., `paths: "."` to unstage all, `paths: "file.rs"` to unstage a specific file); the tool can no longer move the branch pointer or lose commits
 - `git_add` `paths` description clarified — documents space-separated multi-file support and `"."` for staging all
+
+### Removed
+
+#### Runtime and Configuration
+
+- `CHAI_PROFILE` environment variable removed — profile resolution is 2-tier: CLI `--profile` (per-command) → `~/.chai/active` (persistent default)
+- `read_gateway_lock_profile()` removed as dead code — with per-profile locks, the profile is implicit from the lock file's path
+
+#### Skills
+
+- `files_replace` and `notes_replace` `dry_run` parameter removed — replaced by automatic safety enforcement via `count` parameter and auto-dry-run threshold
 
 ### Fixed
 
@@ -86,22 +90,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `CHAI_PROFILE` environment variable removed — existing setups using `CHAI_PROFILE` must switch to `--profile` (per-command) or `~/.chai/active` (persistent default)
 - `~/.chai/gateway.lock` moved to `~/.chai/profiles/<name>/gateway.lock` — scripts or tooling checking the old lock path must be updated
-- Tool removals — existing tool calls using removed tool names will fail:
-  - `files_read_lines` → use `files_read` with `start_line` and `end_line` parameters
-  - `files_write_lines` → use `files_edit` with `old_content` / `new_content` for surgical edits (whole-file writes remain on `files_write`)
-  - `notes_read_lines` → use `notes_read` with `start_line` and `end_line` parameters
-  - `notes_write_lines` → use `notes_edit` with `old_content` / `new_content` for surgical edits (whole-file writes remain on `notes_write`)
-- Tool behavior changes — existing tool calls may produce different results:
-  - `files_write` and `notes_write` now reject overwrites of existing files without `overwrite: true`; previously, whole-file writes silently overwrote existing files
-  - `git_reset` no longer accepts a `ref` parameter and cannot move the branch pointer; existing calls using `ref` must switch to the `paths` parameter for unstaging (e.g., `git_reset({paths: "."})` to unstage all)
-- Tool removals — existing tool calls using removed tool names will fail:
-  - `git_rebase_continue` → use `git_rebase` with `continue: true`
-  - `git_rebase_abort` → use `git_rebase` with `abort: true`
-  - `git_cherry_pick_continue` → use `git_cherry_pick` with `continue: true`
-  - `git_cherry_pick_abort` → use `git_cherry_pick` with `abort: true`
-- Tool parameter removals — existing tool calls using removed parameters will fail:
-  - `files_replace` and `notes_replace`: `dry_run` parameter removed; use `count` to verify expected replacements
-- New tool names — `files_edit` and `notes_edit` are new tools for surgical edits; agents previously had no dedicated surgical edit tool
 - CLI subcommand rename: `chai file patch` → `chai file edit`
 - CLI flag renames (on the renamed `file edit` subcommand): `--expected-content` → `--old-content`, `--expected-content-file` → `--old-content-file`, `--content` → `--new-content` — scripts using old flag names will fail
 
